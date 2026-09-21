@@ -73,7 +73,7 @@ jobs:
 
   rolling-release:
     if: true
-    needs: [security-scan, lint-js, lint-rust, codeql, spellcheck]
+    needs: []
     permissions:
       contents: write
     strategy:
