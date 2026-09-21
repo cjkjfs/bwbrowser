@@ -306,6 +306,7 @@ export const commandCoverage = {
       "bwbrowser_logout",
       "bwbrowser_refresh_profile",
       "bwbrowser_list_accounts",
+      "bwbrowser_list_companies",
       "bwbrowser_list_proxies",
       "bwbrowser_sync_proxy",
       "bwbrowser_delete_proxy",

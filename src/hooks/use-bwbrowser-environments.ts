@@ -44,7 +44,9 @@ export interface CreateEnvData {
  * Bwbrowser 云端环境 Hook
  * 云优先模式：所有环境数据来自云端
  */
-export function useBwbrowserEnvironments(): UseBwbrowserEnvironmentsReturn {
+export function useBwbrowserEnvironments(
+  companyId?: number | null,
+): UseBwbrowserEnvironmentsReturn {
   const { isLoggedIn } = useBwbrowserAuth();
   const [environments, setEnvironments] = useState<BwbrowserEnvironment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -60,6 +62,7 @@ export function useBwbrowserEnvironments(): UseBwbrowserEnvironmentsReturn {
     try {
       const result = await invoke<BwbrowserEnvironment[]>(
         "bwbrowser_list_envs",
+        { companyId: companyId ?? null },
       );
       setEnvironments(result || []);
     } catch (err) {
@@ -68,7 +71,7 @@ export function useBwbrowserEnvironments(): UseBwbrowserEnvironmentsReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, companyId]);
 
   // 登录状态变化时自动加载
   useEffect(() => {

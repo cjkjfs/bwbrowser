@@ -45,7 +45,9 @@ export interface CreateProxyData {
  * Bwbrowser 云端代理 Hook
  * 云优先模式：所有代理数据来自云端，本地只做缓存
  */
-export function useBwbrowserProxies(): UseBwbrowserProxiesReturn {
+export function useBwbrowserProxies(
+  companyId?: number | null,
+): UseBwbrowserProxiesReturn {
   const { isLoggedIn } = useBwbrowserAuth();
   const [proxies, setProxies] = useState<BwbrowserProxy[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -59,13 +61,17 @@ export function useBwbrowserProxies(): UseBwbrowserProxiesReturn {
     setIsLoading(true);
     setError(null);
     try {
-      // 先同步云端代理到本地缓存
-      try {
-        await invoke("bwbrowser_sync_proxies_to_local");
-      } catch (e) {
-        console.warn("同步云端代理到本地失败:", e);
+      // 先同步云端代理到本地缓存（切换公司时跳过同步）
+      if (companyId == null) {
+        try {
+          await invoke("bwbrowser_sync_proxies_to_local");
+        } catch (e) {
+          console.warn("同步云端代理到本地失败:", e);
+        }
       }
-      const result = await invoke<BwbrowserProxy[]>("bwbrowser_list_proxies");
+      const result = await invoke<BwbrowserProxy[]>("bwbrowser_list_proxies", {
+        companyId: companyId ?? null,
+      });
       setProxies(result || []);
     } catch (err) {
       console.error("Failed to load bwbrowser proxies:", err);
@@ -73,7 +79,7 @@ export function useBwbrowserProxies(): UseBwbrowserProxiesReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, companyId]);
 
   // 登录状态变化时自动加载
   useEffect(() => {

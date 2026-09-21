@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use chrono::Utc;
 use lazy_static::lazy_static;
 use reqwest::Client;
