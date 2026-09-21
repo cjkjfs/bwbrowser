@@ -198,10 +198,17 @@ jobs:
 
       - name: Import Apple certificate
         if: matrix.platform == 'macos-latest'
+        id: import-cert
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_KEY: ${{ secrets.APPLE_CERTIFICATE_KEY }}
         run: |
+          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_CERTIFICATE_KEY" ]; then
+            echo "Apple certificate not configured, skipping code signing."
+            echo "has_cert=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           CERT_PATH=$RUNNER_TEMP/cert.cer
           KEY_PATH=$RUNNER_TEMP/cert.key
           PEM_PATH=$RUNNER_TEMP/cert.pem
@@ -227,6 +234,8 @@ jobs:
           echo "Available signing identities:"
           security find-identity -v -p codesigning $KEYCHAIN_PATH
 
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
+          echo "has_cert=true" >> $GITHUB_OUTPUT
           rm -f $CERT_PATH $KEY_PATH $PEM_PATH $P12_PATH
 
       - name: Build Tauri app
@@ -290,9 +299,9 @@ jobs:
           gh release upload "$NIGHTLY_TAG" "Bwbrowser_x64-portable.zip" --clobber
 
       - name: Clean up Apple certificate
-        if: matrix.platform == 'macos-latest' && always()
+        if: matrix.platform == 'macos-latest' && always() && steps.import-cert.outputs.has_cert == 'true'
         run: |
-          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+          security delete-keychain $KEYCHAIN_PATH || true
           rm -f $RUNNER_TEMP/build_certificate.p12 || true
 
   update-nightly-release:

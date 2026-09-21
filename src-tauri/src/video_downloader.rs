@@ -770,7 +770,7 @@ impl VideoDownloader {
 
     let yt_dlp = yt_dlp.unwrap_or_else(|| {
       let dir = tools_dir();
-      let local = dir.join("yt-dlp.exe");
+      let local = dir.join(yt_dlp_filename());
       if local.exists() {
         local
       } else {
@@ -1097,7 +1097,7 @@ async fn run_single_download<R: Runtime>(
   }
 
   // ffmpeg 路径
-  let ffmpeg_path = tools_dir().join("ffmpeg.exe");
+  let ffmpeg_path = tools_dir().join(ffmpeg_filename());
   if ffmpeg_path.exists() {
     args.push("--ffmpeg-location".to_string());
     args.push(ffmpeg_path.to_string_lossy().to_string());
@@ -2947,19 +2947,75 @@ fn tools_dir() -> PathBuf {
   app_dir.join("video-tools")
 }
 
+/// yt-dlp 二进制文件名（按平台）
+fn yt_dlp_filename() -> &'static str {
+  #[cfg(target_os = "windows")]
+  {
+    "yt-dlp.exe"
+  }
+  #[cfg(target_os = "macos")]
+  {
+    "yt-dlp_macos"
+  }
+  #[cfg(target_os = "linux")]
+  {
+    "yt-dlp_linux"
+  }
+}
+
+/// yt-dlp GitHub 下载 URL（按平台）
+fn yt_dlp_download_url() -> &'static str {
+  #[cfg(target_os = "windows")]
+  {
+    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+  }
+  #[cfg(target_os = "macos")]
+  {
+    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
+  }
+  #[cfg(target_os = "linux")]
+  {
+    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux"
+  }
+}
+
+/// ffmpeg 二进制文件名（按平台）
+fn ffmpeg_filename() -> &'static str {
+  #[cfg(target_os = "windows")]
+  {
+    "ffmpeg.exe"
+  }
+  #[cfg(not(target_os = "windows"))]
+  {
+    "ffmpeg"
+  }
+}
+
+/// ffprobe 二进制文件名（按平台）
+fn ffprobe_filename() -> &'static str {
+  #[cfg(target_os = "windows")]
+  {
+    "ffprobe.exe"
+  }
+  #[cfg(not(target_os = "windows"))]
+  {
+    "ffprobe"
+  }
+}
+
 /// 轻量检查：yt-dlp 文件是否存在（不启动进程，纯文件判断）
 fn yt_dlp_exists() -> bool {
   let dir = tools_dir();
-  dir.join("yt-dlp.exe").exists()
+  dir.join(yt_dlp_filename()).exists()
 }
 
 /// 轻量检查：三个工具文件是否都存在（不启动进程，纯文件判断，不阻塞）
 #[tauri::command]
 pub async fn video_download_tools_exist() -> bool {
   let dir = tools_dir();
-  dir.join("yt-dlp.exe").exists()
-    && dir.join("ffmpeg.exe").exists()
-    && dir.join("ffprobe.exe").exists()
+  dir.join(yt_dlp_filename()).exists()
+    && dir.join(ffmpeg_filename()).exists()
+    && dir.join(ffprobe_filename()).exists()
 }
 
 /// 检查工具是否存在（纯文件判断，不检查系统 PATH）
@@ -2973,9 +3029,9 @@ pub async fn check_tools() -> ToolStatus {
       dir.display()
     );
 
-    let yt_dlp_path = dir.join("yt-dlp.exe");
-    let ffmpeg_path = dir.join("ffmpeg.exe");
-    let ffprobe_path = dir.join("ffprobe.exe");
+    let yt_dlp_path = dir.join(yt_dlp_filename());
+    let ffmpeg_path = dir.join(ffmpeg_filename());
+    let ffprobe_path = dir.join(ffprobe_filename());
 
     let yt_dlp = yt_dlp_path.exists();
     let ffmpeg = ffmpeg_path.exists();
@@ -3134,16 +3190,43 @@ async fn download_yt_dlp_inner<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<
   let dir = tools_dir();
   std::fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败: {}", e))?;
 
-  let target = dir.join("yt-dlp.exe");
-  let url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+  let target = dir.join(yt_dlp_filename());
+  let url = yt_dlp_download_url();
 
   log::info!("[video_download] 下载 yt-dlp...");
   download_file_with_progress(url, &target, app, "yt-dlp").await?;
+
+  // macOS/Linux 上需要加执行权限
+  #[cfg(not(target_os = "windows"))]
+  {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = std::fs::metadata(&target) {
+      let mut perms = meta.permissions();
+      perms.set_mode(perms.mode() | 0o755);
+      let _ = std::fs::set_permissions(&target, perms);
+    }
+  }
 
   get_downloader().set_yt_dlp_path(target).await;
 
   log::info!("[video_download] yt-dlp 下载完成");
   Ok(())
+}
+
+/// ffmpeg 下载 URL（按平台）
+fn ffmpeg_download_url() -> &'static str {
+  #[cfg(target_os = "windows")]
+  {
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+  }
+  #[cfg(target_os = "macos")]
+  {
+    "https://evermeet.cx/ffmpeg/getrelease/zip"
+  }
+  #[cfg(target_os = "linux")]
+  {
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+  }
 }
 
 /// 下载 ffmpeg + ffprobe
@@ -3163,37 +3246,65 @@ async fn download_ffmpeg_inner<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<
   let dir = tools_dir();
   std::fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败: {}", e))?;
 
-  let zip_path = dir.join("ffmpeg.zip");
-  let url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
+  let url = ffmpeg_download_url();
+
+  // 按平台选择归档文件名和解压方式
+  #[cfg(target_os = "linux")]
+  let archive_path = dir.join("ffmpeg.tar.xz");
+  #[cfg(not(target_os = "linux"))]
+  let archive_path = dir.join("ffmpeg.zip");
 
   log::info!("[video_download] 下载 ffmpeg...");
-  download_file_with_progress(url, &zip_path, app, "ffmpeg").await?;
+  download_file_with_progress(url, &archive_path, app, "ffmpeg").await?;
 
   // 解压
   log::info!("[video_download] 解压 ffmpeg...");
   let extractor = crate::extraction::Extractor;
-  extractor
-    .extract_zip(&zip_path, &dir, None)
-    .await
-    .map_err(|e| format!("解压失败: {}", e))?;
+  #[cfg(target_os = "linux")]
+  {
+    extractor
+      .extract_tar_xz(&archive_path, &dir, None)
+      .await
+      .map_err(|e| format!("解压失败: {}", e))?;
+  }
+  #[cfg(not(target_os = "linux"))]
+  {
+    extractor
+      .extract_zip(&archive_path, &dir, None)
+      .await
+      .map_err(|e| format!("解压失败: {}", e))?;
+  }
 
-  // 找到解压出来的 ffmpeg.exe 和 ffprobe.exe
+  // 找到解压出来的 ffmpeg 和 ffprobe
   // 解压后结构可能是:
-  //   1. video-tools/bin/ffmpeg.exe     (flatten 后，单层目录被拍平)
-  //   2. video-tools/xxx/bin/ffmpeg.exe (没被拍平，保留原始子目录)
+  //   1. video-tools/ffmpeg (macOS evermeet.cx: 根目录直接是二进制)
+  //   2. video-tools/bin/ffmpeg (flatten 后，单层目录被拍平)
+  //   3. video-tools/xxx/bin/ffmpeg (没被拍平，保留原始子目录)
   let mut found_ffmpeg = None;
   let mut found_ffprobe = None;
 
-  // 先检查直接的 bin 目录（flatten 后的情况）
-  let direct_bin = dir.join("bin");
-  if direct_bin.exists() {
-    let ffmpeg = direct_bin.join("ffmpeg.exe");
-    let ffprobe = direct_bin.join("ffprobe.exe");
-    if ffmpeg.exists() {
-      found_ffmpeg = Some(ffmpeg);
-    }
-    if ffprobe.exists() {
-      found_ffprobe = Some(ffprobe);
+  // 先检查根目录（macOS evermeet.cx 的 zip 解压后直接在根目录）
+  let root_ffmpeg = dir.join(ffmpeg_filename());
+  let root_ffprobe = dir.join(ffprobe_filename());
+  if root_ffmpeg.exists() {
+    found_ffmpeg = Some(root_ffmpeg);
+  }
+  if root_ffprobe.exists() {
+    found_ffprobe = Some(root_ffprobe);
+  }
+
+  // 再检查直接的 bin 目录（flatten 后的情况）
+  if found_ffmpeg.is_none() || found_ffprobe.is_none() {
+    let direct_bin = dir.join("bin");
+    if direct_bin.exists() {
+      let ffmpeg = direct_bin.join(ffmpeg_filename());
+      let ffprobe = direct_bin.join(ffprobe_filename());
+      if found_ffmpeg.is_none() && ffmpeg.exists() {
+        found_ffmpeg = Some(ffmpeg);
+      }
+      if found_ffprobe.is_none() && ffprobe.exists() {
+        found_ffprobe = Some(ffprobe);
+      }
     }
   }
 
@@ -3205,8 +3316,8 @@ async fn download_ffmpeg_inner<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<
         if path.is_dir() && path.file_name().and_then(|n| n.to_str()) != Some("bin") {
           let bin_dir = path.join("bin");
           if bin_dir.exists() {
-            let ffmpeg = bin_dir.join("ffmpeg.exe");
-            let ffprobe = bin_dir.join("ffprobe.exe");
+            let ffmpeg = bin_dir.join(ffmpeg_filename());
+            let ffprobe = bin_dir.join(ffprobe_filename());
             if found_ffmpeg.is_none() && ffmpeg.exists() {
               found_ffmpeg = Some(ffmpeg);
             }
@@ -3221,12 +3332,31 @@ async fn download_ffmpeg_inner<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<
 
   // 复制到工具目录根
   if let Some(src) = found_ffmpeg {
-    let dst = dir.join("ffmpeg.exe");
+    let dst = dir.join(ffmpeg_filename());
     let _ = std::fs::copy(&src, &dst);
+    // macOS/Linux 上需要加执行权限
+    #[cfg(not(target_os = "windows"))]
+    {
+      use std::os::unix::fs::PermissionsExt;
+      if let Ok(meta) = std::fs::metadata(&dst) {
+        let mut perms = meta.permissions();
+        perms.set_mode(perms.mode() | 0o755);
+        let _ = std::fs::set_permissions(&dst, perms);
+      }
+    }
   }
   if let Some(src) = found_ffprobe {
-    let dst = dir.join("ffprobe.exe");
+    let dst = dir.join(ffprobe_filename());
     let _ = std::fs::copy(&src, &dst);
+    #[cfg(not(target_os = "windows"))]
+    {
+      use std::os::unix::fs::PermissionsExt;
+      if let Ok(meta) = std::fs::metadata(&dst) {
+        let mut perms = meta.permissions();
+        perms.set_mode(perms.mode() | 0o755);
+        let _ = std::fs::set_permissions(&dst, perms);
+      }
+    }
     // 单独发 ffprobe 的完成进度，让前端显示独立提示框
     let _ = app.emit(
       "video-download:tool-download-progress",
@@ -3239,8 +3369,8 @@ async fn download_ffmpeg_inner<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<
     );
   }
 
-  // 清理 zip
-  let _ = std::fs::remove_file(&zip_path);
+  // 清理归档
+  let _ = std::fs::remove_file(&archive_path);
 
   log::info!("[video_download] ffmpeg 下载完成");
   Ok(())
@@ -3321,7 +3451,7 @@ pub async fn video_download_update_tool<R: Runtime>(
   let dir = tools_dir();
   std::fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败: {}", e))?;
 
-  let yt_dlp_path = dir.join("yt-dlp.exe");
+  let yt_dlp_path = dir.join(yt_dlp_filename());
 
   // 如果文件存在，先尝试 yt-dlp -U 自更新
   if yt_dlp_path.exists() {
@@ -3395,8 +3525,19 @@ pub async fn video_download_update_tool<R: Runtime>(
     serde_json::json!({ "status": "downloading", "message": "正在从 GitHub 下载 yt-dlp..." }),
   );
 
-  let url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+  let url = yt_dlp_download_url();
   download_file_with_progress(url, &yt_dlp_path, &app, "yt-dlp").await?;
+
+  // macOS/Linux 上需要加执行权限
+  #[cfg(not(target_os = "windows"))]
+  {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = std::fs::metadata(&yt_dlp_path) {
+      let mut perms = meta.permissions();
+      perms.set_mode(perms.mode() | 0o755);
+      let _ = std::fs::set_permissions(&yt_dlp_path, perms);
+    }
+  }
 
   get_downloader().set_yt_dlp_path(yt_dlp_path).await;
 
@@ -3408,8 +3549,8 @@ pub async fn video_download_update_tool<R: Runtime>(
   log::info!("[video_download] yt-dlp 下载完成");
 
   // 检查 ffmpeg 和 ffprobe 是否存在，不存在则下载
-  let ffmpeg_path = dir.join("ffmpeg.exe");
-  let ffprobe_path = dir.join("ffprobe.exe");
+  let ffmpeg_path = dir.join(ffmpeg_filename());
+  let ffprobe_path = dir.join(ffprobe_filename());
 
   if !ffmpeg_path.exists() || !ffprobe_path.exists() {
     log::info!("[video_download] 检测到 ffmpeg/ffprobe 缺失，开始下载...");
