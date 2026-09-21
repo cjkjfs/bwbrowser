@@ -124,6 +124,8 @@ pub struct AppUpdateInfo {
   /// cross-checked in addition to SHA256SUMS.txt when present.
   #[serde(default)]
   pub asset_digest: Option<String>,
+  #[serde(default)]
+  pub file_name: Option<String>,
 }
 
 pub struct AppAutoUpdater {
@@ -293,6 +295,10 @@ impl AppAutoUpdater {
         .get("file_hash")
         .and_then(|v| v.as_str())
         .map(|h| format!("sha256:{h}")),
+      file_name: update
+        .get("file_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string()),
     };
 
     if force_update {
@@ -306,7 +312,7 @@ impl AppAutoUpdater {
   async fn fetch_app_releases(
     &self,
   ) -> Result<Vec<AppRelease>, Box<dyn std::error::Error + Send + Sync>> {
-    let url = "https://api.github.com/repos/zhom/bwbrowser/releases?per_page=100";
+    let url = "https://api.github.com/repos/cjkjfs/bwbrowser/releases?per_page=100";
     let response = self
       .client
       .get(url)
@@ -907,11 +913,17 @@ impl AppAutoUpdater {
     fs::create_dir_all(&temp_dir)?;
 
     let filename = update_info
-      .download_url
-      .split('/')
-      .next_back()
-      .unwrap_or("update.dmg")
-      .to_string();
+      .file_name
+      .clone()
+      .filter(|n| !n.is_empty())
+      .unwrap_or_else(|| {
+        update_info
+          .download_url
+          .split('/')
+          .next_back()
+          .unwrap_or("update.dmg")
+          .to_string()
+      });
 
     // Resolve the expected checksum first so an unverifiable release is
     // rejected before the multi-hundred-MB download, not after.
