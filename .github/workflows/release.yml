@@ -50,7 +50,7 @@ jobs:
         shell: bash
         working-directory: ./src-tauri
         run: |
-          cargo build --bin bwbrowser-proxy --target x86_64-pc-windows-msvc --release
+          cargo build --bin bwbrowser-proxy --target x86_64-pc-windows-msvc --release --features sidecar
           echo "Sidecar build OK"
 
       - name: Copy sidecar binary
