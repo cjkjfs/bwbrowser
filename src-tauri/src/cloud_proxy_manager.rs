@@ -1,3 +1,5 @@
+#![allow(dead_code, clippy::too_many_arguments)]
+
 use crate::browser::ProxySettings;
 use crate::bwbrowser_cloud::{bwbrowser_to_proxy_settings, BwbrowserProxy, BWBROWSER_AUTH};
 use serde::{Deserialize, Serialize};
@@ -62,7 +64,7 @@ pub async fn fetch_cloud_proxies() -> Result<Vec<BwbrowserProxy>, String> {
     return Ok(cached);
   }
 
-  match BWBROWSER_AUTH.list_cloud_proxies().await {
+  match BWBROWSER_AUTH.list_cloud_proxies(None).await {
     Ok(proxies) => {
       log::info!(
         "cloud_proxy_manager: fetched {} proxies from cloud",
@@ -266,7 +268,7 @@ pub async fn get_proxy_cloud_only(proxy_id: &str) -> Option<ProxySettings> {
 #[tauri::command]
 pub async fn cloud_list_proxies() -> Result<Vec<crate::bwbrowser_cloud::BwbrowserProxyItem>, String>
 {
-  crate::bwbrowser_cloud::bwbrowser_list_proxies().await
+  crate::bwbrowser_cloud::bwbrowser_list_proxies(None).await
 }
 
 /// Tauri command: create or update a proxy in cloud MySQL. No local sync.

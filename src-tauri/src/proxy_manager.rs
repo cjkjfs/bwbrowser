@@ -83,6 +83,8 @@ pub struct ProxyInfo {
   // Optional profile ID to which this proxy instance is logically tied
   pub profile_id: Option<String>,
   pub blocklist_file: Option<String>,
+  /// Xray worker ID for VLESS/Trojan proxies (needs cleanup on stop)
+  pub xray_worker_id: Option<String>,
 }
 
 // Proxy check result cache
@@ -1030,6 +1032,15 @@ impl ProxyManager {
   pub fn get_stored_proxy(&self, proxy_id: &str) -> Option<StoredProxy> {
     let stored_proxies = self.stored_proxies.lock().unwrap();
     stored_proxies.get(proxy_id).cloned()
+  }
+
+  /// Get the Xray worker ID for an active proxy by browser PID.
+  /// Returns None if no active proxy for that PID or no Xray worker.
+  pub fn get_active_proxy_xray_worker_id(&self, browser_pid: u32) -> Option<String> {
+    let proxies = self.active_proxies.lock().unwrap();
+    proxies
+      .get(&browser_pid)
+      .and_then(|p| p.xray_worker_id.clone())
   }
 
   /// Insert/replace a stored proxy in the in-memory map. Used by sync's
@@ -2102,6 +2113,29 @@ impl ProxyManager {
       .await
       .map_err(|e| e.to_string())?;
 
+    // For VLESS/Trojan proxies, start an Xray worker first to translate
+    // the VLESS/Trojan connection into a local SOCKS5 proxy that the
+    // bwbrowser-proxy worker can connect to.
+    let mut xray_worker_id: Option<String> = None;
+    let effective_proxy_settings = if let Some(ps) = proxy_settings {
+      if ps.proxy_type.eq_ignore_ascii_case("vless") || ps.proxy_type.eq_ignore_ascii_case("trojan")
+      {
+        let uri = ps
+          .vless_uri
+          .as_deref()
+          .ok_or_else(|| crate::backend_error("VLESS_CONFIG_INVALID"))?;
+        let worker = crate::xray_worker_runner::start_xray_worker(profile_id, uri)
+          .await
+          .map_err(|error| format!("Failed to start Xray worker: {error}"))?;
+        xray_worker_id = Some(worker.id.clone());
+        Some(worker.local_proxy_settings())
+      } else {
+        Some(ps.clone())
+      }
+    } else {
+      None
+    };
+
     // Start a new proxy using the bwbrowser-proxy binary with the correct CLI interface
     let mut proxy_cmd = app_handle
       .shell()
@@ -2111,7 +2145,7 @@ impl ProxyManager {
       .arg("start");
 
     // Add upstream proxy settings if provided, otherwise create direct proxy
-    if let Some(proxy_settings) = proxy_settings {
+    if let Some(ref proxy_settings) = effective_proxy_settings {
       proxy_cmd = proxy_cmd
         .arg("--host")
         .arg(&proxy_settings.host)
@@ -2153,6 +2187,25 @@ impl ProxyManager {
     // Tell the worker which protocol to serve the browser (http or socks5)
     proxy_cmd = proxy_cmd.arg("--local-protocol").arg(local_protocol);
 
+    // Guard to clean up the Xray worker if the proxy worker fails to start.
+    // Disarmed once both workers are up and tracked in ProxyInfo.
+    struct XrayCleanupGuard {
+      worker_id: Option<String>,
+    }
+    impl Drop for XrayCleanupGuard {
+      fn drop(&mut self) {
+        if let Some(ref id) = self.worker_id {
+          let id = id.clone();
+          tauri::async_runtime::spawn(async move {
+            let _ = crate::xray_worker_runner::stop_xray_worker(&id).await;
+          });
+        }
+      }
+    }
+    let mut xray_cleanup = XrayCleanupGuard {
+      worker_id: xray_worker_id.clone(),
+    };
+
     // Execute the command and wait for it to complete
     // The bwbrowser-proxy binary should start the worker and then exit
     let output = proxy_cmd
@@ -2189,16 +2242,22 @@ impl ProxyManager {
     let proxy_info = ProxyInfo {
       id: id.to_string(),
       local_url,
-      upstream_host: proxy_settings
+      upstream_host: effective_proxy_settings
+        .as_ref()
         .map(|p| p.host.clone())
         .unwrap_or_else(|| "DIRECT".to_string()),
-      upstream_port: proxy_settings.map(|p| p.port).unwrap_or(0),
-      upstream_type: proxy_settings
+      upstream_port: effective_proxy_settings
+        .as_ref()
+        .map(|p| p.port)
+        .unwrap_or(0),
+      upstream_type: effective_proxy_settings
+        .as_ref()
         .map(|p| p.proxy_type.clone())
         .unwrap_or_else(|| "DIRECT".to_string()),
       local_port,
       profile_id: profile_id.map(|s| s.to_string()),
       blocklist_file: blocklist_file.clone(),
+      xray_worker_id,
     };
 
     // Wait for the local proxy port to be ready to accept connections
@@ -2246,6 +2305,9 @@ impl ProxyManager {
       map.insert(id.to_string(), proxy_info.id.clone());
     }
 
+    // Both workers are up and tracked — disarm the cleanup guard.
+    xray_cleanup.worker_id = None;
+
     // Return proxy settings for the browser
     Ok(ProxySettings {
       proxy_type: local_protocol.to_string(),
@@ -2263,13 +2325,20 @@ impl ProxyManager {
     app_handle: tauri::AppHandle,
     browser_pid: u32,
   ) -> Result<(), String> {
-    let (proxy_id, profile_id): (String, Option<String>) = {
+    let (proxy_id, profile_id, xray_worker_id): (String, Option<String>, Option<String>) = {
       let mut proxies = self.active_proxies.lock().unwrap();
       match proxies.remove(&browser_pid) {
-        Some(proxy) => (proxy.id, proxy.profile_id.clone()),
+        Some(proxy) => (proxy.id, proxy.profile_id.clone(), proxy.xray_worker_id),
         None => return Ok(()), // No proxy to stop
       }
     };
+
+    // Stop the Xray worker if this proxy used one (VLESS/Trojan)
+    if let Some(ref worker_id) = xray_worker_id {
+      if let Err(e) = crate::xray_worker_runner::stop_xray_worker(worker_id).await {
+        log::warn!("Failed to stop Xray worker {worker_id}: {e}");
+      }
+    }
 
     // Stop the proxy using the bwbrowser-proxy binary
     let proxy_cmd = app_handle
@@ -2998,6 +3067,7 @@ mod tests {
           local_port: (8000 + i) as u16,
           profile_id: None,
           blocklist_file: None,
+          xray_worker_id: None,
         };
 
         // Add proxy
@@ -3267,6 +3337,7 @@ mod tests {
       local_port: port,
       profile_id: profile_id.map(|s| s.to_string()),
       blocklist_file: None,
+      xray_worker_id: None,
     }
   }
 
@@ -3854,6 +3925,7 @@ mod tests {
       local_port: 9201,
       profile_id: Some("profile_alpha".to_string()),
       blocklist_file: None,
+      xray_worker_id: None,
     };
     let info_b = ProxyInfo {
       id: "px_shared_b".to_string(),
@@ -3864,6 +3936,7 @@ mod tests {
       local_port: 9202,
       profile_id: Some("profile_beta".to_string()),
       blocklist_file: None,
+      xray_worker_id: None,
     };
 
     pm.insert_active_proxy(3001, info_a);
@@ -4555,6 +4628,7 @@ mod tests {
         local_port: 9300 + i as u16,
         profile_id: Some(format!("profile_{ptype}")),
         blocklist_file: None,
+        xray_worker_id: None,
       };
       pm.insert_active_proxy(4000 + i as u32, info);
     }

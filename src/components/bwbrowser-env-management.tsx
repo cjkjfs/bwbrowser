@@ -81,11 +81,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
+import { useBwbrowserCompany } from "@/hooks/use-bwbrowser-company";
 import {
   type BwbrowserEnvironment,
   extractBwbrowserEnvUuid,
   useBwbrowserEnvironments,
 } from "@/hooks/use-bwbrowser-environments";
+import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import { cn } from "@/lib/utils";
 
 // ============================================================
@@ -1294,8 +1297,13 @@ export function BwbrowserEnvManagementDialog({
   onClose,
   embedded = false,
 }: BwbrowserEnvManagementDialogProps) {
+  const { isLoggedIn: isBwbrowserLoggedIn } = useBwbrowserAuth();
+  const { isSuperAdmin: isSuperAdminPerm } = useBwbrowserPermissions();
+  const { companies, selectedCompanyId, setSelectedCompanyId } =
+    useBwbrowserCompany(isSuperAdminPerm, isBwbrowserLoggedIn);
+
   const { environments, isLoading, error, refresh, deleteEnv } =
-    useBwbrowserEnvironments();
+    useBwbrowserEnvironments(selectedCompanyId);
 
   // 视图状态
   const [viewType, setViewType] = useState<ViewType>("all");
@@ -1883,6 +1891,33 @@ export function BwbrowserEnvManagementDialog({
         onNewEnv={handleNewEnv}
         onSearchClick={handleSearchClick}
       />
+
+      {/* 公司切换栏（仅超级管理员可见） */}
+      {isSuperAdminPerm && companies.length > 0 && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-4 py-1.5">
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">
+            切换公司
+          </span>
+          <Select
+            value={selectedCompanyId !== null ? String(selectedCompanyId) : "my"}
+            onValueChange={(val) =>
+              setSelectedCompanyId(val === "my" ? null : Number(val))
+            }
+          >
+            <SelectTrigger className="h-7 w-auto min-w-[140px] max-w-[260px] text-xs">
+              <SelectValue placeholder="选择公司" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="my">我的公司</SelectItem>
+              {companies.map((company) => (
+                <SelectItem key={company.id} value={String(company.id)}>
+                  {company.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {/* Stats 统计栏 */}
       <EnvironmentStats

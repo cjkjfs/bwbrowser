@@ -1,3 +1,5 @@
+#![allow(dead_code, clippy::too_many_arguments)]
+
 //! 视频下载模块 - 基于 yt-dlp 的视频下载管理
 //!
 //! 功能：
@@ -276,7 +278,7 @@ impl VideoDownloader {
   pub async fn list_tasks(&self) -> Vec<DownloadTask> {
     let inner = self.inner.lock().await;
     let mut list: Vec<DownloadTask> = inner.tasks.values().cloned().collect();
-    list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+    list.sort_by_key(|t| std::cmp::Reverse(t.started_at));
     list
   }
 
@@ -327,9 +329,7 @@ impl VideoDownloader {
     let pid = {
       let mut inner = self.inner.lock().await;
       if let Some(task) = inner.tasks.get_mut(task_id) {
-        if task.status == DownloadStatus::Downloading {
-          task.status = DownloadStatus::Paused;
-        } else if task.status == DownloadStatus::Waiting {
+        if task.status == DownloadStatus::Downloading || task.status == DownloadStatus::Waiting {
           task.status = DownloadStatus::Paused;
         }
       }
@@ -538,7 +538,7 @@ impl VideoDownloader {
               );
             }
             // 每 100 次失败重建 Clipboard 实例
-            if fail_count % 100 == 0 {
+            if fail_count.is_multiple_of(100) {
               log::info!("[clipboard_monitor] 重建 Clipboard 实例");
               clipboard = match arboard::Clipboard::new() {
                 Ok(c) => c,
@@ -1297,9 +1297,9 @@ async fn run_single_download<R: Runtime>(
     let mut cmd = std::process::Command::new("python");
     cmd
       .arg(script_path)
-      .arg(&url)
+      .arg(url)
       .arg(&output_dir)
-      .arg(yt_dlp.as_path())
+      .arg(yt_dlp)
       .env("PYTHONIOENCODING", "utf-8")
       .stdout(std::process::Stdio::piped())
       .stderr(std::process::Stdio::piped());
@@ -1339,9 +1339,9 @@ async fn run_single_download<R: Runtime>(
     cmd
   } else {
     // 其他平台用 yt-dlp CLI
-    let mut cmd = std::process::Command::new(&yt_dlp);
+    let mut cmd = std::process::Command::new(yt_dlp);
     cmd
-      .args(&args)
+      .args(args)
       .env("PYTHONIOENCODING", "utf-8")
       .stdout(std::process::Stdio::piped())
       .stderr(std::process::Stdio::piped());
@@ -1504,7 +1504,6 @@ async fn run_single_download<R: Runtime>(
   let mut stderr_lines: Vec<String> = Vec::new();
   let mut completed = false;
   let mut error_output = String::new();
-  let mut download_started = false; // 是否进入了实际下载阶段
 
   // 异步循环：接收行 + 更新状态
   loop {
@@ -1528,7 +1527,6 @@ async fn run_single_download<R: Runtime>(
             let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");
             match msg_type {
               "progress" => {
-                download_started = true;
                 let percent = json.get("percent").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let speed = json.get("speed").and_then(|v| v.as_u64()).unwrap_or(0);
                 let downloaded = json.get("downloaded").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -1620,7 +1618,6 @@ async fn run_single_download<R: Runtime>(
 
         // 进度行：[download]  23.9% of   81.01MiB at   11.11MiB/s ETA 00:05
         if trimmed.starts_with("[download]") && trimmed.contains("% of") {
-          download_started = true;
           if let Some((percent, total, speed)) = parse_download_line(trimmed) {
             let downloaded = if total > 0 {
               (total as f64 * percent / 100.0) as u64
@@ -2075,7 +2072,6 @@ async fn extract_cookies_via_ytdlp(
 
   #[cfg(target_os = "windows")]
   {
-    use std::os::windows::process::CommandExt;
     cmd.creation_flags(0x08000000);
   }
 
@@ -2251,7 +2247,7 @@ async fn export_vps_cookies_to_file<R: Runtime>(
       std::fs::write(&cookie_path, txt).map_err(|e| format!("写入 cookie 文件失败: {}", e))?;
       dl.set_last_cookie_time(now_secs()).await;
       log::info!("[video_download] Cookie 已刷新（CDP 导出）");
-      return Ok(cookie_path);
+      Ok(cookie_path)
     }
     Err(cdp_err) => {
       log::warn!(
@@ -2305,7 +2301,7 @@ async fn export_vps_cookies_to_file<R: Runtime>(
       std::fs::write(&cookie_path, txt).map_err(|e| format!("写入 cookie 文件失败: {}", e))?;
       dl.set_last_cookie_time(now_secs()).await;
       log::info!("[video_download] Cookie 已刷新（SQLite 回退）");
-      return Ok(cookie_path);
+      Ok(cookie_path)
     }
   }
 }
@@ -2504,18 +2500,18 @@ async fn read_info_from_file<R: Runtime>(
   if let Ok(content) = std::fs::read_to_string(info_file) {
     for line in content.lines() {
       let line = line.trim();
-      if line.starts_with("BW_INFO_TITLE:") {
-        let title = line["BW_INFO_TITLE:".len()..].trim().to_string();
+      if let Some(title) = line.strip_prefix("BW_INFO_TITLE:") {
+        let title = title.trim().to_string();
         if !title.is_empty() && title != "NA" {
           dl.set_task_title(task_id, title).await;
         }
-      } else if line.starts_with("BW_INFO_RESOLUTION:") {
-        let resolution = line["BW_INFO_RESOLUTION:".len()..].trim().to_string();
+      } else if let Some(resolution) = line.strip_prefix("BW_INFO_RESOLUTION:") {
+        let resolution = resolution.trim().to_string();
         if !resolution.is_empty() && resolution != "NA" {
           dl.set_task_resolution(task_id, resolution).await;
         }
-      } else if line.starts_with("BW_INFO_THUMBNAIL:") {
-        let thumbnail = line["BW_INFO_THUMBNAIL:".len()..].trim().to_string();
+      } else if let Some(thumbnail) = line.strip_prefix("BW_INFO_THUMBNAIL:") {
+        let thumbnail = thumbnail.trim().to_string();
         if !thumbnail.is_empty() && thumbnail != "NA" {
           let mut inner = dl.inner.lock().await;
           if let Some(task) = inner.tasks.get_mut(task_id) {
@@ -3092,9 +3088,10 @@ fn get_tool_version(path: &std::path::Path, arg: &str) -> Result<String, String>
 fn extract_ffmpeg_version(output: &str) -> Option<String> {
   output.lines().next().and_then(|line| {
     let parts: Vec<&str> = line.split_whitespace().collect();
-    if parts.len() >= 3 && parts[0].to_ascii_lowercase().contains("ffmpeg") {
-      Some(parts[2].to_string())
-    } else if parts.len() >= 3 && parts[0].to_ascii_lowercase().contains("ffprobe") {
+    if parts.len() >= 3
+      && (parts[0].to_ascii_lowercase().contains("ffmpeg")
+        || parts[0].to_ascii_lowercase().contains("ffprobe"))
+    {
       Some(parts[2].to_string())
     } else {
       None
@@ -3341,7 +3338,6 @@ pub async fn video_download_update_tool<R: Runtime>(
       .stderr(std::process::Stdio::piped());
     #[cfg(target_os = "windows")]
     {
-      use std::os::windows::process::CommandExt;
       tcmd.creation_flags(0x08000000);
     }
     let output = tcmd.output().await;

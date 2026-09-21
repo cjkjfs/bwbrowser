@@ -310,7 +310,7 @@ mod tests {
       address: "vpn.example.com".to_string(),
       port: 443,
       id: "6d6e21a1-4829-4d2b-bc7f-1b25707b61e4".to_string(),
-      flow: VlessFlow::Vision,
+      flow: Some(VlessFlow::Vision),
       reality: RealitySettings {
         server_name: "www.example.com".to_string(),
         public_key: public_key(),

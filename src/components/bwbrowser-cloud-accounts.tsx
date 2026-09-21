@@ -48,6 +48,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -59,6 +66,9 @@ import {
   type BwbrowserAccount,
   useBwbrowserAccounts,
 } from "@/hooks/use-bwbrowser-accounts";
+import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
+import { useBwbrowserCompany } from "@/hooks/use-bwbrowser-company";
+import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { translateBackendError } from "@/lib/backend-errors";
 import {
@@ -397,6 +407,11 @@ export function BwbrowserCloudAccountsDialog({
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [activeTab, setActiveTab] = useState("accounts");
 
+  const { isLoggedIn: isBwbrowserLoggedIn } = useBwbrowserAuth();
+  const { isSuperAdmin: isSuperAdminPerm } = useBwbrowserPermissions();
+  const { companies, selectedCompanyId, setSelectedCompanyId } =
+    useBwbrowserCompany(isSuperAdminPerm, isBwbrowserLoggedIn);
+
   const {
     accounts,
     total,
@@ -422,7 +437,7 @@ export function BwbrowserCloudAccountsDialog({
     canViewPassword,
     canView2FA,
     canViewSMS,
-  } = useBwbrowserAccounts();
+  } = useBwbrowserAccounts(selectedCompanyId);
 
   // 权限判断：根据 users.php 的 allow_2fa 和 allow_sms_management 字段
   const canView2FACode = canView2FA || isManager || isSuperAdmin;
@@ -1272,10 +1287,8 @@ export function BwbrowserCloudAccountsDialog({
     [t],
   );
 
-  // 平台统计（优先用 summary 数据，兜底用当前页数据）
-  // 当选了人员时，使用该人员的完整汇总统计数据
+  // 平台统计：始终用 summary 数据（来自 API 的全量统计，不依赖当前页）
   const platformStats = useMemo(() => {
-    // 有汇总数据时（包括选择了人员过滤的情况），直接用汇总数据
     if (summary?.platforms && summary.platforms.length > 0) {
       return [
         { platform: "all", count: summary.total ?? total },
@@ -1285,22 +1298,9 @@ export function BwbrowserCloudAccountsDialog({
         })),
       ];
     }
-    // 兜底：用当前页数据统计
-    const stats: Record<string, number> = {};
-    const sourceAccounts =
-      ownerFilter !== null
-        ? accounts.filter((a) => a.owner_id === ownerFilter)
-        : accounts;
-    for (const acc of sourceAccounts) {
-      const p = acc.platform || "unknown";
-      stats[p] = (stats[p] || 0) + 1;
-    }
-    const result = Object.entries(stats)
-      .sort((a, b) => b[1] - a[1])
-      .map(([platform, count]) => ({ platform, count }));
-    const allCount = ownerFilter !== null ? sourceAccounts.length : total;
-    return [{ platform: "all", count: allCount }, ...result];
-  }, [accounts, total, summary, ownerFilter]);
+    // summary 还没加载时只显示总数
+    return [{ platform: "all", count: total }];
+  }, [total, summary]);
 
   // 人员统计：以 users 列表为准（显示所有人），count 从 summary.owners 匹配
   const ownerStats = useMemo(() => {
@@ -2118,6 +2118,33 @@ export function BwbrowserCloudAccountsDialog({
           账号分组
         </button>
       </div>
+
+      {/* ========== 公司切换栏（仅超级管理员可见） ========== */}
+      {isSuperAdmin && companies.length > 0 && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-4 py-1.5">
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">
+            切换公司
+          </span>
+          <Select
+            value={selectedCompanyId !== null ? String(selectedCompanyId) : "my"}
+            onValueChange={(val) =>
+              setSelectedCompanyId(val === "my" ? null : Number(val))
+            }
+          >
+            <SelectTrigger className="h-7 w-auto min-w-[140px] max-w-[260px] text-xs">
+              <SelectValue placeholder="选择公司" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="my">我的公司</SelectItem>
+              {companies.map((company) => (
+                <SelectItem key={company.id} value={String(company.id)}>
+                  {company.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {/* ========== 人员过滤栏（仅管理及以上角色可见） ========== */}
       {(isManager || isSuperAdmin) && (

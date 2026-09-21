@@ -1,6 +1,6 @@
 [package]
 name = "bwbrowser"
-version = "2.0.8"
+version = "2.0.9"
 description = "Simple Yet Powerful Anti-Detect Browser"
 authors = ["zhom@github"]
 edition = "2021"

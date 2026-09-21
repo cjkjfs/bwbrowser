@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Cookie sync: CDP-based cookie injection at browser launch.
 //!
 //! Ports the core logic from simprint's cookie_sync.rs, adapted to use
@@ -6,8 +8,9 @@
 //! filtered by platform domain, and injected via CDP `Network.setCookies`
 //! with a per-cookie fallback for robustness.
 
-use crate::cdp_target::{self, CdpError};
+use crate::cdp_target::{self, CdpError, CdpTarget};
 use crate::profile::BrowserProfile;
+use serde::Deserialize;
 use serde_json::Value;
 
 /// Command ids for the CDP injection sequence.
@@ -736,10 +739,9 @@ pub fn score_cookies(cookies: &[Value], platform: &str) -> CookieScore {
     && score.domain_matched >= 1
     && (score.key_cookies >= 1 || score.valid_count >= 6);
 
-  // 确定登录：必须找到至少 2 个平台专属的登录 cookie（has_login_cookies）
-  // 不能用通用 key_cookies 数量判断 — 未登录时网站也会设置很多含 "sid"/"uid" 的访客 cookie，
-  // 会导致误判为 "确定登录"，从而跳过云端 cookie 注入。
-  // 同时要求过期数为 0，保证登录 cookie 都是有效的。
+  // 确定登录：cookie 中有平台专属登录 cookie 且无过期
+  // 注意：这只是初步判断，真正的登录状态由 check_login_via_page 页面 DOM 检测确认
+  // cookie 判断保留作为快速预筛，页面检测在 inject_cloud_cookies_after_launch 中执行
   score.definite_logged_in = score.expired == 0 && has_login_cookies(&platform_cookies, platform);
 
   score
@@ -997,6 +999,390 @@ pub async fn navigate_to_url(profile: &BrowserProfile, url: &str) -> Result<(), 
 
   conn.close().await;
   Ok(())
+}
+
+/// Login check selectors fetched from the backend platform config.
+/// Each platform has a `login_check` object with `min_match` and `selectors`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LoginCheckConfig {
+  pub min_match: u32,
+  pub selectors: LoginCheckSelectors,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LoginCheckSelectors {
+  #[serde(default)]
+  pub logout: Vec<String>,
+  #[serde(default)]
+  pub avatar: Vec<String>,
+  #[serde(default)]
+  pub nickname: Vec<String>,
+  #[serde(default)]
+  pub stats: Vec<String>,
+  #[serde(default)]
+  pub creator_menu: Vec<String>,
+  #[serde(default)]
+  pub publish_btn: Vec<String>,
+  #[serde(default)]
+  pub user_info_area: Vec<String>,
+}
+
+/// Check login status by navigating to the platform page and checking DOM via CDP.
+///
+/// Uses `cdp_target::run_command` (same path as fingerprint verification) to
+/// execute `Runtime.evaluate`, and falls back to `DOM.getDocument` +
+/// `DOM.querySelectorAll` if `Runtime.evaluate` is gated.
+///
+/// Returns `true` if at least `min_match` selector groups matched (logged in),
+/// `false` if not enough matches (not logged in or page not ready).
+pub async fn check_login_via_page(
+  profile: &BrowserProfile,
+  url: &str,
+  config: &LoginCheckConfig,
+) -> Result<bool, CdpError> {
+  let target = cdp_target::resolve(profile)
+    .await
+    .map_err(|e| CdpError::Unreachable(e.to_string()))?;
+
+  // Step 1: Navigate to the platform page
+  crate::bwbrowser_cloud::log_bwbrowser("cookie_sync", &format!("check_login: 导航到 {}", url));
+  let nav_result =
+    cdp_target::run_command(&target, "Page.navigate", serde_json::json!({ "url": url })).await;
+
+  if let Err(e) = &nav_result {
+    crate::bwbrowser_cloud::log_bwbrowser_error(
+      "cookie_sync",
+      &format!("check_login: 导航失败 {}: {}", url, e),
+    );
+    return Err(CdpError::Protocol(format!("navigate failed: {}", e)));
+  }
+  crate::bwbrowser_cloud::log_bwbrowser("cookie_sync", "check_login: 导航成功，等待页面加载...");
+
+  // Step 2: Wait for page to load
+  tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+  // Step 3: Try Runtime.evaluate (same path as fingerprint verification)
+  let all_selector_groups: Vec<(&str, &Vec<String>)> = vec![
+    ("logout", &config.selectors.logout),
+    ("avatar", &config.selectors.avatar),
+    ("nickname", &config.selectors.nickname),
+    ("stats", &config.selectors.stats),
+    ("creator_menu", &config.selectors.creator_menu),
+    ("publish_btn", &config.selectors.publish_btn),
+    ("user_info_area", &config.selectors.user_info_area),
+  ];
+
+  // Build JS expression: count how many selector groups match
+  let js = build_login_check_js(&all_selector_groups);
+
+  let eval_result = cdp_target::run_command(
+    &target,
+    "Runtime.evaluate",
+    serde_json::json!({
+      "expression": js,
+      "returnByValue": true,
+    }),
+  )
+  .await;
+
+  match &eval_result {
+    Ok(result) => {
+      if result.get("exceptionDetails").is_some() {
+        crate::bwbrowser_cloud::log_bwbrowser_error(
+          "cookie_sync",
+          "check_login: Runtime.evaluate 异常",
+        );
+      }
+      let matched = result
+        .get("result")
+        .and_then(|r| r.get("value"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+      let logged_in = matched >= config.min_match as i64;
+
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "cookie_sync",
+        &format!(
+          "check_login: matched={}, min_match={}, logged_in={}",
+          matched, config.min_match, logged_in
+        ),
+      );
+      Ok(logged_in)
+    }
+    Err(e) => {
+      let err_str = e.to_string();
+      crate::bwbrowser_cloud::log_bwbrowser_error(
+        "cookie_sync",
+        &format!("check_login: Runtime.evaluate failed: {}", err_str),
+      );
+
+      // Fallback: try DOM.getDocument + DOM.querySelector
+      if err_str.contains("paid") || err_str.contains("wasn't found") {
+        crate::bwbrowser_cloud::log_bwbrowser("cookie_sync", "check_login: 尝试 DOM 方式检测...");
+        let matched = check_login_via_dom(&target, &all_selector_groups).await;
+        let logged_in = matched >= config.min_match;
+        crate::bwbrowser_cloud::log_bwbrowser(
+          "cookie_sync",
+          &format!(
+            "check_login: DOM方式 matched={}, min_match={}, logged_in={}",
+            matched, config.min_match, logged_in
+          ),
+        );
+        Ok(logged_in)
+      } else {
+        Err(CdpError::Protocol(e.to_string()))
+      }
+    }
+  }
+}
+
+/// Build JS expression that counts matching selector groups.
+fn build_login_check_js(groups: &[(&str, &Vec<String>)]) -> String {
+  let mut js_parts = Vec::new();
+  for (i, (_, group)) in groups.iter().enumerate() {
+    if group.is_empty() {
+      js_parts.push(format!("var g{} = 1;", i));
+      continue;
+    }
+    let checks: Vec<String> = group
+      .iter()
+      .map(|s| {
+        if is_text_selector(s) {
+          format!(
+            "(document.body && (document.body.innerText || '').includes({:?}))",
+            s
+          )
+        } else {
+          format!("document.querySelector({:?})", s)
+        }
+      })
+      .collect();
+    js_parts.push(format!("var g{} = ({}) ? 1 : 0;", i, checks.join(" || ")));
+  }
+  let sum_expr: String = (0..groups.len())
+    .map(|i| format!("g{}", i))
+    .collect::<Vec<_>>()
+    .join(" + ");
+  format!(
+    "(function() {{ {} return {}; }})()",
+    js_parts.join(" "),
+    sum_expr
+  )
+}
+
+/// Check login via CDP DOM domain (fallback when Runtime.evaluate is gated).
+/// Uses a single connection for all DOM operations (nodeId is session-scoped).
+async fn check_login_via_dom(target: &CdpTarget, groups: &[(&str, &Vec<String>)]) -> u32 {
+  let mut matched = 0u32;
+
+  let mut conn = match target.connect().await {
+    Ok(c) => c,
+    Err(e) => {
+      crate::bwbrowser_cloud::log_bwbrowser_error(
+        "cookie_sync",
+        &format!("check_login_via_dom: connect failed: {}", e),
+      );
+      return 0;
+    }
+  };
+
+  // Get document root with full depth
+  let doc_result = conn
+    .call(
+      920u64,
+      "DOM.getDocument",
+      serde_json::json!({ "depth": -1 }),
+    )
+    .await;
+
+  let root_node_id = match &doc_result {
+    Ok(result) => {
+      let nid = result
+        .get("root")
+        .and_then(|r| r.get("nodeId"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+      let url = result
+        .get("root")
+        .and_then(|r| r.get("documentURL"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "cookie_sync",
+        &format!("check_login_via_dom: root nodeId={}, url={}", nid, url),
+      );
+      nid
+    }
+    Err(e) => {
+      crate::bwbrowser_cloud::log_bwbrowser_error(
+        "cookie_sync",
+        &format!("check_login_via_dom: DOM.getDocument failed: {}", e),
+      );
+      conn.close().await;
+      return 0;
+    }
+  };
+
+  if root_node_id == 0 {
+    crate::bwbrowser_cloud::log_bwbrowser_error(
+      "cookie_sync",
+      "check_login_via_dom: root nodeId is 0",
+    );
+    conn.close().await;
+    return 0;
+  }
+
+  // Get outer HTML to check text content (same connection!)
+  let html_result = conn
+    .call(
+      921u64,
+      "DOM.getOuterHTML",
+      serde_json::json!({ "nodeId": root_node_id }),
+    )
+    .await;
+
+  let outer_html = match &html_result {
+    Ok(html) => {
+      let h = html.get("outerHTML").and_then(|v| v.as_str()).unwrap_or("");
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "cookie_sync",
+        &format!("check_login_via_dom: got outerHTML {} bytes", h.len()),
+      );
+      h.to_string()
+    }
+    Err(e) => {
+      crate::bwbrowser_cloud::log_bwbrowser_error(
+        "cookie_sync",
+        &format!("check_login_via_dom: DOM.getOuterHTML failed: {}", e),
+      );
+      String::new()
+    }
+  };
+
+  // Check each selector group (all on same connection)
+  let mut cmd_id = 930u64;
+  for (name, group) in groups.iter() {
+    if group.is_empty() {
+      matched += 1;
+      continue;
+    }
+    let mut found = false;
+    for s in group.iter() {
+      if is_text_selector(s) {
+        if outer_html.contains(s) {
+          found = true;
+          crate::bwbrowser_cloud::log_bwbrowser(
+            "cookie_sync",
+            &format!("check_login_via_dom: ✓ text match '{}'", s),
+          );
+          break;
+        }
+      } else {
+        let query_result = conn
+          .call(
+            cmd_id,
+            "DOM.querySelector",
+            serde_json::json!({
+              "nodeId": root_node_id,
+              "selector": s
+            }),
+          )
+          .await;
+        cmd_id += 1;
+        if let Ok(result) = query_result {
+          if let Some(node_id) = result.get("nodeId").and_then(|v| v.as_i64()) {
+            if node_id > 0 {
+              found = true;
+              crate::bwbrowser_cloud::log_bwbrowser(
+                "cookie_sync",
+                &format!("check_login_via_dom: ✓ css match '{}'", s),
+              );
+              break;
+            }
+          }
+        }
+      }
+    }
+    if found {
+      matched += 1;
+    } else {
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "cookie_sync",
+        &format!("check_login_via_dom: ✗ no match for group '{}'", name),
+      );
+    }
+  }
+
+  conn.close().await;
+  matched
+}
+
+/// Determine if a selector is text-based (not a CSS selector).
+fn is_text_selector(s: &str) -> bool {
+  s.starts_with(|c: char| c.is_alphanumeric())
+    && !s.contains('.')
+    && !s.contains('#')
+    && !s.contains('[')
+    && !s.contains('>')
+    && !s.contains(' ')
+}
+
+/// Fetch platform login_check config from the backend API.
+/// Returns `None` if the platform has no login_check config or the API is unreachable.
+pub async fn fetch_login_check_config(platform: &str) -> Option<LoginCheckConfig> {
+  let url = crate::bwbrowser_cloud::PLATFORM_CONFIG_API_URL;
+  let resp = match reqwest::get(url).await {
+    Ok(r) => r,
+    Err(e) => {
+      log::warn!("fetch_login_check: API request failed: {}", e);
+      return None;
+    }
+  };
+
+  let body = match resp.text().await {
+    Ok(b) => b,
+    Err(e) => {
+      log::warn!("fetch_login_check: read response failed: {}", e);
+      return None;
+    }
+  };
+
+  let result: serde_json::Value = serde_json::from_str(&body).ok()?;
+  let platforms = result
+    .get("data")
+    .and_then(|d| d.get("platforms"))
+    .or_else(|| result.get("platforms"))?;
+
+  // Try object format: { "youtube": { "login_check": {...} }, ... }
+  if let Some(map) = platforms.as_object() {
+    let platform_lower = platform.to_lowercase();
+    for (key, value) in map {
+      if key.to_lowercase() == platform_lower {
+        if let Some(lc) = value.get("login_check") {
+          return serde_json::from_value::<LoginCheckConfig>(lc.clone()).ok();
+        }
+      }
+    }
+  }
+
+  // Try array format: [{ "id": "youtube", "login_check": {...} }, ...]
+  if let Some(arr) = platforms.as_array() {
+    let platform_lower = platform.to_lowercase();
+    for item in arr {
+      let matched = ["id", "platform", "name"]
+        .iter()
+        .filter_map(|field| item.get(field).and_then(|v| v.as_str()))
+        .any(|val| val.to_lowercase() == platform_lower);
+
+      if matched {
+        if let Some(lc) = item.get("login_check") {
+          return serde_json::from_value::<LoginCheckConfig>(lc.clone()).ok();
+        }
+      }
+    }
+  }
+
+  None
 }
 
 /// Verify that injected cookies are actually present in the browser.

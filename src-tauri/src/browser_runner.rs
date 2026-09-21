@@ -271,51 +271,6 @@ impl BrowserRunner {
         .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
       let geo_proxy_signature_settings = upstream_proxy.clone();
 
-      struct XrayLaunchGuard {
-        worker_id: Option<String>,
-        profile_name: String,
-      }
-      impl Drop for XrayLaunchGuard {
-        fn drop(&mut self) {
-          let Some(worker_id) = self.worker_id.take() else {
-            return;
-          };
-          log::warn!(
-            "Launch failed after Xray-core start for profile {}; stopping worker",
-            self.profile_name
-          );
-          if let Err(error) = crate::xray_worker_runner::stop_xray_worker_now(&worker_id) {
-            log::warn!("Failed to stop Xray-core worker after failed launch: {error}");
-          }
-        }
-      }
-      let mut xray_launch_guard = XrayLaunchGuard {
-        worker_id: None,
-        profile_name: profile.name.clone(),
-      };
-
-      if upstream_proxy
-        .as_ref()
-        .is_some_and(|proxy| proxy.proxy_type.eq_ignore_ascii_case("vless"))
-      {
-        let vless_uri = upstream_proxy
-          .as_ref()
-          .and_then(|proxy| proxy.vless_uri.as_deref())
-          .ok_or_else(|| crate::backend_error("VLESS_CONFIG_INVALID"))?;
-        let worker =
-          crate::xray_worker_runner::start_xray_worker(Some(&profile.id.to_string()), vless_uri)
-            .await
-            .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> {
-              error.to_string().into()
-            })?;
-        log::info!(
-          "Xray-core worker started for Wayfern profile on port {}",
-          worker.local_port
-        );
-        xray_launch_guard.worker_id = Some(worker.id.clone());
-        upstream_proxy = Some(worker.local_proxy_settings());
-      }
-
       /// Stops a VPN worker this launch started, if the launch then fails.
       ///
       /// `created` is the whole point: `start_vpn_worker` reuses a live worker
@@ -782,8 +737,9 @@ impl BrowserRunner {
         }
         return Err(crate::backend_error("INTERNAL_ERROR").into());
       }
-      if let Some(worker_id) = xray_launch_guard.worker_id.as_deref() {
-        if !crate::xray_worker_runner::set_browser_pid(worker_id, process_id) {
+      // Update the Xray worker's browser PID so it can self-cleanup on browser exit
+      if let Some(worker_id) = PROXY_MANAGER.get_active_proxy_xray_worker_id(process_id) {
+        if !crate::xray_worker_runner::set_browser_pid(&worker_id, process_id) {
           if let Err(error) = self.wayfern_manager.stop_wayfern(&wayfern_result.id).await {
             log::warn!("Failed to stop Wayfern after Xray worker reassignment failed: {error}");
           }
@@ -795,7 +751,6 @@ impl BrowserRunner {
       // process identity, so later profile-persistence failures must not tear
       // down a live route.
       proxy_launch_guard.armed = false;
-      xray_launch_guard.worker_id = None;
       if let Some(guard) = vpn_launch_guard.as_mut() {
         guard.worker_id = None;
       }

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /*!
 # App Auto Updater
 
@@ -771,7 +773,11 @@ impl AppAutoUpdater {
     };
 
     let Some(checksums_url) = update_info.checksums_url.as_deref() else {
-      if let Some(digest) = update_info.asset_digest.as_deref().and_then(|d| d.strip_prefix("sha256:")) {
+      if let Some(digest) = update_info
+        .asset_digest
+        .as_deref()
+        .and_then(|d| d.strip_prefix("sha256:"))
+      {
         log::info!(
           "No {} file, using VPS file_hash as checksum for {}",
           Self::CHECKSUMS_ASSET_NAME,

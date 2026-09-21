@@ -130,7 +130,9 @@ interface UseBwbrowserAccountsReturn {
 /**
  * Bwbrowser 云端账号 Hook（对接 Simprint 账号 API）
  */
-export function useBwbrowserAccounts(): UseBwbrowserAccountsReturn {
+export function useBwbrowserAccounts(
+  companyId?: number | null,
+): UseBwbrowserAccountsReturn {
   const { isLoggedIn } = useBwbrowserAuth();
   const [accounts, setAccounts] = useState<BwbrowserAccount[]>([]);
   const [total, setTotal] = useState(0);
@@ -176,6 +178,7 @@ export function useBwbrowserAccounts(): UseBwbrowserAccountsReturn {
       platform = platformFilter,
       kw = keyword,
       ownerId = ownerFilter,
+      cid = companyId ?? null,
     ) => {
       if (!isLoggedIn) return;
 
@@ -191,6 +194,7 @@ export function useBwbrowserAccounts(): UseBwbrowserAccountsReturn {
             platform: platform === "all" ? null : platform,
             keyword: kw || null,
             ownerId: ownerId ?? null,
+            companyId: cid,
           },
         );
 
@@ -243,7 +247,7 @@ export function useBwbrowserAccounts(): UseBwbrowserAccountsReturn {
         setIsLoading(false);
       }
     },
-    [isLoggedIn, pageSize, platformFilter, keyword, ownerFilter],
+    [isLoggedIn, pageSize, platformFilter, keyword, ownerFilter, companyId],
   );
 
   const fetchSummary = useCallback(
@@ -256,6 +260,7 @@ export function useBwbrowserAccounts(): UseBwbrowserAccountsReturn {
           "bwbrowser_get_account_summary",
           {
             ownerId: ownerId ?? null,
+            companyId: companyId ?? null,
           },
         );
         if (result.success) {
@@ -267,7 +272,7 @@ export function useBwbrowserAccounts(): UseBwbrowserAccountsReturn {
         setSummaryLoading(false);
       }
     },
-    [isLoggedIn, ownerFilter],
+    [isLoggedIn, ownerFilter, companyId],
   );
 
   const fetchUsers = useCallback(async () => {
@@ -277,7 +282,9 @@ export function useBwbrowserAccounts(): UseBwbrowserAccountsReturn {
     try {
       const result = await invoke<CloudUserListResult>(
         "bwbrowser_list_cloud_users",
-        {},
+        {
+          companyId: companyId ?? null,
+        },
       );
       if (result.success && result.users) {
         setUsers(result.users);
@@ -287,7 +294,7 @@ export function useBwbrowserAccounts(): UseBwbrowserAccountsReturn {
     } finally {
       setUsersLoading(false);
     }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, companyId]);
 
   const refresh = useCallback(() => {
     return fetchPage(currentPage, pageSize);

@@ -1,3 +1,5 @@
+#![allow(dead_code, clippy::too_many_arguments)]
+
 //! Bwbrowser Cloud Authentication
 //! 对接 bwbrowser_sync.php 的账号密码登录系统
 //!
@@ -1336,20 +1338,25 @@ struct BwbrowserProxySyncResponse {
 
 impl BwbrowserAuthManager {
   /// 获取云端代理列表（带内存缓存，同一会话内复用）
-  pub async fn list_cloud_proxies(&self) -> Result<Vec<BwbrowserProxy>, String> {
-    // 先查缓存：5 分钟内复用
-    if let Ok(cache) = self.proxy_cache.lock() {
-      if let Some((ref proxies, ref time)) = *cache {
-        if time.elapsed() < std::time::Duration::from_secs(300) {
-          log_bwbrowser(
-            "list_proxies",
-            &format!(
-              "✓ 使用缓存，共 {} 条代理（缓存年龄: {}s）",
-              proxies.len(),
-              time.elapsed().as_secs()
-            ),
-          );
-          return Ok(proxies.clone());
+  pub async fn list_cloud_proxies(
+    &self,
+    company_id: Option<i64>,
+  ) -> Result<Vec<BwbrowserProxy>, String> {
+    // 先查缓存：5 分钟内复用（切换公司时跳过缓存）
+    if company_id.is_none() {
+      if let Ok(cache) = self.proxy_cache.lock() {
+        if let Some((ref proxies, ref time)) = *cache {
+          if time.elapsed() < std::time::Duration::from_secs(300) {
+            log_bwbrowser(
+              "list_proxies",
+              &format!(
+                "✓ 使用缓存，共 {} 条代理（缓存年龄: {}s）",
+                proxies.len(),
+                time.elapsed().as_secs()
+              ),
+            );
+            return Ok(proxies.clone());
+          }
         }
       }
     }
@@ -1363,11 +1370,14 @@ impl BwbrowserAuthManager {
       &format!("→ 请求代理列表: user={}", username),
     );
 
-    let form_data = format!(
+    let mut form_data = format!(
       "action=list_proxies&username={}&password={}",
       urlencode(&username),
       urlencode(&password)
     );
+    if let Some(cid) = company_id {
+      form_data.push_str(&format!("&company_id={}", cid));
+    }
 
     let resp = self
       .client
@@ -1407,9 +1417,11 @@ impl BwbrowserAuthManager {
     let count = proxies.len();
     log_bwbrowser("list_proxies", &format!("✓ 获取成功，共 {} 条代理", count));
 
-    // 写入缓存
-    if let Ok(mut cache) = self.proxy_cache.lock() {
-      *cache = Some((proxies.clone(), std::time::Instant::now()));
+    // 写入缓存（切换公司时不缓存）
+    if company_id.is_none() {
+      if let Ok(mut cache) = self.proxy_cache.lock() {
+        *cache = Some((proxies.clone(), std::time::Instant::now()));
+      }
     }
 
     Ok(proxies)
@@ -1546,6 +1558,7 @@ impl BwbrowserAuthManager {
     platform: Option<String>,
     keyword: Option<String>,
     owner_id: Option<i64>,
+    company_id: Option<i64>,
   ) -> Result<BwbrowserAccountListResponse, String> {
     let (username, password) = self
       .get_credentials()
@@ -1574,6 +1587,9 @@ impl BwbrowserAuthManager {
     }
     if let Some(oid) = owner_id {
       form_data.push_str(&format!("&owner_id={}", oid));
+    }
+    if let Some(cid) = company_id {
+      form_data.push_str(&format!("&company_id={}", cid));
     }
 
     // 带 fallback 的请求：依次尝试多个服务器地址
@@ -1668,6 +1684,7 @@ impl BwbrowserAuthManager {
   pub async fn get_account_summary(
     &self,
     owner_id: Option<i64>,
+    company_id: Option<i64>,
   ) -> Result<BwbrowserAccountSummaryResponse, String> {
     let (username, password) = self
       .get_credentials()
@@ -1685,6 +1702,9 @@ impl BwbrowserAuthManager {
     );
     if let Some(oid) = owner_id {
       form_data.push_str(&format!("&owner_id={}", oid));
+    }
+    if let Some(cid) = company_id {
+      form_data.push_str(&format!("&company_id={}", cid));
     }
 
     let mut last_err: Option<String> = None;
@@ -2026,6 +2046,25 @@ pub struct CloudUserListResponse {
   pub message: Option<String>,
 }
 
+// ==================== 公司列表（超级管理员） ====================
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CompanyItem {
+  pub id: i64,
+  pub name: String,
+  #[serde(default)]
+  pub code: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CompanyListResponse {
+  pub success: bool,
+  #[serde(default)]
+  pub companies: Option<Vec<CompanyItem>>,
+  #[serde(default)]
+  pub message: Option<String>,
+}
+
 // ==================== Tauri Commands ====================
 
 #[tauri::command]
@@ -2035,6 +2074,7 @@ pub async fn bwbrowser_list_accounts(
   platform: Option<String>,
   keyword: Option<String>,
   owner_id: Option<i64>,
+  company_id: Option<i64>,
 ) -> Result<BwbrowserAccountListResponse, String> {
   let mut result = BWBROWSER_AUTH
     .list_cloud_accounts(
@@ -2043,6 +2083,7 @@ pub async fn bwbrowser_list_accounts(
       platform,
       keyword,
       owner_id,
+      company_id,
     )
     .await?;
 
@@ -2080,8 +2121,11 @@ pub async fn bwbrowser_list_accounts(
 #[tauri::command]
 pub async fn bwbrowser_get_account_summary(
   owner_id: Option<i64>,
+  company_id: Option<i64>,
 ) -> Result<BwbrowserAccountSummaryResponse, String> {
-  let mut result = BWBROWSER_AUTH.get_account_summary(owner_id).await?;
+  let mut result = BWBROWSER_AUTH
+    .get_account_summary(owner_id, company_id)
+    .await?;
 
   // 权限过滤：普通成员只能看到自己的 owner 统计
   if !BWBROWSER_AUTH.is_manager_role() {
@@ -2111,6 +2155,11 @@ pub async fn bwbrowser_list_cloud_users(
   }
 
   Ok(result)
+}
+
+#[tauri::command]
+pub async fn bwbrowser_list_companies() -> Result<CompanyListResponse, String> {
+  BWBROWSER_AUTH.list_cloud_companies().await
 }
 
 #[tauri::command]
@@ -2479,7 +2528,7 @@ pub async fn bwbrowser_update_account_proxy(
       let geo = &geo_info;
 
       // 尝试同步到服务器代理表
-      if let Ok(cloud_proxies) = BWBROWSER_AUTH.list_cloud_proxies().await {
+      if let Ok(cloud_proxies) = BWBROWSER_AUTH.list_cloud_proxies(None).await {
         let matching = cloud_proxies.iter().find(|p| p.host == host);
         if let Some(cp) = matching {
           log_bwbrowser(
@@ -2644,6 +2693,64 @@ impl BwbrowserAuthManager {
     }
 
     Err(last_err.unwrap_or_else(|| "所有服务器均请求失败".to_string()))
+  }
+
+  /// 获取公司列表（仅超级管理员可用）
+  pub async fn list_cloud_companies(&self) -> Result<CompanyListResponse, String> {
+    let (username, password) = self
+      .get_credentials()
+      .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+
+    log_bwbrowser(
+      "list_companies",
+      &format!("→ 请求公司列表: user={}", username),
+    );
+
+    let form_data = format!(
+      "action=list_companies&username={}&password={}",
+      urlencode(&username),
+      urlencode(&password)
+    );
+
+    let resp = self
+      .client
+      .post(BWBROWSER_API_URL)
+      .header("Content-Type", "application/x-www-form-urlencoded")
+      .body(form_data)
+      .send()
+      .await
+      .map_err(|e| format!("网络请求失败: {}", e))?;
+
+    let status = resp.status();
+    let body = resp
+      .text()
+      .await
+      .map_err(|e| format!("读取响应失败: {}", e))?;
+
+    log_bwbrowser(
+      "list_companies",
+      &format!("← 响应状态: {}, 长度: {} bytes", status, body.len()),
+    );
+
+    let result: CompanyListResponse = parse_body("list_companies", &body)?;
+
+    if !result.success {
+      let msg = result
+        .message
+        .clone()
+        .unwrap_or_else(|| "获取公司列表失败".to_string());
+      return Err(msg);
+    }
+
+    log_bwbrowser(
+      "list_companies",
+      &format!(
+        "✓ 获取成功，共 {} 家公司",
+        result.companies.as_ref().map(|c| c.len()).unwrap_or(0)
+      ),
+    );
+
+    Ok(result)
   }
 
   /// 设置云端账号的代理节点
@@ -2883,8 +2990,10 @@ impl BwbrowserProxyItem {
 // ========== Tauri Commands - 代理同步 ==========
 
 #[tauri::command]
-pub async fn bwbrowser_list_proxies() -> Result<Vec<BwbrowserProxyItem>, String> {
-  let proxies = BWBROWSER_AUTH.list_cloud_proxies().await?;
+pub async fn bwbrowser_list_proxies(
+  company_id: Option<i64>,
+) -> Result<Vec<BwbrowserProxyItem>, String> {
+  let proxies = BWBROWSER_AUTH.list_cloud_proxies(company_id).await?;
   Ok(
     proxies
       .iter()
@@ -2936,7 +3045,7 @@ pub async fn bwbrowser_delete_proxy(proxy_id: i64) -> Result<(), String> {
 pub async fn bwbrowser_sync_proxies_to_local(
   app_handle: tauri::AppHandle,
 ) -> Result<SyncResult, String> {
-  let cloud_proxies = BWBROWSER_AUTH.list_cloud_proxies().await?;
+  let cloud_proxies = BWBROWSER_AUTH.list_cloud_proxies(None).await?;
   let local_proxies = crate::proxy_manager::PROXY_MANAGER.get_stored_proxies();
 
   let mut created = 0;
@@ -3135,22 +3244,22 @@ pub async fn bwbrowser_sync_proxies_to_local(
         .vless_uri
         .as_deref()
         .map(|s| s.trim().to_string());
-      if lp_uri.is_none() || lp_uri.as_ref().is_some_and(|s| s.is_empty()) {
-        // 本地代理没有 URI，检查 host:port 是否在云端
-        let key = (
-          lp.proxy_settings.host.clone(),
-          lp.proxy_settings.port as i64,
-        );
-        !cloud_advanced_hostport.contains(&key)
-      } else if cloud_uris.is_empty() {
-        // 云端没有 URI 数据（服务器未更新），用 host:port 兜底
-        let key = (
-          lp.proxy_settings.host.clone(),
-          lp.proxy_settings.port as i64,
-        );
-        !cloud_advanced_hostport.contains(&key)
-      } else {
-        !cloud_uris.contains(lp_uri.as_ref().unwrap())
+      match lp_uri.as_deref() {
+        None | Some("") => {
+          let key = (
+            lp.proxy_settings.host.clone(),
+            lp.proxy_settings.port as i64,
+          );
+          !cloud_advanced_hostport.contains(&key)
+        }
+        Some(_uri) if cloud_uris.is_empty() => {
+          let key = (
+            lp.proxy_settings.host.clone(),
+            lp.proxy_settings.port as i64,
+          );
+          !cloud_advanced_hostport.contains(&key)
+        }
+        Some(uri) => !cloud_uris.contains(uri),
       }
     } else {
       let key = (
@@ -3199,7 +3308,7 @@ pub async fn bwbrowser_pull_proxy_to_local(
   app_handle: tauri::AppHandle,
   proxy_id: i64,
 ) -> Result<String, String> {
-  let proxies = BWBROWSER_AUTH.list_cloud_proxies().await?;
+  let proxies = BWBROWSER_AUTH.list_cloud_proxies(None).await?;
   let proxy = proxies
     .iter()
     .find(|p| p.proxy_id == proxy_id)
@@ -3373,20 +3482,25 @@ impl BwbrowserAuthManager {
   }
 
   /// 列出云端环境（带内存缓存，同一会话内复用）
-  pub async fn list_cloud_envs(&self) -> Result<Vec<BwbrowserEnvironment>, String> {
-    // 先查缓存：5 分钟内复用
-    if let Ok(cache) = self.env_cache.lock() {
-      if let Some((ref envs, ref time)) = *cache {
-        if time.elapsed() < std::time::Duration::from_secs(300) {
-          log_bwbrowser(
-            "list_envs",
-            &format!(
-              "✓ 使用缓存，共 {} 条环境（缓存年龄: {}s）",
-              envs.len(),
-              time.elapsed().as_secs()
-            ),
-          );
-          return Ok(envs.clone());
+  pub async fn list_cloud_envs(
+    &self,
+    company_id: Option<i64>,
+  ) -> Result<Vec<BwbrowserEnvironment>, String> {
+    // 先查缓存：5 分钟内复用（切换公司时跳过缓存）
+    if company_id.is_none() {
+      if let Ok(cache) = self.env_cache.lock() {
+        if let Some((ref envs, ref time)) = *cache {
+          if time.elapsed() < std::time::Duration::from_secs(300) {
+            log_bwbrowser(
+              "list_envs",
+              &format!(
+                "✓ 使用缓存，共 {} 条环境（缓存年龄: {}s）",
+                envs.len(),
+                time.elapsed().as_secs()
+              ),
+            );
+            return Ok(envs.clone());
+          }
         }
       }
     }
@@ -3397,11 +3511,14 @@ impl BwbrowserAuthManager {
 
     log_bwbrowser("list_envs", &format!("→ 请求环境列表: user={}", username));
 
-    let form_data = format!(
+    let mut form_data = format!(
       "action=list_envs&username={}&password={}",
       urlencode(&username),
       urlencode(&password)
     );
+    if let Some(cid) = company_id {
+      form_data.push_str(&format!("&company_id={}", cid));
+    }
 
     let resp = self
       .client
@@ -3441,9 +3558,11 @@ impl BwbrowserAuthManager {
     let count = envs.len();
     log_bwbrowser("list_envs", &format!("✓ 获取成功，共 {} 条环境", count));
 
-    // 写入缓存
-    if let Ok(mut cache) = self.env_cache.lock() {
-      *cache = Some((envs.clone(), std::time::Instant::now()));
+    // 写入缓存（切换公司时不缓存）
+    if company_id.is_none() {
+      if let Ok(mut cache) = self.env_cache.lock() {
+        *cache = Some((envs.clone(), std::time::Instant::now()));
+      }
     }
 
     Ok(envs)
@@ -3628,8 +3747,8 @@ impl BwbrowserAuthManager {
 }
 
 #[tauri::command]
-pub async fn bwbrowser_list_envs() -> Result<Vec<BwbrowserEnvItem>, String> {
-  let envs = BWBROWSER_AUTH.list_cloud_envs().await?;
+pub async fn bwbrowser_list_envs(company_id: Option<i64>) -> Result<Vec<BwbrowserEnvItem>, String> {
+  let envs = BWBROWSER_AUTH.list_cloud_envs(company_id).await?;
   Ok(envs.iter().map(BwbrowserEnvItem::from_bwbrowser).collect())
 }
 
@@ -4017,7 +4136,9 @@ impl BwbrowserAuthManager {
     }
 
     // 2. 获取全部账号（第一页，page_size 尽量大）
-    let accounts_resp = self.list_cloud_accounts(1, 500, None, None, None).await?;
+    let accounts_resp = self
+      .list_cloud_accounts(1, 500, None, None, None, None)
+      .await?;
     let accounts = accounts_resp.accounts.unwrap_or_default();
 
     // 3. 按 owner_id 建立已有账号索引
@@ -5169,7 +5290,7 @@ async fn resolve_geo_from_proxy(proxy_id: Option<&str>) -> Option<ProxyGeoInfo> 
       return None;
     }
     log::info!("resolve_geo_from_proxy: node: prefix, host={}", host);
-    if let Ok(cloud_proxies) = BWBROWSER_AUTH.list_cloud_proxies().await {
+    if let Ok(cloud_proxies) = BWBROWSER_AUTH.list_cloud_proxies(None).await {
       for cp in &cloud_proxies {
         if cp.host == host {
           if let Some(ref tz) = cp.timezone {
@@ -5231,7 +5352,7 @@ async fn resolve_geo_from_proxy(proxy_id: Option<&str>) -> Option<ProxyGeoInfo> 
       "Proxy {} has no local timezone, syncing from cloud...",
       stored.proxy_settings.host
     );
-    if let Ok(cloud_proxies) = BWBROWSER_AUTH.list_cloud_proxies().await {
+    if let Ok(cloud_proxies) = BWBROWSER_AUTH.list_cloud_proxies(None).await {
       for cp in &cloud_proxies {
         if cp.host == stored.proxy_settings.host {
           if let Some(ref tz) = cp.timezone {
@@ -5381,7 +5502,7 @@ async fn build_wayfern_config(
     }
   };
 
-  match BWBROWSER_AUTH.list_cloud_envs().await {
+  match BWBROWSER_AUTH.list_cloud_envs(None).await {
     Ok(envs) => {
       if let Some(env) = envs.iter().find(|e| e.env_uuid == uuid) {
         log_bwbrowser(
@@ -5831,7 +5952,7 @@ pub async fn bwbrowser_launch_account(
 
   // 2.1 始终用代理 geoip 覆盖 wayfern_config 的 location
   //     服务器环境的 timezone 通常是 Wayfern 默认值（Europe/London），不是真实代理时区
-  let mut wayfern_config = match wayfern_config {
+  let wayfern_config = match wayfern_config {
     Some(mut wc) => {
       if let Some(geo) = geo_info.as_ref() {
         let old_tz = wc
@@ -6048,9 +6169,6 @@ pub async fn bwbrowser_launch_account(
             }
           }
         }
-
-        // Update the wayfern_config variable so has_fingerprint_config reflects the preserved fingerprint
-        wayfern_config = Some(config_to_apply.clone());
 
         log_bwbrowser(
           "launch_account",
@@ -6432,45 +6550,46 @@ pub async fn bwbrowser_launch_account(
     .wayfern_config
     .as_ref()
     .and_then(|c| c.identity_id.clone());
-  if identity_id_before.is_none() && identity_id_after.is_some() {
-    let new_identity_id = identity_id_after.unwrap();
-    log_bwbrowser(
-      "launch_account",
-      &format!("  新生成 identity_id={}，同步到云端环境", new_identity_id),
-    );
-    let env_uuid_for_sync = new_env_uuid
-      .as_deref()
-      .or_else(|| server_env_uuid.as_deref().filter(|s| !s.is_empty()));
-    if let Some(env_uuid) = env_uuid_for_sync {
-      // 从 launched_profile 构建新的 fingerprint_config
-      let fp_json = launched_profile
-        .wayfern_config
-        .as_ref()
-        .map(wayfern_config_to_fingerprint_json)
-        .unwrap_or_default();
-      let env_name = format!(
-        "[{}] {}",
-        server_platform.as_deref().unwrap_or(""),
-        server_account_name
+  if identity_id_before.is_none() {
+    if let Some(new_identity_id) = identity_id_after.as_ref() {
+      log_bwbrowser(
+        "launch_account",
+        &format!("  新生成 identity_id={}，同步到云端环境", new_identity_id),
       );
-      match BWBROWSER_AUTH
-        .sync_cloud_env(
-          env_uuid,
-          &env_name,
-          Some(&format!("Cloud account: {}", server_account_name)),
-          "chromium",
-          Some(&fp_json),
-          None,
-          None,
-          "ready",
-        )
-        .await
-      {
-        Ok(_) => log_bwbrowser("launch_account", "  ✓ 指纹已同步到云端环境"),
-        Err(e) => log_bwbrowser_error(
-          "launch_account",
-          &format!("  指纹同步到云端环境失败: {}", e),
-        ),
+      let env_uuid_for_sync = new_env_uuid
+        .as_deref()
+        .or_else(|| server_env_uuid.as_deref().filter(|s| !s.is_empty()));
+      if let Some(env_uuid) = env_uuid_for_sync {
+        // 从 launched_profile 构建新的 fingerprint_config
+        let fp_json = launched_profile
+          .wayfern_config
+          .as_ref()
+          .map(wayfern_config_to_fingerprint_json)
+          .unwrap_or_default();
+        let env_name = format!(
+          "[{}] {}",
+          server_platform.as_deref().unwrap_or(""),
+          server_account_name
+        );
+        match BWBROWSER_AUTH
+          .sync_cloud_env(
+            env_uuid,
+            &env_name,
+            Some(&format!("Cloud account: {}", server_account_name)),
+            "chromium",
+            Some(&fp_json),
+            None,
+            None,
+            "ready",
+          )
+          .await
+        {
+          Ok(_) => log_bwbrowser("launch_account", "  ✓ 指纹已同步到云端环境"),
+          Err(e) => log_bwbrowser_error(
+            "launch_account",
+            &format!("  指纹同步到云端环境失败: {}", e),
+          ),
+        }
       }
     }
   }
@@ -6895,43 +7014,46 @@ async fn inject_cloud_cookies_after_launch(
     ),
   );
 
-  // 5. 决定是否注入云端 Cookie
-  use crate::cookie_sync::CookieSelection;
-  let should_inject = match (&cloud_score, is_fresh_profile) {
-    (None, true) => {
-      // 全新 profile 且无云端 Cookie → 无需注入，直接后面回传
-      log_bwbrowser("inject_cookies", "全新 profile 且无云端 Cookie，跳过注入");
+  // 5. 决定是否注入云端 Cookie（以本地为主）
+  //    - 首次创建 profile（is_fresh_profile）：服务器有就注入
+  //    - 本地 cookie 分数低于服务器 20 分以上：注入服务器的
+  //    - 否则：不注入，保留本地
+  let has_cloud = cloud_cookie_text
+    .as_deref()
+    .map(|s| !s.is_empty() && s != "[]")
+    .unwrap_or(false);
+
+  let should_inject = if is_fresh_profile && has_cloud {
+    log_bwbrowser("inject_cookies", "首次创建 profile，注入云端 Cookie");
+    true
+  } else if !has_cloud {
+    log_bwbrowser("inject_cookies", "无云端 Cookie，保留本地");
+    false
+  } else {
+    // 都有 cookie，比较分数
+    let cloud_total = cloud_score.as_ref().map(|s| s.total).unwrap_or(0);
+    let diff = cloud_total - local_score.total;
+    if diff > 20 {
+      log_bwbrowser(
+        "inject_cookies",
+        &format!(
+          "云端 Cookie 分数比本地高 {} 分 ({} vs {})，注入云端",
+          diff, cloud_total, local_score.total
+        ),
+      );
+      true
+    } else {
+      log_bwbrowser(
+        "inject_cookies",
+        &format!(
+          "本地 Cookie 分数足够 (本地={} 云端={} 差={}≤20)，保留本地",
+          local_score.total, cloud_total, diff
+        ),
+      );
       false
-    }
-    (None, false) => {
-      // 有本地 profile 但无云端 Cookie → 后面直接上传本地
-      log_bwbrowser("inject_cookies", "云端无 Cookie，跳过注入，直接回传本地");
-      false
-    }
-    (Some(cloud_s), _) => {
-      let selection = crate::cookie_sync::select_best_cookie_set(&local_score, cloud_s);
-      match selection {
-        CookieSelection::LocalDefinite => {
-          log_bwbrowser("inject_cookies", "本地 Cookie 确定登录，跳过注入");
-          false
-        }
-        CookieSelection::LocalBetter => {
-          log_bwbrowser("inject_cookies", "本地 Cookie 更优，跳过注入");
-          false
-        }
-        CookieSelection::CloudBetter => {
-          log_bwbrowser("inject_cookies", "云端 Cookie 更优，准备注入");
-          true
-        }
-        CookieSelection::None => {
-          log_bwbrowser("inject_cookies", "两边都不可用，跳过注入");
-          false
-        }
-      }
     }
   };
 
-  // 6. 注入云端 Cookie（如果需要）
   if should_inject {
     if let Some(ref cloud_text) = cloud_cookie_text {
       let cloud_val = serde_json::from_str::<serde_json::Value>(cloud_text)
@@ -6954,15 +7076,57 @@ async fn inject_cloud_cookies_after_launch(
       }
     }
   } else if let Some(url) = launch_url {
-    // 跳过注入时也要导航到平台 URL，避免停留在指纹检测页面
-    log_bwbrowser("inject_cookies", &format!("跳过注入，直接导航到 {}", url));
+    log_bwbrowser("inject_cookies", &format!("保留本地，导航到 {}", url));
     if let Err(e) = crate::cookie_sync::navigate_to_url(profile, url).await {
       log_bwbrowser_error("inject_cookies", &format!("导航失败: {}", e));
     }
   }
 
-  // 7. 通过 CDP 导出当前 Cookie 并立即回传云端
-  log_bwbrowser("inject_cookies", "通过 CDP 导出 Cookie 准备回传...");
+  // 7. 通过页面 DOM 检测真实登录状态（替代 cookie 判断）
+  let mut page_logged_in = false;
+  if let Some(url) = launch_url {
+    if let Some(lc_config) = crate::cookie_sync::fetch_login_check_config(&default_platform).await {
+      log_bwbrowser(
+        "inject_cookies",
+        &format!(
+          "开始页面登录检测: platform={}, url={}",
+          default_platform, url
+        ),
+      );
+      match crate::cookie_sync::check_login_via_page(profile, url, &lc_config).await {
+        Ok(logged_in) => {
+          page_logged_in = logged_in;
+          if logged_in {
+            log_bwbrowser("inject_cookies", "✓ 页面登录检测: 已登录");
+          } else {
+            log_bwbrowser(
+              "inject_cookies",
+              "✗ 页面登录检测: 未登录，可能 Cookie 无效或已过期",
+            );
+          }
+        }
+        Err(e) => {
+          log_bwbrowser_error("inject_cookies", &format!("页面登录检测失败: {}", e));
+        }
+      }
+    } else {
+      log_bwbrowser(
+        "inject_cookies",
+        &format!(
+          "平台 {} 无 login_check 配置，跳过页面检测",
+          default_platform
+        ),
+      );
+    }
+  }
+
+  // 8. 只有页面检测确认登录，才回传 Cookie 到云端
+  if !page_logged_in {
+    log_bwbrowser("inject_cookies", "页面检测未登录，跳过回传云端");
+    return Ok(());
+  }
+
+  log_bwbrowser("inject_cookies", "页面检测已登录，回传 Cookie 到云端...");
   let final_cookie_json = match crate::cookie_sync::export_cookies_via_cdp(profile).await {
     Ok(s) => s,
     Err(e) => {
@@ -7117,43 +7281,11 @@ async fn sync_cookies_to_cloud(
     ),
   );
 
-  // 对比评分：只有本地更优时才上传（对齐爆文库逻辑）
-  let should_upload = match cloud_score {
-    None => {
-      log_bwbrowser("cookie_sync", "  云端无 Cookie，直接上传");
-      true
-    }
-    Some(ref cloud_s) => {
-      use crate::cookie_sync::CookieSelection;
-      let selection = crate::cookie_sync::select_best_cookie_set(&local_score, cloud_s);
-      match selection {
-        CookieSelection::LocalDefinite => {
-          log_bwbrowser("cookie_sync", "  本地确定登录，上传覆盖云端");
-          true
-        }
-        CookieSelection::LocalBetter => {
-          log_bwbrowser("cookie_sync", "  本地 Cookie 更优，上传覆盖云端");
-          true
-        }
-        CookieSelection::CloudBetter => {
-          log_bwbrowser("cookie_sync", "  云端 Cookie 更优，跳过上传");
-          false
-        }
-        CookieSelection::None => {
-          log_bwbrowser("cookie_sync", "  两边都不可用，跳过上传");
-          false
-        }
-      }
-    }
-  };
-
-  if !should_upload {
-    return Ok((
-      false,
-      local_score.total,
-      cloud_score.as_ref().map(|s| s.total),
-    ));
-  }
+  // 始终上传（页面检测已确认登录状态，cookie 评分不再控制流程）
+  log_bwbrowser(
+    "cookie_sync",
+    "  始终上传本地 Cookie 到云端（页面检测为准）",
+  );
 
   // 上传到服务器
   let form_data = format!(

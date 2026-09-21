@@ -88,6 +88,8 @@ icon/bak/
 # Local backup scripts
 backup.ps1
 add_php_actions.py
+一键推送.ps1
+一键推送.bat
 
 # Browser fingerprint analysis
 browser-fingerprint-macos-analysis/
@@ -97,3 +99,11 @@ ssh服务器信息.txt
 *.log
 src-tauri/bwbrowser_stderr.log
 src-tauri/bwbrowser_stdout.log
+
+# Downloaded browser kernels (binaries only, never tracked)
+kernel/
+
+# Build error / compiler crash logs
+build_error.txt
+check_error.txt
+src-tauri/rustc-ice-*.txt

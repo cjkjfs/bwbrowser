@@ -3500,7 +3500,7 @@ impl WayfernManager {
       Ok(_) => {
         crate::bwbrowser_cloud::log_bwbrowser(
           "launch_account",
-          &"  [Wayfern-TZ] setFingerprint succeeded, saving fingerprint...".to_string(),
+          "  [Wayfern-TZ] setFingerprint succeeded, saving fingerprint...",
         );
 
         // Save fingerprint to profile's wayfern config so next launch reuses it
@@ -3532,9 +3532,11 @@ impl WayfernManager {
                   ),
                 );
               } else {
-                let mut wc = crate::wayfern_manager::WayfernConfig::default();
-                wc.fingerprint = Some(fp_str);
-                wc.randomize_fingerprint_on_launch = Some(false);
+                let wc = crate::wayfern_manager::WayfernConfig {
+                  fingerprint: Some(fp_str),
+                  randomize_fingerprint_on_launch: Some(false),
+                  ..Default::default()
+                };
                 p.wayfern_config = Some(wc);
                 crate::bwbrowser_cloud::log_bwbrowser(
                   "launch_account",

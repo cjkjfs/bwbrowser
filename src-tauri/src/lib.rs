@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -3772,6 +3774,7 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_list_accounts,
       bwbrowser_cloud::bwbrowser_get_account_summary,
       bwbrowser_cloud::bwbrowser_list_cloud_users,
+      bwbrowser_cloud::bwbrowser_list_companies,
       bwbrowser_cloud::bwbrowser_get_account_detail,
       bwbrowser_cloud::bwbrowser_update_account_proxy,
       bwbrowser_cloud::bwbrowser_list_proxies,
