@@ -17,11 +17,14 @@
 /** `"<VERB> <path template>"`, exactly as the app publishes it. */
 export type OperationKey = string;
 
-/** Operation to the name of the `DonutClient` method that calls it. */
+/** Operation to the name of the `BwbrowserClient` method that calls it. */
 export const OPERATIONS: ReadonlyMap<OperationKey, string> = new Map([
   ["POST /v1/browsers/download", "downloadBrowser"],
   ["GET /v1/browsers/{browser}/versions", "listBrowserVersions"],
-  ["GET /v1/browsers/{browser}/versions/{version}/downloaded", "isBrowserDownloaded"],
+  [
+    "GET /v1/browsers/{browser}/versions/{version}/downloaded",
+    "isBrowserDownloaded",
+  ],
   ["GET /v1/cookie-bot/conflicts", "getCookieBotConflicts"],
   ["GET /v1/cookie-bot/presets", "listCookieBotPresets"],
   ["GET /v1/cookie-bot/runs", "listCookieBotRuns"],
@@ -37,8 +40,14 @@ export const OPERATIONS: ReadonlyMap<OperationKey, string> = new Map([
   ["DELETE /v1/extension-groups/{id}", "deleteExtensionGroup"],
   ["GET /v1/extension-groups/{id}", "getExtensionGroup"],
   ["PUT /v1/extension-groups/{id}", "updateExtensionGroup"],
-  ["DELETE /v1/extension-groups/{id}/extensions/{extension_id}", "removeExtensionFromGroup"],
-  ["POST /v1/extension-groups/{id}/extensions/{extension_id}", "addExtensionToGroup"],
+  [
+    "DELETE /v1/extension-groups/{id}/extensions/{extension_id}",
+    "removeExtensionFromGroup",
+  ],
+  [
+    "POST /v1/extension-groups/{id}/extensions/{extension_id}",
+    "addExtensionToGroup",
+  ],
   ["GET /v1/extensions", "listExtensions"],
   ["POST /v1/extensions", "createExtension"],
   ["DELETE /v1/extensions/{id}", "deleteExtension"],
@@ -97,7 +106,7 @@ export const OMITTED: ReadonlyMap<OperationKey, string> = new Map([
     "GET /v1/remote-sessions/{id}/cdp",
     "A WebSocket upgrade, not a request. fetch() cannot speak it, and bundling a " +
       "websocket implementation would end this package's zero-dependency promise for " +
-      "one endpoint. DonutClient.remoteSessionCdpUrl() builds the ws:// address so a " +
+      "one endpoint. BwbrowserClient.remoteSessionCdpUrl() builds the ws:// address so a " +
       "websocket library of the caller's choosing can connect, sending the same " +
       "Authorization: Bearer header on the handshake.",
   ],

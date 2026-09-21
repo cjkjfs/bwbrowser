@@ -1,6 +1,6 @@
-# donutbrowser
+# bwbrowser
 
-A thin Python client for the [Donut Browser](https://donutbrowser.com) local
+A thin Python client for the [BW Browser](https://bwbrowser.com) local
 REST API. Every method wraps exactly one documented endpoint; nothing is
 invented, cached or retried.
 
@@ -13,14 +13,14 @@ pip install -e .            # from this directory
 ```
 
 ```python
-from donutbrowser import DonutClient
+from bwbrowser import BwbrowserClient
 
-with DonutClient(token="...") as client:
+with BwbrowserClient(token="...") as client:
     with client.run(profile_id, url="https://example.com", headless=True) as session:
         print(session.cdp_url)
 ```
 
-The client reads `DONUT_API_TOKEN` and `DONUT_API_PORT` when the token and port
+The client reads `BWBROWSER_API_TOKEN` and `BWBROWSER_API_PORT` when the token and port
 are not passed as arguments.
 
 Full documentation, including the Node package and a worked agent example, is in

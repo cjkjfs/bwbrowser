@@ -12,8 +12,8 @@ use crate::proxy_manager::PROXY_MANAGER;
 use crate::settings_manager::{SettingsManager, StoredMcpRemoteKey};
 use crate::sync;
 
-pub const CLOUD_API_URL: &str = "https://api.donutbrowser.com";
-pub const CLOUD_SYNC_URL: &str = "https://sync.donutbrowser.com";
+pub const CLOUD_API_URL: &str = "https://api.bwbrowser.com";
+pub const CLOUD_SYNC_URL: &str = "https://sync.bwbrowser.com";
 
 /// Default per-hour cap on local automation API / MCP requests, used when the
 /// cloud API has not sent one.
@@ -48,7 +48,7 @@ pub struct Entitlements {
   /// control must read THIS rather than `remote_browser_hours > 0`.
   #[serde(rename = "remoteInteractive", default)]
   pub remote_interactive: bool,
-  /// Whether the plan may drive THIS desktop from Donut cloud: the remote MCP
+  /// Whether the plan may drive THIS desktop from Bwbrowser cloud: the remote MCP
   /// endpoint and the API in front of it.
   ///
   /// Read only by the UI. The bridge itself never gates on this: the relay
@@ -78,76 +78,25 @@ pub struct Entitlements {
 /// Local fallback mirror of the backend plan -> capability matrix, used only when
 /// the server hasn't sent an entitlements object (older cached state / backend).
 fn derive_entitlements(
-  plan: &str,
-  plan_period: Option<&str>,
-  subscription_status: &str,
-  profile_limit: i64,
+  _plan: &str,
+  _plan_period: Option<&str>,
+  _subscription_status: &str,
+  _profile_limit: i64,
 ) -> Entitlements {
-  let active =
-    plan != "free" && (subscription_status == "active" || plan_period == Some("lifetime"));
-  if !active {
-    return Entitlements {
-      active: false,
-      browser_automation: false,
-      cross_os_fingerprints: false,
-      cloud_backup: false,
-      team_collaboration: false,
-      cookie_bot: false,
-      remote_interactive: false,
-      remote_control: false,
-      agent_automation: false,
-      profile_limit: 0,
-      requests_per_hour: 0,
-      remote_browser_hours: 0,
-    };
-  }
-  // Tuple order: (browser_automation, cross_os_fingerprints, cloud_backup,
-  // team_collaboration, cookie_bot, remote_interactive, remote_control,
-  // agent_automation).
-  //
-  // pro and any unrecognized paid plan -> pro-level (never team). Solo is the
-  // one row where cookie_bot and browser_automation disagree, which is why
-  // cookie_bot can no longer be derived from browser_automation below.
-  //
-  // remote_control is enterprise-only, and is withheld from the unrecognized
-  // row rather than granted with the rest. Everything else here defaults
-  // generous so a comped account is never locked out of what it is paying for;
-  // an internet-facing hook into this machine is the one capability where
-  // guessing "probably yes" is not the safe direction to guess in.
-  let (
-    browser_automation,
-    cross_os_fingerprints,
-    cloud_backup,
-    team_collaboration,
-    cookie_bot,
-    remote_interactive,
-    remote_control,
-    agent_automation,
-  ) = match plan {
-    "solo" => (false, false, true, false, true, false, false, false),
-    "enterprise" => (true, true, true, true, true, true, true, true),
-    "team" => (true, true, true, true, true, true, false, true),
-    _ => (true, true, true, false, true, true, false, true),
-  };
+  // 完全免费：所有功能全部解锁，无数量限制
   Entitlements {
-    active,
-    browser_automation,
-    cross_os_fingerprints,
-    cloud_backup,
-    team_collaboration,
-    cookie_bot,
-    remote_interactive,
-    remote_control,
-    agent_automation,
-    profile_limit,
-    requests_per_hour: if browser_automation {
-      DEFAULT_REQUESTS_PER_HOUR
-    } else {
-      0
-    },
-    // Deliberately 0 in the fallback: the allowance is the server's to state and
-    // guessing it here would show a customer hours they may not have.
-    remote_browser_hours: 0,
+    active: true,
+    browser_automation: true,
+    cross_os_fingerprints: true,
+    cloud_backup: true,
+    team_collaboration: true,
+    cookie_bot: true,
+    remote_interactive: true,
+    remote_control: true,
+    agent_automation: true,
+    profile_limit: 99999,
+    requests_per_hour: 99999,
+    remote_browser_hours: 99999,
   }
 }
 
@@ -191,6 +140,18 @@ pub struct CloudUser {
   pub device_count: Option<i64>,
   #[serde(rename = "isPrimaryDevice", default)]
   pub is_primary_device: Option<bool>,
+  /// 用户真实姓名（bwbrowser 服务器返回的 real_name）
+  #[serde(rename = "realName", default)]
+  pub real_name: Option<String>,
+  /// 用户头像 URL（bwbrowser 服务器返回的 avatar）
+  #[serde(default)]
+  pub avatar: Option<String>,
+  /// 用户角色（manager, admin 等）
+  #[serde(rename = "planName", default)]
+  pub plan_name: Option<String>,
+  /// 用户统计数据（profiles_count, proxies_count 等）
+  #[serde(default)]
+  pub stats: Option<serde_json::Value>,
   /// Capability/limit set derived from the plan by the backend. `default` (None)
   /// keeps older login/state payloads deserializing; resolve via `entitlements()`.
   #[serde(default)]
@@ -208,16 +169,7 @@ impl CloudUser {
   /// Authoritative entitlements: the server-sent set when present, else derived
   /// locally from the plan fields (keeps older cached state / backends working).
   pub fn entitlements(&self) -> Entitlements {
-    if let Some(e) = &self.entitlements {
-      // Returned verbatim, INCLUDING the `#[serde(default)]` false that a
-      // backend older than this release leaves on `cookie_bot` /
-      // `remote_interactive`. Repairing it here is impossible anyway — serde's
-      // default erases the difference between "sent false" and "not sent" — and
-      // it is not this layer's job: nothing in Rust gates on either flag, and
-      // `getEntitlements()` in `src/lib/entitlements.ts` fills both gaps at the
-      // single point every UI consumer already goes through.
-      return e.clone();
-    }
+    // 完全免费：始终返回全解锁，忽略服务端传来的任何限制
     derive_entitlements(
       &self.plan,
       self.plan_period.as_deref(),
@@ -1098,7 +1050,7 @@ impl CloudAuthManager {
   pub async fn automation_rate_limit(&self) -> Option<(String, u64)> {
     #[cfg(feature = "e2e")]
     if crate::e2e_automation_enabled() {
-      if let Ok(limit) = std::env::var("DONUT_E2E_REQUESTS_PER_HOUR") {
+      if let Ok(limit) = std::env::var("BWBROWSER_E2E_REQUESTS_PER_HOUR") {
         if let Ok(limit) = limit.parse::<u64>() {
           if limit > 0 {
             return Some(("e2e-automation".to_string(), limit));
@@ -1337,7 +1289,7 @@ impl CloudAuthManager {
       .api_call_with_retry(|access_token| {
         let url = format!("{CLOUD_API_URL}/api/auth/wayfern-start");
         // Bound the request: without a timeout, an unreachable
-        // api.donutbrowser.com hangs the background fetch indefinitely,
+        // api.bwbrowser.com hangs the background fetch indefinitely,
         // which in turn forces wayfern_manager's launch-time wait to
         // exhaust its full polling budget every time.
         let client = reqwest::Client::builder()
@@ -2061,7 +2013,7 @@ mod tests {
       "Wayfern token request failed (403 Forbidden): {\"message\":\"Browser automation is restricted to your primary device. Log out other devices to use it here.\",\"statusCode\":403}"
     ));
     assert!(is_device_restriction(
-      "Wayfern token request failed (403 Forbidden): {\"message\":\"Browser automation requires the desktop app. Open Donut Browser and try again.\",\"statusCode\":403}"
+      "Wayfern token request failed (403 Forbidden): {\"message\":\"Browser automation requires the desktop app. Open BW Browser and try again.\",\"statusCode\":403}"
     ));
     // A plan-level refusal is not a restriction, and must not raise the toast
     // that tells the user to sign other devices out.

@@ -154,14 +154,14 @@ impl GeoIPDownloader {
     );
 
     #[cfg(feature = "e2e")]
-    let fixture_url = std::env::var("DONUT_E2E_GEOIP_DOWNLOAD_URL")
+    let fixture_url = std::env::var("BWBROWSER_E2E_GEOIP_DOWNLOAD_URL")
       .ok()
       .filter(|url| !url.is_empty());
     #[cfg(not(feature = "e2e"))]
     let fixture_url: Option<String> = None;
 
     #[cfg(feature = "e2e")]
-    let asn_fixture_url = std::env::var("DONUT_E2E_GEOIP_ASN_DOWNLOAD_URL")
+    let asn_fixture_url = std::env::var("BWBROWSER_E2E_GEOIP_ASN_DOWNLOAD_URL")
       .ok()
       .filter(|url| !url.is_empty());
     #[cfg(not(feature = "e2e"))]
@@ -335,7 +335,7 @@ impl GeoIPDownloader {
     let response = self
       .client
       .get(&url)
-      .header("User-Agent", "Mozilla/5.0 (compatible; donutbrowser)")
+      .header("User-Agent", "Mozilla/5.0 (compatible; bwbrowser)")
       .send()
       .await?;
 
@@ -422,7 +422,7 @@ mod tests {
     let response = downloader
       .client
       .get(&url)
-      .header("User-Agent", "Mozilla/5.0 (compatible; donutbrowser)")
+      .header("User-Agent", "Mozilla/5.0 (compatible; bwbrowser)")
       .send()
       .await
       .expect("Request should succeed");

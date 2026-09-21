@@ -134,16 +134,16 @@
       "title": "默认浏览器",
       "setAsDefault": "设为默认浏览器",
       "alreadyDefault": "已是默认浏览器",
-      "description": "设为默认后，Donut Browser 将处理网页链接并允许您选择使用哪个配置文件。",
-      "setSuccess": "Donut Browser 现在是您的默认浏览器",
+      "description": "设为默认后，BW Browser 将处理网页链接并允许您选择使用哪个配置文件。",
+      "setSuccess": "BW Browser 现在是您的默认浏览器",
       "setFailed": "无法设置默认浏览器",
       "finishInSystemSettings": "请在 Windows 设置中完成",
-      "finishInSystemSettingsDescription": "Donut Browser 已注册。Windows 设置已打开：在“Web 浏览器”中选择 Donut Browser 即可完成。"
+      "finishInSystemSettingsDescription": "BW Browser 已注册。Windows 设置已打开：在“Web 浏览器”中选择 BW Browser 即可完成。"
     },
     "permissions": {
       "title": "系统权限",
       "loading": "加载权限中...",
-      "description": "这些权限允许从 Donut Browser 启动的浏览器访问系统资源。每个网站仍会单独请求您的权限。",
+      "description": "这些权限允许从 BW Browser 启动的浏览器访问系统资源。每个网站仍会单独请求您的权限。",
       "microphone": "麦克风",
       "microphoneDescription": "浏览器应用程序的麦克风访问权限",
       "camera": "摄像头",
@@ -187,7 +187,7 @@
       "trialExpired": "试用期已过期",
       "trialExpiredDescription": "个人使用仍然免费。商业使用需要许可证。",
       "subscriptionActive": "已订阅 — {{plan}} 方案",
-      "subscriptionActiveDescription": "您的 Donut Browser 订阅已激活。在订阅有效期内允许商业使用。"
+      "subscriptionActiveDescription": "您的 BW Browser 订阅已激活。在订阅有效期内允许商业使用。"
     },
     "advanced": {
       "title": "高级",
@@ -200,7 +200,7 @@
       "copyLogsDescription": "复制经过脱敏的近期日志包（最多 5 MB）。脱敏无法识别所有类型的个人数据，请在分享前检查内容。"
     },
     "disableAutoUpdates": "禁用应用自动更新",
-    "disableAutoUpdatesDescription": "阻止应用程序自动检查和安装 Donut Browser 更新。浏览器更新不受影响。",
+    "disableAutoUpdatesDescription": "阻止应用程序自动检查和安装 BW Browser 更新。浏览器更新不受影响。",
     "keepDecryptedProfilesInRam": "在内存中保留已解密的配置文件",
     "keepDecryptedProfilesInRamDescription": "在启动之间保留密码保护配置文件的已解密内存副本,以便更快地启动。无论如何磁盘上的副本始终保持加密。",
     "privacy": {
@@ -225,10 +225,10 @@
       "chooseTitle": "为数据目录选择一个文件夹",
       "move": "移动",
       "willMoveTo": "全部移动到",
-      "moved": "数据目录已移动。重启 Donut Browser 后生效。",
+      "moved": "数据目录已移动。重启 BW Browser 后生效。",
       "reading": "正在读取数据目录…",
-      "restartRequired": "重启 Donut Browser 以使用新位置。在此之前仍从旧位置运行。",
-      "environmentOverride": "已设置 DONUTBROWSER_DATA_DIR，因此无论在这里选择哪里，应用都会使用该位置。",
+      "restartRequired": "重启 BW Browser 以使用新位置。在此之前仍从旧位置运行。",
+      "environmentOverride": "已设置 BWBROWSER_DATA_DIR，因此无论在这里选择哪里，应用都会使用该位置。",
       "missing": "所选的数据目录不存在。如果它在可移动磁盘上，请重新接上并重启。",
       "useDefault": "重新使用默认位置",
       "usingDefault": "下次启动时将使用默认位置。",
@@ -257,7 +257,7 @@
       "extensions": "扩展程序"
     },
     "newProfile": "新建",
-    "donutLogo": "Donut Browser 标识",
+    "bwbrowserLogo": "BW Browser 标识",
     "scrollGroupsLeft": "向左滚动分组",
     "scrollGroupsRight": "向右滚动分组"
   },
@@ -592,7 +592,8 @@
       "socks5": "SOCKS5",
       "ss": "Shadowsocks",
       "httpstls": "HTTP over TLS",
-      "vless": "VLESS (REALITY)"
+      "vless": "VLESS (REALITY)",
+      "trojan": "Trojan"
     },
     "tabs": {
       "regular": "常规",
@@ -867,8 +868,8 @@
     "tabRemote": "远程 MCP",
     "remote": {
       "enableLabel": "远程控制",
-      "enableDescription": "允许 Donut 云驱动此浏览器，让 donutbrowser.com 上的智能体控制它。没有任何东西监听传入连接：本应用主动向外连接，并可随时挂断。",
-      "signInRequired": "登录 Donut 账户后即可使用远程控制。",
+      "enableDescription": "允许 Bwbrowser 云驱动此浏览器，让 bwbrowser.com 上的智能体控制它。没有任何东西监听传入连接：本应用主动向外连接，并可随时挂断。",
+      "signInRequired": "登录 Bwbrowser 账户后即可使用远程控制。",
       "connected": "已连接：",
       "connecting": "正在连接：",
       "notConnected": "未连接",
@@ -892,7 +893,7 @@
       "credentialClientsFailed": "凭据已保存，但无法更新以下客户端：{{clients}}。请再次轮换以重试。",
       "switchToRemote": "切换",
       "switchedClient": "{{name}} 现在使用远程 MCP",
-      "fxHint": "fx 从 DONUT_MCP_TOKEN 读取凭据。请在启动 fx 的 shell 中导出该变量。",
+      "fxHint": "fx 从 BWBROWSER_MCP_TOKEN 读取凭据。请在启动 fx 的 shell 中导出该变量。",
       "fxExportCopied": "已复制导出命令"
     }
   },
@@ -1405,7 +1406,7 @@
     "launchHook": {
       "title": "启动钩子 URL",
       "label": "启动钩子 URL",
-      "description": "每次启动配置文件时，Donut Browser 都会向此 URL 发送一个 GET 请求。",
+      "description": "每次启动配置文件时，BW Browser 都会向此 URL 发送一个 GET 请求。",
       "placeholder": "https://example.com/hooks/profile-launch",
       "invalidUrlHint": "请输入有效的 http:// 或 https:// URL。"
     },
@@ -1479,7 +1480,7 @@
   },
   "profileTransfer": {
     "exportTitle": "导出配置文件",
-    "archiveFilter": "Donut 配置文件存档",
+    "archiveFilter": "Bwbrowser 配置文件存档",
     "exportDescription": "把此配置文件写入一个其他机器可以读取的文件。存档包含其设置；如果你需要，也包含浏览器数据：Cookie、登录状态和扩展状态。",
     "includeData": "包含浏览器数据",
     "protectedNotice": "此配置文件受密码保护，因此数据留在本机。存档只包含设置。",
@@ -1554,8 +1555,8 @@
     "selectedFolder": "已选文件夹",
     "selectFolder": "选择文件夹",
     "linkFolder": "直接从该文件夹加载",
-    "linkFolderOff": "文件夹会复制到 Donut，扩展可随身携带并同步到你的其他设备。",
-    "linkFolderOn": "Donut 每次启动都直接从该文件夹加载扩展。你的修改会在下次启动浏览器时生效，但扩展只保留在本机，不会同步。",
+    "linkFolderOff": "文件夹会复制到 Bwbrowser，扩展可随身携带并同步到你的其他设备。",
+    "linkFolderOn": "Bwbrowser 每次启动都直接从该文件夹加载扩展。你的修改会在下次启动浏览器时生效，但扩展只保留在本机，不会同步。",
     "replaceSource": "替换来源",
     "linkedNoSync": "已链接的扩展只保留在本机，无法同步。",
     "uploadFailed": "添加扩展失败",
@@ -1588,7 +1589,7 @@
     "fromUrl": "从链接添加",
     "fromUrlTooltip": "通过 Chrome 应用商店链接、扩展 ID 或 .crx/.zip 直链添加扩展",
     "urlPlaceholder": "应用商店链接、扩展 ID 或 .crx 链接",
-    "urlHint": "Donut 通过 HTTPS 下载扩展包，并在保存前读取其名称和版本。",
+    "urlHint": "Bwbrowser 通过 HTTPS 下载扩展包，并在保存前读取其名称和版本。",
     "fetchExtension": "获取",
     "fetching": "获取中…",
     "fetchedIdentity": "{{name}} · 版本 {{version}}",
@@ -1720,7 +1721,7 @@
     "title": "导入浏览器配置文件",
     "autoDetect": "自动检测",
     "manualImport": "手动导入",
-    "donutArchive": "Donut 存档",
+    "bwbrowserArchive": "Bwbrowser 存档",
     "detectedProfilesTitle": "检测到的浏览器配置文件",
     "scanning": "正在扫描浏览器配置文件...",
     "noneFound": "在你的系统上未找到浏览器配置文件。",
@@ -1878,7 +1879,7 @@
   },
   "wayfernTerms": {
     "title": "Wayfern 条款和条件",
-    "description": "在使用 Donut Browser 之前,你必须阅读并同意 Wayfern 的条款和条件。",
+    "description": "在使用 BW Browser 之前,你必须阅读并同意 Wayfern 的条款和条件。",
     "reviewLabel": "请查看以下条款和条件:",
     "agreeNotice": "点击「我接受」即表示你同意受这些条款约束。",
     "acceptButton": "我接受",
@@ -1889,7 +1890,7 @@
   "commercialTrial": {
     "title": "商业试用期已过期",
     "description": "你的 2 周商业试用期已结束。",
-    "body": "如果你将 Donut Browser 用于商业目的,需要购买商业许可证才能继续。你仍然可以免费用于个人用途。",
+    "body": "如果你将 BW Browser 用于商业目的,需要购买商业许可证才能继续。你仍然可以免费用于个人用途。",
     "understandButton": "我明白了",
     "failed": "保存确认失败",
     "tryAgain": "请重试"
@@ -1897,10 +1898,10 @@
   "permissionDialog": {
     "titleMicrophone": "需要麦克风访问权限",
     "titleCamera": "需要摄像头访问权限",
-    "descMicrophone": "Donut Browser 需要访问你的麦克风以在浏览器中启用麦克风功能。每个想使用麦克风的网站仍会单独请求你的许可。",
-    "descCamera": "Donut Browser 需要访问你的摄像头以在浏览器中启用摄像头功能。每个想使用摄像头的网站仍会单独请求你的许可。",
-    "grantedMicrophone": "权限已授予!从 Donut Browser 启动的浏览器现在可以访问你的麦克风。",
-    "grantedCamera": "权限已授予!从 Donut Browser 启动的浏览器现在可以访问你的摄像头。",
+    "descMicrophone": "BW Browser 需要访问你的麦克风以在浏览器中启用麦克风功能。每个想使用麦克风的网站仍会单独请求你的许可。",
+    "descCamera": "BW Browser 需要访问你的摄像头以在浏览器中启用摄像头功能。每个想使用摄像头的网站仍会单独请求你的许可。",
+    "grantedMicrophone": "权限已授予!从 BW Browser 启动的浏览器现在可以访问你的麦克风。",
+    "grantedCamera": "权限已授予!从 BW Browser 启动的浏览器现在可以访问你的摄像头。",
     "notGrantedMicrophone": "未授予权限。点击下方按钮请求访问你的麦克风。",
     "notGrantedCamera": "未授予权限。点击下方按钮请求访问你的摄像头。",
     "doneButton": "完成",
@@ -2020,7 +2021,7 @@
   },
   "appUpdate": {
     "toast": {
-      "updateFailed": "更新 Donut Browser 失败",
+      "updateFailed": "更新 BW Browser 失败",
       "restartFailed": "重启失败",
       "updateReady": "更新就绪，请重启以应用",
       "manualDownloadRequired": "需要手动下载",
@@ -2029,7 +2030,8 @@
       "later": "稍后",
       "uploading": "上传中",
       "downloading": "下载中",
-      "startingUpdate": "正在开始更新..."
+      "startingUpdate": "正在开始更新...",
+      "checkFailed": "更新检查失败"
     }
   },
   "browserDownload": {
@@ -2114,7 +2116,7 @@
     },
     "warnings": {
       "forgetWarningTitle": "重要:此密码无法恢复",
-      "forgetWarningBody": "Donut Browser 无法重置、恢复或绕过此密码。如果忘记,您将永久无法访问此配置文件的数据。"
+      "forgetWarningBody": "BW Browser 无法重置、恢复或绕过此密码。如果忘记,您将永久无法访问此配置文件的数据。"
     },
     "modes": {
       "set": "设置",
@@ -2157,7 +2159,7 @@
     "extensionNotADirectory": "该路径不是文件夹。",
     "extensionManifestMissing": "该文件夹中没有 manifest.json。请选择包含扩展 manifest.json 的文件夹。",
     "extensionManifestInvalid": "无法读取该文件夹中的 manifest.json。",
-    "extensionDirTooLarge": "该文件夹过大，无法复制到 Donut（上限为 256 MB、20,000 个文件）。请改用链接方式加载。",
+    "extensionDirTooLarge": "该文件夹过大，无法复制到 Bwbrowser（上限为 256 MB、20,000 个文件）。请改用链接方式加载。",
     "extensionPathHasComma": "该文件夹路径中包含逗号，Chromium 无法加载。请重命名或移动该文件夹。",
     "extensionLinkRequiresDirectory": "只有文件夹才能就地加载。要添加压缩包，请关闭链接选项。",
     "extensionLinkedCannotSync": "该扩展是从本机文件夹加载的，没有需要同步的内容。",
@@ -2172,7 +2174,7 @@
     "cookieImportProfileProtected": "无法将 Cookie 导入密码保护的配置文件。请先移除密码。",
     "cookieImportRemoteSession": "远程会话正在占用此配置文件，无法导入 Cookie。请等待同步完成。",
     "cookieImportNoCookies": "在你粘贴的内容中没有找到 Cookie。",
-    "selfHostedRequiresLogout": "在配置自托管服务器之前请先退出 Donut 账户。",
+    "selfHostedRequiresLogout": "在配置自托管服务器之前请先退出 Bwbrowser 账户。",
     "fingerprintRequiresPro": "查看或编辑指纹需要有效的付费方案。所有方案均包含指纹保护。",
     "proxyNotWorking": "所选代理无法使用，因此未创建配置文件。",
     "proxyPaymentRequired": "所选代理需要付费（402），其订阅可能已过期，因此未创建配置文件。",
@@ -2197,9 +2199,9 @@
     "dnsRulesSaveFailed": "保存 DNS 规则失败。",
     "dnsRulesExportFailed": "导出 DNS 规则失败。",
     "fingerprintMatchFailed": "无法将指纹匹配到代理。",
-    "proxySidecarVersionMismatch": "部分 Donut Browser 文件来自不同版本。请重新安装最新更新；你的配置文件将保持安全。",
+    "proxySidecarVersionMismatch": "部分 BW Browser 文件来自不同版本。请重新安装最新更新；你的配置文件将保持安全。",
     "updateProfilesRunning": "安装更新前，请停止所有正在运行的配置文件。",
-    "updatePreparationFailed": "Donut Browser 无法安全停止后台网络进程。请重启电脑，然后再次尝试更新。",
+    "updatePreparationFailed": "BW Browser 无法安全停止后台网络进程。请重启电脑，然后再次尝试更新。",
     "wayfernTermsRequired": "请先接受 Wayfern 条款与条件，再启动 MCP 服务器。",
     "apiPortUnavailable": "API 服务器找不到可用端口。",
     "mcpServerAlreadyRunning": "MCP 服务器已在运行。",
@@ -2207,14 +2209,14 @@
     "mcpPortUnavailable": "MCP 服务器找不到可用端口。",
     "mcpConfigurationUnavailable": "MCP 服务器配置不可用。请重启服务器后重试。",
     "mcpAgentUnknown": "不支持此 MCP 客户端。",
-    "mcpAgentInstallFailed": "无法将 Donut Browser 添加到 MCP 客户端：{{detail}}",
-    "mcpAgentRemoveFailed": "无法从 MCP 客户端移除 Donut Browser：{{detail}}",
+    "mcpAgentInstallFailed": "无法将 BW Browser 添加到 MCP 客户端：{{detail}}",
+    "mcpAgentRemoveFailed": "无法从 MCP 客户端移除 BW Browser：{{detail}}",
     "vlessConfigInvalid": "VLESS URI 无效。",
     "xrayUnavailable": "此系统无法使用 Xray-core。",
     "xrayUnsupportedOs": "VLESS 需要 macOS 12 或更高版本。",
     "xrayStartFailed": "无法启动 Xray-core。",
-    "cloudNotSignedIn": "请先登录你的 Donut Browser 账号再使用此功能。",
-    "cloudUnreachable": "无法连接 Donut Browser 服务器。请检查网络后重试。",
+    "cloudNotSignedIn": "请先登录你的 BW Browser 账号再使用此功能。",
+    "cloudUnreachable": "无法连接 BW Browser 服务器。请检查网络后重试。",
     "cloudRequestFailed": "请求失败。请稍后再试。",
     "remoteRateLimited": "请求过于频繁。请稍候再试。",
     "remoteNoCapacity": "当前没有空闲的远程机器。请几分钟后再试。",
@@ -2256,16 +2258,16 @@
     "vpnWorkerStartFailed": "无法启动 VPN 连接：{{detail}}",
     "exitProbeFailed": "无法连接代理出口节点以检查其位置。",
     "vlessUnsupported": {
-      "security": "此 VLESS 服务器未使用 REALITY。Donut 仅支持搭配 REALITY 的 VLESS。",
-      "flow": "此 VLESS 服务器未使用 Donut 所需的 XTLS Vision 流控。",
-      "transport": "Donut 仅支持基于普通 TCP 的 VLESS —— 此服务器使用了其他传输方式（如 WebSocket 或 gRPC）。",
-      "encryption": "此 VLESS 服务器使用了 Donut 不支持的加密设置。",
-      "headerType": "此 VLESS 服务器使用了 Donut 不支持的头部混淆。",
-      "fingerprint": "此 VLESS URI 请求了 Donut 不支持的 TLS 指纹。",
+      "security": "此 VLESS 服务器未使用 REALITY。Bwbrowser 仅支持搭配 REALITY 的 VLESS。",
+      "flow": "此 VLESS 服务器未使用 Bwbrowser 所需的 XTLS Vision 流控。",
+      "transport": "Bwbrowser 仅支持基于普通 TCP 的 VLESS —— 此服务器使用了其他传输方式（如 WebSocket 或 gRPC）。",
+      "encryption": "此 VLESS 服务器使用了 Bwbrowser 不支持的加密设置。",
+      "headerType": "此 VLESS 服务器使用了 Bwbrowser 不支持的头部混淆。",
+      "fingerprint": "此 VLESS URI 请求了 Bwbrowser 不支持的 TLS 指纹。",
       "sni": "VLESS URI 缺少 REALITY 所需的 SNI（sni）。",
       "publicKey": "VLESS URI 缺少 REALITY 公钥（pbk）。",
       "scheme": "这不是 VLESS 链接，必须以 vless:// 开头。",
-      "parameter": "VLESS URI 含有 Donut 不支持的选项。",
+      "parameter": "VLESS URI 含有 Bwbrowser 不支持的选项。",
       "malformed": "VLESS URI 无效。"
     },
     "camoufoxRemoved": "Camoufox 已不再受支持。请使用 Wayfern 重新创建此配置文件。",
@@ -2281,20 +2283,20 @@
     "profileExportFailed": "无法导出此配置文件。{{detail}}",
     "profileExportTooLarge": "此配置文件太大，无法导出。请清理部分浏览数据后重试。",
     "profileImportFailed": "无法读取此存档。{{detail}}",
-    "profileImportTooNew": "此存档由更新版本的 Donut Browser 写入。请更新应用后重试。",
+    "profileImportTooNew": "此存档由更新版本的 BW Browser 写入。请更新应用后重试。",
     "profileImportUnsafeArchive": "此存档试图写入配置文件目录之外的位置，已被拒绝。",
     "recordingAlreadyRunning": "已经有一个录制在进行。请先停止它再开始新的。",
     "profileNotRunning": "录制前请先启动该配置文件的浏览器。",
     "wayfern152Required": "录制需要 Wayfern 152 或更高版本。请更新该配置文件的浏览器。",
     "recordingFailed": "无法开始录制。{{detail}}",
-    "mcpRemoteRequiresSignIn": "启用远程控制前，请先登录 Donut 账户。",
-    "mcpRemoteUnauthorized": "Donut 云拒绝了此设备的凭据。请退出登录后重新登录。",
-    "mcpRemoteSlotTaken": "此账户已有另一个 Donut 实例连接。同一时间只能远程控制一个。",
+    "mcpRemoteRequiresSignIn": "启用远程控制前，请先登录 Bwbrowser 账户。",
+    "mcpRemoteUnauthorized": "Bwbrowser 云拒绝了此设备的凭据。请退出登录后重新登录。",
+    "mcpRemoteSlotTaken": "此账户已有另一个 Bwbrowser 实例连接。同一时间只能远程控制一个。",
     "mcpRemoteNotEntitled": "此方案不包含远程控制。请联系我们开通。",
-    "mcpRemoteUnreachable": "当前无法连接 Donut 云。正在自动重新连接。",
+    "mcpRemoteUnreachable": "当前无法连接 Bwbrowser 云。正在自动重新连接。",
     "mcpRemoteKeyMissing": "此设备尚未保存远程 MCP 凭证。请先创建一个，然后重新添加客户端。",
     "mcpRemoteKeyLimit": "此账户持有的 MCP 凭据已达上限。请在账户页面撤销一个后再试。",
-    "mcpRemoteKeyUnavailable": "Donut cloud 目前无法签发 MCP 凭据。请稍后再试。",
+    "mcpRemoteKeyUnavailable": "Bwbrowser cloud 目前无法签发 MCP 凭据。请稍后再试。",
     "urlSchemeNotAllowed": "只能打开 http 和 https 地址。",
     "toolIsLocalOnly": "该操作需要本机上的文件，因此无法远程执行。",
     "typingTooLong": "输入这段文本大约需要 {{seconds}} 秒，而单次请求最多只能用 {{limit}} 秒。请分成更小的部分发送。",
@@ -2308,7 +2310,7 @@
     "remoteSessionNotDrivable": "此远程会话尚未就绪，无法控制。请等待其变为在线状态。",
     "remotePlatformUnsupported": "远程会话仅在 macOS、Windows 或 Linux 主机上运行。此配置文件的平台是 {{platform}}。",
     "remoteProfileNotSynced": "此配置文件尚未完成上传到云同步。请等待首次同步完成后再试。",
-    "mcpLocalRemoved": "Donut 的本地 MCP 服务器已移除。请改用远程 MCP：在“设置 > 集成”中设置，即可从任何地方连接。",
+    "mcpLocalRemoved": "Bwbrowser 的本地 MCP 服务器已移除。请改用远程 MCP：在“设置 > 集成”中设置，即可从任何地方连接。",
     "trashEntryNotFound": "此配置文件已不在回收站中。",
     "trashRestoreConflict": "已存在相同 ID 的配置文件，因此无法恢复。",
     "agentNotEntitled": "你的套餐不包含智能体。",
@@ -2358,7 +2360,7 @@
       "importProfileHint": "从其他工具导入",
       "keyboardShortcuts": "键盘快捷键",
       "keyboardShortcutsHint": "查看所有快捷键",
-      "about": "关于 Donut Browser",
+      "about": "关于 BW Browser",
       "aboutHint": "版本和应用信息",
       "trash": "回收站",
       "trashHint": "恢复已删除的配置文件",
@@ -2384,7 +2386,8 @@
     "shortcuts": "键盘快捷键",
     "cookieBot": "Cookie Bot",
     "trash": "回收站",
-    "agent": "智能体"
+    "agent": "智能体",
+    "cloudAccounts": "云端账号"
   },
   "encryption": {
     "required": {
@@ -2434,8 +2437,8 @@
     },
     "selfHosted": {
       "title": "自托管同步服务器",
-      "description": "将 Donut 连接到您自己的 donut-sync 服务器，无需使用托管云即可同步配置文件、代理、组和扩展程序。",
-      "disabledWhileLoggedIn": "登录 Donut 账户时无法使用自托管同步。请先退出登录以使用自定义服务器。",
+      "description": "将 Bwbrowser 连接到您自己的 bwbrowser-sync 服务器，无需使用托管云即可同步配置文件、代理、组和扩展程序。",
+      "disabledWhileLoggedIn": "登录 Bwbrowser 账户时无法使用自托管同步。请先退出登录以使用自定义服务器。",
       "connectionStatus": "连接：",
       "statusUnknown": "未测试",
       "testConnection": "测试连接",
@@ -2464,7 +2467,7 @@
       "stopProfile": "停止 {{name}}",
       "profileInfo": "信息 — {{name}}",
       "createProfile": "创建配置文件",
-      "about": "关于 Donut Browser"
+      "about": "关于 BW Browser"
     }
   },
   "shortcuts": {
@@ -2484,13 +2487,13 @@
     "openTips": "打开小贴士"
   },
   "closeConfirm": {
-    "title": "关闭 Donut Browser？",
+    "title": "关闭 BW Browser？",
     "description": "您想将应用最小化到系统托盘还是退出？",
     "minimize": "最小化到托盘",
     "quit": "退出"
   },
   "tray": {
-    "show": "显示 Donut Browser",
+    "show": "显示 BW Browser",
     "quit": "退出"
   },
   "onboarding": {
@@ -2511,13 +2514,13 @@
       "finish": "完成"
     },
     "thankYou": {
-      "title": "感谢您选择 Donut Browser",
+      "title": "感谢您选择 BW Browser",
       "body": "希望它能让您的网络浏览更加私密——每个身份彼此独立，数据不会离开您的设备。祝您使用愉快！",
       "cta": "开始浏览"
     }
   },
   "welcome": {
-    "title": "欢迎使用 Donut Browser",
+    "title": "欢迎使用 BW Browser",
     "tagline": "一款开源的反检测浏览器，可同时管理多个身份。",
     "skip": "跳过",
     "next": "下一步",
@@ -2561,7 +2564,7 @@
     },
     "license": {
       "title": "许可",
-      "body": "Donut Browser 是开源软件，可免费使用。",
+      "body": "BW Browser 是开源软件，可免费使用。",
       "agree": "我知道了",
       "personalTitle": "个人使用",
       "personalDesc": "永久免费。",
@@ -2946,16 +2949,16 @@
     "vpnExtensionConfirmed": "已知的 VPN 或代理工具",
     "vpnExtensionLikely": "疑似 VPN 或代理工具",
     "vpnExtensionCapability": "拥有代理权限",
-    "vpnExtensionExplainer": "如果其中之一将流量转发到别处，浏览器的真实位置将不再与创建此配置文件时使用的时区、语言和地理位置一致，而 Donut 无法从外部察觉。",
+    "vpnExtensionExplainer": "如果其中之一将流量转发到别处，浏览器的真实位置将不再与创建此配置文件时使用的时区、语言和地理位置一致，而 Bwbrowser 无法从外部察觉。",
     "proxyCapableHeading": "可以更改代理的扩展",
-    "proxyCapableIntro": "它们看起来不是 VPN，但拥有 Chromium 的代理权限，下载管理器和调试工具同样需要该权限。Donut 无法判断它们是否在使用它：",
-    "sourceDonut": "由 Donut 管理",
+    "proxyCapableIntro": "它们看起来不是 VPN，但拥有 Chromium 的代理权限，下载管理器和调试工具同样需要该权限。Bwbrowser 无法判断它们是否在使用它：",
+    "sourceBwbrowser": "由 Bwbrowser 管理",
     "sourceBrowser": "已安装在配置文件中",
     "measurementUnreliable": "此配置文件中有扩展拥有代理权限，因此出口检测结果可能并非浏览器实际使用的线路。",
-    "scanIncompleteEncrypted": "此配置文件已加密，因此只能检查由 Donut 管理的扩展。",
-    "scanIncompleteEphemeral": "此配置文件尚无数据，因此只能检查由 Donut 管理的扩展。",
+    "scanIncompleteEncrypted": "此配置文件已加密，因此只能检查由 Bwbrowser 管理的扩展。",
+    "scanIncompleteEphemeral": "此配置文件尚无数据，因此只能检查由 Bwbrowser 管理的扩展。",
     "scanIncompletePartial": "扩展扫描被中断，可能有部分扩展未列出。",
-    "probePending": "尚未测量代理出口。Donut 会在启动过程中检查，如不匹配则停止。",
+    "probePending": "尚未测量代理出口。Bwbrowser 会在启动过程中检查，如不匹配则停止。",
     "launchAnyway": "仍要启动",
     "dontBlockAgain": "不再因这一完全相同的不匹配而阻止",
     "dontWarnExtensions": "不再就这些扩展发出警告",
@@ -2963,7 +2966,7 @@
     "cancelledSummary": "已取消 {{total}} 次启动中的 {{cancelled}} 次",
     "vpnExtensionEntry": " {{version}} — {{capability}}、{{source}}",
     "vpnExtensionEntryNoVersion": " — {{capability}}、{{source}}",
-    "scanIncompleteMissing": "此配置文件尚未启动过，因此只能检查由 Donut 管理的扩展。",
+    "scanIncompleteMissing": "此配置文件尚未启动过，因此只能检查由 Bwbrowser 管理的扩展。",
     "exitUnverifiedTimezone": "此配置文件的指纹未声明时区，因此出口检测无法进行验证。启动不会被阻止，但也没有进行任何比较。",
     "exitUnverifiedLanguage": "此配置文件的指纹语言无法与出口国家/地区比较，因此该项检测属于未验证，而非通过。"
   },
@@ -3023,7 +3026,7 @@
   },
   "mcpLocalDeprecated": {
     "title": "本地 MCP 已移除",
-    "description": "Donut 现在使用远程 MCP，你可以从任何地方连接。请在“远程 MCP”标签页中设置，并将你的 AI 客户端指向它。"
+    "description": "Bwbrowser 现在使用远程 MCP，你可以从任何地方连接。请在“远程 MCP”标签页中设置，并将你的 AI 客户端指向它。"
   },
   "mcpLocalMigrated": {
     "title": "已迁移到远程 MCP",
@@ -3137,11 +3140,11 @@
     },
     "unavailable": {
       "signInTitle": "登录后即可使用智能体",
-      "signInHint": "智能体运行由 Donut 云端调度。请在“账户”页面登录后开始。",
+      "signInHint": "智能体运行由 Bwbrowser 云端调度。请在“账户”页面登录后开始。",
       "planTitle": "你的套餐不包含智能体",
       "planHint": "升级到包含浏览器自动化的套餐后即可为智能体设定目标。",
       "notConfiguredTitle": "智能体尚不可用",
-      "notConfiguredHint": "此 Donut 部署尚未配置智能体。你的账户没有问题。"
+      "notConfiguredHint": "此 Bwbrowser 部署尚未配置智能体。你的账户没有问题。"
     },
     "form": {
       "profile": "配置文件",
@@ -3252,7 +3255,7 @@
       "recording": {
         "record": "录制",
         "recording": "录制中",
-        "description": "在该配置文件的浏览器中把任务做一遍，Donut 会记下步骤。密码绝不会被记录。",
+        "description": "在该配置文件的浏览器中把任务做一遍，Bwbrowser 会记下步骤。密码绝不会被记录。",
         "stop": "停止录制",
         "steps": "已记录 {{count}} 个步骤",
         "hint": "选择一个正在运行的配置文件进行录制。",
@@ -3327,7 +3330,7 @@
   },
   "groupBookmarks": {
     "title": "{{name}} 的书签",
-    "description": "该分组中的每个配置文件都会在 Donut 管理的文件夹中获得这些书签，其他书签保持不变。",
+    "description": "该分组中的每个配置文件都会在 Bwbrowser 管理的文件夹中获得这些书签，其他书签保持不变。",
     "editTooltip": "分组书签（{{n}}）",
     "empty": "该分组还没有共享书签。",
     "addRow": "添加书签",
@@ -3350,7 +3353,7 @@
     "previous": "上一条",
     "next": "下一条",
     "done": "完成",
-    "autoShow": "Donut 启动时显示一条小贴士",
+    "autoShow": "Bwbrowser 启动时显示一条小贴士",
     "items": {
       "dnsBlocklist": {
         "label": "DNS 拦截",
@@ -3379,7 +3382,7 @@
       "fingerprintGate": {
         "label": "指纹检查",
         "title": "让指纹与出口保持一致",
-        "body": "启动前，Donut 会将代理出口的时区和语言与配置文件的指纹进行比较，并阻止不一致的启动。请修正指纹，或者在确认无误的情况下于“高级”中关闭此检查。",
+        "body": "启动前，Bwbrowser 会将代理出口的时区和语言与配置文件的指纹进行比较，并阻止不一致的启动。请修正指纹，或者在确认无误的情况下于“高级”中关闭此检查。",
         "action": "打开高级设置"
       },
       "profilePassword": {
@@ -3397,7 +3400,7 @@
       "defaultBrowser": {
         "label": "默认浏览器",
         "title": "让每个链接在正确的配置文件中打开",
-        "body": "将 Donut 设为默认浏览器后，来自其他应用的每个链接都会询问应由哪个配置文件打开。",
+        "body": "将 Bwbrowser 设为默认浏览器后，来自其他应用的每个链接都会询问应由哪个配置文件打开。",
         "action": "打开默认浏览器设置"
       },
       "extensionGroups": {
@@ -3409,7 +3412,7 @@
       "selfHostedSync": {
         "label": "自托管同步",
         "title": "备份到自己的服务器",
-        "body": "将 Donut 指向自托管的 donut-sync 服务器，配置文件、代理和分组就会镜像到那里。再加上端到端密码，服务器只会看到密文。",
+        "body": "将 Bwbrowser 指向自托管的 bwbrowser-sync 服务器，配置文件、代理和分组就会镜像到那里。再加上端到端密码，服务器只会看到密文。",
         "action": "打开账户"
       },
       "trash": {
@@ -3420,14 +3423,14 @@
       },
       "localApi": {
         "label": "API 与 MCP",
-        "title": "用脚本和智能体自动化 Donut",
+        "title": "用脚本和智能体自动化 Bwbrowser",
         "body": "本地 REST API 和 MCP 服务器可让脚本和 AI 智能体列出、创建和配置配置文件。在“集成”中开启并复制令牌。",
         "action": "打开集成"
       },
       "importProfiles": {
         "label": "导入",
         "title": "从 Chrome、Edge 或 Brave 迁移配置文件",
-        "body": "导入会把 Chromium 配置文件或压缩包中的 Cookie、登录信息和扩展复制到新的 Donut 配置文件，随时可以启动。",
+        "body": "导入会把 Chromium 配置文件或压缩包中的 Cookie、登录信息和扩展复制到新的 Bwbrowser 配置文件，随时可以启动。",
         "action": "打开导入"
       },
       "cloudBackup": {
@@ -3468,7 +3471,7 @@
       },
       "remoteControl": {
         "label": "远程控制",
-        "title": "从 donutbrowser.com 控制这台电脑",
+        "title": "从 bwbrowser.com 控制这台电脑",
         "body": "开启远程控制后，网站上的智能体可通过出站桥接访问这台电脑的配置文件。在“集成”中开启。",
         "action": "打开集成"
       }

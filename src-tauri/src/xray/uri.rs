@@ -6,8 +6,8 @@ use url::{Host, Url};
 use uuid::Uuid;
 
 use super::{
-  model::validate_display_name, ParsedVlessUri, RealityFingerprint, RealitySettings, VlessFlow,
-  VlessRealityConfig, XrayError, XrayResult,
+  model::validate_display_name, ParsedTrojanUri, ParsedVlessUri, RealityFingerprint,
+  RealitySettings, TrojanConfig, VlessFlow, VlessRealityConfig, XrayError, XrayResult,
 };
 
 const SUPPORTED_PARAMETERS: &[&str] = &[
@@ -84,7 +84,8 @@ pub fn parse_vless_uri(input: &str) -> XrayResult<ParsedVlessUri> {
     }
   }
   require_value(&parameters, "security", "reality")?;
-  require_value(&parameters, "flow", VlessFlow::Vision.as_str())?;
+  // flow is optional: some VLESS REALITY configs don't use flow control
+  optional_value(&parameters, "flow", VlessFlow::Vision.as_str())?;
   optional_value(&parameters, "encryption", "none")?;
   optional_value(&parameters, "headerType", "none")?;
 
@@ -126,7 +127,10 @@ pub fn parse_vless_uri(input: &str) -> XrayResult<ParsedVlessUri> {
       address,
       port,
       id,
-      flow: VlessFlow::Vision,
+      flow: parameters
+        .get("flow")
+        .filter(|v| !v.is_empty())
+        .map(|_| VlessFlow::Vision),
       reality: RealitySettings {
         server_name,
         public_key,
@@ -170,7 +174,9 @@ pub fn export_vless_uri(config: &VlessRealityConfig, name: Option<&str>) -> Xray
   {
     let mut query = url.query_pairs_mut();
     query.append_pair("encryption", "none");
-    query.append_pair("flow", config.flow.as_str());
+    if let Some(flow) = config.flow {
+      query.append_pair("flow", flow.as_str());
+    }
     query.append_pair("security", "reality");
     query.append_pair("sni", &config.reality.server_name);
     query.append_pair("fp", config.reality.fingerprint.as_str());
@@ -194,7 +200,7 @@ pub fn export_vless_uri(config: &VlessRealityConfig, name: Option<&str>) -> Xray
 /// caller can report the *shape* problem first. A WebSocket URI always carries
 /// `path` (and usually `host`), gRPC carries `serviceName` — naming those keys
 /// instead of the transport sends the user deleting parameters when the real
-/// answer is that Donut only speaks plain TCP.
+/// answer is that Bwbrowser only speaks plain TCP.
 fn parse_parameters(url: &Url) -> XrayResult<(HashMap<String, String>, Vec<String>)> {
   let mut parameters = HashMap::new();
   let mut unsupported = Vec::new();
@@ -211,6 +217,53 @@ fn parse_parameters(url: &Url) -> XrayResult<(HashMap<String, String>, Vec<Strin
     }
   }
   Ok((parameters, unsupported))
+}
+
+pub fn parse_trojan_uri(input: &str) -> XrayResult<ParsedTrojanUri> {
+  if input.trim() != input {
+    return Err(XrayError::InvalidUri);
+  }
+  let url = Url::parse(input).map_err(|_| XrayError::InvalidUri)?;
+  if url.scheme() != "trojan" {
+    return Err(XrayError::UnsupportedScheme);
+  }
+  if url.username().is_empty() && url.password().is_none() {
+    return Err(XrayError::MissingField("password"));
+  }
+  let password = url.username();
+  if password.is_empty() {
+    return Err(XrayError::MissingField("password"));
+  }
+  let host = url.host_str().ok_or(XrayError::MissingField("host"))?;
+  let port = url.port().ok_or(XrayError::MissingField("port"))?;
+  let host = match url.host() {
+    Some(Host::Domain(_)) | Some(Host::Ipv4(_)) => host.to_string(),
+    Some(Host::Ipv6(addr)) => addr.to_string(),
+    None => return Err(XrayError::MissingField("host")),
+  };
+  let security = url
+    .query_pairs()
+    .find(|(k, _)| k == "security")
+    .map(|(_, v)| v.into_owned())
+    .unwrap_or_else(|| "tls".to_string());
+  let sni = url
+    .query_pairs()
+    .find(|(k, _)| k == "sni")
+    .map(|(_, v)| v.into_owned());
+  let fingerprint = url
+    .query_pairs()
+    .find(|(k, _)| k == "fp")
+    .map(|(_, v)| v.into_owned());
+  let name = url.fragment().map(|f| f.to_string());
+  let config = TrojanConfig {
+    address: host,
+    port,
+    password: password.to_string(),
+    sni,
+    fingerprint,
+    security,
+  };
+  Ok(ParsedTrojanUri { name, config, port })
 }
 
 fn required_parameter<'a>(
@@ -244,7 +297,10 @@ fn optional_value(
   name: &'static str,
   expected: &'static str,
 ) -> XrayResult<()> {
-  if parameters.get(name).is_some_and(|value| value != expected) {
+  if parameters
+    .get(name)
+    .is_some_and(|value| !value.is_empty() && value != expected)
+  {
     return Err(XrayError::UnsupportedValue {
       field: name,
       expected,
@@ -261,11 +317,11 @@ mod tests {
 
   const ID: &str = "6d6e21a1-4829-4d2b-bc7f-1b25707b61e4";
 
-  /// Donut accepts exactly one VLESS shape, so most rejections mean "your
+  /// Bwbrowser accepts exactly one VLESS shape, so most rejections mean "your
   /// server is a kind we do not support" rather than "you mistyped". These pin
   /// the reason each rejection reports, because the UI turns it into the one
   /// sentence that tells a user with a working WebSocket or plain-TLS server
-  /// why Donut will not take it.
+  /// why Bwbrowser will not take it.
   #[test]
   fn unsupported_setups_report_which_part_is_unsupported() {
     let good = format!(
@@ -303,7 +359,7 @@ mod tests {
   /// carries `serviceName`. Those keys are not in SUPPORTED_PARAMETERS, so
   /// before the shape was checked first they produced "unsupported option"
   /// and sent the user deleting query parameters instead of telling them
-  /// Donut only speaks plain TCP.
+  /// Bwbrowser only speaks plain TCP.
   #[test]
   fn a_display_name_survives_an_export_parse_round_trip() {
     // Percent signs are legal in a fragment, so they used to pass through
@@ -404,7 +460,7 @@ mod tests {
     assert_eq!(parsed.config.address, "vpn.example.com");
     assert_eq!(parsed.config.port, 443);
     assert_eq!(parsed.config.id, ID);
-    assert_eq!(parsed.config.flow, VlessFlow::Vision);
+    assert_eq!(parsed.config.flow, Some(VlessFlow::Vision));
     assert_eq!(parsed.config.reality.server_name, "www.example.com");
     assert_eq!(parsed.config.reality.public_key, public_key());
     assert_eq!(parsed.config.reality.short_id, "0123456789abcdef");

@@ -134,16 +134,16 @@
       "title": "Trình duyệt mặc định",
       "setAsDefault": "Đặt làm trình duyệt mặc định",
       "alreadyDefault": "Đã là trình duyệt mặc định",
-      "description": "Khi được đặt làm mặc định, Donut Browser sẽ xử lý các liên kết web và cho phép bạn chọn hồ sơ để sử dụng.",
-      "setSuccess": "Donut Browser hiện là trình duyệt mặc định của bạn",
+      "description": "Khi được đặt làm mặc định, BW Browser sẽ xử lý các liên kết web và cho phép bạn chọn hồ sơ để sử dụng.",
+      "setSuccess": "BW Browser hiện là trình duyệt mặc định của bạn",
       "setFailed": "Không thể đặt trình duyệt mặc định",
       "finishInSystemSettings": "Hoàn tất trong Cài đặt Windows",
-      "finishInSystemSettingsDescription": "Donut Browser đã được đăng ký. Cài đặt Windows đang mở: chọn Donut Browser trong mục Trình duyệt web để hoàn tất."
+      "finishInSystemSettingsDescription": "BW Browser đã được đăng ký. Cài đặt Windows đang mở: chọn BW Browser trong mục Trình duyệt web để hoàn tất."
     },
     "permissions": {
       "title": "Quyền hệ thống",
       "loading": "Đang tải quyền...",
-      "description": "Các quyền này cho phép trình duyệt được khởi chạy từ Donut Browser truy cập tài nguyên hệ thống. Mỗi trang web vẫn sẽ yêu cầu quyền riêng lẻ.",
+      "description": "Các quyền này cho phép trình duyệt được khởi chạy từ BW Browser truy cập tài nguyên hệ thống. Mỗi trang web vẫn sẽ yêu cầu quyền riêng lẻ.",
       "microphone": "Micro",
       "microphoneDescription": "Quyền truy cập micro cho ứng dụng trình duyệt",
       "camera": "Camera",
@@ -187,7 +187,7 @@
       "trialExpired": "Đã hết hạn dùng thử",
       "trialExpiredDescription": "Sử dụng cá nhân vẫn miễn phí. Sử dụng thương mại cần giấy phép.",
       "subscriptionActive": "Đã đăng ký — gói {{plan}}",
-      "subscriptionActiveDescription": "Đăng ký Donut Browser của bạn đang hoạt động. Sử dụng thương mại được cấp phép trong thời hạn gói."
+      "subscriptionActiveDescription": "Đăng ký BW Browser của bạn đang hoạt động. Sử dụng thương mại được cấp phép trong thời hạn gói."
     },
     "advanced": {
       "title": "Nâng cao",
@@ -200,7 +200,7 @@
       "copyLogsDescription": "Sao chép gói nhật ký gần đây đã được che thông tin nhạy cảm (tối đa 5 MB). Hãy xem lại trước khi chia sẻ vì việc che dữ liệu không thể nhận diện mọi loại dữ liệu cá nhân."
     },
     "disableAutoUpdates": "Tắt tự động cập nhật ứng dụng",
-    "disableAutoUpdatesDescription": "Ngăn ứng dụng tự động kiểm tra và cài đặt bản cập nhật Donut Browser. Cập nhật trình duyệt không bị ảnh hưởng.",
+    "disableAutoUpdatesDescription": "Ngăn ứng dụng tự động kiểm tra và cài đặt bản cập nhật BW Browser. Cập nhật trình duyệt không bị ảnh hưởng.",
     "keepDecryptedProfilesInRam": "Giữ hồ sơ đã giải mã trong RAM",
     "keepDecryptedProfilesInRamDescription": "Giữ bản sao đã giải mã trong RAM của hồ sơ được bảo vệ bằng mật khẩu giữa các lần khởi chạy để khởi động nhanh hơn. Bản sao trên ổ đĩa vẫn được mã hóa.",
     "privacy": {
@@ -225,10 +225,10 @@
       "chooseTitle": "Chọn một thư mục cho thư mục dữ liệu",
       "move": "Chuyển",
       "willMoveTo": "Mọi thứ sẽ chuyển đến",
-      "moved": "Đã chuyển thư mục dữ liệu. Khởi động lại Donut Browser để dùng nó.",
+      "moved": "Đã chuyển thư mục dữ liệu. Khởi động lại BW Browser để dùng nó.",
       "reading": "Đang đọc thư mục dữ liệu…",
-      "restartRequired": "Khởi động lại Donut Browser để dùng vị trí mới. Đến lúc đó nó vẫn chạy từ vị trí cũ.",
-      "environmentOverride": "DONUTBROWSER_DATA_DIR đã được đặt, nên ứng dụng dùng vị trí đó dù bạn chọn gì ở đây.",
+      "restartRequired": "Khởi động lại BW Browser để dùng vị trí mới. Đến lúc đó nó vẫn chạy từ vị trí cũ.",
+      "environmentOverride": "BWBROWSER_DATA_DIR đã được đặt, nên ứng dụng dùng vị trí đó dù bạn chọn gì ở đây.",
       "missing": "Không thấy thư mục dữ liệu đã chọn. Nếu nó nằm trên ổ rời, hãy cắm lại và khởi động lại.",
       "useDefault": "Dùng lại vị trí mặc định",
       "usingDefault": "Lần khởi động tới sẽ dùng vị trí mặc định.",
@@ -257,7 +257,7 @@
       "extensions": "Tiện ích mở rộng"
     },
     "newProfile": "Mới",
-    "donutLogo": "Logo Donut Browser",
+    "bwbrowserLogo": "Logo BW Browser",
     "scrollGroupsLeft": "Cuộn nhóm sang trái",
     "scrollGroupsRight": "Cuộn nhóm sang phải"
   },
@@ -592,7 +592,8 @@
       "socks5": "SOCKS5",
       "ss": "Shadowsocks",
       "httpstls": "HTTP over TLS",
-      "vless": "VLESS (REALITY)"
+      "vless": "VLESS (REALITY)",
+      "trojan": "Trojan"
     },
     "tabs": {
       "regular": "Thông thường",
@@ -867,8 +868,8 @@
     "tabRemote": "MCP từ xa",
     "remote": {
       "enableLabel": "Điều khiển từ xa",
-      "enableDescription": "Cho phép Donut cloud điều khiển trình duyệt này, để một tác nhân trên donutbrowser.com có thể điều khiển nó. Không có gì lắng nghe kết nối đến: ứng dụng này gọi ra ngoài và có thể ngắt bất cứ lúc nào.",
-      "signInRequired": "Đăng nhập tài khoản Donut để dùng điều khiển từ xa.",
+      "enableDescription": "Cho phép Bwbrowser cloud điều khiển trình duyệt này, để một tác nhân trên bwbrowser.com có thể điều khiển nó. Không có gì lắng nghe kết nối đến: ứng dụng này gọi ra ngoài và có thể ngắt bất cứ lúc nào.",
+      "signInRequired": "Đăng nhập tài khoản Bwbrowser để dùng điều khiển từ xa.",
       "connected": "Đã kết nối với tên",
       "connecting": "Đang kết nối với tên",
       "notConnected": "Chưa kết nối",
@@ -892,7 +893,7 @@
       "credentialClientsFailed": "Thông tin xác thực đã được lưu, nhưng không thể cập nhật các ứng dụng khách sau: {{clients}}. Xoay vòng lại để thử lại.",
       "switchToRemote": "Chuyển",
       "switchedClient": "{{name}} hiện dùng MCP từ xa",
-      "fxHint": "fx đọc thông tin xác thực từ DONUT_MCP_TOKEN. Hãy export biến này trong shell khởi chạy fx.",
+      "fxHint": "fx đọc thông tin xác thực từ BWBROWSER_MCP_TOKEN. Hãy export biến này trong shell khởi chạy fx.",
       "fxExportCopied": "Đã sao chép dòng export"
     }
   },
@@ -1405,7 +1406,7 @@
     "launchHook": {
       "title": "URL hook khởi chạy",
       "label": "URL hook khởi chạy",
-      "description": "Donut Browser sẽ gửi yêu cầu GET đến URL này mỗi khi profile được khởi chạy.",
+      "description": "BW Browser sẽ gửi yêu cầu GET đến URL này mỗi khi profile được khởi chạy.",
       "placeholder": "https://example.com/hooks/profile-launch",
       "invalidUrlHint": "Nhập URL http:// hoặc https:// hợp lệ."
     },
@@ -1479,7 +1480,7 @@
   },
   "profileTransfer": {
     "exportTitle": "Xuất hồ sơ",
-    "archiveFilter": "Tệp lưu trữ hồ sơ Donut",
+    "archiveFilter": "Tệp lưu trữ hồ sơ Bwbrowser",
     "exportDescription": "Ghi hồ sơ này ra một tệp mà máy khác đọc được. Tệp lưu trữ mang theo cấu hình và, nếu bạn muốn, dữ liệu trình duyệt: cookie, phiên đăng nhập và trạng thái tiện ích.",
     "includeData": "Kèm dữ liệu trình duyệt",
     "protectedNotice": "Hồ sơ này được bảo vệ bằng mật khẩu nên dữ liệu ở lại máy này. Tệp lưu trữ chỉ mang theo cấu hình.",
@@ -1554,8 +1555,8 @@
     "selectedFolder": "Thư mục đã chọn",
     "selectFolder": "Chọn thư mục",
     "linkFolder": "Tải trực tiếp từ thư mục này",
-    "linkFolderOff": "Thư mục được sao chép vào Donut. Tiện ích có thể mang đi và đồng bộ sang các thiết bị khác của bạn.",
-    "linkFolderOn": "Donut tải tiện ích trực tiếp từ thư mục này mỗi lần khởi chạy. Các thay đổi của bạn có hiệu lực ở lần mở trình duyệt tiếp theo, nhưng tiện ích chỉ nằm trên máy này và không bao giờ đồng bộ.",
+    "linkFolderOff": "Thư mục được sao chép vào Bwbrowser. Tiện ích có thể mang đi và đồng bộ sang các thiết bị khác của bạn.",
+    "linkFolderOn": "Bwbrowser tải tiện ích trực tiếp từ thư mục này mỗi lần khởi chạy. Các thay đổi của bạn có hiệu lực ở lần mở trình duyệt tiếp theo, nhưng tiện ích chỉ nằm trên máy này và không bao giờ đồng bộ.",
     "replaceSource": "Thay nguồn",
     "linkedNoSync": "Tiện ích được liên kết chỉ nằm trên máy này nên không thể đồng bộ.",
     "uploadFailed": "Không thêm được tiện ích",
@@ -1588,7 +1589,7 @@
     "fromUrl": "Từ liên kết",
     "fromUrlTooltip": "Thêm tiện ích từ liên kết Chrome Web Store, ID tiện ích hoặc liên kết .crx hay .zip trực tiếp",
     "urlPlaceholder": "Liên kết Web Store, ID tiện ích hoặc liên kết .crx",
-    "urlHint": "Donut tải gói qua HTTPS và đọc tên cùng phiên bản trước khi lưu bất cứ thứ gì.",
+    "urlHint": "Bwbrowser tải gói qua HTTPS và đọc tên cùng phiên bản trước khi lưu bất cứ thứ gì.",
     "fetchExtension": "Tải về",
     "fetching": "Đang tải…",
     "fetchedIdentity": "{{name}} · phiên bản {{version}}",
@@ -1720,7 +1721,7 @@
     "title": "Nhập profile trình duyệt",
     "autoDetect": "Tự động phát hiện",
     "manualImport": "Nhập thủ công",
-    "donutArchive": "Tệp Donut",
+    "bwbrowserArchive": "Tệp Bwbrowser",
     "detectedProfilesTitle": "Profile trình duyệt đã phát hiện",
     "scanning": "Đang quét profile trình duyệt...",
     "noneFound": "Không tìm thấy profile trình duyệt nào trên hệ thống của bạn.",
@@ -1878,7 +1879,7 @@
   },
   "wayfernTerms": {
     "title": "Điều khoản và điều kiện Wayfern",
-    "description": "Trước khi sử dụng Donut Browser, bạn phải đọc và đồng ý với Điều khoản và Điều kiện của Wayfern.",
+    "description": "Trước khi sử dụng BW Browser, bạn phải đọc và đồng ý với Điều khoản và Điều kiện của Wayfern.",
     "reviewLabel": "Vui lòng xem lại Điều khoản và Điều kiện tại:",
     "agreeNotice": "Bằng cách nhấn \"Tôi chấp nhận\", bạn đồng ý bị ràng buộc bởi các điều khoản này.",
     "acceptButton": "Tôi chấp nhận",
@@ -1889,7 +1890,7 @@
   "commercialTrial": {
     "title": "Thời gian dùng thử thương mại đã hết",
     "description": "Thời gian dùng thử thương mại 2 tuần của bạn đã kết thúc.",
-    "body": "Nếu bạn sử dụng Donut Browser cho mục đích thương mại, bạn cần mua giấy phép thương mại để tiếp tục. Bạn vẫn có thể sử dụng miễn phí cho mục đích cá nhân.",
+    "body": "Nếu bạn sử dụng BW Browser cho mục đích thương mại, bạn cần mua giấy phép thương mại để tiếp tục. Bạn vẫn có thể sử dụng miễn phí cho mục đích cá nhân.",
     "understandButton": "Tôi hiểu",
     "failed": "Lưu xác nhận thất bại",
     "tryAgain": "Vui lòng thử lại"
@@ -1897,10 +1898,10 @@
   "permissionDialog": {
     "titleMicrophone": "Yêu cầu quyền truy cập micro",
     "titleCamera": "Yêu cầu quyền truy cập camera",
-    "descMicrophone": "Donut Browser cần quyền truy cập micro để bật tính năng micro trong trình duyệt web. Mỗi trang web muốn sử dụng micro vẫn sẽ hỏi quyền bạn riêng lẻ.",
-    "descCamera": "Donut Browser cần quyền truy cập camera để bật tính năng camera trong trình duyệt web. Mỗi trang web muốn sử dụng camera vẫn sẽ hỏi quyền bạn riêng lẻ.",
-    "grantedMicrophone": "Đã cấp quyền! Trình duyệt khởi chạy từ Donut Browser giờ có thể truy cập micro của bạn.",
-    "grantedCamera": "Đã cấp quyền! Trình duyệt khởi chạy từ Donut Browser giờ có thể truy cập camera của bạn.",
+    "descMicrophone": "BW Browser cần quyền truy cập micro để bật tính năng micro trong trình duyệt web. Mỗi trang web muốn sử dụng micro vẫn sẽ hỏi quyền bạn riêng lẻ.",
+    "descCamera": "BW Browser cần quyền truy cập camera để bật tính năng camera trong trình duyệt web. Mỗi trang web muốn sử dụng camera vẫn sẽ hỏi quyền bạn riêng lẻ.",
+    "grantedMicrophone": "Đã cấp quyền! Trình duyệt khởi chạy từ BW Browser giờ có thể truy cập micro của bạn.",
+    "grantedCamera": "Đã cấp quyền! Trình duyệt khởi chạy từ BW Browser giờ có thể truy cập camera của bạn.",
     "notGrantedMicrophone": "Chưa cấp quyền. Nhấn nút bên dưới để yêu cầu quyền truy cập micro.",
     "notGrantedCamera": "Chưa cấp quyền. Nhấn nút bên dưới để yêu cầu quyền truy cập camera.",
     "doneButton": "Xong",
@@ -2020,7 +2021,7 @@
   },
   "appUpdate": {
     "toast": {
-      "updateFailed": "Cập nhật Donut Browser thất bại",
+      "updateFailed": "Cập nhật BW Browser thất bại",
       "restartFailed": "Khởi động lại thất bại",
       "updateReady": "Bản cập nhật sẵn sàng, khởi động lại để áp dụng",
       "manualDownloadRequired": "Cần tải xuống thủ công",
@@ -2029,7 +2030,8 @@
       "later": "Để sau",
       "uploading": "Đang tải lên",
       "downloading": "Đang tải xuống",
-      "startingUpdate": "Đang bắt đầu cập nhật..."
+      "startingUpdate": "Đang bắt đầu cập nhật...",
+      "checkFailed": "Kiểm tra cập nhật thất bại"
     }
   },
   "browserDownload": {
@@ -2114,7 +2116,7 @@
     },
     "warnings": {
       "forgetWarningTitle": "Quan trọng: mật khẩu này không thể khôi phục",
-      "forgetWarningBody": "Donut Browser không thể đặt lại, khôi phục hoặc bỏ qua mật khẩu này. Nếu bạn quên, bạn sẽ mất quyền truy cập vĩnh viễn vào dữ liệu profile này."
+      "forgetWarningBody": "BW Browser không thể đặt lại, khôi phục hoặc bỏ qua mật khẩu này. Nếu bạn quên, bạn sẽ mất quyền truy cập vĩnh viễn vào dữ liệu profile này."
     },
     "modes": {
       "set": "Đặt",
@@ -2157,7 +2159,7 @@
     "extensionNotADirectory": "Đường dẫn đó không phải là thư mục.",
     "extensionManifestMissing": "Thư mục đó không có manifest.json. Hãy chọn thư mục chứa manifest.json của tiện ích.",
     "extensionManifestInvalid": "Không đọc được manifest.json trong thư mục đó.",
-    "extensionDirTooLarge": "Thư mục đó quá lớn để sao chép vào Donut (giới hạn là 256 MB và 20.000 tệp). Hãy liên kết thư mục thay vì sao chép.",
+    "extensionDirTooLarge": "Thư mục đó quá lớn để sao chép vào Bwbrowser (giới hạn là 256 MB và 20.000 tệp). Hãy liên kết thư mục thay vì sao chép.",
     "extensionPathHasComma": "Đường dẫn thư mục có dấu phẩy nên Chromium không tải được. Hãy đổi tên hoặc di chuyển thư mục.",
     "extensionLinkRequiresDirectory": "Chỉ có thể tải tại chỗ một thư mục. Hãy tắt liên kết để thêm tệp nén.",
     "extensionLinkedCannotSync": "Tiện ích này được tải từ một thư mục trên máy này nên không có gì để đồng bộ.",
@@ -2172,7 +2174,7 @@
     "cookieImportProfileProtected": "Không thể nhập cookie vào hồ sơ được bảo vệ bằng mật khẩu. Hãy gỡ mật khẩu trước.",
     "cookieImportRemoteSession": "Không thể nhập cookie khi một phiên từ xa đang giữ hồ sơ này. Hãy đợi quá trình đồng bộ hoàn tất.",
     "cookieImportNoCookies": "Không tìm thấy cookie nào trong nội dung bạn đã dán.",
-    "selfHostedRequiresLogout": "Đăng xuất khỏi tài khoản Donut trước khi cấu hình máy chủ tự lưu trữ.",
+    "selfHostedRequiresLogout": "Đăng xuất khỏi tài khoản Bwbrowser trước khi cấu hình máy chủ tự lưu trữ.",
     "fingerprintRequiresPro": "Xem hoặc chỉnh sửa vân tay yêu cầu gói trả phí đang hoạt động. Tính năng bảo vệ được bao gồm trong mọi gói.",
     "proxyNotWorking": "Proxy đã chọn không hoạt động, nên profile chưa được tạo.",
     "proxyPaymentRequired": "Proxy đã chọn yêu cầu thanh toán (402) — gói đăng ký của nó có thể đã hết hạn — nên profile chưa được tạo.",
@@ -2197,9 +2199,9 @@
     "dnsRulesSaveFailed": "Không thể lưu quy tắc DNS.",
     "dnsRulesExportFailed": "Không thể xuất quy tắc DNS.",
     "fingerprintMatchFailed": "Không thể khớp vân tay với proxy.",
-    "proxySidecarVersionMismatch": "Một số tệp Donut Browser thuộc các phiên bản khác nhau. Hãy cài đặt lại bản cập nhật mới nhất; hồ sơ của bạn vẫn được giữ an toàn.",
+    "proxySidecarVersionMismatch": "Một số tệp BW Browser thuộc các phiên bản khác nhau. Hãy cài đặt lại bản cập nhật mới nhất; hồ sơ của bạn vẫn được giữ an toàn.",
     "updateProfilesRunning": "Hãy dừng tất cả hồ sơ đang chạy trước khi cài đặt bản cập nhật.",
-    "updatePreparationFailed": "Donut Browser không thể dừng an toàn một tiến trình mạng chạy nền. Hãy khởi động lại máy tính rồi thử cập nhật lại.",
+    "updatePreparationFailed": "BW Browser không thể dừng an toàn một tiến trình mạng chạy nền. Hãy khởi động lại máy tính rồi thử cập nhật lại.",
     "wayfernTermsRequired": "Hãy chấp nhận Điều khoản và Điều kiện của Wayfern trước khi khởi động máy chủ MCP.",
     "apiPortUnavailable": "Máy chủ API không tìm thấy cổng khả dụng.",
     "mcpServerAlreadyRunning": "Máy chủ MCP đang chạy.",
@@ -2207,14 +2209,14 @@
     "mcpPortUnavailable": "Máy chủ MCP không tìm thấy cổng khả dụng.",
     "mcpConfigurationUnavailable": "Cấu hình máy chủ MCP không khả dụng. Hãy khởi động lại máy chủ rồi thử lại.",
     "mcpAgentUnknown": "Ứng dụng MCP này không được hỗ trợ.",
-    "mcpAgentInstallFailed": "Không thể thêm Donut Browser vào ứng dụng MCP: {{detail}}",
-    "mcpAgentRemoveFailed": "Không thể xóa Donut Browser khỏi ứng dụng MCP: {{detail}}",
+    "mcpAgentInstallFailed": "Không thể thêm BW Browser vào ứng dụng MCP: {{detail}}",
+    "mcpAgentRemoveFailed": "Không thể xóa BW Browser khỏi ứng dụng MCP: {{detail}}",
     "vlessConfigInvalid": "URI VLESS không hợp lệ.",
     "xrayUnavailable": "Xray-core không khả dụng trên hệ thống này.",
     "xrayUnsupportedOs": "VLESS yêu cầu macOS 12 trở lên.",
     "xrayStartFailed": "Không thể khởi động Xray-core.",
-    "cloudNotSignedIn": "Hãy đăng nhập tài khoản Donut Browser để dùng tính năng này.",
-    "cloudUnreachable": "Không kết nối được tới máy chủ Donut Browser. Hãy kiểm tra kết nối và thử lại.",
+    "cloudNotSignedIn": "Hãy đăng nhập tài khoản BW Browser để dùng tính năng này.",
+    "cloudUnreachable": "Không kết nối được tới máy chủ BW Browser. Hãy kiểm tra kết nối và thử lại.",
     "cloudRequestFailed": "Yêu cầu thất bại. Hãy thử lại sau giây lát.",
     "remoteRateLimited": "Quá nhiều yêu cầu. Hãy đợi một lát rồi thử lại.",
     "remoteNoCapacity": "Hiện không có máy từ xa nào rảnh. Hãy thử lại sau vài phút.",
@@ -2256,16 +2258,16 @@
     "vpnWorkerStartFailed": "Không thể khởi động kết nối VPN: {{detail}}",
     "exitProbeFailed": "Không thể kết nối tới nút thoát của proxy để kiểm tra vị trí.",
     "vlessUnsupported": {
-      "security": "Máy chủ VLESS này không dùng REALITY. Donut chỉ hỗ trợ VLESS kèm REALITY.",
-      "flow": "Máy chủ VLESS này không dùng luồng XTLS Vision mà Donut yêu cầu.",
-      "transport": "Donut chỉ hỗ trợ VLESS trên TCP thuần — máy chủ này dùng phương thức truyền khác (như WebSocket hoặc gRPC).",
-      "encryption": "Máy chủ VLESS này dùng thiết lập mã hóa mà Donut không hỗ trợ.",
-      "headerType": "Máy chủ VLESS này dùng cách che giấu tiêu đề mà Donut không hỗ trợ.",
-      "fingerprint": "URI VLESS này yêu cầu một dấu vân tay TLS mà Donut không hỗ trợ.",
+      "security": "Máy chủ VLESS này không dùng REALITY. Bwbrowser chỉ hỗ trợ VLESS kèm REALITY.",
+      "flow": "Máy chủ VLESS này không dùng luồng XTLS Vision mà Bwbrowser yêu cầu.",
+      "transport": "Bwbrowser chỉ hỗ trợ VLESS trên TCP thuần — máy chủ này dùng phương thức truyền khác (như WebSocket hoặc gRPC).",
+      "encryption": "Máy chủ VLESS này dùng thiết lập mã hóa mà Bwbrowser không hỗ trợ.",
+      "headerType": "Máy chủ VLESS này dùng cách che giấu tiêu đề mà Bwbrowser không hỗ trợ.",
+      "fingerprint": "URI VLESS này yêu cầu một dấu vân tay TLS mà Bwbrowser không hỗ trợ.",
       "sni": "URI VLESS thiếu SNI (sni) cần cho REALITY.",
       "publicKey": "URI VLESS thiếu khóa công khai REALITY (pbk).",
       "scheme": "Đây không phải liên kết VLESS. Nó phải bắt đầu bằng vless://.",
-      "parameter": "URI VLESS chứa một tùy chọn mà Donut không hỗ trợ.",
+      "parameter": "URI VLESS chứa một tùy chọn mà Bwbrowser không hỗ trợ.",
       "malformed": "URI VLESS không hợp lệ."
     },
     "camoufoxRemoved": "Camoufox không còn được hỗ trợ. Hãy tạo lại hồ sơ này bằng Wayfern.",
@@ -2281,20 +2283,20 @@
     "profileExportFailed": "Không thể xuất hồ sơ này. {{detail}}",
     "profileExportTooLarge": "Hồ sơ này quá lớn để xuất. Hãy xóa bớt dữ liệu duyệt web rồi thử lại.",
     "profileImportFailed": "Không thể đọc tệp lưu trữ này. {{detail}}",
-    "profileImportTooNew": "Tệp này được tạo bởi phiên bản Donut Browser mới hơn. Hãy cập nhật ứng dụng rồi thử lại.",
+    "profileImportTooNew": "Tệp này được tạo bởi phiên bản BW Browser mới hơn. Hãy cập nhật ứng dụng rồi thử lại.",
     "profileImportUnsafeArchive": "Tệp này cố ghi ra ngoài thư mục hồ sơ nên đã bị từ chối.",
     "recordingAlreadyRunning": "Đã có một bản ghi đang chạy. Hãy dừng nó trước khi bắt đầu bản mới.",
     "profileNotRunning": "Hãy khởi động trình duyệt của hồ sơ này trước khi ghi.",
     "wayfern152Required": "Ghi lại cần Wayfern 152 trở lên. Hãy cập nhật trình duyệt cho hồ sơ này.",
     "recordingFailed": "Không thể bắt đầu ghi. {{detail}}",
-    "mcpRemoteRequiresSignIn": "Đăng nhập tài khoản Donut trước khi bật điều khiển từ xa.",
-    "mcpRemoteUnauthorized": "Donut cloud đã từ chối thông tin xác thực của thiết bị này. Hãy đăng xuất rồi đăng nhập lại.",
-    "mcpRemoteSlotTaken": "Một phiên bản Donut khác trên tài khoản này đã kết nối. Mỗi lần chỉ điều khiển từ xa được một máy.",
+    "mcpRemoteRequiresSignIn": "Đăng nhập tài khoản Bwbrowser trước khi bật điều khiển từ xa.",
+    "mcpRemoteUnauthorized": "Bwbrowser cloud đã từ chối thông tin xác thực của thiết bị này. Hãy đăng xuất rồi đăng nhập lại.",
+    "mcpRemoteSlotTaken": "Một phiên bản Bwbrowser khác trên tài khoản này đã kết nối. Mỗi lần chỉ điều khiển từ xa được một máy.",
     "mcpRemoteNotEntitled": "Gói này không bao gồm điều khiển từ xa. Liên hệ với chúng tôi để bật.",
-    "mcpRemoteUnreachable": "Hiện không kết nối được tới Donut cloud. Đang tự động kết nối lại.",
+    "mcpRemoteUnreachable": "Hiện không kết nối được tới Bwbrowser cloud. Đang tự động kết nối lại.",
     "mcpRemoteKeyMissing": "Thiết bị này chưa có thông tin xác thực MCP từ xa. Hãy tạo một thông tin trước, rồi thêm lại ứng dụng khách.",
     "mcpRemoteKeyLimit": "Tài khoản này đã có số thông tin xác thực MCP tối đa có thể giữ. Hãy thu hồi một cái trên trang tài khoản rồi thử lại.",
-    "mcpRemoteKeyUnavailable": "Donut cloud hiện không thể cấp thông tin xác thực MCP. Hãy thử lại sau giây lát.",
+    "mcpRemoteKeyUnavailable": "Bwbrowser cloud hiện không thể cấp thông tin xác thực MCP. Hãy thử lại sau giây lát.",
     "urlSchemeNotAllowed": "Chỉ có thể mở địa chỉ http và https.",
     "toolIsLocalOnly": "Thao tác này cần một tệp trên máy tính này nên không thể thực hiện từ xa.",
     "typingTooLong": "Văn bản đó sẽ mất khoảng {{seconds}} giây để gõ, trong khi mỗi yêu cầu chỉ được tối đa {{limit}} giây. Hãy gửi thành nhiều phần nhỏ hơn.",
@@ -2308,7 +2310,7 @@
     "remoteSessionNotDrivable": "Phiên từ xa này chưa sẵn sàng để điều khiển. Hãy đợi đến khi phiên hoạt động.",
     "remotePlatformUnsupported": "Phiên từ xa chỉ chạy trên máy chủ macOS, Windows hoặc Linux. Nền tảng của hồ sơ này là {{platform}}.",
     "remoteProfileNotSynced": "Hồ sơ này chưa tải lên xong dịch vụ đồng bộ đám mây. Hãy đợi lần đồng bộ đầu tiên hoàn tất rồi thử lại.",
-    "mcpLocalRemoved": "Máy chủ MCP cục bộ của Donut đã bị gỡ bỏ. Hãy dùng MCP từ xa: thiết lập trong Cài đặt > Tích hợp và kết nối từ bất cứ đâu.",
+    "mcpLocalRemoved": "Máy chủ MCP cục bộ của Bwbrowser đã bị gỡ bỏ. Hãy dùng MCP từ xa: thiết lập trong Cài đặt > Tích hợp và kết nối từ bất cứ đâu.",
     "trashEntryNotFound": "Hồ sơ này không còn trong thùng rác.",
     "trashRestoreConflict": "Đã tồn tại một hồ sơ có cùng ID nên không thể khôi phục hồ sơ này.",
     "agentNotEntitled": "Gói của bạn không bao gồm tác nhân.",
@@ -2358,7 +2360,7 @@
       "importProfileHint": "Đưa profile từ công cụ khác",
       "keyboardShortcuts": "Phím tắt",
       "keyboardShortcutsHint": "Xem tất cả phím tắt",
-      "about": "Giới thiệu về Donut Browser",
+      "about": "Giới thiệu về BW Browser",
       "aboutHint": "Phiên bản và thông tin ứng dụng",
       "trash": "Thùng rác",
       "trashHint": "Khôi phục hồ sơ đã xóa",
@@ -2384,7 +2386,8 @@
     "shortcuts": "Phím tắt",
     "cookieBot": "Cookie Bot",
     "trash": "Thùng rác",
-    "agent": "Tác nhân"
+    "agent": "Tác nhân",
+    "cloudAccounts": "Tài khoản đám mây"
   },
   "encryption": {
     "required": {
@@ -2434,8 +2437,8 @@
     },
     "selfHosted": {
       "title": "Máy chủ đồng bộ tự lưu trữ",
-      "description": "Trỏ Donut đến máy chủ donut-sync của riêng bạn để đồng bộ profile, proxy, nhóm và tiện ích mà không cần sử dụng đám mây.",
-      "disabledWhileLoggedIn": "Đồng bộ tự lưu trữ không khả dụng khi bạn đã đăng nhập vào tài khoản Donut. Đăng xuất để sử dụng máy chủ tùy chỉnh.",
+      "description": "Trỏ Bwbrowser đến máy chủ bwbrowser-sync của riêng bạn để đồng bộ profile, proxy, nhóm và tiện ích mà không cần sử dụng đám mây.",
+      "disabledWhileLoggedIn": "Đồng bộ tự lưu trữ không khả dụng khi bạn đã đăng nhập vào tài khoản Bwbrowser. Đăng xuất để sử dụng máy chủ tùy chỉnh.",
       "connectionStatus": "Kết nối:",
       "statusUnknown": "Chưa kiểm tra",
       "testConnection": "Kiểm tra kết nối",
@@ -2464,7 +2467,7 @@
       "stopProfile": "Dừng {{name}}",
       "profileInfo": "Thông tin — {{name}}",
       "createProfile": "Tạo hồ sơ",
-      "about": "Giới thiệu về Donut Browser"
+      "about": "Giới thiệu về BW Browser"
     }
   },
   "shortcuts": {
@@ -2484,13 +2487,13 @@
     "openTips": "Mở mẹo"
   },
   "closeConfirm": {
-    "title": "Đóng Donut Browser?",
+    "title": "Đóng BW Browser?",
     "description": "Bạn muốn thu nhỏ ứng dụng vào khay hệ thống hay thoát?",
     "minimize": "Thu nhỏ vào khay",
     "quit": "Thoát"
   },
   "tray": {
-    "show": "Hiển thị Donut Browser",
+    "show": "Hiển thị BW Browser",
     "quit": "Thoát"
   },
   "onboarding": {
@@ -2511,13 +2514,13 @@
       "finish": "Hoàn tất"
     },
     "thankYou": {
-      "title": "Cảm ơn bạn đã chọn Donut Browser",
+      "title": "Cảm ơn bạn đã chọn BW Browser",
       "body": "Hy vọng nó giúp việc duyệt web của bạn riêng tư hơn — mỗi danh tính được giữ riêng, và không có gì rời khỏi máy của bạn. Chúc bạn duyệt web vui vẻ.",
       "cta": "Bắt đầu duyệt web"
     }
   },
   "welcome": {
-    "title": "Chào mừng đến với Donut Browser",
+    "title": "Chào mừng đến với BW Browser",
     "tagline": "Trình duyệt chống phát hiện mã nguồn mở để quản lý nhiều danh tính cùng lúc.",
     "skip": "Bỏ qua",
     "next": "Tiếp theo",
@@ -2561,7 +2564,7 @@
     },
     "license": {
       "title": "Cấp phép",
-      "body": "Donut Browser là mã nguồn mở và miễn phí sử dụng.",
+      "body": "BW Browser là mã nguồn mở và miễn phí sử dụng.",
       "agree": "Tôi hiểu",
       "personalTitle": "Sử dụng cá nhân",
       "personalDesc": "Miễn phí vĩnh viễn.",
@@ -2600,7 +2603,7 @@
       "found": "Bạn đã tìm thấy ngăn đồ ăn vặt.",
       "finished": "Chỉ còn vụn bánh. Không có cookie.",
       "takeBite": "Cắn một miếng",
-      "again": "Thêm một chiếc donut"
+      "again": "Thêm một chiếc bwbrowser"
     }
   },
   "clearOnClose": {
@@ -2946,16 +2949,16 @@
     "vpnExtensionConfirmed": "Công cụ VPN hoặc proxy đã biết",
     "vpnExtensionLikely": "Có vẻ là công cụ VPN hoặc proxy",
     "vpnExtensionCapability": "Có quyền proxy",
-    "vpnExtensionExplainer": "Nếu một trong số đó chuyển lưu lượng của bạn đi nơi khác, vị trí thực của trình duyệt sẽ không còn khớp với múi giờ, ngôn ngữ và vị trí địa lý mà hồ sơ này được tạo ra, và Donut không thể phát hiện điều đó từ bên ngoài.",
+    "vpnExtensionExplainer": "Nếu một trong số đó chuyển lưu lượng của bạn đi nơi khác, vị trí thực của trình duyệt sẽ không còn khớp với múi giờ, ngôn ngữ và vị trí địa lý mà hồ sơ này được tạo ra, và Bwbrowser không thể phát hiện điều đó từ bên ngoài.",
     "proxyCapableHeading": "Các tiện ích có thể thay đổi proxy",
-    "proxyCapableIntro": "Chúng không giống VPN, nhưng có quyền proxy của Chromium, thứ mà trình quản lý tải xuống và công cụ gỡ lỗi cũng cần. Donut không thể biết liệu có tiện ích nào đang dùng quyền đó hay không:",
-    "sourceDonut": "Do Donut quản lý",
+    "proxyCapableIntro": "Chúng không giống VPN, nhưng có quyền proxy của Chromium, thứ mà trình quản lý tải xuống và công cụ gỡ lỗi cũng cần. Bwbrowser không thể biết liệu có tiện ích nào đang dùng quyền đó hay không:",
+    "sourceBwbrowser": "Do Bwbrowser quản lý",
     "sourceBrowser": "Đã cài trong hồ sơ",
     "measurementUnreliable": "Một tiện ích trong hồ sơ này có quyền proxy, nên kết quả kiểm tra điểm ra có thể không phản ánh tuyến đường mà trình duyệt thực sự dùng.",
-    "scanIncompleteEncrypted": "Hồ sơ này được mã hóa nên chỉ có thể kiểm tra các tiện ích do Donut quản lý.",
-    "scanIncompleteEphemeral": "Hồ sơ này chưa có dữ liệu nên chỉ có thể kiểm tra các tiện ích do Donut quản lý.",
+    "scanIncompleteEncrypted": "Hồ sơ này được mã hóa nên chỉ có thể kiểm tra các tiện ích do Bwbrowser quản lý.",
+    "scanIncompleteEphemeral": "Hồ sơ này chưa có dữ liệu nên chỉ có thể kiểm tra các tiện ích do Bwbrowser quản lý.",
     "scanIncompletePartial": "Quá trình quét tiện ích bị ngắt giữa chừng nên có thể thiếu một số tiện ích.",
-    "probePending": "Điểm ra của proxy chưa được đo. Donut sẽ kiểm tra trong lúc khởi động và dừng lại nếu không khớp.",
+    "probePending": "Điểm ra của proxy chưa được đo. Bwbrowser sẽ kiểm tra trong lúc khởi động và dừng lại nếu không khớp.",
     "launchAnyway": "Vẫn khởi chạy",
     "dontBlockAgain": "Không chặn lại với đúng sai lệch này",
     "dontWarnExtensions": "Không cảnh báo lại về các tiện ích này",
@@ -2963,7 +2966,7 @@
     "cancelledSummary": "Đã hủy {{cancelled}} trên {{total}} lượt khởi chạy",
     "vpnExtensionEntry": " {{version}} — {{capability}}, {{source}}",
     "vpnExtensionEntryNoVersion": " — {{capability}}, {{source}}",
-    "scanIncompleteMissing": "Hồ sơ này chưa từng được khởi chạy nên chỉ có thể kiểm tra các tiện ích do Donut quản lý.",
+    "scanIncompleteMissing": "Hồ sơ này chưa từng được khởi chạy nên chỉ có thể kiểm tra các tiện ích do Bwbrowser quản lý.",
     "exitUnverifiedTimezone": "Vân tay của hồ sơ này không khai báo múi giờ nào nên việc kiểm tra điểm ra không thể xác minh. Khởi chạy không bị chặn, nhưng cũng không có gì được so sánh.",
     "exitUnverifiedLanguage": "Ngôn ngữ vân tay của hồ sơ này không thể so sánh với quốc gia thoát, nên kiểm tra đó là chưa xác minh chứ không phải đã đạt."
   },
@@ -3023,7 +3026,7 @@
   },
   "mcpLocalDeprecated": {
     "title": "MCP cục bộ đã bị gỡ bỏ",
-    "description": "Donut hiện dùng MCP từ xa, bạn có thể kết nối từ bất cứ đâu. Thiết lập trong tab MCP từ xa và trỏ các client AI của bạn tới đó."
+    "description": "Bwbrowser hiện dùng MCP từ xa, bạn có thể kết nối từ bất cứ đâu. Thiết lập trong tab MCP từ xa và trỏ các client AI của bạn tới đó."
   },
   "mcpLocalMigrated": {
     "title": "Đã chuyển sang MCP từ xa",
@@ -3091,7 +3094,7 @@
   "easterEgg": {
     "konami": {
       "title": "Đã chấp nhận mã bí mật",
-      "description": "Đã thêm 30 chiếc bánh donut. Chúng chỉ để trang trí."
+      "description": "Đã thêm 30 chiếc bánh bwbrowser. Chúng chỉ để trang trí."
     }
   },
   "trash": {
@@ -3137,11 +3140,11 @@
     },
     "unavailable": {
       "signInTitle": "Đăng nhập để dùng tác nhân",
-      "signInHint": "Lượt chạy của tác nhân đi qua đám mây Donut. Đăng nhập ở trang Tài khoản để bắt đầu.",
+      "signInHint": "Lượt chạy của tác nhân đi qua đám mây Bwbrowser. Đăng nhập ở trang Tài khoản để bắt đầu.",
       "planTitle": "Tác nhân không nằm trong gói của bạn",
       "planHint": "Nâng cấp lên gói có tự động hoá trình duyệt để giao mục tiêu cho tác nhân.",
       "notConfiguredTitle": "Tác nhân chưa sẵn sàng",
-      "notConfiguredHint": "Bản triển khai Donut này chưa cấu hình tác nhân. Tài khoản của bạn không có vấn đề gì."
+      "notConfiguredHint": "Bản triển khai Bwbrowser này chưa cấu hình tác nhân. Tài khoản của bạn không có vấn đề gì."
     },
     "form": {
       "profile": "Hồ sơ",
@@ -3252,7 +3255,7 @@
       "recording": {
         "record": "Ghi lại",
         "recording": "Đang ghi",
-        "description": "Hãy làm tác vụ một lần trong trình duyệt của hồ sơ và Donut sẽ ghi lại các bước. Mật khẩu không bao giờ được ghi.",
+        "description": "Hãy làm tác vụ một lần trong trình duyệt của hồ sơ và Bwbrowser sẽ ghi lại các bước. Mật khẩu không bao giờ được ghi.",
         "stop": "Dừng ghi",
         "steps": "Đã ghi {{count}} bước",
         "hint": "Chọn một hồ sơ đang chạy để ghi.",
@@ -3327,7 +3330,7 @@
   },
   "groupBookmarks": {
     "title": "Dấu trang của {{name}}",
-    "description": "Mọi hồ sơ trong nhóm này nhận các dấu trang trong một thư mục do Donut quản lý. Các dấu trang khác được giữ nguyên.",
+    "description": "Mọi hồ sơ trong nhóm này nhận các dấu trang trong một thư mục do Bwbrowser quản lý. Các dấu trang khác được giữ nguyên.",
     "editTooltip": "Dấu trang của nhóm ({{n}})",
     "empty": "Nhóm này chưa có dấu trang dùng chung.",
     "addRow": "Thêm dấu trang",
@@ -3350,7 +3353,7 @@
     "previous": "Mẹo trước",
     "next": "Mẹo tiếp theo",
     "done": "Xong",
-    "autoShow": "Hiện một mẹo khi Donut khởi động",
+    "autoShow": "Hiện một mẹo khi Bwbrowser khởi động",
     "items": {
       "dnsBlocklist": {
         "label": "Chặn DNS",
@@ -3379,7 +3382,7 @@
       "fingerprintGate": {
         "label": "Kiểm tra dấu vân tay",
         "title": "Giữ dấu vân tay khớp với điểm ra",
-        "body": "Trước khi khởi chạy, Donut so sánh múi giờ và ngôn ngữ của điểm ra proxy với dấu vân tay của hồ sơ và chặn khi không khớp. Hãy sửa dấu vân tay, hoặc tắt kiểm tra trong Nâng cao nếu bạn biết mình đang làm gì.",
+        "body": "Trước khi khởi chạy, Bwbrowser so sánh múi giờ và ngôn ngữ của điểm ra proxy với dấu vân tay của hồ sơ và chặn khi không khớp. Hãy sửa dấu vân tay, hoặc tắt kiểm tra trong Nâng cao nếu bạn biết mình đang làm gì.",
         "action": "Mở cài đặt nâng cao"
       },
       "profilePassword": {
@@ -3397,7 +3400,7 @@
       "defaultBrowser": {
         "label": "Trình duyệt mặc định",
         "title": "Mở mọi liên kết trong đúng hồ sơ",
-        "body": "Đặt Donut làm trình duyệt mặc định và mỗi liên kết từ ứng dụng khác sẽ hỏi nên mở bằng hồ sơ nào.",
+        "body": "Đặt Bwbrowser làm trình duyệt mặc định và mỗi liên kết từ ứng dụng khác sẽ hỏi nên mở bằng hồ sơ nào.",
         "action": "Mở cài đặt trình duyệt mặc định"
       },
       "extensionGroups": {
@@ -3409,7 +3412,7 @@
       "selfHostedSync": {
         "label": "Đồng bộ tự lưu trữ",
         "title": "Sao lưu lên máy chủ của riêng bạn",
-        "body": "Trỏ Donut đến máy chủ donut-sync tự lưu trữ và hồ sơ, proxy, nhóm sẽ được phản chiếu lên đó. Thêm mật khẩu đầu cuối và máy chủ chỉ thấy văn bản đã mã hóa.",
+        "body": "Trỏ Bwbrowser đến máy chủ bwbrowser-sync tự lưu trữ và hồ sơ, proxy, nhóm sẽ được phản chiếu lên đó. Thêm mật khẩu đầu cuối và máy chủ chỉ thấy văn bản đã mã hóa.",
         "action": "Mở Tài khoản"
       },
       "trash": {
@@ -3420,14 +3423,14 @@
       },
       "localApi": {
         "label": "API và MCP",
-        "title": "Tự động hóa Donut từ script và tác nhân",
+        "title": "Tự động hóa Bwbrowser từ script và tác nhân",
         "body": "REST API cục bộ và máy chủ MCP cho phép script và tác nhân AI liệt kê, tạo và cấu hình hồ sơ. Bật chúng trong Tích hợp và sao chép mã thông báo.",
         "action": "Mở Tích hợp"
       },
       "importProfiles": {
         "label": "Nhập",
         "title": "Mang hồ sơ từ Chrome, Edge hoặc Brave sang",
-        "body": "Nhập sao chép cookie, thông tin đăng nhập và tiện ích từ hồ sơ Chromium hoặc tệp nén vào một hồ sơ Donut mới, sẵn sàng khởi chạy.",
+        "body": "Nhập sao chép cookie, thông tin đăng nhập và tiện ích từ hồ sơ Chromium hoặc tệp nén vào một hồ sơ Bwbrowser mới, sẵn sàng khởi chạy.",
         "action": "Mở Nhập"
       },
       "cloudBackup": {
@@ -3468,7 +3471,7 @@
       },
       "remoteControl": {
         "label": "Điều khiển từ xa",
-        "title": "Điều khiển máy này từ donutbrowser.com",
+        "title": "Điều khiển máy này từ bwbrowser.com",
         "body": "Khi bật điều khiển từ xa, các tác nhân trên trang web tiếp cận hồ sơ của máy này qua một cầu nối đi ra. Bật trong Tích hợp.",
         "action": "Mở Tích hợp"
       }

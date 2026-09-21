@@ -6,8 +6,8 @@ import test from "node:test";
 import { appFromEnvironment } from "../lib/app.mjs";
 import { extensionZipBase64, wireGuardFixture } from "../lib/fixtures.mjs";
 
-const syncUrl = process.env.DONUT_E2E_SYNC_URL;
-const syncToken = process.env.DONUT_E2E_SYNC_TOKEN;
+const syncUrl = process.env.BWBROWSER_E2E_SYNC_URL;
+const syncToken = process.env.BWBROWSER_E2E_SYNC_TOKEN;
 
 async function syncRequest(endpoint, body) {
   const response = await fetch(`${syncUrl}/v1/objects/${endpoint}`, {
@@ -151,7 +151,7 @@ test("two real app devices reconcile profile files and every config entity with 
     await mkdir(profileData, { recursive: true });
     await writeFile(
       path.join(profileData, "Preferences"),
-      JSON.stringify({ donutE2E: "regular-profile-payload" }),
+      JSON.stringify({ bwbrowserE2E: "regular-profile-payload" }),
     );
     await deviceA.invoke("update_profile_tags", {
       profileId: profile.id,

@@ -2,7 +2,10 @@ use crate::proxy_runner::find_sidecar_executable;
 #[cfg(unix)]
 use crate::proxy_storage::is_process_running;
 use crate::proxy_storage::{process_identity_matches, resolve_process_start_time};
-use crate::xray::{build_client_config_json, parse_vless_uri, XrayClientRuntime};
+use crate::xray::{
+  build_client_config_json, build_trojan_client_config_json, parse_trojan_uri, parse_vless_uri,
+  XrayClientRuntime,
+};
 use crate::xray_worker_storage::{
   create_xray_worker_log, delete_xray_worker_config, generate_xray_worker_id,
   get_xray_worker_config, get_xray_worker_config_from_path, list_xray_worker_configs,
@@ -164,8 +167,15 @@ pub async fn start_xray_worker(
   vless_uri: &str,
 ) -> Result<XrayWorkerConfig, Box<dyn std::error::Error>> {
   let _start_guard = XRAY_START_LOCK.lock().await;
-  parse_vless_uri(vless_uri)
-    .map_err(|error| -> Box<dyn std::error::Error> { crate::vless_config_error(&error).into() })?;
+  if vless_uri.starts_with("trojan://") {
+    parse_trojan_uri(vless_uri).map_err(|error| -> Box<dyn std::error::Error> {
+      crate::vless_config_error(&error).into()
+    })?;
+  } else {
+    parse_vless_uri(vless_uri).map_err(|error| -> Box<dyn std::error::Error> {
+      crate::vless_config_error(&error).into()
+    })?;
+  }
   crate::proxy_runner::ensure_sidecar_version().await?;
   ensure_xray_binary()?;
   let owner_pid = std::process::id();
@@ -250,7 +260,7 @@ async fn spawn_xray_worker(
     pid_start_time: None,
     armed: true,
   };
-  let username = format!("donut_{}", uuid::Uuid::new_v4().simple());
+  let username = format!("bwbrowser_{}", uuid::Uuid::new_v4().simple());
   let password = uuid::Uuid::new_v4().simple().to_string();
   let mut config = XrayWorkerConfig::new(
     id.clone(),
@@ -268,7 +278,7 @@ async fn spawn_xray_worker(
   save_xray_worker_config(&config)
     .map_err(|error| structured_error_with_detail("XRAY_START_FAILED", error))?;
 
-  let supervisor = find_sidecar_executable("donut-proxy")
+  let supervisor = find_sidecar_executable("bwbrowser-proxy")
     .map_err(|_| structured_error("PROXY_SIDECAR_VERSION_MISMATCH"))?;
   let config_path = xray_worker_config_path(&id);
   let log_file = create_xray_worker_log(&id)
@@ -520,15 +530,26 @@ pub async fn run_xray_worker(config_path: &Path) -> Result<(), Box<dyn std::erro
   );
   save_xray_worker_config_to_path(&config, config_path)
     .map_err(|error| structured_error_with_detail("XRAY_START_FAILED", error))?;
-  let parsed = parse_vless_uri(&config.vless_uri)
-    .map_err(|error| -> Box<dyn std::error::Error> { crate::vless_config_error(&error).into() })?;
   let runtime = XrayClientRuntime {
     listen_port: config.local_port,
     username: config.username.clone(),
     password: config.password.clone(),
   };
-  let runtime_json = build_client_config_json(&parsed.config, &runtime)
-    .map_err(|error| -> Box<dyn std::error::Error> { crate::vless_config_error(&error).into() })?;
+  let runtime_json = if config.vless_uri.starts_with("trojan://") {
+    let parsed =
+      parse_trojan_uri(&config.vless_uri).map_err(|error| -> Box<dyn std::error::Error> {
+        crate::vless_config_error(&error).into()
+      })?;
+    build_trojan_client_config_json(&parsed.config, &runtime)
+      .map_err(|error| -> Box<dyn std::error::Error> { crate::vless_config_error(&error).into() })?
+  } else {
+    let parsed =
+      parse_vless_uri(&config.vless_uri).map_err(|error| -> Box<dyn std::error::Error> {
+        crate::vless_config_error(&error).into()
+      })?;
+    build_client_config_json(&parsed.config, &runtime)
+      .map_err(|error| -> Box<dyn std::error::Error> { crate::vless_config_error(&error).into() })?
+  };
   write_xray_runtime_config(&config.id, runtime_json.as_bytes())
     .map_err(|error| structured_error_with_detail("XRAY_START_FAILED", error))?;
   let runtime_path = crate::xray_worker_storage::xray_runtime_config_path(&config.id);

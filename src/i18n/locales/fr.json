@@ -134,16 +134,16 @@
       "title": "Navigateur par défaut",
       "setAsDefault": "Définir comme navigateur par défaut",
       "alreadyDefault": "Déjà le navigateur par défaut",
-      "description": "Lorsqu'il est défini par défaut, Donut Browser gérera les liens web et vous permettra de choisir quel profil utiliser.",
-      "setSuccess": "Donut Browser est maintenant votre navigateur par défaut",
+      "description": "Lorsqu'il est défini par défaut, BW Browser gérera les liens web et vous permettra de choisir quel profil utiliser.",
+      "setSuccess": "BW Browser est maintenant votre navigateur par défaut",
       "setFailed": "Impossible de définir le navigateur par défaut",
       "finishInSystemSettings": "Terminez dans les Paramètres Windows",
-      "finishInSystemSettingsDescription": "Donut Browser est enregistré. Les Paramètres Windows sont ouverts : choisissez Donut Browser sous Navigateur web pour terminer."
+      "finishInSystemSettingsDescription": "BW Browser est enregistré. Les Paramètres Windows sont ouverts : choisissez BW Browser sous Navigateur web pour terminer."
     },
     "permissions": {
       "title": "Permissions système",
       "loading": "Chargement des permissions...",
-      "description": "Ces permissions permettent aux navigateurs lancés depuis Donut Browser d'accéder aux ressources système. Chaque site web demandera toujours votre permission individuellement.",
+      "description": "Ces permissions permettent aux navigateurs lancés depuis BW Browser d'accéder aux ressources système. Chaque site web demandera toujours votre permission individuellement.",
       "microphone": "Microphone",
       "microphoneDescription": "Accès au microphone pour les applications du navigateur",
       "camera": "Caméra",
@@ -187,7 +187,7 @@
       "trialExpired": "Essai expiré",
       "trialExpiredDescription": "L'utilisation personnelle reste gratuite. L'utilisation commerciale nécessite une licence.",
       "subscriptionActive": "Abonné — formule {{plan}}",
-      "subscriptionActiveDescription": "Votre abonnement Donut Browser est actif. L'usage commercial est licencié pendant toute la durée de votre formule."
+      "subscriptionActiveDescription": "Votre abonnement BW Browser est actif. L'usage commercial est licencié pendant toute la durée de votre formule."
     },
     "advanced": {
       "title": "Avancé",
@@ -200,7 +200,7 @@
       "copyLogsDescription": "Copie un lot expurgé des journaux récents (jusqu’à 5 Mo). Vérifiez-le avant de le partager, car l’expurgation ne peut pas identifier tous les types de données personnelles."
     },
     "disableAutoUpdates": "Désactiver les mises à jour automatiques de l'app",
-    "disableAutoUpdatesDescription": "Empêche l'application de vérifier et d'installer automatiquement les mises à jour de Donut Browser. Les mises à jour des navigateurs ne sont pas affectées.",
+    "disableAutoUpdatesDescription": "Empêche l'application de vérifier et d'installer automatiquement les mises à jour de BW Browser. Les mises à jour des navigateurs ne sont pas affectées.",
     "keepDecryptedProfilesInRam": "Conserver les profils déchiffrés en RAM",
     "keepDecryptedProfilesInRamDescription": "Conserver en RAM la copie déchiffrée des profils protégés par mot de passe entre les lancements pour un démarrage plus rapide. La copie sur disque reste chiffrée dans tous les cas.",
     "privacy": {
@@ -226,10 +226,10 @@
       "chooseTitle": "Choisissez un dossier pour le répertoire de données",
       "move": "Déplacer",
       "willMoveTo": "Tout est déplacé vers",
-      "moved": "Répertoire de données déplacé. Redémarrez Donut Browser pour l'utiliser.",
+      "moved": "Répertoire de données déplacé. Redémarrez BW Browser pour l'utiliser.",
       "reading": "Lecture du répertoire de données...",
-      "restartRequired": "Redémarrez Donut Browser pour utiliser le nouvel emplacement. En attendant, il continue de travailler depuis l'ancien.",
-      "environmentOverride": "DONUTBROWSER_DATA_DIR est défini : l'application utilise cet emplacement quel que soit celui choisi ici.",
+      "restartRequired": "Redémarrez BW Browser pour utiliser le nouvel emplacement. En attendant, il continue de travailler depuis l'ancien.",
+      "environmentOverride": "BWBROWSER_DATA_DIR est défini : l'application utilise cet emplacement quel que soit celui choisi ici.",
       "missing": "Le répertoire de données choisi est absent. S'il est sur un disque amovible, rebranchez-le et redémarrez.",
       "useDefault": "Revenir à l'emplacement par défaut",
       "usingDefault": "L'emplacement par défaut sera utilisé au prochain démarrage.",
@@ -258,7 +258,7 @@
       "extensions": "Extensions"
     },
     "newProfile": "Nouveau",
-    "donutLogo": "Logo de Donut Browser",
+    "bwbrowserLogo": "Logo de BW Browser",
     "scrollGroupsLeft": "Faire défiler les groupes vers la gauche",
     "scrollGroupsRight": "Faire défiler les groupes vers la droite"
   },
@@ -594,7 +594,8 @@
       "socks5": "SOCKS5",
       "ss": "Shadowsocks",
       "httpstls": "HTTP over TLS",
-      "vless": "VLESS (REALITY)"
+      "vless": "VLESS (REALITY)",
+      "trojan": "Trojan"
     },
     "tabs": {
       "regular": "Standard",
@@ -871,8 +872,8 @@
     "tabRemote": "MCP à distance",
     "remote": {
       "enableLabel": "Contrôle à distance",
-      "enableDescription": "Permet à Donut cloud de piloter ce navigateur, afin qu'un agent sur donutbrowser.com puisse le contrôler. Rien n'écoute les connexions entrantes : cette application appelle vers l'extérieur et peut raccrocher à tout moment.",
-      "signInRequired": "Connectez-vous à votre compte Donut pour utiliser le contrôle à distance.",
+      "enableDescription": "Permet à Bwbrowser cloud de piloter ce navigateur, afin qu'un agent sur bwbrowser.com puisse le contrôler. Rien n'écoute les connexions entrantes : cette application appelle vers l'extérieur et peut raccrocher à tout moment.",
+      "signInRequired": "Connectez-vous à votre compte Bwbrowser pour utiliser le contrôle à distance.",
       "connected": "Connecté en tant que",
       "connecting": "Connexion en tant que",
       "notConnected": "Non connecté",
@@ -896,7 +897,7 @@
       "credentialClientsFailed": "L'identifiant est enregistré, mais ces clients n'ont pas pu être mis à jour : {{clients}}. Renouvelez-le pour réessayer.",
       "switchToRemote": "Basculer",
       "switchedClient": "{{name}} utilise désormais MCP à distance",
-      "fxHint": "fx lit l'identifiant dans DONUT_MCP_TOKEN. Exportez-le dans le shell qui lance fx.",
+      "fxHint": "fx lit l'identifiant dans BWBROWSER_MCP_TOKEN. Exportez-le dans le shell qui lance fx.",
       "fxExportCopied": "Ligne d'export copiée"
     }
   },
@@ -1411,7 +1412,7 @@
     "launchHook": {
       "title": "URL du hook de lancement",
       "label": "URL du hook de lancement",
-      "description": "Donut Browser enverra une requête GET à cette URL à chaque lancement du profil.",
+      "description": "BW Browser enverra une requête GET à cette URL à chaque lancement du profil.",
       "placeholder": "https://example.com/hooks/profile-launch",
       "invalidUrlHint": "Saisissez une URL valide http:// ou https://."
     },
@@ -1485,7 +1486,7 @@
   },
   "profileTransfer": {
     "exportTitle": "Exporter le profil",
-    "archiveFilter": "Archive de profil Donut",
+    "archiveFilter": "Archive de profil Bwbrowser",
     "exportDescription": "Enregistre ce profil dans un fichier qu'une autre machine peut lire. L'archive contient sa configuration et, si vous le demandez, ses données de navigation : cookies, connexions et état des extensions.",
     "includeData": "Inclure les données du navigateur",
     "protectedNotice": "Ce profil est protégé par mot de passe, ses données restent donc sur cette machine. L'archive ne contient que sa configuration.",
@@ -1560,8 +1561,8 @@
     "selectedFolder": "Dossier sélectionné",
     "selectFolder": "Choisir un dossier",
     "linkFolder": "Charger directement depuis ce dossier",
-    "linkFolderOff": "Le dossier est copié dans Donut. L'extension est portable et se synchronise avec vos autres appareils.",
-    "linkFolderOn": "Donut charge l'extension directement depuis ce dossier à chaque lancement. Vos modifications s'appliquent au prochain démarrage du navigateur, mais l'extension reste sur cet ordinateur et ne se synchronise jamais.",
+    "linkFolderOff": "Le dossier est copié dans Bwbrowser. L'extension est portable et se synchronise avec vos autres appareils.",
+    "linkFolderOn": "Bwbrowser charge l'extension directement depuis ce dossier à chaque lancement. Vos modifications s'appliquent au prochain démarrage du navigateur, mais l'extension reste sur cet ordinateur et ne se synchronise jamais.",
     "replaceSource": "Remplacer la source",
     "linkedNoSync": "Les extensions liées restent sur cet ordinateur et ne peuvent pas être synchronisées.",
     "uploadFailed": "Échec de l'ajout de l'extension",
@@ -1594,7 +1595,7 @@
     "fromUrl": "Depuis un lien",
     "fromUrlTooltip": "Ajouter une extension depuis un lien du Chrome Web Store, un identifiant d'extension ou un lien .crx ou .zip direct",
     "urlPlaceholder": "Lien Web Store, identifiant d'extension ou lien .crx",
-    "urlHint": "Donut télécharge le paquet en HTTPS et lit son nom et sa version avant tout enregistrement.",
+    "urlHint": "Bwbrowser télécharge le paquet en HTTPS et lit son nom et sa version avant tout enregistrement.",
     "fetchExtension": "Télécharger",
     "fetching": "Téléchargement…",
     "fetchedIdentity": "{{name}} · version {{version}}",
@@ -1727,7 +1728,7 @@
     "title": "Importer un profil de navigateur",
     "autoDetect": "Détection automatique",
     "manualImport": "Import manuel",
-    "donutArchive": "Archive Donut",
+    "bwbrowserArchive": "Archive Bwbrowser",
     "detectedProfilesTitle": "Profils de navigateur détectés",
     "scanning": "Recherche de profils de navigateur...",
     "noneFound": "Aucun profil de navigateur trouvé sur votre système.",
@@ -1888,7 +1889,7 @@
   },
   "wayfernTerms": {
     "title": "Conditions générales de Wayfern",
-    "description": "Avant d'utiliser Donut Browser, vous devez lire et accepter les Conditions Générales de Wayfern.",
+    "description": "Avant d'utiliser BW Browser, vous devez lire et accepter les Conditions Générales de Wayfern.",
     "reviewLabel": "Veuillez consulter les Conditions Générales sur :",
     "agreeNotice": "En cliquant sur « J'accepte », vous acceptez ces conditions.",
     "acceptButton": "J'accepte",
@@ -1899,7 +1900,7 @@
   "commercialTrial": {
     "title": "Période d'essai commerciale expirée",
     "description": "Votre période d'essai commercial de 2 semaines est terminée.",
-    "body": "Si vous utilisez Donut Browser à des fins professionnelles, vous devez acheter une licence commerciale pour continuer. Vous pouvez toujours l'utiliser gratuitement à des fins personnelles.",
+    "body": "Si vous utilisez BW Browser à des fins professionnelles, vous devez acheter une licence commerciale pour continuer. Vous pouvez toujours l'utiliser gratuitement à des fins personnelles.",
     "understandButton": "J'ai compris",
     "failed": "Échec de l'enregistrement de la confirmation",
     "tryAgain": "Veuillez réessayer"
@@ -1907,10 +1908,10 @@
   "permissionDialog": {
     "titleMicrophone": "Accès au microphone requis",
     "titleCamera": "Accès à la caméra requis",
-    "descMicrophone": "Donut Browser a besoin d'accéder à votre microphone pour activer la fonctionnalité microphone dans les navigateurs. Chaque site web qui voudra utiliser votre microphone vous demandera quand même votre permission individuellement.",
-    "descCamera": "Donut Browser a besoin d'accéder à votre caméra pour activer la fonctionnalité caméra dans les navigateurs. Chaque site web qui voudra utiliser votre caméra vous demandera quand même votre permission individuellement.",
-    "grantedMicrophone": "Permission accordée ! Les navigateurs lancés depuis Donut Browser peuvent maintenant accéder à votre microphone.",
-    "grantedCamera": "Permission accordée ! Les navigateurs lancés depuis Donut Browser peuvent maintenant accéder à votre caméra.",
+    "descMicrophone": "BW Browser a besoin d'accéder à votre microphone pour activer la fonctionnalité microphone dans les navigateurs. Chaque site web qui voudra utiliser votre microphone vous demandera quand même votre permission individuellement.",
+    "descCamera": "BW Browser a besoin d'accéder à votre caméra pour activer la fonctionnalité caméra dans les navigateurs. Chaque site web qui voudra utiliser votre caméra vous demandera quand même votre permission individuellement.",
+    "grantedMicrophone": "Permission accordée ! Les navigateurs lancés depuis BW Browser peuvent maintenant accéder à votre microphone.",
+    "grantedCamera": "Permission accordée ! Les navigateurs lancés depuis BW Browser peuvent maintenant accéder à votre caméra.",
     "notGrantedMicrophone": "Permission non accordée. Cliquez sur le bouton pour demander l'accès à votre microphone.",
     "notGrantedCamera": "Permission non accordée. Cliquez sur le bouton pour demander l'accès à votre caméra.",
     "doneButton": "Terminé",
@@ -2030,7 +2031,7 @@
   },
   "appUpdate": {
     "toast": {
-      "updateFailed": "Échec de la mise à jour de Donut Browser",
+      "updateFailed": "Échec de la mise à jour de BW Browser",
       "restartFailed": "Échec du redémarrage",
       "updateReady": "Mise à jour prête, redémarrer pour appliquer",
       "manualDownloadRequired": "Téléchargement manuel requis",
@@ -2039,7 +2040,8 @@
       "later": "Plus tard",
       "uploading": "Envoi",
       "downloading": "Téléchargement",
-      "startingUpdate": "Démarrage de la mise à jour..."
+      "startingUpdate": "Démarrage de la mise à jour...",
+      "checkFailed": "Échec de la vérification des mises à jour"
     }
   },
   "browserDownload": {
@@ -2124,7 +2126,7 @@
     },
     "warnings": {
       "forgetWarningTitle": "Important : ce mot de passe ne peut pas être récupéré",
-      "forgetWarningBody": "Donut Browser ne peut ni réinitialiser, ni récupérer, ni contourner ce mot de passe. Si vous l'oubliez, vous perdrez définitivement l'accès aux données de ce profil."
+      "forgetWarningBody": "BW Browser ne peut ni réinitialiser, ni récupérer, ni contourner ce mot de passe. Si vous l'oubliez, vous perdrez définitivement l'accès aux données de ce profil."
     },
     "modes": {
       "set": "Définir",
@@ -2167,7 +2169,7 @@
     "extensionNotADirectory": "Ce chemin n'est pas un dossier.",
     "extensionManifestMissing": "Il n'y a pas de manifest.json dans ce dossier. Choisissez le dossier qui contient le manifest.json de l'extension.",
     "extensionManifestInvalid": "Le fichier manifest.json de ce dossier n'a pas pu être lu.",
-    "extensionDirTooLarge": "Ce dossier est trop volumineux pour être copié dans Donut (la limite est de 256 Mo et 20 000 fichiers). Liez-le sur place à la place.",
+    "extensionDirTooLarge": "Ce dossier est trop volumineux pour être copié dans Bwbrowser (la limite est de 256 Mo et 20 000 fichiers). Liez-le sur place à la place.",
     "extensionPathHasComma": "Le chemin de ce dossier contient une virgule, que Chromium ne peut pas charger. Renommez ou déplacez le dossier.",
     "extensionLinkRequiresDirectory": "Seul un dossier peut être chargé sur place. Désactivez la liaison pour ajouter une archive.",
     "extensionLinkedCannotSync": "Cette extension est chargée depuis un dossier de cet ordinateur : il n'y a rien à synchroniser.",
@@ -2182,7 +2184,7 @@
     "cookieImportProfileProtected": "Impossible d'importer des cookies dans un profil protégé par mot de passe. Retirez d'abord le mot de passe.",
     "cookieImportRemoteSession": "Impossible d'importer des cookies tant qu'une session distante détient ce profil. Attendez la fin de la synchronisation.",
     "cookieImportNoCookies": "Aucun cookie n'a été trouvé dans ce que vous avez collé.",
-    "selfHostedRequiresLogout": "Déconnectez-vous de votre compte Donut avant de configurer un serveur auto-hébergé.",
+    "selfHostedRequiresLogout": "Déconnectez-vous de votre compte Bwbrowser avant de configurer un serveur auto-hébergé.",
     "fingerprintRequiresPro": "Afficher ou modifier l'empreinte nécessite un forfait payant actif. La protection est incluse dans tous les forfaits.",
     "proxyNotWorking": "Le proxy sélectionné ne fonctionne pas, le profil n'a donc pas été créé.",
     "proxyPaymentRequired": "Le proxy sélectionné requiert un paiement (402) — son abonnement a peut-être expiré — le profil n'a donc pas été créé.",
@@ -2207,9 +2209,9 @@
     "dnsRulesSaveFailed": "Échec de l'enregistrement des règles DNS.",
     "dnsRulesExportFailed": "Échec de l'exportation des règles DNS.",
     "fingerprintMatchFailed": "Impossible d'aligner l'empreinte sur le proxy.",
-    "proxySidecarVersionMismatch": "Certains fichiers de Donut Browser proviennent de versions différentes. Réinstallez la dernière mise à jour ; vos profils resteront intacts.",
+    "proxySidecarVersionMismatch": "Certains fichiers de BW Browser proviennent de versions différentes. Réinstallez la dernière mise à jour ; vos profils resteront intacts.",
     "updateProfilesRunning": "Arrêtez tous les profils en cours d’exécution avant d’installer la mise à jour.",
-    "updatePreparationFailed": "Donut Browser n’a pas pu arrêter en toute sécurité un processus réseau en arrière-plan. Redémarrez l’ordinateur, puis réessayez la mise à jour.",
+    "updatePreparationFailed": "BW Browser n’a pas pu arrêter en toute sécurité un processus réseau en arrière-plan. Redémarrez l’ordinateur, puis réessayez la mise à jour.",
     "wayfernTermsRequired": "Acceptez les conditions générales de Wayfern avant de démarrer le serveur MCP.",
     "apiPortUnavailable": "Le serveur API n’a trouvé aucun port disponible.",
     "mcpServerAlreadyRunning": "Le serveur MCP est déjà en cours d’exécution.",
@@ -2217,14 +2219,14 @@
     "mcpPortUnavailable": "Le serveur MCP n’a trouvé aucun port disponible.",
     "mcpConfigurationUnavailable": "La configuration du serveur MCP est indisponible. Redémarrez le serveur et réessayez.",
     "mcpAgentUnknown": "Ce client MCP n’est pas pris en charge.",
-    "mcpAgentInstallFailed": "Impossible d’ajouter Donut Browser au client MCP : {{detail}}",
-    "mcpAgentRemoveFailed": "Impossible de retirer Donut Browser du client MCP : {{detail}}",
+    "mcpAgentInstallFailed": "Impossible d’ajouter BW Browser au client MCP : {{detail}}",
+    "mcpAgentRemoveFailed": "Impossible de retirer BW Browser du client MCP : {{detail}}",
     "vlessConfigInvalid": "L’URI VLESS n’est pas valide.",
     "xrayUnavailable": "Xray-core n’est pas disponible sur ce système.",
     "xrayUnsupportedOs": "VLESS nécessite macOS 12 ou une version ultérieure.",
     "xrayStartFailed": "Impossible de démarrer Xray-core.",
-    "cloudNotSignedIn": "Connectez-vous à votre compte Donut Browser pour utiliser cette fonction.",
-    "cloudUnreachable": "Impossible de joindre les serveurs de Donut Browser. Vérifiez votre connexion et réessayez.",
+    "cloudNotSignedIn": "Connectez-vous à votre compte BW Browser pour utiliser cette fonction.",
+    "cloudUnreachable": "Impossible de joindre les serveurs de BW Browser. Vérifiez votre connexion et réessayez.",
     "cloudRequestFailed": "La requête a échoué. Réessayez dans un instant.",
     "remoteRateLimited": "Trop de requêtes. Patientez un instant et réessayez.",
     "remoteNoCapacity": "Aucune machine distante n'est libre pour le moment. Réessayez dans quelques minutes.",
@@ -2266,16 +2268,16 @@
     "vpnWorkerStartFailed": "Impossible de démarrer la connexion VPN : {{detail}}",
     "exitProbeFailed": "Impossible de joindre le nœud de sortie du proxy pour vérifier sa localisation.",
     "vlessUnsupported": {
-      "security": "Ce serveur VLESS n'utilise pas REALITY. Donut ne prend en charge que VLESS avec REALITY.",
-      "flow": "Ce serveur VLESS n'utilise pas le flux XTLS Vision, requis par Donut.",
-      "transport": "Donut ne prend en charge que VLESS sur TCP simple — ce serveur utilise un autre transport (WebSocket ou gRPC, par exemple).",
-      "encryption": "Ce serveur VLESS utilise un chiffrement non pris en charge par Donut.",
-      "headerType": "Ce serveur VLESS utilise une obfuscation d'en-tête non prise en charge par Donut.",
-      "fingerprint": "Cette URI VLESS demande une empreinte TLS non prise en charge par Donut.",
+      "security": "Ce serveur VLESS n'utilise pas REALITY. Bwbrowser ne prend en charge que VLESS avec REALITY.",
+      "flow": "Ce serveur VLESS n'utilise pas le flux XTLS Vision, requis par Bwbrowser.",
+      "transport": "Bwbrowser ne prend en charge que VLESS sur TCP simple — ce serveur utilise un autre transport (WebSocket ou gRPC, par exemple).",
+      "encryption": "Ce serveur VLESS utilise un chiffrement non pris en charge par Bwbrowser.",
+      "headerType": "Ce serveur VLESS utilise une obfuscation d'en-tête non prise en charge par Bwbrowser.",
+      "fingerprint": "Cette URI VLESS demande une empreinte TLS non prise en charge par Bwbrowser.",
       "sni": "Il manque le SNI (sni) nécessaire à REALITY dans l'URI VLESS.",
       "publicKey": "Il manque la clé publique REALITY (pbk) dans l'URI VLESS.",
       "scheme": "Ce n'est pas un lien VLESS. Il doit commencer par vless://.",
-      "parameter": "L'URI VLESS contient une option non prise en charge par Donut.",
+      "parameter": "L'URI VLESS contient une option non prise en charge par Bwbrowser.",
       "malformed": "L'URI VLESS n'est pas valide."
     },
     "camoufoxRemoved": "Camoufox n'est plus pris en charge. Recréez ce profil avec Wayfern.",
@@ -2291,20 +2293,20 @@
     "profileExportFailed": "Ce profil n'a pas pu être exporté. {{detail}}",
     "profileExportTooLarge": "Ce profil est trop volumineux pour être exporté. Effacez une partie de ses données de navigation puis réessayez.",
     "profileImportFailed": "Cette archive n'a pas pu être lue. {{detail}}",
-    "profileImportTooNew": "Cette archive a été écrite par une version plus récente de Donut Browser. Mettez l'application à jour puis réessayez.",
+    "profileImportTooNew": "Cette archive a été écrite par une version plus récente de BW Browser. Mettez l'application à jour puis réessayez.",
     "profileImportUnsafeArchive": "Cette archive tente d'écrire hors du dossier du profil, elle a donc été refusée.",
     "recordingAlreadyRunning": "Un enregistrement est déjà en cours. Arrêtez-le avant d'en commencer un autre.",
     "profileNotRunning": "Démarrez le navigateur de ce profil avant d'enregistrer.",
     "wayfern152Required": "L'enregistrement nécessite Wayfern 152 ou plus récent. Mettez à jour le navigateur de ce profil.",
     "recordingFailed": "L'enregistrement n'a pas pu démarrer. {{detail}}",
-    "mcpRemoteRequiresSignIn": "Connectez-vous à votre compte Donut avant d'activer le contrôle à distance.",
-    "mcpRemoteUnauthorized": "Donut cloud a refusé les identifiants de cet appareil. Déconnectez-vous puis reconnectez-vous.",
-    "mcpRemoteSlotTaken": "Une autre instance de Donut est déjà connectée sur ce compte. Une seule peut être contrôlée à distance à la fois.",
+    "mcpRemoteRequiresSignIn": "Connectez-vous à votre compte Bwbrowser avant d'activer le contrôle à distance.",
+    "mcpRemoteUnauthorized": "Bwbrowser cloud a refusé les identifiants de cet appareil. Déconnectez-vous puis reconnectez-vous.",
+    "mcpRemoteSlotTaken": "Une autre instance de Bwbrowser est déjà connectée sur ce compte. Une seule peut être contrôlée à distance à la fois.",
     "mcpRemoteNotEntitled": "Ce forfait n'inclut pas le contrôle à distance. Contactez-nous pour l'activer.",
-    "mcpRemoteUnreachable": "Donut cloud est injoignable pour le moment. Reconnexion automatique.",
+    "mcpRemoteUnreachable": "Bwbrowser cloud est injoignable pour le moment. Reconnexion automatique.",
     "mcpRemoteKeyMissing": "Cet appareil n'a pas encore d'identifiant MCP distant. Créez-en un d'abord, puis ajoutez de nouveau le client.",
     "mcpRemoteKeyLimit": "Ce compte a déjà atteint le nombre maximal d'identifiants MCP. Révoquez-en un sur la page du compte, puis réessayez.",
-    "mcpRemoteKeyUnavailable": "Donut cloud n'a pas pu émettre d'identifiant MCP pour le moment. Réessayez dans un instant.",
+    "mcpRemoteKeyUnavailable": "Bwbrowser cloud n'a pas pu émettre d'identifiant MCP pour le moment. Réessayez dans un instant.",
     "urlSchemeNotAllowed": "Seules les adresses http et https peuvent être ouvertes.",
     "toolIsLocalOnly": "Cette action nécessite un fichier sur cet ordinateur ; elle ne peut pas être effectuée à distance.",
     "typingTooLong": "Ce texte mettrait environ {{seconds}} secondes à être saisi, et une seule requête ne peut dépasser {{limit}}. Envoyez-le en plusieurs morceaux.",
@@ -2318,7 +2320,7 @@
     "remoteSessionNotDrivable": "Cette session distante n'est pas encore prête à être pilotée. Attendez qu'elle soit active.",
     "remotePlatformUnsupported": "Les sessions distantes ne fonctionnent que sur des hôtes macOS, Windows ou Linux. La plateforme de ce profil est {{platform}}.",
     "remoteProfileNotSynced": "Ce profil n'a pas encore fini d'être téléversé vers la synchronisation cloud. Attendez la fin de sa première synchronisation, puis réessayez.",
-    "mcpLocalRemoved": "Le serveur MCP local de Donut a été supprimé. Utilisez le MCP distant à la place : configurez-le dans Paramètres > Intégrations et connectez-vous depuis n'importe où.",
+    "mcpLocalRemoved": "Le serveur MCP local de Bwbrowser a été supprimé. Utilisez le MCP distant à la place : configurez-le dans Paramètres > Intégrations et connectez-vous depuis n'importe où.",
     "trashEntryNotFound": "Ce profil n'est plus dans la corbeille.",
     "trashRestoreConflict": "Un profil avec le même identifiant existe déjà, celui-ci ne peut donc pas être restauré.",
     "agentNotEntitled": "Votre forfait n'inclut pas l'agent.",
@@ -2368,7 +2370,7 @@
       "importProfileHint": "Importer depuis un autre outil",
       "keyboardShortcuts": "Raccourcis clavier",
       "keyboardShortcutsHint": "Voir tous les raccourcis",
-      "about": "À propos de Donut Browser",
+      "about": "À propos de BW Browser",
       "aboutHint": "Version et informations sur l'application",
       "trash": "Corbeille",
       "trashHint": "Restaurer des profils supprimés",
@@ -2394,7 +2396,8 @@
     "shortcuts": "Raccourcis clavier",
     "cookieBot": "Cookie Bot",
     "trash": "Corbeille",
-    "agent": "Agent"
+    "agent": "Agent",
+    "cloudAccounts": "Comptes cloud"
   },
   "encryption": {
     "required": {
@@ -2444,8 +2447,8 @@
     },
     "selfHosted": {
       "title": "Serveur de synchronisation auto-hébergé",
-      "description": "Connectez Donut à votre propre serveur donut-sync pour synchroniser profils, proxys, groupes et extensions sans utiliser le cloud hébergé.",
-      "disabledWhileLoggedIn": "La synchronisation auto-hébergée n'est pas disponible lorsque vous êtes connecté à votre compte Donut. Déconnectez-vous pour utiliser un serveur personnalisé.",
+      "description": "Connectez Bwbrowser à votre propre serveur bwbrowser-sync pour synchroniser profils, proxys, groupes et extensions sans utiliser le cloud hébergé.",
+      "disabledWhileLoggedIn": "La synchronisation auto-hébergée n'est pas disponible lorsque vous êtes connecté à votre compte Bwbrowser. Déconnectez-vous pour utiliser un serveur personnalisé.",
       "connectionStatus": "Connexion :",
       "statusUnknown": "Non testé",
       "testConnection": "Tester la connexion",
@@ -2474,7 +2477,7 @@
       "stopProfile": "Arrêter {{name}}",
       "profileInfo": "Informations — {{name}}",
       "createProfile": "Créer un profil",
-      "about": "À propos de Donut Browser"
+      "about": "À propos de BW Browser"
     }
   },
   "shortcuts": {
@@ -2494,13 +2497,13 @@
     "openTips": "Ouvrir les astuces"
   },
   "closeConfirm": {
-    "title": "Fermer Donut Browser ?",
+    "title": "Fermer BW Browser ?",
     "description": "Voulez-vous envoyer l'application dans la zone de notification ou quitter ?",
     "minimize": "Réduire dans la barre d'état",
     "quit": "Quitter"
   },
   "tray": {
-    "show": "Afficher Donut Browser",
+    "show": "Afficher BW Browser",
     "quit": "Quitter"
   },
   "onboarding": {
@@ -2521,13 +2524,13 @@
       "finish": "Terminer"
     },
     "thankYou": {
-      "title": "Merci d'avoir choisi Donut Browser",
+      "title": "Merci d'avoir choisi BW Browser",
       "body": "Avec un peu de chance, il rendra votre navigation plus privée : chaque identité séparée et rien ne quittant votre machine. Bonne navigation !",
       "cta": "Commencer à naviguer"
     }
   },
   "welcome": {
-    "title": "Bienvenue dans Donut Browser",
+    "title": "Bienvenue dans BW Browser",
     "tagline": "Un navigateur anti-détection open source pour gérer de nombreuses identités à la fois.",
     "skip": "Passer",
     "next": "Suivant",
@@ -2571,7 +2574,7 @@
     },
     "license": {
       "title": "Licence",
-      "body": "Donut Browser est open source et gratuit.",
+      "body": "BW Browser est open source et gratuit.",
       "agree": "J'ai compris",
       "personalTitle": "Usage personnel",
       "personalDesc": "Gratuit à vie.",
@@ -2610,7 +2613,7 @@
       "found": "Vous avez trouvé la réserve de gourmandises.",
       "finished": "Des miettes, aucun cookie.",
       "takeBite": "Prenez une bouchée",
-      "again": "Un autre donut"
+      "again": "Un autre bwbrowser"
     }
   },
   "clearOnClose": {
@@ -2976,16 +2979,16 @@
     "vpnExtensionConfirmed": "Outil VPN ou proxy connu",
     "vpnExtensionLikely": "Semble être un outil VPN ou proxy",
     "vpnExtensionCapability": "Détient l'autorisation proxy",
-    "vpnExtensionExplainer": "Si l'une d'elles redirige votre trafic ailleurs, la position réelle du navigateur ne correspondra plus au fuseau horaire, à la langue et à la géolocalisation avec lesquels ce profil a été créé, et Donut ne peut pas le détecter de l'extérieur.",
+    "vpnExtensionExplainer": "Si l'une d'elles redirige votre trafic ailleurs, la position réelle du navigateur ne correspondra plus au fuseau horaire, à la langue et à la géolocalisation avec lesquels ce profil a été créé, et Bwbrowser ne peut pas le détecter de l'extérieur.",
     "proxyCapableHeading": "Extensions pouvant changer le proxy",
-    "proxyCapableIntro": "Elles ne ressemblent pas à des VPN, mais elles détiennent l'autorisation proxy de Chromium, dont les gestionnaires de téléchargement et les outils de débogage ont aussi besoin. Donut ne peut pas savoir si l'une d'elles s'en sert :",
-    "sourceDonut": "Gérée par Donut",
+    "proxyCapableIntro": "Elles ne ressemblent pas à des VPN, mais elles détiennent l'autorisation proxy de Chromium, dont les gestionnaires de téléchargement et les outils de débogage ont aussi besoin. Bwbrowser ne peut pas savoir si l'une d'elles s'en sert :",
+    "sourceBwbrowser": "Gérée par Bwbrowser",
     "sourceBrowser": "Installée dans le profil",
     "measurementUnreliable": "Une extension de ce profil détient l'autorisation proxy, la vérification de la sortie peut donc ne pas refléter la route réellement empruntée par le navigateur.",
-    "scanIncompleteEncrypted": "Ce profil est chiffré : seules les extensions gérées par Donut ont pu être vérifiées.",
-    "scanIncompleteEphemeral": "Ce profil n'a pas encore de données : seules les extensions gérées par Donut ont pu être vérifiées.",
+    "scanIncompleteEncrypted": "Ce profil est chiffré : seules les extensions gérées par Bwbrowser ont pu être vérifiées.",
+    "scanIncompleteEphemeral": "Ce profil n'a pas encore de données : seules les extensions gérées par Bwbrowser ont pu être vérifiées.",
     "scanIncompletePartial": "L'analyse des extensions a été interrompue, certaines peuvent manquer.",
-    "probePending": "La sortie du proxy n'a pas encore été mesurée. Donut la vérifiera au démarrage et s'arrêtera si elle ne correspond pas.",
+    "probePending": "La sortie du proxy n'a pas encore été mesurée. Bwbrowser la vérifiera au démarrage et s'arrêtera si elle ne correspond pas.",
     "launchAnyway": "Lancer quand même",
     "dontBlockAgain": "Ne plus bloquer pour cette incohérence exacte",
     "dontWarnExtensions": "Ne plus m'avertir à propos de ces extensions",
@@ -2993,7 +2996,7 @@
     "cancelledSummary": "{{cancelled}} lancements sur {{total}} annulés",
     "vpnExtensionEntry": " {{version}} — {{capability}}, {{source}}",
     "vpnExtensionEntryNoVersion": " — {{capability}}, {{source}}",
-    "scanIncompleteMissing": "Ce profil n'a jamais été lancé : seules les extensions gérées par Donut ont pu être vérifiées.",
+    "scanIncompleteMissing": "Ce profil n'a jamais été lancé : seules les extensions gérées par Bwbrowser ont pu être vérifiées.",
     "exitUnverifiedTimezone": "L'empreinte de ce profil ne déclare aucun fuseau horaire, la vérification de la sortie ne peut donc rien vérifier. Le démarrage n'est pas bloqué, mais rien n'a été comparé non plus.",
     "exitUnverifiedLanguage": "La langue de l'empreinte de ce profil ne peut pas être comparée au pays de sortie ; cette vérification reste donc non vérifiée, et non réussie."
   },
@@ -3053,7 +3056,7 @@
   },
   "mcpLocalDeprecated": {
     "title": "Le MCP local a été supprimé",
-    "description": "Donut utilise désormais le MCP distant, accessible depuis n'importe où. Configurez-le dans l'onglet MCP distant et dirigez-y vos clients IA."
+    "description": "Bwbrowser utilise désormais le MCP distant, accessible depuis n'importe où. Configurez-le dans l'onglet MCP distant et dirigez-y vos clients IA."
   },
   "mcpLocalMigrated": {
     "title": "Migré vers le MCP distant",
@@ -3121,7 +3124,7 @@
   "easterEgg": {
     "konami": {
       "title": "Code secret accepté",
-      "description": "30 donuts supplémentaires ajoutés. Ils sont décoratifs."
+      "description": "30 bwbrowsers supplémentaires ajoutés. Ils sont décoratifs."
     }
   },
   "trash": {
@@ -3170,11 +3173,11 @@
     },
     "unavailable": {
       "signInTitle": "Connectez-vous pour utiliser l'agent",
-      "signInHint": "Les exécutions de l'agent passent par le cloud Donut. Connectez-vous depuis la page Compte pour en lancer une.",
+      "signInHint": "Les exécutions de l'agent passent par le cloud Bwbrowser. Connectez-vous depuis la page Compte pour en lancer une.",
       "planTitle": "L'agent n'est pas inclus dans votre forfait",
       "planHint": "Passez à un forfait incluant l'automatisation du navigateur pour donner un objectif à l'agent.",
       "notConfiguredTitle": "L'agent n'est pas encore disponible",
-      "notConfiguredHint": "Cette instance de Donut n'a pas d'agent configuré. Votre compte n'a aucun problème."
+      "notConfiguredHint": "Cette instance de Bwbrowser n'a pas d'agent configuré. Votre compte n'a aucun problème."
     },
     "form": {
       "profile": "Profil",
@@ -3285,7 +3288,7 @@
       "recording": {
         "record": "Enregistrer",
         "recording": "Enregistrement",
-        "description": "Faites la tâche une fois dans le navigateur du profil et Donut note les étapes. Les mots de passe ne sont jamais enregistrés.",
+        "description": "Faites la tâche une fois dans le navigateur du profil et Bwbrowser note les étapes. Les mots de passe ne sont jamais enregistrés.",
         "stop": "Arrêter l'enregistrement",
         "steps": "{{count}} étapes enregistrées",
         "hint": "Choisissez un profil en cours d'exécution à enregistrer.",
@@ -3360,7 +3363,7 @@
   },
   "groupBookmarks": {
     "title": "Favoris de {{name}}",
-    "description": "Chaque profil de ce groupe reçoit ces favoris dans un dossier géré par Donut. Les autres favoris ne sont pas touchés.",
+    "description": "Chaque profil de ce groupe reçoit ces favoris dans un dossier géré par Bwbrowser. Les autres favoris ne sont pas touchés.",
     "editTooltip": "Favoris du groupe ({{n}})",
     "empty": "Ce groupe n'a pas encore de favoris partagés.",
     "addRow": "Ajouter un favori",
@@ -3383,7 +3386,7 @@
     "previous": "Astuce précédente",
     "next": "Astuce suivante",
     "done": "Terminé",
-    "autoShow": "Afficher une astuce au démarrage de Donut",
+    "autoShow": "Afficher une astuce au démarrage de Bwbrowser",
     "items": {
       "dnsBlocklist": {
         "label": "Blocage DNS",
@@ -3412,7 +3415,7 @@
       "fingerprintGate": {
         "label": "Contrôle d'empreinte",
         "title": "Gardez l'empreinte cohérente avec la sortie",
-        "body": "Avant un lancement, Donut compare le fuseau horaire et la langue de la sortie du proxy avec l'empreinte du profil et bloque toute incohérence. Corrigez l'empreinte, ou désactivez le blocage dans Avancé si vous savez ce que vous faites.",
+        "body": "Avant un lancement, Bwbrowser compare le fuseau horaire et la langue de la sortie du proxy avec l'empreinte du profil et bloque toute incohérence. Corrigez l'empreinte, ou désactivez le blocage dans Avancé si vous savez ce que vous faites.",
         "action": "Ouvrir les réglages avancés"
       },
       "profilePassword": {
@@ -3430,7 +3433,7 @@
       "defaultBrowser": {
         "label": "Navigateur par défaut",
         "title": "Ouvrez chaque lien dans le bon profil",
-        "body": "Faites de Donut votre navigateur par défaut et chaque lien venant d'une autre application demandera quel profil doit l'ouvrir.",
+        "body": "Faites de Bwbrowser votre navigateur par défaut et chaque lien venant d'une autre application demandera quel profil doit l'ouvrir.",
         "action": "Ouvrir les réglages du navigateur par défaut"
       },
       "extensionGroups": {
@@ -3442,7 +3445,7 @@
       "selfHostedSync": {
         "label": "Synchro auto-hébergée",
         "title": "Sauvegardez sur votre propre serveur",
-        "body": "Pointez Donut vers un serveur donut-sync auto-hébergé et les profils, proxys et groupes s'y répliquent. Ajoutez un mot de passe de bout en bout et le serveur ne verra jamais que du texte chiffré.",
+        "body": "Pointez Bwbrowser vers un serveur bwbrowser-sync auto-hébergé et les profils, proxys et groupes s'y répliquent. Ajoutez un mot de passe de bout en bout et le serveur ne verra jamais que du texte chiffré.",
         "action": "Ouvrir Compte"
       },
       "trash": {
@@ -3453,14 +3456,14 @@
       },
       "localApi": {
         "label": "API et MCP",
-        "title": "Automatisez Donut depuis des scripts et des agents",
+        "title": "Automatisez Bwbrowser depuis des scripts et des agents",
         "body": "L'API REST locale et le serveur MCP permettent aux scripts et aux agents IA de lister, créer et configurer des profils. Activez-les dans Intégrations et copiez le jeton.",
         "action": "Ouvrir Intégrations"
       },
       "importProfiles": {
         "label": "Importer",
         "title": "Importez des profils depuis Chrome, Edge ou Brave",
-        "body": "L'import copie les cookies, les identifiants et les extensions d'un profil Chromium ou d'une archive vers un nouveau profil Donut, prêt à lancer.",
+        "body": "L'import copie les cookies, les identifiants et les extensions d'un profil Chromium ou d'une archive vers un nouveau profil Bwbrowser, prêt à lancer.",
         "action": "Ouvrir Importer"
       },
       "cloudBackup": {
@@ -3501,7 +3504,7 @@
       },
       "remoteControl": {
         "label": "Contrôle à distance",
-        "title": "Pilotez ce poste depuis donutbrowser.com",
+        "title": "Pilotez ce poste depuis bwbrowser.com",
         "body": "Avec le contrôle à distance activé, les agents du site web atteignent les profils de cette machine par un pont sortant. Activez-le dans Intégrations.",
         "action": "Ouvrir Intégrations"
       }

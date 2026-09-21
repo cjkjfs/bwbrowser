@@ -1,7 +1,7 @@
 /*!
 # App Auto Updater
 
-This module provides comprehensive self-update functionality for the Donut Browser application
+This module provides comprehensive self-update functionality for the BW Browser application
 across multiple operating systems and installation methods.
 
 ## Supported Platforms
@@ -134,7 +134,10 @@ pub struct AppAutoUpdater {
 impl AppAutoUpdater {
   fn new() -> Self {
     Self {
-      client: Client::new(),
+      client: Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .unwrap_or_else(|_| Client::new()),
       extractor: crate::extraction::Extractor::instance(),
     }
   }
@@ -179,152 +182,131 @@ impl AppAutoUpdater {
     log::info!("Is nightly build: {is_nightly}");
     log::info!("STABLE_RELEASE env: {:?}", option_env!("STABLE_RELEASE"));
 
-    let releases = self.fetch_app_releases().await?;
-    log::info!("Fetched {} releases from GitHub", releases.len());
-
-    // Filter releases based on build type
-    let filtered_releases: Vec<&AppRelease> = if is_nightly {
-      // For nightly builds, look for nightly releases
-      let nightly_releases: Vec<&AppRelease> = releases
-        .iter()
-        .filter(|release| release.tag_name.starts_with("nightly-"))
-        .collect();
-      log::info!("Found {} nightly releases", nightly_releases.len());
-      nightly_releases
+    // Dev builds use the real version for VPS check (not dev- prefix)
+    let vps_version = if current_version.starts_with("dev-") {
+      let pkg_version = current_version.trim_start_matches("dev-");
+      format!("v{pkg_version}")
     } else {
-      // For stable builds, look for stable releases (semver format)
-      let stable_releases: Vec<&AppRelease> = releases
-        .iter()
-        .filter(|release| release.tag_name.starts_with('v'))
-        .collect();
-      log::info!("Found {} stable releases", stable_releases.len());
-      stable_releases
+      current_version.clone()
     };
+    log::info!("Checking VPS with version: {vps_version}");
 
-    if filtered_releases.is_empty() {
-      log::info!("No releases found for build type (nightly: {is_nightly})");
+    // VPS update check (primary source)
+    match self.check_vps_update(&vps_version).await {
+      Ok(Some(info)) => {
+        log::info!("VPS update available: {}", info.new_version);
+        Ok(Some(info))
+      }
+      Ok(None) => {
+        log::info!("VPS reports no update available");
+        Ok(None)
+      }
+      Err(e) => {
+        log::warn!("VPS update check failed: {e}");
+        Err(e)
+      }
+    }
+  }
+
+  /// Check for updates from VPS (bwbrowser_updates.php)
+  async fn check_vps_update(
+    &self,
+    current_version: &str,
+  ) -> Result<Option<AppUpdateInfo>, Box<dyn std::error::Error + Send + Sync>> {
+    let url = format!(
+      "https://www.yacm.xin/tk/bwbrowser_updates.php?action=check&version={}",
+      current_version
+    );
+
+    log::info!("Checking VPS for updates: {url}");
+
+    let resp = self
+      .client
+      .get(&url)
+      .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
+      .send()
+      .await?;
+
+    if !resp.status().is_success() {
+      return Err(format!("VPS update check failed: HTTP {}", resp.status()).into());
+    }
+
+    let body = resp.text().await?;
+    let v: serde_json::Value = serde_json::from_str(&body)?;
+
+    if !v.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+      return Err("VPS returned error".into());
+    }
+
+    if !v
+      .get("has_update")
+      .and_then(|v| v.as_bool())
+      .unwrap_or(false)
+    {
       return Ok(None);
     }
 
-    // Get the latest release
-    let latest_release = filtered_releases[0];
+    let update = v.get("update").ok_or("Missing update field")?;
+    let new_version = update
+      .get("version")
+      .and_then(|v| v.as_str())
+      .unwrap_or("")
+      .to_string();
+    let download_url = update
+      .get("download_url")
+      .and_then(|v| v.as_str())
+      .unwrap_or("")
+      .to_string();
+    let release_notes = update
+      .get("release_notes")
+      .and_then(|v| v.as_str())
+      .unwrap_or("")
+      .to_string();
+    let force_update = update
+      .get("force_update")
+      .and_then(|v| v.as_bool())
+      .unwrap_or(false);
+
     log::info!(
-      "Latest release: {} ({})",
-      latest_release.tag_name,
-      latest_release.name
+      "VPS update found: version={}, url={}, force={}",
+      new_version,
+      download_url,
+      force_update
     );
 
-    // Check if we need to update
-    if self.should_update(&current_version, &latest_release.tag_name, is_nightly) {
-      log::info!("Update available!");
+    let info = AppUpdateInfo {
+      current_version: current_version.to_string(),
+      new_version: new_version.clone(),
+      release_notes,
+      download_url,
+      is_nightly: false,
+      published_at: update
+        .get("created_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string(),
+      manual_update_required: false,
+      release_page_url: None,
+      repo_update: false,
+      checksums_url: None,
+      asset_digest: update
+        .get("file_hash")
+        .and_then(|v| v.as_str())
+        .map(|h| format!("sha256:{h}")),
+    };
 
-      // Build the release page URL
-      let release_page_url = format!(
-        "https://github.com/zhom/donutbrowser/releases/tag/{}",
-        latest_release.tag_name
-      );
-
-      // Find the appropriate asset for current platform
-      let download_url = self.get_download_url_for_platform(&latest_release.assets);
-
-      // Locate the release's checksums file and the chosen asset's
-      // GitHub-computed digest for post-download verification.
-      let checksums_url = Self::find_checksums_url(&latest_release.assets);
-      let asset_digest = download_url.as_deref().and_then(|url| {
-        latest_release
-          .assets
-          .iter()
-          .find(|a| a.browser_download_url == url)
-          .and_then(|a| a.digest.clone())
-      });
-
-      // Both release workflows upload SHA256SUMS.txt only after every platform
-      // build finishes, so a release without it is still being assembled (or
-      // its pipeline broke). Downloading now is guaranteed to fail closed, so
-      // treat the release as not ready and retry on a later check instead of
-      // surfacing an error for a healthy in-progress release. Applies only to
-      // the auto-download path — manual/repo notifications don't download.
-      let auto_download_possible = download_url.is_some();
-      #[cfg(target_os = "linux")]
-      let auto_download_possible = auto_download_possible && !self.is_repo_configured();
-      if auto_download_possible && checksums_url.is_none() {
-        log::info!(
-          "Release {} has no {} yet; treating as not ready for auto-update",
-          latest_release.tag_name,
-          Self::CHECKSUMS_ASSET_NAME
-        );
-        return Ok(None);
-      }
-
-      // On Linux, when a package repo is configured, notify users to update via
-      // their package manager instead of auto-downloading from GitHub.
-      #[cfg(target_os = "linux")]
-      {
-        let repo_update = self.is_repo_configured();
-        let manual_update_required = download_url.is_none() || repo_update;
-        let update_info = AppUpdateInfo {
-          current_version,
-          new_version: latest_release.tag_name.clone(),
-          release_notes: latest_release.body.clone(),
-          download_url: download_url.unwrap_or_else(|| release_page_url.clone()),
-          is_nightly,
-          published_at: latest_release.published_at.clone(),
-          manual_update_required,
-          release_page_url: Some(release_page_url),
-          repo_update,
-          checksums_url,
-          asset_digest,
-        };
-
-        log::info!(
-          "Update info prepared: {} -> {} (manual_update_required: {}, repo_update: {})",
-          update_info.current_version,
-          update_info.new_version,
-          update_info.manual_update_required,
-          update_info.repo_update
-        );
-        return Ok(Some(update_info));
-      }
-
-      #[cfg(not(target_os = "linux"))]
-      {
-        if let Some(url) = download_url {
-          let update_info = AppUpdateInfo {
-            current_version,
-            new_version: latest_release.tag_name.clone(),
-            release_notes: latest_release.body.clone(),
-            download_url: url,
-            is_nightly,
-            published_at: latest_release.published_at.clone(),
-            manual_update_required: false,
-            release_page_url: Some(release_page_url),
-            repo_update: false,
-            checksums_url,
-            asset_digest,
-          };
-
-          log::info!(
-            "Update info prepared: {} -> {}",
-            update_info.current_version,
-            update_info.new_version
-          );
-          return Ok(Some(update_info));
-        } else {
-          log::info!("No suitable download asset found for current platform");
-        }
-      }
-    } else {
-      log::info!("No update needed");
+    if force_update {
+      log::info!("VPS reports force update required");
     }
 
-    Ok(None)
+    Ok(Some(info))
   }
 
   /// Fetch app releases from GitHub
   async fn fetch_app_releases(
     &self,
   ) -> Result<Vec<AppRelease>, Box<dyn std::error::Error + Send + Sync>> {
-    let url = "https://api.github.com/repos/zhom/donutbrowser/releases?per_page=100";
+    let url = "https://api.github.com/repos/zhom/bwbrowser/releases?per_page=100";
     let response = self
       .client
       .get(url)
@@ -342,10 +324,6 @@ impl AppAutoUpdater {
 
   /// Determine if an update should be performed
   fn should_update(&self, current_version: &str, new_version: &str, is_nightly: bool) -> bool {
-    if current_version.starts_with("dev-") {
-      return false;
-    }
-
     log::info!(
       "Comparing versions: current={current_version}, new={new_version}, is_nightly={is_nightly}"
     );
@@ -510,14 +488,14 @@ impl AppAutoUpdater {
   /// Check if the APT repository is configured
   #[cfg(target_os = "linux")]
   fn is_deb_repo_configured() -> bool {
-    Path::new("/etc/apt/sources.list.d/donutbrowser.list").exists()
+    Path::new("/etc/apt/sources.list.d/bwbrowser.list").exists()
   }
 
   /// Check if an RPM repository is configured (yum/dnf or zypper)
   #[cfg(target_os = "linux")]
   fn is_rpm_repo_configured() -> bool {
-    Path::new("/etc/yum.repos.d/donutbrowser.repo").exists()
-      || Path::new("/etc/zypp/repos.d/donutbrowser.repo").exists()
+    Path::new("/etc/yum.repos.d/bwbrowser.repo").exists()
+      || Path::new("/etc/zypp/repos.d/bwbrowser.repo").exists()
   }
 
   /// Check if a system package manager repo is configured for this installation.
@@ -787,6 +765,14 @@ impl AppAutoUpdater {
     };
 
     let Some(checksums_url) = update_info.checksums_url.as_deref() else {
+      if let Some(digest) = update_info.asset_digest.as_deref().and_then(|d| d.strip_prefix("sha256:")) {
+        log::info!(
+          "No {} file, using VPS file_hash as checksum for {}",
+          Self::CHECKSUMS_ASSET_NAME,
+          update_info.new_version
+        );
+        return Ok(digest.to_string());
+      }
       log::warn!(
         "No {} asset on release {}",
         Self::CHECKSUMS_ASSET_NAME,
@@ -917,7 +903,7 @@ impl AppAutoUpdater {
   ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     log::info!("Starting background update download and install");
 
-    let temp_dir = std::env::temp_dir().join("donut_app_update");
+    let temp_dir = std::env::temp_dir().join("bwbrowser_app_update");
     fs::create_dir_all(&temp_dir)?;
 
     let filename = update_info
@@ -1144,18 +1130,18 @@ impl AppAutoUpdater {
       // Clean up backup after successful installation
       let _ = fs::remove_dir_all(&backup_path);
 
-      // Clean up old "Donut Browser.app" if it exists (from before the project rename)
+      // Clean up old "BW Browser.app" if it exists (from before the project rename)
       if let Some(parent_dir) = current_app_path.parent() {
-        let old_app_path = parent_dir.join("Donut Browser.app");
+        let old_app_path = parent_dir.join("BW Browser.app");
         if old_app_path.exists() && old_app_path != current_app_path {
           log::info!(
-            "Removing old 'Donut Browser.app' from: {}",
+            "Removing old 'BW Browser.app' from: {}",
             old_app_path.display()
           );
           if let Err(e) = fs::remove_dir_all(&old_app_path) {
-            log::warn!("Warning: Failed to remove old 'Donut Browser.app': {e}");
+            log::warn!("Warning: Failed to remove old 'BW Browser.app': {e}");
           } else {
-            log::info!("Successfully removed old 'Donut Browser.app'");
+            log::info!("Successfully removed old 'BW Browser.app'");
           }
         }
       }
@@ -1739,7 +1725,7 @@ impl AppAutoUpdater {
       .filter(|pid| crate::proxy_storage::is_process_running(*pid))
       .collect();
     log::error!(
-      "App update aborted because donut-proxy worker PIDs are still running: {:?}",
+      "App update aborted because bwbrowser-proxy worker PIDs are still running: {:?}",
       remaining
     );
     Err(
@@ -1760,7 +1746,7 @@ impl AppAutoUpdater {
 
       // Create a temporary restart script
       let temp_dir = std::env::temp_dir();
-      let script_path = temp_dir.join("donut_restart.sh");
+      let script_path = temp_dir.join("bwbrowser_restart.sh");
 
       // Create the restart script content
       let script_content = format!(
@@ -1907,7 +1893,7 @@ rm "{}"
         let app_path = self.get_current_app_path()?;
         let current_pid = std::process::id();
         let temp_dir = std::env::temp_dir();
-        let script_path = temp_dir.join("donut_restart.bat");
+        let script_path = temp_dir.join("bwbrowser_restart.bat");
 
         let script_content = format!(
           "@echo off\n\
@@ -1939,7 +1925,7 @@ rm "{}"
 
       // Create a temporary restart script
       let temp_dir = std::env::temp_dir();
-      let script_path = temp_dir.join("donut_restart.sh");
+      let script_path = temp_dir.join("bwbrowser_restart.sh");
 
       // Create the restart script content
       let script_content = format!(
@@ -2001,7 +1987,7 @@ rm "{}"
 pub async fn check_for_app_updates() -> Result<Option<AppUpdateInfo>, String> {
   #[cfg(feature = "e2e")]
   if crate::e2e_automation_enabled()
-    && std::env::var_os("DONUT_E2E_DISABLE_STARTUP_NETWORK").is_some()
+    && std::env::var_os("BWBROWSER_E2E_DISABLE_STARTUP_NETWORK").is_some()
   {
     log::info!("E2E: skipping automatic app update check");
     return Ok(None);
@@ -2062,7 +2048,7 @@ pub async fn restart_application() -> Result<(), String> {
 pub async fn check_for_app_updates_manual() -> Result<Option<AppUpdateInfo>, String> {
   #[cfg(feature = "e2e")]
   if crate::e2e_automation_enabled()
-    && std::env::var_os("DONUT_E2E_DISABLE_STARTUP_NETWORK").is_some()
+    && std::env::var_os("BWBROWSER_E2E_DISABLE_STARTUP_NETWORK").is_some()
   {
     log::info!("E2E: skipping manual app update check");
     return Ok(None);
@@ -2192,7 +2178,7 @@ mod tests {
   fn test_find_checksums_url() {
     let assets = vec![
       AppReleaseAsset {
-        name: "Donut_0.29.0_x64.dmg".to_string(),
+        name: "Bwbrowser_0.29.0_x64.dmg".to_string(),
         browser_download_url: "https://example.com/x64.dmg".to_string(),
         size: 1,
         digest: None,
@@ -2240,10 +2226,10 @@ mod tests {
 
     let hooks = include_str!("../installer-hooks.nsh");
     assert!(hooks.contains("NSIS_HOOK_PREINSTALL"));
-    assert!(hooks.contains("IfFileExists \"$INSTDIR\\donut-proxy.exe\""));
+    assert!(hooks.contains("IfFileExists \"$INSTDIR\\bwbrowser-proxy.exe\""));
     assert!(hooks.contains("taskkill.exe"));
-    assert!(hooks.contains("donut-proxy.exe"));
-    assert!(hooks.contains("Delete \"$INSTDIR\\donut-proxy.exe\""));
+    assert!(hooks.contains("bwbrowser-proxy.exe"));
+    assert!(hooks.contains("Delete \"$INSTDIR\\bwbrowser-proxy.exe\""));
   }
 
   #[test]
@@ -2261,39 +2247,39 @@ mod tests {
     let all_assets = vec![
       // macOS assets
       AppReleaseAsset {
-        name: "Donut.Browser_0.1.0_aarch64.dmg".to_string(),
+        name: "Bwbrowser.Browser_0.1.0_aarch64.dmg".to_string(),
         browser_download_url: "https://example.com/aarch64.dmg".to_string(),
         size: 12345,
         digest: None,
       },
       AppReleaseAsset {
-        name: "Donut.Browser_0.1.0_x64.dmg".to_string(),
+        name: "Bwbrowser.Browser_0.1.0_x64.dmg".to_string(),
         browser_download_url: "https://example.com/x64.dmg".to_string(),
         size: 12345,
         digest: None,
       },
       // Windows assets (NSIS naming: _ARCH-setup.exe)
       AppReleaseAsset {
-        name: "Donut_0.1.0_x64-setup.exe".to_string(),
+        name: "Bwbrowser_0.1.0_x64-setup.exe".to_string(),
         browser_download_url: "https://example.com/x64-setup.exe".to_string(),
         size: 12345,
         digest: None,
       },
       // Linux assets
       AppReleaseAsset {
-        name: "donutbrowser_0.1.0_amd64.deb".to_string(),
+        name: "bwbrowser_0.1.0_amd64.deb".to_string(),
         browser_download_url: "https://example.com/amd64.deb".to_string(),
         size: 12345,
         digest: None,
       },
       AppReleaseAsset {
-        name: "donutbrowser-0.1.0-1.x86_64.rpm".to_string(),
+        name: "bwbrowser-0.1.0-1.x86_64.rpm".to_string(),
         browser_download_url: "https://example.com/x86_64.rpm".to_string(),
         size: 12345,
         digest: None,
       },
       AppReleaseAsset {
-        name: "Donut.Browser-0.1.0-x86_64.AppImage".to_string(),
+        name: "Bwbrowser.Browser-0.1.0-x86_64.AppImage".to_string(),
         browser_download_url: "https://example.com/x86_64.AppImage".to_string(),
         size: 12345,
         digest: None,
@@ -2396,13 +2382,13 @@ mod tests {
     // Create mock assets including AppImage
     let assets = vec![
       AppReleaseAsset {
-        name: "donutbrowser_0.1.0_amd64.deb".to_string(),
+        name: "bwbrowser_0.1.0_amd64.deb".to_string(),
         browser_download_url: "https://example.com/amd64.deb".to_string(),
         size: 12345,
         digest: None,
       },
       AppReleaseAsset {
-        name: "Donut.Browser-0.1.0-x86_64.AppImage".to_string(),
+        name: "Bwbrowser.Browser-0.1.0-x86_64.AppImage".to_string(),
         browser_download_url: "https://example.com/x86_64.AppImage".to_string(),
         size: 12345,
         digest: None,
@@ -2443,27 +2429,27 @@ mod tests {
     let all_assets = vec![
       // macOS assets
       AppReleaseAsset {
-        name: "Donut.Browser_0.1.0_aarch64.dmg".to_string(),
+        name: "Bwbrowser.Browser_0.1.0_aarch64.dmg".to_string(),
         browser_download_url: "https://example.com/aarch64.dmg".to_string(),
         size: 12345,
         digest: None,
       },
       // Windows assets
       AppReleaseAsset {
-        name: "Donut.Browser_0.1.0_x64.msi".to_string(),
+        name: "Bwbrowser.Browser_0.1.0_x64.msi".to_string(),
         browser_download_url: "https://example.com/x64.msi".to_string(),
         size: 12345,
         digest: None,
       },
       // Linux assets
       AppReleaseAsset {
-        name: "donutbrowser_0.1.0_amd64.deb".to_string(),
+        name: "bwbrowser_0.1.0_amd64.deb".to_string(),
         browser_download_url: "https://example.com/amd64.deb".to_string(),
         size: 12345,
         digest: None,
       },
       AppReleaseAsset {
-        name: "Donut.Browser-0.1.0-x86_64.AppImage".to_string(),
+        name: "Bwbrowser.Browser-0.1.0-x86_64.AppImage".to_string(),
         browser_download_url: "https://example.com/x86_64.AppImage".to_string(),
         size: 12345,
         digest: None,

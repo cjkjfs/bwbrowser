@@ -9,7 +9,7 @@
 # For more examples and options, including how to ignore specific vulnerabilities,
 # see https://google.github.io/osv-scanner/github-action/
 
-# Security vulnerability scanning for Donut Browser
+# Security vulnerability scanning for BW Browser
 # Scans dependencies in package managers (npm/pnpm, Cargo) for known vulnerabilities
 # Runs on schedule and when dependencies change
 

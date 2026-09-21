@@ -23,8 +23,8 @@ import {
 export const TEST_BROWSER_VERSION = "150.0.7871.100";
 
 export function defaultWayfernPath(projectRoot) {
-  if (process.env.DONUT_E2E_WAYFERN_PATH) {
-    return path.resolve(process.env.DONUT_E2E_WAYFERN_PATH);
+  if (process.env.BWBROWSER_E2E_WAYFERN_PATH) {
+    return path.resolve(process.env.BWBROWSER_E2E_WAYFERN_PATH);
   }
   const fixtureRoot = path.join(projectRoot, ".cache", "e2e-wayfern-fixture");
   return process.platform === "darwin"
@@ -122,7 +122,7 @@ async function cloneAppBundle(source, destination) {
 }
 
 /** Where the app itself resolves the current Wayfern build (api_client.rs). */
-const WAYFERN_RELEASE_URL = "https://donutbrowser.com/wayfern.json";
+const WAYFERN_RELEASE_URL = "https://bwbrowser.com/wayfern.json";
 
 /**
  * The newest published Wayfern version, read from the same manifest the app
@@ -170,7 +170,7 @@ async function downloadWayfern(app, version) {
  * the new one on disk, never a half-written bundle.
  */
 async function cacheDownloadedWayfern(app, projectRoot, version) {
-  if (process.env.DONUT_E2E_WAYFERN_PATH) return;
+  if (process.env.BWBROWSER_E2E_WAYFERN_PATH) return;
   const destination = defaultWayfernPath(projectRoot);
 
   const installDir = path.join(
@@ -214,7 +214,7 @@ async function cacheDownloadedWayfern(app, projectRoot, version) {
     // behind, and the next run resolves the published version again and
     // replaces it then.
     console.warn(
-      `[donut-e2e] Could not refresh the Wayfern fixture cache: ${error}`,
+      `[bwbrowser-e2e] Could not refresh the Wayfern fixture cache: ${error}`,
     );
   } finally {
     await rm(retired, { recursive: true, force: true });
@@ -269,7 +269,7 @@ export async function seedWayfern(dataRoot, wayfern) {
  * Make the newest published Wayfern available to `app` and report the version
  * it will run.
  *
- * `DONUT_E2E_WAYFERN_PATH` pins an explicit bundle and is used as given: that
+ * `BWBROWSER_E2E_WAYFERN_PATH` pins an explicit bundle and is used as given: that
  * is how a locally built browser gets under test. Without it the suite runs
  * the build the product would offer today, always. The ignored cache fixture
  * only ever saves the download: it is used when it holds exactly that build
@@ -278,7 +278,7 @@ export async function seedWayfern(dataRoot, wayfern) {
  */
 export async function prepareWayfern(app, projectRoot) {
   const localBundle = defaultWayfernPath(projectRoot);
-  if (process.env.DONUT_E2E_WAYFERN_PATH) {
+  if (process.env.BWBROWSER_E2E_WAYFERN_PATH) {
     const wayfern = inspectWayfern(localBundle);
     await seedWayfern(app.dataRoot, wayfern);
     return { version: wayfern.version, source: "pinned fixture" };
@@ -299,7 +299,7 @@ export async function prepareWayfern(app, projectRoot) {
   }
   if (cachedVersion) {
     console.log(
-      `[donut-e2e] Cached Wayfern fixture ${cachedVersion} is not the published ${version}; replacing it`,
+      `[bwbrowser-e2e] Cached Wayfern fixture ${cachedVersion} is not the published ${version}; replacing it`,
     );
   }
 
@@ -393,7 +393,7 @@ export function buildStoredZip(entries) {
   return Buffer.concat([...locals, directory, end]);
 }
 
-export const OVERSIZED_EXTENSION_NAME = "Donut E2E Oversized Fixture";
+export const OVERSIZED_EXTENSION_NAME = "Bwbrowser E2E Oversized Fixture";
 
 /**
  * A valid Manifest V3 ZIP padded past the 2 MiB body limit axum applies by
@@ -427,9 +427,9 @@ export function oversizedExtensionZipBase64(paddingBytes = 3 * 1024 * 1024) {
 // placeholders to. Deliberately free of the `__MSG_` marker so a test can
 // assert the stored record carries no placeholder anywhere.
 export const LOCALIZED_EXTENSION_MESSAGES = {
-  extName: "Donut E2E Localized Blocker",
+  extName: "Bwbrowser E2E Localized Blocker",
   extDescription: "Resolved from the default locale, not the manifest",
-  extAuthor: "Donut E2E Localization",
+  extAuthor: "Bwbrowser E2E Localization",
 };
 
 /**
@@ -500,7 +500,7 @@ export function extensionIconPngBase64() {
  */
 export async function writeUnpackedExtension(
   directory,
-  { name = "Donut E2E Unpacked", version = "1.0.0" } = {},
+  { name = "Bwbrowser E2E Unpacked", version = "1.0.0" } = {},
 ) {
   const absolute = path.resolve(directory);
   await mkdir(path.join(absolute, "icons"), { recursive: true });
@@ -522,9 +522,9 @@ export async function writeUnpackedExtension(
   await writeFile(
     path.join(absolute, "background.js"),
     [
-      "globalThis.__donutE2eExtension = chrome.runtime.id;",
+      "globalThis.__bwbrowserE2eExtension = chrome.runtime.id;",
       "chrome.runtime.onInstalled.addListener(() => {",
-      "  console.log('donut e2e extension installed');",
+      "  console.log('bwbrowser e2e extension installed');",
       "});",
       "",
     ].join("\n"),
@@ -643,7 +643,7 @@ export function writeChromiumHistory(dbPath, urls) {
 }
 
 /** The name and version the CRX fixture's own manifest declares. */
-export const CRX_EXTENSION_NAME = "Donut E2E Web Extension";
+export const CRX_EXTENSION_NAME = "Bwbrowser E2E Web Extension";
 export const CRX_EXTENSION_VERSION = "3.2.1";
 
 /**
@@ -651,7 +651,7 @@ export const CRX_EXTENSION_VERSION = "3.2.1";
  * serves: `Cr24`, a little-endian format version of 3, a little-endian header
  * length, that many bytes of signature header, and only then the ZIP.
  *
- * The header bytes are filler — nothing in Donut verifies the signature, and a
+ * The header bytes are filler — nothing in Bwbrowser verifies the signature, and a
  * real one would need a packing key. What a test built on this proves is that
  * the importer reads the ZIP at the offset the header declares instead of
  * scanning the file for a `PK` marker, which is the bug the format invites.

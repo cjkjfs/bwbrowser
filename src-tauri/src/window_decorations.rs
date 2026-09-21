@@ -31,7 +31,7 @@ pub struct WindowDecorations {
 /// Whether to drop server-side decorations on this Linux session.
 ///
 /// Enabled everywhere except KDE Plasma on Wayland, and overridable with
-/// `DONUT_LINUX_CLIENT_DECORATIONS=1|0`.
+/// `BWBROWSER_LINUX_CLIENT_DECORATIONS=1|0`.
 ///
 /// The KDE/Wayland exclusion is deliberate and is about a failure mode, not a
 /// preference. GTK3 speaks no `xdg-decoration`; when a window is built
@@ -48,9 +48,9 @@ pub struct WindowDecorations {
 /// which KWin has honored for as long as it has existed.
 #[cfg(target_os = "linux")]
 pub fn use_client_side_decorations() -> bool {
-  if let Ok(value) = std::env::var("DONUT_LINUX_CLIENT_DECORATIONS") {
+  if let Ok(value) = std::env::var("BWBROWSER_LINUX_CLIENT_DECORATIONS") {
     let forced = matches!(value.trim(), "1" | "true" | "yes");
-    log::info!("Client-side decorations forced to {forced} by DONUT_LINUX_CLIENT_DECORATIONS");
+    log::info!("Client-side decorations forced to {forced} by BWBROWSER_LINUX_CLIENT_DECORATIONS");
     return forced;
   }
 
@@ -87,7 +87,7 @@ pub fn use_client_side_decorations() -> bool {
   if on_kde && on_wayland {
     log::info!(
       "Keeping server-side decorations: KWin on Wayland may draw its own titlebar over the \
-       app's. Set DONUT_LINUX_CLIENT_DECORATIONS=1 to override."
+       app's. Set BWBROWSER_LINUX_CLIENT_DECORATIONS=1 to override."
     );
     return false;
   }

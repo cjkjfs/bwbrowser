@@ -12,9 +12,11 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { DonutClient, OMITTED, OPERATIONS } from "../src/index.mts";
+import { BwbrowserClient, OMITTED, OPERATIONS } from "../src/index.mts";
 
-const SNAPSHOT = fileURLToPath(new URL("../../api-paths.json", import.meta.url));
+const SNAPSHOT = fileURLToPath(
+  new URL("../../api-paths.json", import.meta.url),
+);
 
 interface Snapshot {
   source: string;
@@ -27,7 +29,9 @@ function snapshot(): Snapshot {
 }
 
 function published(): Set<string> {
-  return new Set(snapshot().operations.map((entry) => `${entry.method} ${entry.path}`));
+  return new Set(
+    snapshot().operations.map((entry) => `${entry.method} ${entry.path}`),
+  );
 }
 
 test("the snapshot is readable and not empty", () => {
@@ -55,7 +59,9 @@ test("every published operation is wrapped or omitted", () => {
 
 test("the SDK claims nothing the app does not publish", () => {
   const live = published();
-  const stale = [...OPERATIONS.keys(), ...OMITTED.keys()].filter((key) => !live.has(key)).sort();
+  const stale = [...OPERATIONS.keys(), ...OMITTED.keys()]
+    .filter((key) => !live.has(key))
+    .sort();
   assert.deepEqual(
     stale,
     [],
@@ -71,12 +77,18 @@ test("an operation is either wrapped or omitted but not both", () => {
 
 test("every omission gives a reason", () => {
   for (const [operation, reason] of OMITTED) {
-    assert.ok(reason.trim().length > 40, `${operation} is omitted without a real reason`);
+    assert.ok(
+      reason.trim().length > 40,
+      `${operation} is omitted without a real reason`,
+    );
   }
 });
 
 test("every wrapped operation names a real method", () => {
-  const prototype = DonutClient.prototype as unknown as Record<string, unknown>;
+  const prototype = BwbrowserClient.prototype as unknown as Record<
+    string,
+    unknown
+  >;
   for (const [operation, name] of OPERATIONS) {
     assert.equal(
       typeof prototype[name],
@@ -88,7 +100,9 @@ test("every wrapped operation names a real method", () => {
 
 test("no two operations share a method", () => {
   const names = [...OPERATIONS.values()];
-  const duplicates = [...new Set(names.filter((name, index) => names.indexOf(name) !== index))];
+  const duplicates = [
+    ...new Set(names.filter((name, index) => names.indexOf(name) !== index)),
+  ];
   assert.deepEqual(
     duplicates,
     [],

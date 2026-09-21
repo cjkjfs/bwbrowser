@@ -3,14 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  LuCloud,
-  LuEye,
-  LuEyeOff,
-  LuLogOut,
-  LuRefreshCw,
-  LuUser,
-} from "react-icons/lu";
+import { LuCloud, LuLogOut, LuRefreshCw, LuUser } from "react-icons/lu";
 import {
   formatDate,
   formatHours,
@@ -24,20 +17,13 @@ import {
   AnimatedTabsList,
   AnimatedTabsTrigger,
 } from "@/components/ui/animated-tabs";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
 import { useCloudAuth } from "@/hooks/use-cloud-auth";
 import { cookieBotScopeFor, useCookieBot } from "@/hooks/use-cookie-bot";
 import { translateBackendError } from "@/lib/backend-errors";
-import {
-  canUseCookieBot,
-  effectivePlanOf,
-  getEntitlements,
-  isTeamOwner,
-} from "@/lib/entitlements";
+import { effectivePlanOf, isTeamOwner } from "@/lib/entitlements";
 import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import { cn } from "@/lib/utils";
 import type { SyncSettings } from "@/types";
@@ -65,6 +51,11 @@ export function AccountPage({
     logout,
     refreshProfile,
   } = useCloudAuth();
+  const {
+    user: bwbrowserUser,
+    logout: bwbrowserLogout,
+    refreshProfile: bwbrowserRefresh,
+  } = useBwbrowserAuth();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -72,20 +63,21 @@ export function AccountPage({
   // the controls that spend them. Until this landed, `remote-sessions/quota`
   // had no caller anywhere and a customer's first sight of their allowance was
   // a refused launch.
-  const remoteHoursVisible = isLoggedIn && canUseCookieBot(user);
+  // 远程时长（Cookie Bot）仅 Donut 付费套餐使用，bwbrowser 体系不显示
+  const remoteHoursVisible = false;
   const showTeamUsage = remoteHoursVisible && isTeamOwner(user);
   // A member's own row says "free" because the owner pays. The plan the seat
   // is served under is the one the customer expects to read here, and the
   // billing period slot names the seat instead, since a seat has no period.
   const effectivePlan = effectivePlanOf(user);
-  const isTeamSeat = user != null && effectivePlan !== user.plan;
+  const _isTeamSeat = user != null && effectivePlan !== user.plan;
   const seatRole =
     user?.teamRole === "owner"
       ? t("sync.team.roleOwner")
       : user?.teamRole === "admin"
         ? t("sync.team.roleAdmin")
         : t("sync.team.roleMember");
-  const seatLabel = user?.teamName
+  const _seatLabel = user?.teamName
     ? t("account.teamSeat", { role: seatRole, team: user.teamName })
     : t("account.teamSeatUnnamed", { role: seatRole });
   const { quota, isLoading: isQuotaLoading } = useCookieBot(
@@ -106,19 +98,19 @@ export function AccountPage({
   // from `SettingsManager`.
   const [serverUrl, setServerUrl] = useState("");
   const [token, setToken] = useState("");
-  const [showToken, setShowToken] = useState(false);
-  const [isSavingSelfHosted, setIsSavingSelfHosted] = useState(false);
-  const [isTestingConnection, setIsTestingConnection] = useState(false);
-  const [connectionStatus, setConnectionStatus] =
+  const [_showToken, _setShowToken] = useState(false);
+  const [_isSavingSelfHosted, setIsSavingSelfHosted] = useState(false);
+  const [_isTestingConnection, setIsTestingConnection] = useState(false);
+  const [_connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("unknown");
 
-  const hasConfig = Boolean(serverUrl && token);
+  const _hasConfig = Boolean(serverUrl && token);
   // Self-hosted and cloud are mutually exclusive — both share the same sync
   // engine and a profile can't be sync'd to two backends. The tab trigger is
   // disabled here AND the backend rejects mixed state (see `save_sync_settings`
   // / `cloud_logout`), so even if someone bypasses the UI we don't end up
   // with split-brain.
-  const selfHostedDisabled = isLoggedIn || isCloudLoading;
+  const _selfHostedDisabled = isLoggedIn || isCloudLoading;
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -136,12 +128,10 @@ export function AccountPage({
     setIsLoggingOut(true);
     try {
       await logout();
-      // The backend wipes sync URL + token as part of cloud_logout (see
-      // `cloud_auth::cloud_logout`); pull the now-empty settings back into
-      // the form so a user who flips to the Self-hosted tab doesn't see the
-      // pre-logout production URL still sitting there.
       await loadSelfHostedSettings();
       showSuccessToast(t("account.loggedOut"));
+      onClose();
+      onOpenSignIn();
     } catch (e) {
       showErrorToast(String(e));
     } finally {
@@ -168,7 +158,7 @@ export function AccountPage({
     }
   }, [isOpen, loadSelfHostedSettings]);
 
-  const handleTestConnection = useCallback(async () => {
+  const _handleTestConnection = useCallback(async () => {
     if (!serverUrl) {
       showErrorToast(t("sync.config.serverUrlRequired"));
       return;
@@ -193,7 +183,7 @@ export function AccountPage({
     }
   }, [serverUrl, t]);
 
-  const handleSaveSelfHosted = useCallback(async () => {
+  const _handleSaveSelfHosted = useCallback(async () => {
     setIsSavingSelfHosted(true);
     try {
       await invoke<SyncSettings>("save_sync_settings", {
@@ -217,7 +207,7 @@ export function AccountPage({
     }
   }, [serverUrl, token, t]);
 
-  const handleDisconnectSelfHosted = useCallback(async () => {
+  const _handleDisconnectSelfHosted = useCallback(async () => {
     setIsSavingSelfHosted(true);
     try {
       await invoke<SyncSettings>("save_sync_settings", {
@@ -256,52 +246,127 @@ export function AccountPage({
                     {t("account.tabs.teamUsage")}
                   </AnimatedTabsTrigger>
                 )}
-                <AnimatedTabsTrigger
-                  value="self-hosted"
-                  disabled={selfHostedDisabled}
-                  title={
-                    selfHostedDisabled
-                      ? t("account.selfHosted.disabledWhileLoggedIn")
-                      : undefined
-                  }
-                >
-                  {t("account.tabs.selfHosted")}
-                </AnimatedTabsTrigger>
               </AnimatedTabsList>
 
               <AnimatedTabsContent value="account" className="mt-4">
                 <div className="flex flex-col gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="grid size-12 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground">
-                      <LuUser className="size-6" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      {isLoggedIn && user ? (
-                        <>
+                  {/* 统一用户信息卡片：bwbrowser + Donut 合并 */}
+                  {(bwbrowserUser || (isLoggedIn && user)) && (
+                    <div className="rounded-lg border border-border bg-card p-4">
+                      <div className="flex items-center gap-3">
+                        {/* bwbrowser 头像 */}
+                        {bwbrowserUser ? (
+                          bwbrowserUser.avatar ? (
+                            <span
+                              role="img"
+                              aria-label={
+                                bwbrowserUser.realName || bwbrowserUser.email
+                              }
+                              className="size-12 shrink-0 rounded-full bg-cover bg-center border-2 border-primary/20"
+                              style={{
+                                backgroundImage: `url(${bwbrowserUser.avatar})`,
+                              }}
+                            />
+                          ) : (
+                            <span className="grid size-12 shrink-0 place-items-center rounded-full bg-primary text-base font-bold text-primary-foreground">
+                              {(
+                                bwbrowserUser.realName ||
+                                bwbrowserUser.email ||
+                                "?"
+                              )
+                                .charAt(0)
+                                .toUpperCase()}
+                            </span>
+                          )
+                        ) : (
+                          <div className="grid size-12 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground">
+                            <LuUser className="size-6" />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
                           <h2 className="truncate text-base font-semibold">
-                            {user.email}
+                            {bwbrowserUser?.realName ||
+                              bwbrowserUser?.email ||
+                              user?.email ||
+                              "未登录"}
                           </h2>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {t("account.plan", {
-                              plan: effectivePlan,
-                              period: isTeamSeat
-                                ? seatLabel
-                                : (user.planPeriod ?? "—"),
-                            })}
-                          </p>
-                        </>
-                      ) : (
-                        <>
-                          <h2 className="text-base font-semibold">
-                            {t("account.signedOut")}
-                          </h2>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {t("account.signedOutDescription")}
-                          </p>
-                        </>
-                      )}
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                            {bwbrowserUser?.teamRole && (
+                              <span>
+                                {{
+                                  member: "组员",
+                                  leader: "组长",
+                                  supervisor: "主管",
+                                  manager: "经理",
+                                  admin: "管理员",
+                                  super_admin: "超级管理员",
+                                }[bwbrowserUser.teamRole as string] ||
+                                  bwbrowserUser.teamRole}
+                              </span>
+                            )}
+                            {bwbrowserUser?.teamName && (
+                              <>
+                                <span className="text-border">·</span>
+                                <span
+                                  className="truncate"
+                                  title={bwbrowserUser.teamName}
+                                >
+                                  {bwbrowserUser.teamName}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 字段网格 */}
+                      <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                        {bwbrowserUser?.planName && (
+                          <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+                            <p className="text-[10px] tracking-wide text-muted-foreground uppercase">
+                              套餐
+                            </p>
+                            <p className="mt-0.5 font-medium">
+                              {bwbrowserUser.planName}
+                            </p>
+                          </div>
+                        )}
+                        {typeof bwbrowserUser?.stats?.profiles_count ===
+                          "number" && (
+                          <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+                            <p className="text-[10px] tracking-wide text-muted-foreground uppercase">
+                              环境
+                            </p>
+                            <p className="mt-0.5 tabular-nums font-medium">
+                              {bwbrowserUser.stats.profiles_count}
+                            </p>
+                          </div>
+                        )}
+                        {typeof bwbrowserUser?.stats?.proxies_count ===
+                          "number" && (
+                          <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+                            <p className="text-[10px] tracking-wide text-muted-foreground uppercase">
+                              代理
+                            </p>
+                            <p className="mt-0.5 tabular-nums font-medium">
+                              {bwbrowserUser.stats.proxies_count}
+                            </p>
+                          </div>
+                        )}
+                        {typeof bwbrowserUser?.stats?.accounts_count ===
+                          "number" && (
+                          <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+                            <p className="text-[10px] tracking-wide text-muted-foreground uppercase">
+                              账号
+                            </p>
+                            <p className="mt-0.5 tabular-nums font-medium">
+                              {bwbrowserUser.stats.accounts_count}
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {remoteHoursVisible && (
                     // A headline block, not one field among six: the allowance
@@ -360,76 +425,42 @@ export function AccountPage({
                     </div>
                   )}
 
-                  {isLoggedIn && user && (
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
-                        <p className="text-[10px] tracking-wide text-muted-foreground uppercase">
-                          {t("account.fields.plan")}
-                        </p>
-                        <p className="mt-0.5 font-medium uppercase">
-                          {effectivePlan}
-                        </p>
-                      </div>
-                      <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
-                        <p className="text-[10px] tracking-wide text-muted-foreground uppercase">
-                          {t("account.fields.status")}
-                        </p>
-                        <p className="mt-0.5">
-                          {user.subscriptionStatus ?? "—"}
-                        </p>
-                      </div>
-                      {user.teamRole && (
-                        <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
-                          <p className="text-[10px] tracking-wide text-muted-foreground uppercase">
-                            {t("account.fields.teamRole")}
-                          </p>
-                          <p className="mt-0.5">{user.teamRole}</p>
-                        </div>
-                      )}
-                      {user.planPeriod && (
-                        <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
-                          <p className="text-[10px] tracking-wide text-muted-foreground uppercase">
-                            {t("account.fields.period")}
-                          </p>
-                          <p className="mt-0.5">{user.planPeriod}</p>
-                        </div>
-                      )}
-                      {typeof user.deviceOrdinal === "number" && (
-                        <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
-                          <p className="text-[10px] tracking-wide text-muted-foreground uppercase">
-                            {t("account.fields.device")}
-                          </p>
-                          <p className="mt-0.5">
-                            {t("account.deviceOrdinal", {
-                              ordinal: user.deviceOrdinal,
-                              count: user.deviceCount ?? user.deviceOrdinal,
-                            })}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {isLoggedIn &&
-                    user &&
-                    getEntitlements(user).browserAutomation &&
-                    user.isPrimaryDevice === false && (
-                      <p className="text-xs text-warning-text">
-                        {t("account.automationPrimaryOnly")}
-                      </p>
-                    )}
-                  {isLoggedIn &&
-                    user &&
-                    getEntitlements(user).browserAutomation &&
-                    user.isPrimaryDevice === true &&
-                    (user.deviceCount ?? 1) > 1 && (
-                      <p className="text-xs text-success-text">
-                        {t("account.automationActiveHere")}
-                      </p>
-                    )}
-
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {isLoggedIn ? (
+                    {bwbrowserUser ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
+                            setIsRefreshing(true);
+                            try {
+                              await bwbrowserRefresh();
+                              showSuccessToast("已刷新");
+                            } catch (e) {
+                              showErrorToast(String(e));
+                            } finally {
+                              setIsRefreshing(false);
+                            }
+                          }}
+                          disabled={isRefreshing}
+                          className="h-8 gap-1.5 text-xs"
+                        >
+                          <LuRefreshCw className="size-3" />
+                          刷新
+                        </Button>
+                        <LoadingButton
+                          size="sm"
+                          variant="destructive"
+                          isLoading={isLoggingOut}
+                          disabled={isRefreshing}
+                          onClick={() => void handleLogout()}
+                          className="h-8 gap-1.5 text-xs"
+                        >
+                          <LuLogOut className="size-3" />
+                          退出登录
+                        </LoadingButton>
+                      </>
+                    ) : isLoggedIn ? (
                       <>
                         <Button
                           size="sm"
@@ -476,152 +507,6 @@ export function AccountPage({
                   <TeamUsagePanel quota={quota} />
                 </AnimatedTabsContent>
               )}
-
-              <AnimatedTabsContent value="self-hosted" className="mt-4">
-                {selfHostedDisabled ? (
-                  // Defensive: the tab trigger is disabled while the user is
-                  // logged in, so this branch shouldn't be reachable via UI —
-                  // but if state flips mid-render (e.g. a cloud login finishes
-                  // while the tab is open), show the explanation instead of
-                  // a silent empty card.
-                  <p className="text-sm text-muted-foreground">
-                    {t("account.selfHosted.disabledWhileLoggedIn")}
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-4">
-                    <div>
-                      <p className="text-sm font-medium">
-                        {t("account.selfHosted.title")}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {t("account.selfHosted.description")}
-                      </p>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label
-                        htmlFor="self-hosted-server-url"
-                        className="text-xs"
-                      >
-                        {t("sync.serverUrl")}
-                      </Label>
-                      <Input
-                        id="self-hosted-server-url"
-                        type="url"
-                        placeholder={t("sync.serverUrlPlaceholder")}
-                        value={serverUrl}
-                        onChange={(e) => {
-                          setServerUrl(e.target.value);
-                          setConnectionStatus("unknown");
-                        }}
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label htmlFor="self-hosted-token" className="text-xs">
-                        {t("sync.token")}
-                      </Label>
-                      <div className="relative">
-                        <Input
-                          id="self-hosted-token"
-                          type={showToken ? "text" : "password"}
-                          placeholder={t("sync.tokenPlaceholder")}
-                          value={token}
-                          onChange={(e) => {
-                            setToken(e.target.value);
-                            setConnectionStatus("unknown");
-                          }}
-                          autoComplete="off"
-                          spellCheck={false}
-                          className="pr-9"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowToken((v) => !v);
-                          }}
-                          aria-label={
-                            showToken
-                              ? t("common.aria.hideToken")
-                              : t("common.aria.showToken")
-                          }
-                          className="absolute top-1/2 right-2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
-                        >
-                          {showToken ? (
-                            <LuEyeOff className="size-3.5" />
-                          ) : (
-                            <LuEye className="size-3.5" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="text-muted-foreground">
-                        {t("account.selfHosted.connectionStatus")}
-                      </span>
-                      {connectionStatus === "connected" && (
-                        <Badge
-                          variant="default"
-                          className="bg-success text-success-foreground"
-                        >
-                          {t("sync.status.connected")}
-                        </Badge>
-                      )}
-                      {connectionStatus === "error" && (
-                        <Badge variant="destructive">
-                          {t("sync.status.error")}
-                        </Badge>
-                      )}
-                      {connectionStatus === "testing" && (
-                        <Badge variant="secondary">
-                          {t("sync.status.syncing")}
-                        </Badge>
-                      )}
-                      {connectionStatus === "unknown" && (
-                        <Badge variant="secondary">
-                          {t("account.selfHosted.statusUnknown")}
-                        </Badge>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <LoadingButton
-                        size="sm"
-                        variant="outline"
-                        isLoading={isTestingConnection}
-                        disabled={!serverUrl || isSavingSelfHosted}
-                        onClick={() => void handleTestConnection()}
-                        className="h-8 text-xs"
-                      >
-                        {t("account.selfHosted.testConnection")}
-                      </LoadingButton>
-                      <LoadingButton
-                        size="sm"
-                        isLoading={isSavingSelfHosted}
-                        disabled={!serverUrl || !token || isTestingConnection}
-                        onClick={() => void handleSaveSelfHosted()}
-                        className="h-8 text-xs"
-                      >
-                        {t("common.buttons.save")}
-                      </LoadingButton>
-                      {hasConfig && (
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          disabled={isSavingSelfHosted || isTestingConnection}
-                          onClick={() => void handleDisconnectSelfHosted()}
-                          className="h-8 text-xs"
-                        >
-                          {t("account.selfHosted.disconnect")}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </AnimatedTabsContent>
             </AnimatedTabs>
           </div>
         </div>

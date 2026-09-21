@@ -111,7 +111,7 @@ test("every remote MCP error code resolves to a sentence in every locale", () =>
 
 test("each remote MCP code says something DIFFERENT, in every locale", () => {
   // Each code exists because its situation needs its own answer: sign in
-  // again, close the other copy of Donut, upgrade the plan, just wait, create
+  // again, close the other copy of Bwbrowser, upgrade the plan, just wait, create
   // a credential first, revoke one on the account page. Mapping two of them
   // onto one sentence would leave a customer doing the wrong thing about a
   // problem the app already knew how to name.

@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Bwbrowser
+Name[en]=Bwbrowser
+GenericName=Web Browser
+X-GNOME-FullName=Bwbrowser
+Comment=Simple Yet Powerful Anti-Detect Browser
+Exec=bwbrowser %u
+Icon=bwbrowser
+StartupNotify=true
+NoDisplay=false
+Categories=Network;WebBrowser;
+MimeType=x-scheme-handler/http;x-scheme-handler/https;text/html;application/xhtml+xml;
+StartupWMClass=bwbrowser
+Keywords=browser;web;internet;productivity;

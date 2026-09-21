@@ -34,6 +34,7 @@ const PROXY_SCHEMES = new Map<string, string>([
   ["ss", "ss"],
   ["shadowsocks", "ss"],
   ["vless", "vless"],
+  ["trojan", "trojan"],
 ]);
 
 /**
@@ -84,7 +85,7 @@ export const DEFAULT_PROXY_TYPE = "http";
  * Proxy types whose hop from this machine to the proxy is encrypted.
  *
  * `https` is deliberately absent. It is a provider label on a plaintext CONNECT
- * endpoint, and Donut dials it byte-for-byte like `http`
+ * endpoint, and Bwbrowser dials it byte-for-byte like `http`
  * (`proxy_server.rs::connect_to_target_via_upstream`). Listing it here would
  * make the UI state something untrue about the wire.
  */
@@ -99,6 +100,7 @@ const ENCRYPTED_FIRST_HOP = new Set([
   // inverted.
   "shadowsocks",
   "vless",
+  "trojan",
 ]);
 
 /**

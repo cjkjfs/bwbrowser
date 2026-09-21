@@ -20,7 +20,7 @@ jobs:
     # Maintainers' own issues are exempt: they open quick tracking issues
     # without the template on purpose. Everyone else is checked.
     if: >-
-      github.repository == 'zhom/donutbrowser' &&
+      github.repository == 'zhom/bwbrowser' &&
       github.event.issue.author_association != 'OWNER' &&
       github.event.issue.author_association != 'MEMBER'
     runs-on: ubuntu-latest
@@ -41,8 +41,8 @@ jobs:
           cat > /tmp/system.txt <<'PROMPT'
           You are reviewing a new GitHub issue for template compliance. Return ONLY a single JSON object, no prose, no markdown fences.
 
-          Project: Donut Browser. There are three valid templates:
-          - Bug Report (Description + Operating System + Donut Browser version + Which browser is affected + Steps to reproduce + Error logs/screenshots fields)
+          Project: BW Browser. There are three valid templates:
+          - Bug Report (Description + Operating System + BW Browser version + Which browser is affected + Steps to reproduce + Error logs/screenshots fields)
           - Feature Request (description + verification checkbox)
           - Question (free form)
 
@@ -51,7 +51,7 @@ jobs:
           - The issue is an obvious AI-generated wall of text with no real specifics
           - A bug report has no reproduction information or no error description
           - A feature request gives no use case at all
-          - The author left required fields empty (Operating System, Donut Browser version, Which browser is affected, Steps to reproduce on bug reports)
+          - The author left required fields empty (Operating System, BW Browser version, Which browser is affected, Steps to reproduce on bug reports)
 
           Do NOT flag for missing optional fields, missing screenshots, short titles, or stylistic issues. Be conservative. A non-compliant verdict closes the issue, so only flag a genuine template violation.
 

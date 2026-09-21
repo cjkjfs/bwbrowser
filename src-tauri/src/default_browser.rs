@@ -3,7 +3,7 @@ use tauri::command;
 
 pub struct DefaultBrowser {}
 
-/// What happened when the user asked Donut to become the default browser.
+/// What happened when the user asked Bwbrowser to become the default browser.
 ///
 /// macOS and Linux let a program make the change itself. Windows does not. The
 /// registry value that decides the handler carries a signature only the shell
@@ -19,7 +19,7 @@ pub struct DefaultBrowser {}
 #[serde(rename_all = "camelCase", tag = "status")]
 #[allow(dead_code)]
 pub enum SetDefaultOutcome {
-  /// Donut is the default browser now. Nothing is left for the user to do.
+  /// Bwbrowser is the default browser now. Nothing is left for the user to do.
   Set,
   /// Registration is complete and the system settings page is open. The user
   /// makes the final choice there.
@@ -102,7 +102,7 @@ mod macos {
 
   pub fn is_default_browser() -> Result<bool, String> {
     let schemes = ["http", "https"];
-    let bundle_id = "com.donutbrowser";
+    let bundle_id = "com.bwbrowser";
 
     for scheme in schemes {
       let scheme_str = CFString::new(scheme);
@@ -124,7 +124,7 @@ mod macos {
   }
 
   pub fn set_as_default_browser() -> Result<(), String> {
-    let bundle_id = CFString::new("com.donutbrowser");
+    let bundle_id = CFString::new("com.bwbrowser");
     let schemes = ["http", "https"];
 
     for scheme in schemes {
@@ -137,10 +137,10 @@ mod macos {
         if status != 0 {
           let error_msg = match status {
             -54 => format!(
-              "Failed to set as default browser for scheme '{scheme}'. The app is not properly registered as a browser. Please:\n1. Build and install the app properly\n2. Manually set Donut Browser as default in System Settings > General > Default web browser\n3. Make sure the app is in your Applications folder"
+              "Failed to set as default browser for scheme '{scheme}'. The app is not properly registered as a browser. Please:\n1. Build and install the app properly\n2. Manually set BW Browser as default in System Settings > General > Default web browser\n3. Make sure the app is in your Applications folder"
             ),
             _ => format!(
-              "Failed to set as default browser for scheme '{scheme}'. Status code: {status}. Please manually set Donut Browser as default in System Settings > General > Default web browser."
+              "Failed to set as default browser for scheme '{scheme}'. Status code: {status}. Please manually set BW Browser as default in System Settings > General > Default web browser."
             )
           };
           return Err(error_msg);
@@ -160,28 +160,28 @@ mod windows {
   use winreg::RegKey;
 
   /// The key Windows knows us by. Never shown to a person.
-  const APP_NAME: &str = "DonutBrowser";
+  const APP_NAME: &str = "BwBrowser";
   /// The name Windows shows in "Default apps" and in "Open with".
-  const DISPLAY_NAME: &str = "Donut Browser";
-  const DESCRIPTION: &str = "Donut Browser - Simple Yet Powerful Anti-Detect Browser";
-  const PROG_ID: &str = "DonutBrowser.HTML";
+  const DISPLAY_NAME: &str = "BW Browser";
+  const DESCRIPTION: &str = "BW Browser - Simple Yet Powerful Anti-Detect Browser";
+  const PROG_ID: &str = "BwBrowser.HTML";
 
   /// A web browser registers under `StartMenuInternet`, and
   /// `RegisteredApplications` points at the `Capabilities` subkey of that
   /// entry. Edge, Chrome and Firefox all do exactly this, and the shell reads
   /// the capability data from there.
   ///
-  /// The previous layout invented its own key at `Software\DonutBrowser` and
+  /// The previous layout invented its own key at `Software\BwBrowser` and
   /// pointed `RegisteredApplications` at the parent instead of at
   /// `Capabilities`. Every other entry on a normal machine ends in
-  /// `Capabilities`. The shell found no capability data, so Donut was never
+  /// `Capabilities`. The shell found no capability data, so Bwbrowser was never
   /// offered as a browser and the button appeared to do nothing.
-  const CLIENT_KEY: &str = r"Software\Clients\StartMenuInternet\DonutBrowser";
+  const CLIENT_KEY: &str = r"Software\Clients\StartMenuInternet\BwBrowser";
   /// The value written into `RegisteredApplications`.
-  const CAPABILITIES_KEY: &str = r"Software\Clients\StartMenuInternet\DonutBrowser\Capabilities";
+  const CAPABILITIES_KEY: &str = r"Software\Clients\StartMenuInternet\BwBrowser\Capabilities";
   /// The layout earlier builds wrote. Removed on every run, so a machine that
   /// ran one of those does not keep stale capability data claiming http.
-  const LEGACY_APP_KEY: &str = r"Software\DonutBrowser";
+  const LEGACY_APP_KEY: &str = r"Software\BwBrowser";
 
   const URL_SCHEMES: [&str; 2] = ["http", "https"];
   /// The file types a browser is asked to open from Explorer. The ProgId
@@ -285,18 +285,18 @@ mod windows {
     }
   }
 
-  /// Describe the document type Donut opens, and how to open one.
+  /// Describe the document type Bwbrowser opens, and how to open one.
   fn register_prog_id(root: &RegKey, exe_path: &str) -> Result<(), String> {
     let (prog_id_key, _) = root
       .create_subkey(format!(r"Software\Classes\{PROG_ID}"))
       .map_err(|e| format!("Failed to create ProgID key: {e}"))?;
 
     prog_id_key
-      .set_value("", &"Donut Browser Document")
+      .set_value("", &"BW Browser Document")
       .map_err(|e| format!("Failed to set ProgID default value: {e}"))?;
 
     prog_id_key
-      .set_value("FriendlyTypeName", &"Donut Browser Document")
+      .set_value("FriendlyTypeName", &"BW Browser Document")
       .map_err(|e| format!("Failed to set FriendlyTypeName: {e}"))?;
 
     // The shell reads this block to put a name and an icon beside the ProgId in
@@ -365,7 +365,7 @@ mod windows {
 
     // The shell reads the icons-visible state from here, so the block has to
     // exist. It also understands `ReinstallCommand`, `HideIconsCommand` and
-    // `ShowIconsCommand`, and Edge and Chrome advertise all three. Donut does
+    // `ShowIconsCommand`, and Edge and Chrome advertise all three. Bwbrowser does
     // not, because it does not act on `--make-default-browser`, `--hide-icons`
     // or `--show-icons`. Advertising a command the program ignores is the same
     // empty claim as registering a file type nothing can open. Add them here on
@@ -419,14 +419,14 @@ mod windows {
     Ok(())
   }
 
-  /// Offer Donut in the "Open with" list for the HTML file types, without
+  /// Offer Bwbrowser in the "Open with" list for the HTML file types, without
   /// taking the association away from whatever the user already chose.
   ///
   /// The old code wrote the ProgId into the default value of
   /// `Software\Classes\.html`, which is the association itself. That replaced
   /// the user's choice without asking, was never undone on uninstall, and did
   /// not even take effect, because the per-user `FileExts` choice outranks it.
-  /// `OpenWithProgids` is the additive form: it adds Donut to the list and
+  /// `OpenWithProgids` is the additive form: it adds Bwbrowser to the list and
   /// displaces nothing.
   fn register_file_extensions(root: &RegKey) -> Result<(), String> {
     for extension in FILE_EXTENSIONS {
@@ -444,7 +444,7 @@ mod windows {
   }
 
   /// Point `RegisteredApplications` at the capability data. This is what puts
-  /// Donut in the list Windows offers under "Default apps".
+  /// Bwbrowser in the list Windows offers under "Default apps".
   fn register_application(root: &RegKey) -> Result<(), String> {
     let (registered_apps, _) = root
       .create_subkey(r"Software\RegisteredApplications")
@@ -514,7 +514,7 @@ mod windows {
     let code = result.0 as isize;
     if code <= 32 {
       return Err(format!(
-        "Donut Browser is registered, but Windows Settings did not open (code {code}). Open Settings, then Apps, then Default apps, find Donut Browser and set it for HTTP and HTTPS."
+        "BW Browser is registered, but Windows Settings did not open (code {code}). Open Settings, then Apps, then Default apps, find BW Browser and set it for HTTP and HTTPS."
       ));
     }
 
@@ -530,7 +530,7 @@ mod windows {
   /// This used to hand-declare `SendMessageTimeoutA` with `lpdwResult` typed as
   /// `*mut u32` and pass it a `u32`. The real parameter is `PDWORD_PTR`, eight
   /// bytes on x64, so every call wrote four bytes past a stack slot. The result
-  /// was a corrupted stack at the exact moment a user set Donut as their default
+  /// was a corrupted stack at the exact moment a user set Bwbrowser as their default
   /// browser, and the process died with nothing in the log. Go through the
   /// `windows` crate instead, which types the out-parameter correctly and cannot
   /// drift from the real ABI.
@@ -575,7 +575,7 @@ mod windows {
       path: String,
     }
 
-    const SCRATCH_PARENT: &str = r"Software\DonutBrowserTests";
+    const SCRATCH_PARENT: &str = r"Software\BwBrowserTests";
 
     impl ScratchRoot {
       fn new(name: &str) -> Self {
@@ -608,7 +608,7 @@ mod windows {
       }
     }
 
-    const EXE: &str = r"C:\Program Files\Donut Browser\donutbrowser.exe";
+    const EXE: &str = r"C:\Program Files\BW Browser\bwbrowser.exe";
 
     #[test]
     fn registration_writes_the_shape_the_shell_reads() {
@@ -620,7 +620,7 @@ mod windows {
 
       // The bug that made the button do nothing: this pointed at the
       // application key instead of at its `Capabilities` subkey, so the shell
-      // read no capabilities and never offered Donut as a browser. Every other
+      // read no capabilities and never offered Bwbrowser as a browser. Every other
       // entry on a working machine ends in `Capabilities`.
       let registered = root
         .value(r"Software\RegisteredApplications", APP_NAME)
@@ -761,7 +761,7 @@ mod windows {
 mod linux {
   use std::process::Command;
 
-  const APP_DESKTOP_NAME: &str = "donutbrowser.desktop";
+  const APP_DESKTOP_NAME: &str = "bwbrowser.desktop";
 
   pub fn is_default_browser() -> Result<bool, String> {
     // Check if xdg-mime is available
@@ -805,7 +805,7 @@ mod linux {
     // Check if the desktop file exists in common locations
     if !check_desktop_file_exists() {
       return Err(format!(
-        "Desktop file '{}' not found in standard locations. Please ensure the application is properly installed. You can manually set Donut Browser as the default browser in your system settings.",
+        "Desktop file '{}' not found in standard locations. Please ensure the application is properly installed. You can manually set BW Browser as the default browser in your system settings.",
         APP_DESKTOP_NAME
       ));
     }
@@ -846,7 +846,7 @@ mod linux {
       Ok(false) => {
         // This is the common case where commands succeed but verification fails
         Err(format!(
-          "The xdg-mime commands completed successfully, but Donut Browser is not yet set as the default. This is common on some Linux distributions. Please try one of these options:\n\n1. Restart your desktop session and try again\n2. Log out and log back in\n3. Manually set Donut Browser as the default in your system settings:\n   - GNOME: Settings > Default Applications > Web\n   - KDE: System Settings > Applications > Default Applications > Web Browser\n   - XFCE: Settings > Preferred Applications > Web Browser\n   - Or run: xdg-settings set default-web-browser {}\n\nThe changes may take effect automatically after a desktop restart.",
+          "The xdg-mime commands completed successfully, but BW Browser is not yet set as the default. This is common on some Linux distributions. Please try one of these options:\n\n1. Restart your desktop session and try again\n2. Log out and log back in\n3. Manually set BW Browser as the default in your system settings:\n   - GNOME: Settings > Default Applications > Web\n   - KDE: System Settings > Applications > Default Applications > Web Browser\n   - XFCE: Settings > Preferred Applications > Web Browser\n   - Or run: xdg-settings set default-web-browser {}\n\nThe changes may take effect automatically after a desktop restart.",
           APP_DESKTOP_NAME
         ))
       }
@@ -945,7 +945,7 @@ mod tests {
        hand-written declaration of SendMessageTimeoutA, with its out-parameter \
        typed *mut u32 instead of the real PDWORD_PTR, is what made Windows \
        write four bytes past a stack slot and kill the process every time a \
-       user set Donut as their default browser. Take the binding from the \
+       user set Bwbrowser as their default browser. Take the binding from the \
        `windows` crate, which cannot drift from the real ABI, and add the \
        feature it needs to Cargo.toml."
     );

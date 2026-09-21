@@ -5,15 +5,15 @@ from __future__ import annotations
 import json
 
 import pytest
-from fake_donut import FakeDonut, QueuedResponse
+from fake_bwbrowser import FakeBwbrowser, QueuedResponse
 
-from donutbrowser import (
+from bwbrowser import (
     BadGateway,
     Conflict,
-    DonutAPIError,
-    DonutClient,
-    DonutConnectionError,
-    DonutError,
+    BwbrowserAPIError,
+    BwbrowserClient,
+    BwbrowserConnectionError,
+    BwbrowserError,
     Forbidden,
     NotFound,
     PaymentRequired,
@@ -42,7 +42,7 @@ STATUS_TO_ERROR = [
 
 @pytest.mark.parametrize("status,expected", STATUS_TO_ERROR)
 def test_status_maps_to_its_exception(
-    client: DonutClient, fake: FakeDonut, status: int, expected: type
+    client: BwbrowserClient, fake: FakeBwbrowser, status: int, expected: type
 ) -> None:
     fake.enqueue_error(status, "something went wrong")
     with pytest.raises(expected) as raised:
@@ -53,13 +53,13 @@ def test_status_maps_to_its_exception(
     assert raised.value.path == "/v1/profiles"
 
 
-def test_every_error_is_a_donut_error(client: DonutClient, fake: FakeDonut) -> None:
+def test_every_error_is_a_bwbrowser_error(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     fake.enqueue_error(404, "PROFILE_NOT_FOUND")
-    with pytest.raises(DonutError):
+    with pytest.raises(BwbrowserError):
         client.get_profile("nope")
 
 
-def test_the_five_hundreds_share_one_base(client: DonutClient, fake: FakeDonut) -> None:
+def test_the_five_hundreds_share_one_base(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     """`except ServerError` has to catch 502 and 503 as well as 500."""
     for status in (500, 502, 503):
         fake.enqueue_error(status, "upstream")
@@ -67,7 +67,7 @@ def test_the_five_hundreds_share_one_base(client: DonutClient, fake: FakeDonut) 
             client.list_profiles()
 
 
-def test_rate_limited_carries_retry_after(client: DonutClient, fake: FakeDonut) -> None:
+def test_rate_limited_carries_retry_after(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     fake.enqueue_error(
         429,
         "automation request rate limit exceeded",
@@ -79,7 +79,7 @@ def test_rate_limited_carries_retry_after(client: DonutClient, fake: FakeDonut) 
 
 
 def test_rate_limited_without_the_header_is_still_raised(
-    client: DonutClient, fake: FakeDonut
+    client: BwbrowserClient, fake: FakeBwbrowser
 ) -> None:
     fake.enqueue_error(429, "slow down")
     with pytest.raises(RateLimited) as raised:
@@ -88,7 +88,7 @@ def test_rate_limited_without_the_header_is_still_raised(
 
 
 def test_an_unreadable_retry_after_does_not_break_the_error(
-    client: DonutClient, fake: FakeDonut
+    client: BwbrowserClient, fake: FakeBwbrowser
 ) -> None:
     fake.enqueue_error(429, "slow down", headers=(("Retry-After", "Wed, 21 Oct 2026 07:28:00 GMT"),))
     with pytest.raises(RateLimited) as raised:
@@ -96,7 +96,7 @@ def test_an_unreadable_retry_after_does_not_break_the_error(
     assert raised.value.retry_after is None
 
 
-def test_a_structured_code_body_is_decoded(client: DonutClient, fake: FakeDonut) -> None:
+def test_a_structured_code_body_is_decoded(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     """The app shares `{"code": ...}` strings with its own frontend."""
     fake.enqueue_error(400, json.dumps({"code": "NAME_CANNOT_BE_EMPTY"}))
     with pytest.raises(ValidationError) as raised:
@@ -105,7 +105,7 @@ def test_a_structured_code_body_is_decoded(client: DonutClient, fake: FakeDonut)
     assert raised.value.params == {}
 
 
-def test_a_structured_code_body_keeps_its_params(client: DonutClient, fake: FakeDonut) -> None:
+def test_a_structured_code_body_keeps_its_params(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     fake.enqueue_error(409, json.dumps({"code": "PROFILE_LOCKED_BY_MEMBER", "params": {"n": "5"}}))
     with pytest.raises(Conflict) as raised:
         client.run_profile("p1")
@@ -113,7 +113,7 @@ def test_a_structured_code_body_keeps_its_params(client: DonutClient, fake: Fake
     assert raised.value.params == {"n": "5"}
 
 
-def test_a_plain_text_body_leaves_code_unset(client: DonutClient, fake: FakeDonut) -> None:
+def test_a_plain_text_body_leaves_code_unset(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     fake.enqueue_error(400, "invalid browser")
     with pytest.raises(ValidationError) as raised:
         client.create_profile(name="x", browser="chromium")
@@ -122,23 +122,23 @@ def test_a_plain_text_body_leaves_code_unset(client: DonutClient, fake: FakeDonu
 
 
 def test_an_undocumented_status_still_raises_something_catchable(
-    client: DonutClient, fake: FakeDonut
+    client: BwbrowserClient, fake: FakeBwbrowser
 ) -> None:
     fake.enqueue_error(418, "teapot")
-    with pytest.raises(DonutAPIError) as raised:
+    with pytest.raises(BwbrowserAPIError) as raised:
         client.list_profiles()
     assert raised.value.status == 418
 
 
 def test_an_undocumented_server_status_is_a_server_error(
-    client: DonutClient, fake: FakeDonut
+    client: BwbrowserClient, fake: FakeBwbrowser
 ) -> None:
     fake.enqueue_error(504, "gateway timeout")
     with pytest.raises(ServerError):
         client.list_profiles()
 
 
-def test_the_message_names_the_call(client: DonutClient, fake: FakeDonut) -> None:
+def test_the_message_names_the_call(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     fake.enqueue_error(404, "Profile not found")
     with pytest.raises(NotFound) as raised:
         client.get_profile("missing")
@@ -146,23 +146,23 @@ def test_the_message_names_the_call(client: DonutClient, fake: FakeDonut) -> Non
     assert "GET /v1/profiles/missing" in str(raised.value)
 
 
-def test_an_unreachable_app_is_not_an_api_error(fake: FakeDonut) -> None:
+def test_an_unreachable_app_is_not_an_api_error(fake: FakeBwbrowser) -> None:
     port = fake.port
     fake.stop()
-    with DonutClient(token="t", port=port, timeout=2.0, env={}) as client:
-        with pytest.raises(DonutConnectionError) as raised:
+    with BwbrowserClient(token="t", port=port, timeout=2.0, env={}) as client:
+        with pytest.raises(BwbrowserConnectionError) as raised:
             client.list_profiles()
     assert "Local API" in str(raised.value)
 
 
 def test_a_missing_token_fails_before_any_request() -> None:
-    with pytest.raises(DonutError) as raised:
-        DonutClient(env={})
-    assert "DONUT_API_TOKEN" in str(raised.value)
+    with pytest.raises(BwbrowserError) as raised:
+        BwbrowserClient(env={})
+    assert "BWBROWSER_API_TOKEN" in str(raised.value)
 
 
-def test_a_non_json_answer_is_reported_as_such(client: DonutClient, fake: FakeDonut) -> None:
+def test_a_non_json_answer_is_reported_as_such(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     fake.responses.append(QueuedResponse(status=200, body="<html>nope</html>"))
-    with pytest.raises(DonutError) as raised:
+    with pytest.raises(BwbrowserError) as raised:
         client.list_profiles()
     assert "not JSON" in str(raised.value)

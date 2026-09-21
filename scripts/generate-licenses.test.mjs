@@ -146,7 +146,7 @@ test("generated inventory includes the bundled sidecar and Tauri opener", async 
   assert.ok(
     inventory.some(
       (entry) =>
-        entry.name === "Donut Browser" && entry.license === "AGPL-3.0-only",
+        entry.name === "BW Browser" && entry.license === "AGPL-3.0-only",
     ),
   );
   assert.ok(

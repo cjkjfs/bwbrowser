@@ -2,7 +2,7 @@
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{Emitter, Listener, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 #[cfg(not(feature = "e2e"))]
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_log::{Target, TargetKind};
@@ -109,12 +109,15 @@ mod wayfern_terms;
 mod window_decorations;
 // mod theme_detector; // removed: theme detection handled in webview via CSS prefers-color-scheme
 mod agent;
+pub mod bwbrowser_cloud;
 pub mod cloud_auth;
 mod cloud_errors;
+pub mod cloud_proxy_manager;
 mod commercial_license;
 mod cookie_bot;
 mod cookie_manager;
 mod cookie_paste;
+mod cookie_sync;
 pub mod events;
 mod mcp_integrations;
 mod mcp_remote;
@@ -123,6 +126,7 @@ mod tag_manager;
 mod team_lock;
 mod vault;
 mod version_updater;
+mod video_downloader;
 pub mod vpn;
 mod vpn_extension_detect;
 pub mod vpn_worker_runner;
@@ -893,7 +897,7 @@ fn mcp_remote_key_label() -> String {
     .map(|h| h.trim().to_string())
     .filter(|h| !h.is_empty())
     .unwrap_or_else(|| "this computer".to_string());
-  format!("Donut Browser on {host}")
+  format!("BwBrowser on {host}")
     .chars()
     .take(MAX_LABEL_CHARS)
     .collect()
@@ -1015,7 +1019,7 @@ async fn forget_mcp_remote_credential() -> Result<(), String> {
     .map_err(|e| backend_error_with_detail("INTERNAL_ERROR", e))
 }
 
-const CLAUDE_DESKTOP_EXT_ID: &str = "local.mcpb.donut-browser.donut-browser";
+const CLAUDE_DESKTOP_EXT_ID: &str = "local.mcpb.bwbrowser.bwbrowser";
 /// The bridge script declares its target on this line; detection reads it back.
 const BRIDGE_URL_MARKER: &str = "const MCP_URL = ";
 
@@ -1175,11 +1179,11 @@ fn add_mcp_to_claude_desktop_internal(target: &mcp_integrations::McpTarget) -> R
 
   let manifest = serde_json::json!({
     "manifest_version": "0.3",
-    "name": "donut-browser",
-    "display_name": "Donut Browser",
+    "name": "bwbrowser",
+    "display_name": "BwBrowser",
     "version": env!("CARGO_PKG_VERSION"),
-    "description": "Control Donut Browser profiles, proxies, and automation via MCP",
-    "author": { "name": "Donut Browser" },
+    "description": "Control BwBrowser profiles, proxies, and automation via MCP",
+    "author": { "name": "BwBrowser" },
     "tools_generated": true,
     "server": {
       "type": "node",
@@ -2326,7 +2330,7 @@ fn setup_system_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::E
   // Bootstrap labels only — the frontend pushes localized labels via
   // `update_tray_menu` on mount and on language change, and the menu is only
   // opened after a minimize-to-tray (post-mount), so these are never shown.
-  let show_item = MenuItemBuilder::with_id("tray_show", "Show Donut Browser").build(app)?;
+  let show_item = MenuItemBuilder::with_id("tray_show", "Show BwBrowser").build(app)?;
   let quit_item = MenuItemBuilder::with_id("tray_quit", "Quit").build(app)?;
   let tray_menu = MenuBuilder::new(app)
     .item(&show_item)
@@ -2353,7 +2357,7 @@ fn setup_system_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::E
   TrayIconBuilder::with_id("main")
     .icon(tray_image)
     .icon_as_template(cfg!(target_os = "macos"))
-    .tooltip("Donut Browser")
+    .tooltip("BwBrowser")
     .menu(&tray_menu)
     .show_menu_on_left_click(false)
     .on_menu_event(|app_handle, event| match event.id().as_ref() {
@@ -2455,35 +2459,57 @@ pub fn run_with_builder(
 
   let builder = configure_builder(tauri::Builder::default());
 
-  let builder = builder.plugin(
-    tauri_plugin_log::Builder::new()
-      .clear_targets() // Clear default targets to avoid duplicates
+  // Release 模式下，只有 bwbrowser_debug.log 文件存在时才写日志
+  let log_enabled = if cfg!(debug_assertions) {
+    true
+  } else {
+    let debug_flag = std::env::var_os("LOCALAPPDATA")
+      .map(std::path::PathBuf::from)
+      .map(|base| base.join(app_dirs::app_name()).join("bwbrowser_debug.log"))
+      .map(|p| p.exists())
+      .unwrap_or(false);
+    if debug_flag {
+      eprintln!("[log] bwbrowser_debug.log detected, logging enabled");
+    }
+    debug_flag
+  };
+
+  let log_level = if log_enabled {
+    log::LevelFilter::Info
+  } else {
+    log::LevelFilter::Off
+  };
+
+  let mut log_plugin = tauri_plugin_log::Builder::new()
+    .clear_targets()
+    .level(log_level)
+    .max_file_size(5 * 1024 * 1024)
+    .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(10))
+    .format(|out, message, record| {
+      use chrono::Local;
+      let now = Local::now();
+      let timestamp = format!(
+        "{}.{:03}",
+        now.format("%Y-%m-%d %H:%M:%S"),
+        now.timestamp_subsec_millis()
+      );
+      out.finish(format_args!(
+        "[{}][{}][{}] {}",
+        timestamp,
+        record.target(),
+        record.level(),
+        message
+      ))
+    });
+
+  if log_enabled {
+    log_plugin = log_plugin
       .target(Target::new(TargetKind::Stdout))
       .target(Target::new(TargetKind::Webview))
-      .target(file_log_target)
-      // Keep enough context for customer support without letting a long-running
-      // installation accumulate logs without bound.
-      .max_file_size(5 * 1024 * 1024)
-      .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(10))
-      .level(log::LevelFilter::Info)
-      .format(|out, message, record| {
-        use chrono::Local;
-        let now = Local::now();
-        let timestamp = format!(
-          "{}.{:03}",
-          now.format("%Y-%m-%d %H:%M:%S"),
-          now.timestamp_subsec_millis()
-        );
-        out.finish(format_args!(
-          "[{}][{}][{}] {}",
-          timestamp,
-          record.target(),
-          record.level(),
-          message
-        ))
-      })
-      .build(),
-  );
+      .target(file_log_target);
+  }
+
+  let builder = builder.plugin(log_plugin.build());
 
   #[cfg(not(feature = "e2e"))]
   let builder = builder.plugin(tauri_plugin_single_instance::init(
@@ -2592,7 +2618,7 @@ pub fn run_with_builder(
       }
       #[allow(unused_variables)]
       let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-        .title("Donut Browser")
+        .title("BwBrowser")
         .inner_size(880.0, 500.0)
         .min_inner_size(640.0, 400.0)
         .resizable(true)
@@ -3432,6 +3458,27 @@ pub fn run_with_builder(
         cloud_auth::CloudAuthManager::start_sync_token_refresh_loop(app_handle_cloud).await;
       });
 
+      // 初始化视频下载器（加载持久化数据 + 自动启动剪贴板监控）
+      let app_handle_vd = app.handle().clone();
+      tauri::async_runtime::spawn(async move {
+        let dl = video_downloader::get_downloader();
+        dl.load_from_disk().await;
+        let settings = dl.get_settings().await;
+        if settings.auto_paste_download {
+          dl.start_clipboard_monitor(app_handle_vd.clone()).await;
+        }
+      });
+
+      // 监听 try-start-next 事件（打破 try_start_next 递归 async fn 的 Send 推断循环）
+      let app_handle_next = app.handle().clone();
+      app.handle().listen("video-download:try-start-next", move |_event| {
+        let dl = video_downloader::get_downloader().clone();
+        let app = app_handle_next.clone();
+        tauri::async_runtime::spawn(async move {
+          dl.try_start_next(&app).await;
+        });
+      });
+
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
@@ -3713,6 +3760,90 @@ pub fn run_with_builder(
       unlock_profile,
       lock_profile,
       is_profile_locked,
+      // Bwbrowser cloud commands
+      bwbrowser_cloud::bwbrowser_login,
+      bwbrowser_cloud::bwbrowser_get_user,
+      bwbrowser_cloud::bwbrowser_logout,
+      bwbrowser_cloud::bwbrowser_refresh_profile,
+      bwbrowser_cloud::bwbrowser_open_vps_login,
+      bwbrowser_cloud::bwbrowser_get_vps_profile_info,
+      bwbrowser_cloud::bwbrowser_set_vps_proxy,
+      bwbrowser_cloud::bwbrowser_delete_vps_data,
+      bwbrowser_cloud::bwbrowser_list_accounts,
+      bwbrowser_cloud::bwbrowser_get_account_summary,
+      bwbrowser_cloud::bwbrowser_list_cloud_users,
+      bwbrowser_cloud::bwbrowser_get_account_detail,
+      bwbrowser_cloud::bwbrowser_update_account_proxy,
+      bwbrowser_cloud::bwbrowser_list_proxies,
+      bwbrowser_cloud::bwbrowser_sync_proxy,
+      bwbrowser_cloud::bwbrowser_delete_proxy,
+      bwbrowser_cloud::bwbrowser_sync_proxies_to_local,
+      bwbrowser_cloud::bwbrowser_pull_proxy_to_local,
+      bwbrowser_cloud::bwbrowser_push_local_proxy_to_cloud,
+      cloud_proxy_manager::cloud_list_proxies,
+      cloud_proxy_manager::cloud_save_proxy,
+      cloud_proxy_manager::cloud_delete_proxy,
+      cloud_proxy_manager::cloud_refresh_proxies,
+      cloud_proxy_manager::cloud_resolve_proxy,
+      bwbrowser_cloud::bwbrowser_list_envs,
+      bwbrowser_cloud::bwbrowser_sync_env,
+      bwbrowser_cloud::bwbrowser_delete_env,
+      bwbrowser_cloud::bwbrowser_update_account_codes,
+      bwbrowser_cloud::bwbrowser_update_account_env,
+      bwbrowser_cloud::bwbrowser_update_account_info,
+      bwbrowser_cloud::bwbrowser_get_account_detail_full,
+      bwbrowser_cloud::bwbrowser_create_account,
+      bwbrowser_cloud::bwbrowser_sync_users_to_accounts,
+      bwbrowser_cloud::bwbrowser_get_account_cookies,
+      bwbrowser_cloud::bwbrowser_delete_cloud_cookies,
+      bwbrowser_cloud::bwbrowser_delete_local_cookies,
+      bwbrowser_cloud::bwbrowser_get_permissions,
+      bwbrowser_cloud::bwbrowser_launch_account,
+      bwbrowser_cloud::bwbrowser_get_current_management_user,
+      bwbrowser_cloud::bwbrowser_get_bwbrowser_cookies,
+      bwbrowser_cloud::bwbrowser_update_bwbrowser_cookies,
+      bwbrowser_cloud::bwbrowser_get_bwbrowser_bookmarks,
+      bwbrowser_cloud::bwbrowser_update_bwbrowser_bookmarks,
+      bwbrowser_cloud::bwbrowser_read_local_bookmarks,
+      bwbrowser_cloud::bwbrowser_write_local_bookmarks,
+      bwbrowser_cloud::bwbrowser_list_management_users,
+      bwbrowser_cloud::bwbrowser_list_management_roles,
+      bwbrowser_cloud::bwbrowser_add_management_user,
+      bwbrowser_cloud::bwbrowser_update_management_user,
+      bwbrowser_cloud::bwbrowser_toggle_management_user_permission,
+      bwbrowser_cloud::bwbrowser_toggle_management_user_status,
+      bwbrowser_cloud::bwbrowser_delete_management_user,
+      video_downloader::video_download_list_tasks,
+      video_downloader::video_download_add,
+      video_downloader::video_download_add_batch,
+      video_downloader::video_download_cancel,
+      video_downloader::video_download_pause,
+      video_downloader::video_download_resume,
+      video_downloader::video_download_retry,
+      video_downloader::video_download_delete,
+      video_downloader::video_download_clear_finished,
+      video_downloader::video_download_get_settings,
+      video_downloader::video_download_list_proxies,
+      video_downloader::video_download_update_settings,
+      video_downloader::video_download_set_yt_dlp_path,
+      video_downloader::video_download_check_tools,
+      video_downloader::video_download_tools_exist,
+      video_downloader::video_download_download_yt_dlp,
+      video_downloader::video_download_update_tool,
+      video_downloader::video_download_download_ffmpeg,
+      video_downloader::video_download_is_downloading_tools,
+      video_downloader::video_download_get_last_cookie_time,
+      video_downloader::video_download_refresh_cookie,
+      video_downloader::video_download_open_dir,
+      video_downloader::video_download_open_file,
+      video_downloader::video_download_get_log_dir,
+      video_downloader::video_download_get_task_log_path,
+      video_downloader::video_download_pause_all,
+      video_downloader::video_download_retry_all,
+      video_downloader::video_download_start_pending,
+      video_downloader::video_download_delete_all,
+      video_downloader::video_download_start_clipboard_monitor,
+      video_downloader::video_download_stop_clipboard_monitor,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

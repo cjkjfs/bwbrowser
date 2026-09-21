@@ -1,12 +1,12 @@
 import confetti from "canvas-confetti";
 
 /**
- * Donut-sprinkle confetti: small rounded bars tinted with the active theme's
+ * Bwbrowser-sprinkle confetti: small rounded bars tinted with the active theme's
  * chart colors. Used for celebration moments (e.g. a successful profile
  * import). Callers must skip it under prefers-reduced-motion.
  */
 
-// A 12×6 capsule — reads as a donut sprinkle at small scale.
+// A 12×6 capsule — reads as a bwbrowser sprinkle at small scale.
 const SPRINKLE_PATH = "M3 0 h6 a3 3 0 0 1 0 6 h-6 a3 3 0 0 1 0 -6 z";
 
 function themeChartColors(): string[] {

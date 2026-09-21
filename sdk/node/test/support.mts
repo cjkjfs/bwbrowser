@@ -1,15 +1,15 @@
-import { DonutClient } from "../src/index.mts";
-import { FakeDonut } from "./fake-donut.mts";
+import { BwbrowserClient } from "../src/index.mts";
+import { FakeBwbrowser } from "./fake-bwbrowser.mts";
 
 export const TOKEN = "test-token-abc123";
 
 /** Start a fake app, point a client at it, and always shut the server down. */
 export async function withClient<T>(
-  work: (client: DonutClient, fake: FakeDonut) => Promise<T>,
+  work: (client: BwbrowserClient, fake: FakeBwbrowser) => Promise<T>,
 ): Promise<T> {
-  const fake = await new FakeDonut().start();
+  const fake = await new FakeBwbrowser().start();
   try {
-    const client = new DonutClient({
+    const client = new BwbrowserClient({
       token: TOKEN,
       port: fake.port,
       timeoutMs: 5_000,

@@ -93,7 +93,7 @@ pub struct VlessRealityConfig {
   pub port: u16,
   pub id: String,
   #[serde(default)]
-  pub flow: VlessFlow,
+  pub flow: Option<VlessFlow>,
   pub reality: RealitySettings,
 }
 
@@ -132,6 +132,56 @@ impl ParsedVlessUri {
 
 pub(crate) fn default_spider_x() -> String {
   "/".to_string()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrojanConfig {
+  pub address: String,
+  pub port: u16,
+  pub password: String,
+  #[serde(default)]
+  pub sni: Option<String>,
+  #[serde(default)]
+  pub fingerprint: Option<String>,
+  #[serde(default)]
+  pub security: String,
+}
+
+impl TrojanConfig {
+  pub fn validate(&self) -> XrayResult<()> {
+    validate_endpoint_address(&self.address)?;
+    if self.port == 0 {
+      return Err(XrayError::InvalidField {
+        field: "port",
+        reason: "must be between 1 and 65535",
+      });
+    }
+    if self.password.is_empty() {
+      return Err(XrayError::InvalidField {
+        field: "password",
+        reason: "must not be empty",
+      });
+    }
+    Ok(())
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ParsedTrojanUri {
+  pub name: Option<String>,
+  pub config: TrojanConfig,
+  pub port: u16,
+}
+
+impl ParsedTrojanUri {
+  pub fn validate(&self) -> XrayResult<()> {
+    if let Some(name) = &self.name {
+      validate_display_name(name)?;
+    }
+    self.config.validate()
+  }
 }
 
 pub(crate) fn validate_display_name(name: &str) -> XrayResult<()> {
@@ -424,7 +474,7 @@ mod tests {
       }
     });
     let config: VlessRealityConfig = serde_json::from_value(value).unwrap();
-    assert_eq!(config.flow, VlessFlow::Vision);
+    assert_eq!(config.flow, Some(VlessFlow::Vision));
     assert_eq!(config.reality.fingerprint, RealityFingerprint::Chrome);
     assert_eq!(config.reality.short_id, "");
     assert_eq!(config.reality.spider_x, "/");

@@ -267,7 +267,15 @@ impl ProfileManager {
             // An identity-backed profile stores the id and the location and
             // never the device; a legacy browser stores the whole payload.
             config.identity_id = generated.identity_id;
-            config.location = generated.location;
+            // Only overwrite location when the probe actually succeeded.
+            // A failed probe leaves generated.location as None, which would
+            // clobber a location the caller already resolved (e.g. from a
+            // cloud environment's geoip). Keeping the caller's value on
+            // failure means the profile still launches with the right
+            // timezone even when the headless probe cannot reach the exit.
+            if generated.geolocation_applied {
+              config.location = generated.location;
+            }
             config.identity_baseline = None;
             config.fingerprint = if config.identity_id.is_some() {
               None
@@ -392,15 +400,21 @@ impl ProfileManager {
   }
 
   pub fn save_profile(&self, profile: &BrowserProfile) -> Result<(), Box<dyn std::error::Error>> {
+    log::info!(
+      "[save_profile] called for profile id={} name={} proxy_id={:?} updated_at={:?}",
+      profile.id,
+      profile.name,
+      profile.proxy_id,
+      profile.updated_at
+    );
     let profiles_dir = self.get_profiles_dir();
     let profile_uuid_dir = profiles_dir.join(profile.id.to_string());
     let profile_file = profile_uuid_dir.join("metadata.json");
 
-    // Ensure the UUID directory exists
     create_dir_all(&profile_uuid_dir)?;
 
     let json = serde_json::to_string_pretty(profile)?;
-    atomic_write(&profile_file, json.as_bytes())?;
+    std::fs::write(&profile_file, json.as_bytes())?;
 
     // Update tag suggestions after any save
     let _ = crate::tag_manager::TAG_MANAGER.lock().map(|tm| {
@@ -445,6 +459,15 @@ impl ProfileManager {
               continue;
             }
           };
+
+          if profile.name == "bjz" {
+            log::info!(
+              "[list_profiles] read bjz: id={} proxy_id={:?} updated_at={:?}",
+              profile.id,
+              profile.proxy_id,
+              profile.updated_at
+            );
+          }
 
           // Backfill host_os from browser config for profiles created before
           // the field existed (or synced without it), and repair any profile

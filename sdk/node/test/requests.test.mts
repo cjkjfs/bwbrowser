@@ -46,10 +46,17 @@ const CASES: Case[] = [
   },
   {
     method: "createProfile",
-    args: [{ name: "Shopper", browser: "wayfern", tags: ["eu"], ephemeral: true }],
+    args: [
+      { name: "Shopper", browser: "wayfern", tags: ["eu"], ephemeral: true },
+    ],
     verb: "POST",
     path: "/v1/profiles",
-    body: { name: "Shopper", browser: "wayfern", tags: ["eu"], ephemeral: true },
+    body: {
+      name: "Shopper",
+      browser: "wayfern",
+      tags: ["eu"],
+      ephemeral: true,
+    },
     operation: "POST /v1/profiles",
   },
   {
@@ -224,7 +231,10 @@ const CASES: Case[] = [
   },
   {
     method: "agentType",
-    args: ["p1", { locator: LOCATOR, text: "hello", clear_first: false, wpm: 55 }],
+    args: [
+      "p1",
+      { locator: LOCATOR, text: "hello", clear_first: false, wpm: 55 },
+    ],
     verb: "POST",
     path: "/v1/profiles/p1/agent/type",
     body: { locator: LOCATOR, text: "hello", clear_first: false, wpm: 55 },
@@ -236,7 +246,9 @@ const CASES: Case[] = [
       "p1",
       {
         container: { role: "listitem" },
-        field_map: [{ key: "title", locator: { role: "heading" }, source: "text" }],
+        field_map: [
+          { key: "title", locator: { role: "heading" }, source: "text" },
+        ],
         max_pages: 3,
       },
     ],
@@ -244,7 +256,9 @@ const CASES: Case[] = [
     path: "/v1/profiles/p1/agent/extract",
     body: {
       container: { role: "listitem" },
-      field_map: [{ key: "title", locator: { role: "heading" }, source: "text" }],
+      field_map: [
+        { key: "title", locator: { role: "heading" }, source: "text" },
+      ],
       max_pages: 3,
     },
     operation: "POST /v1/profiles/{id}/agent/extract",
@@ -351,7 +365,12 @@ const CASES: Case[] = [
     verb: "GET",
     path: "/v1/cookie-bot/conflicts",
     body: null,
-    query: { profile_id: "p1", run_at_minute: "90", timezone: "UTC", days_mask: "7" },
+    query: {
+      profile_id: "p1",
+      run_at_minute: "90",
+      timezone: "UTC",
+      days_mask: "7",
+    },
     operation: "GET /v1/cookie-bot/conflicts",
   },
   {
@@ -464,10 +483,18 @@ const CASES: Case[] = [
   },
   {
     method: "createProxy",
-    args: [{ name: "EU", proxy_settings: { proxy_type: "http", host: "h", port: 8080 } }],
+    args: [
+      {
+        name: "EU",
+        proxy_settings: { proxy_type: "http", host: "h", port: 8080 },
+      },
+    ],
     verb: "POST",
     path: "/v1/proxies",
-    body: { name: "EU", proxy_settings: { proxy_type: "http", host: "h", port: 8080 } },
+    body: {
+      name: "EU",
+      proxy_settings: { proxy_type: "http", host: "h", port: 8080 },
+    },
     operation: "POST /v1/proxies",
   },
   {
@@ -678,10 +705,17 @@ const CASES: Case[] = [
 for (const [index, expected] of CASES.entries()) {
   test(`${expected.method} sends the documented request [${index}]`, async () => {
     await withClient(async (client, fake) => {
-      const callable = (client as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>)[
-        expected.method
-      ];
-      assert.equal(typeof callable, "function", `${expected.method} is not a method`);
+      const callable = (
+        client as unknown as Record<
+          string,
+          (...args: unknown[]) => Promise<unknown>
+        >
+      )[expected.method];
+      assert.equal(
+        typeof callable,
+        "function",
+        `${expected.method} is not a method`,
+      );
       await callable.call(client, ...expected.args);
 
       const sent = fake.last;
@@ -696,8 +730,14 @@ for (const [index, expected] of CASES.entries()) {
 
 test("every wrapped operation has a request test", () => {
   const covered = new Set(CASES.map((entry) => entry.method));
-  const missing = [...OPERATIONS.values()].filter((name) => !covered.has(name)).sort();
-  assert.deepEqual(missing, [], `these wrapped operations have no request test: ${missing}`);
+  const missing = [...OPERATIONS.values()]
+    .filter((name) => !covered.has(name))
+    .sort();
+  assert.deepEqual(
+    missing,
+    [],
+    `these wrapped operations have no request test: ${missing}`,
+  );
 });
 
 test("the token travels as a bearer header", async () => {

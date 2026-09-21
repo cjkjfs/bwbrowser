@@ -236,8 +236,8 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * Shows the total bytes routed through Donut's local proxy worker for this
- * profile. Only counts traffic flowing through the donut-proxy binary — not
+ * Shows the total bytes routed through Bwbrowser's local proxy worker for this
+ * profile. Only counts traffic flowing through the bwbrowser-proxy binary — not
  * the browser's full network usage, hence the "Local" qualifier.
  */
 function LocalDataTransferCard({

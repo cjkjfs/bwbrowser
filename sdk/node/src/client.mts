@@ -1,5 +1,5 @@
 /**
- * A thin client for the Donut Browser local REST API.
+ * A thin client for the BW Browser local REST API.
  *
  * Every method here is one request to one documented path. Nothing is cached,
  * nothing is retried, and nothing is invented: if a method exists below, the
@@ -8,7 +8,11 @@
  * No runtime dependencies. See `sdk/README.md`.
  */
 
-import { DonutConnectionError, DonutError, errorForStatus } from "./errors.mts";
+import {
+  BwbrowserConnectionError,
+  BwbrowserError,
+  errorForStatus,
+} from "./errors.mts";
 import type {
   AgentClick,
   AgentTyping,
@@ -65,12 +69,12 @@ export const DEFAULT_HOST = "127.0.0.1";
 
 const JSON_TYPE = "application/json";
 
-export interface DonutClientOptions {
+export interface BwbrowserClientOptions {
   /** Overrides `host` and `port` entirely. */
   baseUrl?: string;
-  /** Falls back to `DONUT_API_TOKEN`. */
+  /** Falls back to `BWBROWSER_API_TOKEN`. */
   token?: string;
-  /** Falls back to `DONUT_API_PORT`, then to `10108`. */
+  /** Falls back to `BWBROWSER_API_PORT`, then to `10108`. */
   port?: number;
   host?: string;
   /** Per-request timeout in milliseconds. Defaults to 30000. */
@@ -97,7 +101,9 @@ function body(fields: Record<string, unknown>): Record<string, unknown> {
   return result;
 }
 
-function query(fields: Record<string, string | number | boolean | undefined>): URLSearchParams {
+function query(
+  fields: Record<string, string | number | boolean | undefined>,
+): URLSearchParams {
   const params = new URLSearchParams();
   for (const [name, value] of Object.entries(fields)) {
     if (value !== undefined) {
@@ -113,13 +119,13 @@ function segment(value: string): string {
 }
 
 /**
- * A connection to one running Donut Browser.
+ * A connection to one running BW Browser.
  *
  * The local API must be switched on first: **Settings, Integrations, Local
  * API, "Enable Local API Server"**. That screen shows the port and the
  * authentication token to use here.
  */
-export class DonutClient {
+export class BwbrowserClient {
   readonly baseUrl: string;
   readonly host: string;
   readonly port: number;
@@ -130,16 +136,18 @@ export class DonutClient {
   #scheme: string;
   #fetch: typeof fetch;
 
-  constructor(options: DonutClientOptions = {}) {
+  constructor(options: BwbrowserClientOptions = {}) {
     // Reached without `@types/node`, so the package stays dependency-free even
     // for its own type-check.
-    const ambient = globalThis as { process?: { env?: Record<string, string | undefined> } };
+    const ambient = globalThis as {
+      process?: { env?: Record<string, string | undefined> };
+    };
     const env = options.env ?? ambient.process?.env ?? {};
 
-    const token = options.token ?? env.DONUT_API_TOKEN;
+    const token = options.token ?? env.BWBROWSER_API_TOKEN;
     if (!token) {
-      throw new DonutError(
-        "No API token. Pass { token }, or set DONUT_API_TOKEN. The token is shown " +
+      throw new BwbrowserError(
+        "No API token. Pass { token }, or set BWBROWSER_API_TOKEN. The token is shown " +
           "in the app under Settings, Integrations, Local API.",
       );
     }
@@ -152,10 +160,12 @@ export class DonutClient {
       try {
         parsed = new URL(raw);
       } catch {
-        throw new DonutError(`baseUrl is not a URL: ${options.baseUrl}`);
+        throw new BwbrowserError(`baseUrl is not a URL: ${options.baseUrl}`);
       }
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        throw new DonutError(`baseUrl must be http or https, got ${parsed.protocol}`);
+        throw new BwbrowserError(
+          `baseUrl must be http or https, got ${parsed.protocol}`,
+        );
       }
       this.#scheme = parsed.protocol.replace(":", "");
       this.host = parsed.hostname;
@@ -163,10 +173,12 @@ export class DonutClient {
       this.#prefix = parsed.pathname.replace(/\/+$/, "");
     } else {
       let port = options.port;
-      if (port === undefined && env.DONUT_API_PORT) {
-        port = Number.parseInt(env.DONUT_API_PORT, 10);
+      if (port === undefined && env.BWBROWSER_API_PORT) {
+        port = Number.parseInt(env.BWBROWSER_API_PORT, 10);
         if (!Number.isFinite(port)) {
-          throw new DonutError(`DONUT_API_PORT is not a number: ${env.DONUT_API_PORT}`);
+          throw new BwbrowserError(
+            `BWBROWSER_API_PORT is not a number: ${env.BWBROWSER_API_PORT}`,
+          );
         }
       }
       this.#scheme = "http";
@@ -212,8 +224,8 @@ export class DonutClient {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (cause) {
-      throw new DonutConnectionError(
-        `Could not reach Donut Browser at ${this.baseUrl} (${method} ${path}): ` +
+      throw new BwbrowserConnectionError(
+        `Could not reach BW Browser at ${this.baseUrl} (${method} ${path}): ` +
           `${cause instanceof Error ? cause.message : String(cause)}. Is the app ` +
           "running with Settings, Integrations, Local API switched on?",
         { cause },
@@ -234,7 +246,7 @@ export class DonutClient {
     try {
       return JSON.parse(text) as T;
     } catch (cause) {
-      throw new DonutError(
+      throw new BwbrowserError(
         `${method} ${path} answered ${response.status} with a body that is not ` +
           `JSON: ${text.slice(0, 200)}`,
         { cause },
@@ -307,7 +319,11 @@ export class DonutClient {
       clear_on_close?: boolean;
     },
   ): Promise<ApiProfileResponse> {
-    return this.#request("PUT", `/v1/profiles/${segment(profileId)}`, body({ ...request }));
+    return this.#request(
+      "PUT",
+      `/v1/profiles/${segment(profileId)}`,
+      body({ ...request }),
+    );
   }
 
   /** DELETE /v1/profiles/{id} */
@@ -320,7 +336,10 @@ export class DonutClient {
    *
    * Prefer {@link withProfile}, which stops the browser again afterwards.
    */
-  runProfile(profileId: string, options: RunProfileOptions = {}): Promise<RunProfileResponse> {
+  runProfile(
+    profileId: string,
+    options: RunProfileOptions = {},
+  ): Promise<RunProfileResponse> {
     return this.#request(
       "POST",
       `/v1/profiles/${segment(profileId)}/run`,
@@ -329,7 +348,10 @@ export class DonutClient {
   }
 
   /** POST /v1/profiles/{id}/run-remote */
-  runProfileRemote(profileId: string, options: { url?: string } = {}): Promise<RunRemoteResponse> {
+  runProfileRemote(
+    profileId: string,
+    options: { url?: string } = {},
+  ): Promise<RunRemoteResponse> {
     return this.#request(
       "POST",
       `/v1/profiles/${segment(profileId)}/run-remote`,
@@ -344,13 +366,24 @@ export class DonutClient {
    * cannot be launched remotely: its key never leaves this machine, so a
    * remote host would download ciphertext.
    */
-  setProfileCloudSync(profileId: string, mode: string): Promise<SetCloudSyncResponse> {
-    return this.#request("POST", `/v1/profiles/${segment(profileId)}/cloud-sync`, { mode });
+  setProfileCloudSync(
+    profileId: string,
+    mode: string,
+  ): Promise<SetCloudSyncResponse> {
+    return this.#request(
+      "POST",
+      `/v1/profiles/${segment(profileId)}/cloud-sync`,
+      { mode },
+    );
   }
 
   /** POST /v1/profiles/{id}/open-url */
   openUrl(profileId: string, url: string): Promise<void> {
-    return this.#request("POST", `/v1/profiles/${segment(profileId)}/open-url`, { url });
+    return this.#request(
+      "POST",
+      `/v1/profiles/${segment(profileId)}/open-url`,
+      { url },
+    );
   }
 
   /**
@@ -375,13 +408,19 @@ export class DonutClient {
     return this.#request(
       "POST",
       "/v1/profiles/batch/run",
-      body({ profile_ids: profileIds, url: options.url, headless: options.headless }),
+      body({
+        profile_ids: profileIds,
+        url: options.url,
+        headless: options.headless,
+      }),
     );
   }
 
   /** POST /v1/profiles/batch/stop */
   batchStopProfiles(profileIds: string[]): Promise<BatchStopResponse> {
-    return this.#request("POST", "/v1/profiles/batch/stop", { profile_ids: profileIds });
+    return this.#request("POST", "/v1/profiles/batch/stop", {
+      profile_ids: profileIds,
+    });
   }
 
   /**
@@ -389,7 +428,9 @@ export class DonutClient {
    *
    * Without `folder` the app scans the default browser locations.
    */
-  detectImportProfiles(options: { folder?: string } = {}): Promise<DetectedProfilesResponse> {
+  detectImportProfiles(
+    options: { folder?: string } = {},
+  ): Promise<DetectedProfilesResponse> {
     return this.#request(
       "GET",
       "/v1/profiles/import/detect",
@@ -412,7 +453,11 @@ export class DonutClient {
       wayfern_config?: WayfernConfig;
     } = {},
   ): Promise<ProfileImportBatchResult> {
-    return this.#request("POST", "/v1/profiles/import", body({ items, ...options }));
+    return this.#request(
+      "POST",
+      "/v1/profiles/import",
+      body({ items, ...options }),
+    );
   }
 
   /**
@@ -421,10 +466,17 @@ export class DonutClient {
    * `content` is a raw cookie file. The format is detected: a JSON array in
    * the Puppeteer style, or a Netscape `cookies.txt`.
    */
-  importProfileCookies(profileId: string, content: string): Promise<ImportCookiesResponse> {
-    return this.#request("POST", `/v1/profiles/${segment(profileId)}/cookies/import`, {
-      content,
-    });
+  importProfileCookies(
+    profileId: string,
+    content: string,
+  ): Promise<ImportCookiesResponse> {
+    return this.#request(
+      "POST",
+      `/v1/profiles/${segment(profileId)}/cookies/import`,
+      {
+        content,
+      },
+    );
   }
 
   /**
@@ -495,7 +547,11 @@ export class DonutClient {
    */
   agentClick(
     profileId: string,
-    request: { locator: LocatorDescription; button?: string; click_count?: number },
+    request: {
+      locator: LocatorDescription;
+      button?: string;
+      click_count?: number;
+    },
   ): Promise<AgentClick> {
     return this.#request(
       "POST",
@@ -561,7 +617,10 @@ export class DonutClient {
    * Arms a picker in the visible browser and waits for a human to click
    * something. Nothing picked inside `timeout_ms` throws `RequestTimeout`.
    */
-  agentPick(profileId: string, request: { timeout_ms?: number } = {}): Promise<PickedElement> {
+  agentPick(
+    profileId: string,
+    request: { timeout_ms?: number } = {},
+  ): Promise<PickedElement> {
     return this.#request(
       "POST",
       `/v1/profiles/${segment(profileId)}/agent/pick`,
@@ -616,7 +675,9 @@ export class DonutClient {
    *
    * `scope` is `"mine"` (the default) or `"team"`.
    */
-  listCookieBotSchedules(options: { scope?: string } = {}): Promise<CookieBotScheduleList> {
+  listCookieBotSchedules(
+    options: { scope?: string } = {},
+  ): Promise<CookieBotScheduleList> {
     return this.#request(
       "GET",
       "/v1/cookie-bot/schedules",
@@ -627,7 +688,10 @@ export class DonutClient {
 
   /** GET /v1/cookie-bot/schedules/{profile_id} */
   getCookieBotSchedule(profileId: string): Promise<CookieBotSchedule> {
-    return this.#request("GET", `/v1/cookie-bot/schedules/${segment(profileId)}`);
+    return this.#request(
+      "GET",
+      `/v1/cookie-bot/schedules/${segment(profileId)}`,
+    );
   }
 
   /**
@@ -663,8 +727,13 @@ export class DonutClient {
   }
 
   /** DELETE /v1/cookie-bot/schedules/{profile_id} */
-  deleteCookieBotSchedule(profileId: string): Promise<CookieBotScheduleDeleted> {
-    return this.#request("DELETE", `/v1/cookie-bot/schedules/${segment(profileId)}`);
+  deleteCookieBotSchedule(
+    profileId: string,
+  ): Promise<CookieBotScheduleDeleted> {
+    return this.#request(
+      "DELETE",
+      `/v1/cookie-bot/schedules/${segment(profileId)}`,
+    );
   }
 
   /**
@@ -674,7 +743,11 @@ export class DonutClient {
    */
   getCookieBotConflicts(
     profileId: string,
-    options: { run_at_minute?: number; timezone?: string; days_mask?: number } = {},
+    options: {
+      run_at_minute?: number;
+      timezone?: string;
+      days_mask?: number;
+    } = {},
   ): Promise<CookieBotConflictCheck> {
     return this.#request(
       "GET",
@@ -690,9 +763,19 @@ export class DonutClient {
    * Newest first. `before` is the `next_before` of the previous page.
    */
   listCookieBotRuns(
-    options: { profile_id?: string; scope?: string; limit?: number; before?: string } = {},
+    options: {
+      profile_id?: string;
+      scope?: string;
+      limit?: number;
+      before?: string;
+    } = {},
   ): Promise<CookieBotRunPage> {
-    return this.#request("GET", "/v1/cookie-bot/runs", undefined, query({ ...options }));
+    return this.#request(
+      "GET",
+      "/v1/cookie-bot/runs",
+      undefined,
+      query({ ...options }),
+    );
   }
 
   /**
@@ -724,8 +807,15 @@ export class DonutClient {
    *
    * `period` is `YYYY-MM`, defaulting to the current UTC month.
    */
-  getCookieBotUsage(options: { period?: string } = {}): Promise<CookieBotUsage> {
-    return this.#request("GET", "/v1/cookie-bot/usage", undefined, query({ ...options }));
+  getCookieBotUsage(
+    options: { period?: string } = {},
+  ): Promise<CookieBotUsage> {
+    return this.#request(
+      "GET",
+      "/v1/cookie-bot/usage",
+      undefined,
+      query({ ...options }),
+    );
   }
 
   // ------------------------------------------------------------------
@@ -789,7 +879,11 @@ export class DonutClient {
     proxyId: string,
     request: { name?: string; proxy_settings?: ProxySettings },
   ): Promise<ApiProxyResponse> {
-    return this.#request("PUT", `/v1/proxies/${segment(proxyId)}`, body({ ...request }));
+    return this.#request(
+      "PUT",
+      `/v1/proxies/${segment(proxyId)}`,
+      body({ ...request }),
+    );
   }
 
   /** DELETE /v1/proxies/{id} */
@@ -800,7 +894,7 @@ export class DonutClient {
   /**
    * POST /v1/proxies/import
    *
-   * `format` is `"txt"` (one proxy per line) or `"json"` (a Donut proxy
+   * `format` is `"txt"` (one proxy per line) or `"json"` (a Bwbrowser proxy
    * export).
    */
   importProxies(request: {
@@ -906,7 +1000,11 @@ export class DonutClient {
       link?: boolean;
     },
   ): Promise<Extension> {
-    return this.#request("PUT", `/v1/extensions/${segment(extensionId)}`, body({ ...request }));
+    return this.#request(
+      "PUT",
+      `/v1/extensions/${segment(extensionId)}`,
+      body({ ...request }),
+    );
   }
 
   /** DELETE /v1/extensions/{id} */
@@ -952,7 +1050,10 @@ export class DonutClient {
   }
 
   /** POST /v1/extension-groups/{id}/extensions/{extension_id} */
-  addExtensionToGroup(groupId: string, extensionId: string): Promise<ExtensionGroup> {
+  addExtensionToGroup(
+    groupId: string,
+    extensionId: string,
+  ): Promise<ExtensionGroup> {
     return this.#request(
       "POST",
       `/v1/extension-groups/${segment(groupId)}/extensions/${segment(extensionId)}`,
@@ -960,7 +1061,10 @@ export class DonutClient {
   }
 
   /** DELETE /v1/extension-groups/{id}/extensions/{extension_id} */
-  removeExtensionFromGroup(groupId: string, extensionId: string): Promise<ExtensionGroup> {
+  removeExtensionFromGroup(
+    groupId: string,
+    extensionId: string,
+  ): Promise<ExtensionGroup> {
     return this.#request(
       "DELETE",
       `/v1/extension-groups/${segment(groupId)}/extensions/${segment(extensionId)}`,
@@ -1042,13 +1146,13 @@ export class DonutClient {
 }
 
 /**
- * A profile launched by {@link DonutClient.withProfile}.
+ * A profile launched by {@link BwbrowserClient.withProfile}.
  *
  * It also implements `Symbol.asyncDispose`, so a runtime with `await using`
  * can hold one directly; `withProfile` is the form that works everywhere.
  */
 export class RunSession {
-  readonly client: DonutClient;
+  readonly client: BwbrowserClient;
   readonly profileId: string;
   /** The whole body of `POST /v1/profiles/{id}/run`. */
   readonly response: RunProfileResponse;
@@ -1059,7 +1163,11 @@ export class RunSession {
   /** A failure while stopping the browser, kept rather than thrown. */
   cleanupError: unknown = undefined;
 
-  constructor(client: DonutClient, profileId: string, response: RunProfileResponse) {
+  constructor(
+    client: BwbrowserClient,
+    profileId: string,
+    response: RunProfileResponse,
+  ) {
     this.client = client;
     this.profileId = profileId;
     this.response = response;

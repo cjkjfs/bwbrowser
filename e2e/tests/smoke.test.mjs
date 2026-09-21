@@ -182,9 +182,11 @@ test("two isolated sessions run concurrently and do not share frontend or backen
     assert.equal(secondSettings.theme, "system");
     assert.notEqual(secondSettings.theme, "dark");
 
-    await first.execute("localStorage.setItem('donut-e2e-only-a', 'yes');");
+    await first.execute("localStorage.setItem('bwbrowser-e2e-only-a', 'yes');");
     assert.equal(
-      await second.execute("return localStorage.getItem('donut-e2e-only-a');"),
+      await second.execute(
+        "return localStorage.getItem('bwbrowser-e2e-only-a');",
+      ),
       null,
       "native WebView data leaked across sessions",
     );
@@ -238,8 +240,8 @@ test("tray labels, hide-to-tray, and confirmed quit follow the native lifecycle"
   try {
     await app.start();
     await app.invoke("update_tray_menu", {
-      showLabel: "Show Donut E2E",
-      quitLabel: "Quit Donut E2E",
+      showLabel: "Show Bwbrowser E2E",
+      quitLabel: "Quit Bwbrowser E2E",
     });
     await app.invoke("hide_to_tray");
     assert.equal(
@@ -284,7 +286,7 @@ test("the data directory can be moved to another folder and the choice survives 
       // real installation is never a source or a destination here.
       const defaultRoot = path.join(app.dataRoot, "data");
       const pointerFile = path.join(app.dataRoot, "data-root.json");
-      const destination = path.join(app.root, "moved-donut-data");
+      const destination = path.join(app.root, "moved-bwbrowser-data");
 
       const before = await app.invoke("get_data_root_info");
       assert.equal(before.active_path, defaultRoot);

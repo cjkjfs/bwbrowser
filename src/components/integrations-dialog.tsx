@@ -49,15 +49,15 @@ import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import { cn } from "@/lib/utils";
 import { CopyToClipboard } from "./ui/copy-to-clipboard";
 
-/** Where an agent points to drive this browser through Donut cloud. */
-const REMOTE_MCP_URL = "https://api.donutbrowser.com/api/mcp";
+/** Where an agent points to drive this browser through Bwbrowser cloud. */
+const REMOTE_MCP_URL = "https://api.bwbrowser.com/api/mcp";
 
 /**
  * fx refuses a literal Authorization header in its config and reads the
  * bearer token from this variable instead, so its install cannot carry the
  * credential and the user has to export it themselves.
  */
-const FX_TOKEN_ENV = "DONUT_MCP_TOKEN";
+const FX_TOKEN_ENV = "BWBROWSER_MCP_TOKEN";
 const FX_AGENT_ID = "fx";
 
 interface AppSettings {
@@ -124,7 +124,7 @@ interface McpAgentInfo {
   category: AgentCategory;
   connected: boolean;
   detected: boolean;
-  /** Which Donut endpoint the agent's existing entry points at, when connected. */
+  /** Which Bwbrowser endpoint the agent's existing entry points at, when connected. */
   endpoint?: McpEndpoint | null;
 }
 
@@ -548,7 +548,7 @@ export function IntegrationsDialog({
 
   /**
    * Installs an endpoint into an agent. "Add" and "Switch" are the same
-   * write, because the installer replaces the Donut entry wholesale; only the
+   * write, because the installer replaces the Bwbrowser entry wholesale; only the
    * toast differs.
    */
   const installEndpoint = async (

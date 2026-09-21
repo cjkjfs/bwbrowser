@@ -5,11 +5,11 @@ import { test } from "node:test";
 
 import {
   BadGateway,
+  BwbrowserApiError,
+  BwbrowserClient,
+  BwbrowserConnectionError,
+  BwbrowserError,
   Conflict,
-  DonutApiError,
-  DonutClient,
-  DonutConnectionError,
-  DonutError,
   Forbidden,
   NotFound,
   PaymentRequired,
@@ -20,22 +20,23 @@ import {
   Unauthorized,
   ValidationError,
 } from "../src/index.mts";
-import { FakeDonut } from "./fake-donut.mts";
+import { FakeBwbrowser } from "./fake-bwbrowser.mts";
 import { withClient } from "./support.mts";
 
-const STATUS_TO_ERROR: [number, new (...args: never[]) => DonutApiError][] = [
-  [400, ValidationError],
-  [401, Unauthorized],
-  [402, PaymentRequired],
-  [403, Forbidden],
-  [404, NotFound],
-  [408, RequestTimeout],
-  [409, Conflict],
-  [429, RateLimited],
-  [500, ServerError],
-  [502, BadGateway],
-  [503, ServiceUnavailable],
-];
+const STATUS_TO_ERROR: [number, new (...args: never[]) => BwbrowserApiError][] =
+  [
+    [400, ValidationError],
+    [401, Unauthorized],
+    [402, PaymentRequired],
+    [403, Forbidden],
+    [404, NotFound],
+    [408, RequestTimeout],
+    [409, Conflict],
+    [429, RateLimited],
+    [500, ServerError],
+    [502, BadGateway],
+    [503, ServiceUnavailable],
+  ];
 
 for (const [status, expected] of STATUS_TO_ERROR) {
   test(`${status} maps to ${expected.name}`, async () => {
@@ -45,7 +46,10 @@ for (const [status, expected] of STATUS_TO_ERROR) {
         () => null,
         (error: unknown) => error,
       );
-      assert.ok(thrown instanceof expected, `expected ${expected.name}, got ${String(thrown)}`);
+      assert.ok(
+        thrown instanceof expected,
+        `expected ${expected.name}, got ${String(thrown)}`,
+      );
       assert.equal(thrown.status, status);
       assert.equal(thrown.body, "something went wrong");
       assert.equal(thrown.method, "GET");
@@ -54,10 +58,10 @@ for (const [status, expected] of STATUS_TO_ERROR) {
   });
 }
 
-test("every error is a DonutError", async () => {
+test("every error is a BwbrowserError", async () => {
   await withClient(async (client, fake) => {
     fake.enqueueError(404, "PROFILE_NOT_FOUND");
-    await assert.rejects(client.getProfile("nope"), DonutError);
+    await assert.rejects(client.getProfile("nope"), BwbrowserError);
   });
 });
 
@@ -72,7 +76,9 @@ test("the five hundreds share one base", async () => {
 
 test("rate limited carries retryAfter", async () => {
   await withClient(async (client, fake) => {
-    fake.enqueueError(429, "automation request rate limit exceeded", { "Retry-After": "42" });
+    fake.enqueueError(429, "automation request rate limit exceeded", {
+      "Retry-After": "42",
+    });
     const thrown = await client.runProfile("p1").then(
       () => null,
       (error: unknown) => error,
@@ -96,7 +102,9 @@ test("rate limited without the header is still thrown", async () => {
 
 test("an unreadable Retry-After does not break the error", async () => {
   await withClient(async (client, fake) => {
-    fake.enqueueError(429, "slow down", { "Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT" });
+    fake.enqueueError(429, "slow down", {
+      "Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT",
+    });
     const thrown = await client.runProfile("p1").then(
       () => null,
       (error: unknown) => error,
@@ -139,10 +147,12 @@ test("a structured code body keeps its params", async () => {
 test("a plain text body leaves code unset", async () => {
   await withClient(async (client, fake) => {
     fake.enqueueError(400, "invalid browser");
-    const thrown = await client.createProfile({ name: "x", browser: "chromium" }).then(
-      () => null,
-      (error: unknown) => error,
-    );
+    const thrown = await client
+      .createProfile({ name: "x", browser: "chromium" })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
     assert.ok(thrown instanceof ValidationError);
     assert.equal(thrown.code, null);
     assert.equal(thrown.body, "invalid browser");
@@ -156,7 +166,7 @@ test("an undocumented status still throws something catchable", async () => {
       () => null,
       (error: unknown) => error,
     );
-    assert.ok(thrown instanceof DonutApiError);
+    assert.ok(thrown instanceof BwbrowserApiError);
     assert.equal(thrown.status, 418);
   });
 });
@@ -194,21 +204,26 @@ test("errors keep their class name", async () => {
 });
 
 test("an unreachable app is not an API error", async () => {
-  const fake = await new FakeDonut().start();
+  const fake = await new FakeBwbrowser().start();
   const port = fake.port;
   await fake.stop();
 
-  const client = new DonutClient({ token: "t", port, timeoutMs: 2_000, env: {} });
+  const client = new BwbrowserClient({
+    token: "t",
+    port,
+    timeoutMs: 2_000,
+    env: {},
+  });
   const thrown = await client.listProfiles().then(
     () => null,
     (error: unknown) => error,
   );
-  assert.ok(thrown instanceof DonutConnectionError);
+  assert.ok(thrown instanceof BwbrowserConnectionError);
   assert.match(thrown.message, /Local API/);
 });
 
 test("a missing token fails before any request", () => {
-  assert.throws(() => new DonutClient({ env: {} }), /DONUT_API_TOKEN/);
+  assert.throws(() => new BwbrowserClient({ env: {} }), /BWBROWSER_API_TOKEN/);
 });
 
 test("a non-JSON answer is reported as such", async () => {

@@ -113,7 +113,7 @@ const INTERACTIVE_ELEMENTS_JS: &str = r#"(() => {
 /// slot can be evicted once [`MAX_CACHE_SLOTS_PER_PAGE`] is exceeded.
 ///
 /// A quoted JS string literal, because it is substituted into `window[...]`.
-const INTERACTIVE_SLOT_REGISTRY: &str = "'__donut_interactive_slots'";
+const INTERACTIVE_SLOT_REGISTRY: &str = "'__bwbrowser_interactive_slots'";
 
 /// How many interactive-element snapshots one page keeps at once.
 ///
@@ -157,7 +157,7 @@ fn negotiate_protocol_version(requested: Option<&str>) -> &'static str {
     None => PROTOCOL_VERSION,
   }
 }
-const SERVER_NAME: &str = "donut-browser";
+const SERVER_NAME: &str = "bw-browser";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Serialize)]
@@ -453,7 +453,7 @@ fn interactive_cache_slot(origin: McpOrigin, session: &str) -> String {
     McpOrigin::Bridge => "bridge",
   };
   format!(
-    "'__donut_interactive_{transport}_{}'",
+    "'__bwbrowser_interactive_{transport}_{}'",
     cache_key_for_session(session)
   )
 }
@@ -2365,7 +2365,7 @@ impl McpServer {
         // -32001: the reserved server-error range. The message is written for a
         // human reading their MCP client's error, not just a machine.
         "code": -32001,
-        "message": "Donut's local MCP server has been removed. Connect Donut over remote MCP                     from Settings > Integrations, then reach it from anywhere.",
+        "message": "Bwbrowser's local MCP server has been removed. Connect Bwbrowser over remote MCP                     from Settings > Integrations, then reach it from anywhere.",
       }
     });
     (StatusCode::GONE, Json(body)).into_response()
@@ -3626,27 +3626,27 @@ impl McpServer {
       },
       McpTool {
         name: "add_extension".to_string(),
-        description: "Add a managed browser extension from a path on the machine running Donut: a .crx or .zip archive file, or an unpacked extension folder holding a top-level manifest.json. With link set to true, which only applies to a folder, the folder is loaded in place instead of being copied into Donut, so edits to it apply on the next browser start and the extension is machine-local and never synced. Requires Pro subscription.".to_string(),
+        description: "Add a managed browser extension from a path on the machine running Bwbrowser: a .crx or .zip archive file, or an unpacked extension folder holding a top-level manifest.json. With link set to true, which only applies to a folder, the folder is loaded in place instead of being copied into Bwbrowser, so edits to it apply on the next browser start and the extension is machine-local and never synced. Requires Pro subscription.".to_string(),
         input_schema: serde_json::json!({
           "type": "object",
           "properties": {
-            "path": { "type": "string", "description": "Path on the machine running Donut to a .crx/.zip file or to an unpacked extension folder" },
+            "path": { "type": "string", "description": "Path on the machine running Bwbrowser to a .crx/.zip file or to an unpacked extension folder" },
             "name": { "type": "string", "description": "Display name, used only when the manifest carries no name of its own" },
-            "link": { "type": "boolean", "description": "Folders only: load the folder in place instead of copying it into Donut. Linked extensions never sync. Defaults to false." }
+            "link": { "type": "boolean", "description": "Folders only: load the folder in place instead of copying it into Bwbrowser. Linked extensions never sync. Defaults to false." }
           },
           "required": ["path"]
         }),
       },
       McpTool {
         name: "update_extension".to_string(),
-        description: "Rename a managed extension and/or replace its payload from a path on the machine running Donut: a .crx or .zip archive file, or an unpacked extension folder holding a top-level manifest.json. With link set to true, which only applies to a folder, the folder is loaded in place instead of being copied into Donut, so the extension becomes machine-local and never syncs. At least one of name or path must be given. Requires Pro subscription.".to_string(),
+        description: "Rename a managed extension and/or replace its payload from a path on the machine running Bwbrowser: a .crx or .zip archive file, or an unpacked extension folder holding a top-level manifest.json. With link set to true, which only applies to a folder, the folder is loaded in place instead of being copied into Bwbrowser, so the extension becomes machine-local and never syncs. At least one of name or path must be given. Requires Pro subscription.".to_string(),
         input_schema: serde_json::json!({
           "type": "object",
           "properties": {
             "extension_id": { "type": "string", "description": "The extension ID to update" },
             "name": { "type": "string", "description": "New display name" },
-            "path": { "type": "string", "description": "Path on the machine running Donut to the .crx/.zip file or unpacked extension folder to replace the payload with" },
-            "link": { "type": "boolean", "description": "Folders only: load the folder in place instead of copying it into Donut. Linked extensions never sync. Defaults to false." }
+            "path": { "type": "string", "description": "Path on the machine running Bwbrowser to the .crx/.zip file or unpacked extension folder to replace the payload with" },
+            "link": { "type": "boolean", "description": "Folders only: load the folder in place instead of copying it into Bwbrowser. Linked extensions never sync. Defaults to false." }
           },
           "required": ["extension_id"]
         }),
@@ -4147,7 +4147,7 @@ impl McpServer {
           "required": []
         }),
       },
-      // Cookie bot. Every one of these is a proxy onto Donut cloud, which owns
+      // Cookie bot. Every one of these is a proxy onto Bwbrowser cloud, which owns
       // the schedule and the browsing behaviour; the tools carry only the
       // user's own choices.
       McpTool {
@@ -4605,7 +4605,7 @@ impl McpServer {
         "name": SERVER_NAME,
         "version": SERVER_VERSION,
       },
-      "instructions": "Donut Browser MCP server. Use tools/list to discover available browser automation tools."
+      "instructions": "BW Browser MCP server. Use tools/list to discover available browser automation tools."
     });
 
     log::info!("[mcp] New session initialized: {}", ShortId(&session_id));
@@ -8674,7 +8674,7 @@ impl McpServer {
     // slot so click_by_index / type_by_index can resolve the index → Element
     // without round-tripping a selector.
     //
-    // Per session, because the slot used to be one shared `__donut_interactive`
+    // Per session, because the slot used to be one shared `__bwbrowser_interactive`
     // array on the page, and then one per transport. Either way a second client
     // listing elements overwrote the array the first had just built, so that
     // client's next `click_by_index(3)` clicked whatever happened to be third
@@ -9274,7 +9274,7 @@ impl McpServer {
 
   // --- Remote fleet and cookie bot -----------------------------------------
   //
-  // Every tool below is a proxy onto Donut cloud, which owns the schedule, the
+  // Every tool below is a proxy onto Bwbrowser cloud, which owns the schedule, the
   // calendar arithmetic, the browsing behaviour and the pooled hour budget.
   // Nothing here decides when a run happens or what it does. What this file
   // DOES decide is which profiles may be offered to the bot at all.
@@ -9888,7 +9888,7 @@ mod tests {
   // build notices.
   //
   // Asserted against the source rather than by dispatching, because half these
-  // tools take no arguments — calling them would reach Donut cloud, and a unit
+  // tools take no arguments — calling them would reach Bwbrowser cloud, and a unit
   // test that needs the network is a test that gets deleted.
   #[test]
   fn every_cookie_bot_tool_is_both_advertised_and_dispatchable() {
@@ -10519,7 +10519,7 @@ mod tests {
   fn two_callers_never_share_an_element_index_cache() {
     // `get_interactive_elements` stashes live element references on the page and
     // hands back indices; `click_by_index` resolves an index against that stash.
-    // It used to be ONE `window.__donut_interactive` array for the whole page,
+    // It used to be ONE `window.__bwbrowser_interactive` array for the whole page,
     // and then one per TRANSPORT, which is still shared, because the website
     // console and an agent both arrive over the bridge, as do two runs of the
     // same agent. Session A lists elements, B lists them, A's
@@ -10605,7 +10605,7 @@ mod tests {
       .split_once("\n#[cfg(test)]")
       .map_or(source, |(code, _)| code);
     assert!(
-      !production.contains("window.__donut_interactive"),
+      !production.contains("window.__bwbrowser_interactive"),
       "no script may name the shared global directly any more"
     );
     assert_eq!(
@@ -10755,7 +10755,7 @@ mod tests {
     // oldest once the cap is passed.
     let script = INTERACTIVE_ELEMENTS_JS
       .replace("__MAX_CHARS__", "40000")
-      .replace("__CACHE__", "'__donut_interactive_bridge_abc'")
+      .replace("__CACHE__", "'__bwbrowser_interactive_bridge_abc'")
       .replace("__REGISTRY__", INTERACTIVE_SLOT_REGISTRY)
       .replace("__MAX_SLOTS__", &MAX_CACHE_SLOTS_PER_PAGE.to_string());
 

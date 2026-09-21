@@ -10,7 +10,6 @@ import {
   showDownloadToast,
   showErrorToast,
   showSuccessToast,
-  showToast,
 } from "@/lib/toast-utils";
 
 interface GithubRelease {
@@ -301,7 +300,6 @@ export function useBrowserDownload() {
   // Listen for download progress events (browsers) and GeoIP progress events
   useEffect(() => {
     let unlistenBrowser: (() => void) | null = null;
-    let unlistenGeoip: (() => void) | null = null;
 
     const setupListeners = async () => {
       try {
@@ -448,60 +446,7 @@ export function useBrowserDownload() {
         console.error("Failed to setup download progress listener:", error);
       }
 
-      try {
-        // GeoIP database download progress
-        unlistenGeoip = await listen<{
-          stage: string;
-          percentage: number;
-          message: string;
-          downloaded_bytes?: number;
-          total_bytes?: number;
-          speed_bytes_per_sec?: number;
-          eta_seconds?: number;
-        }>(
-          "geoip-download-progress",
-          (
-            event: TauriEvent<{
-              stage: string;
-              percentage: number;
-              message: string;
-              downloaded_bytes?: number;
-              total_bytes?: number;
-              speed_bytes_per_sec?: number;
-              eta_seconds?: number;
-            }>,
-          ) => {
-            const { stage, percentage, speed_bytes_per_sec, eta_seconds } =
-              event.payload;
-            if (stage === "downloading") {
-              const speedMBps = speed_bytes_per_sec
-                ? (speed_bytes_per_sec / (1024 * 1024)).toFixed(1)
-                : undefined;
-              const etaText = eta_seconds ? formatTime(eta_seconds) : undefined;
-              showToast({
-                id: "geoip-download",
-                type: "download",
-                title: i18n.t("browserDownload.toast.geoipDownloading"),
-                stage: "downloading",
-                progress: {
-                  percentage,
-                  ...(speedMBps ? { speed: speedMBps } : {}),
-                  ...(etaText ? { eta: etaText } : {}),
-                },
-              });
-            } else if (stage === "completed") {
-              showToast({
-                id: "geoip-download",
-                type: "download",
-                title: i18n.t("browserDownload.toast.geoipDownloaded"),
-                stage: "completed",
-              });
-            }
-          },
-        );
-      } catch (error) {
-        console.error("Failed to setup GeoIP progress listener:", error);
-      }
+      // GeoIP download progress listener removed - download runs silently
     };
 
     void setupListeners();
@@ -512,13 +457,6 @@ export function useBrowserDownload() {
           unlistenBrowser();
         } catch (error) {
           console.error("Failed to cleanup browser download listener:", error);
-        }
-      }
-      if (unlistenGeoip) {
-        try {
-          unlistenGeoip();
-        } catch (error) {
-          console.error("Failed to cleanup GeoIP progress listener:", error);
         }
       }
     };

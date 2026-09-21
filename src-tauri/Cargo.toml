@@ -1,10 +1,10 @@
 [package]
-name = "donutbrowser"
-version = "0.30.0"
+name = "bwbrowser"
+version = "2.0.7"
 description = "Simple Yet Powerful Anti-Detect Browser"
 authors = ["zhom@github"]
 edition = "2021"
-default-run = "donutbrowser"
+default-run = "bwbrowser"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -12,17 +12,18 @@ default-run = "donutbrowser"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "donutbrowser_lib"
+name = "bwbrowser_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 doctest = false
 
 [[bin]]
-name = "donutbrowser"
+name = "bwbrowser"
 path = "src/main.rs"
 
 [[bin]]
-name = "donut-proxy"
+name = "bwbrowser-proxy"
 path = "src/bin/proxy_server.rs"
+required-features = ["sidecar"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -79,6 +80,7 @@ lzma-rs = "0"
 msi-extract = "0"
 
 uuid = { version = "1.23", features = ["v4", "serde"] }
+arboard = "3"
 url = "2.5"
 blake3 = "1"
 globset = "0.4"
@@ -191,8 +193,8 @@ serial_test = "4"
 
 # Integration test configuration
 [[test]]
-name = "donut_proxy_integration"
-path = "tests/donut_proxy_integration.rs"
+name = "bwbrowser_proxy_integration"
+path = "tests/bwbrowser_proxy_integration.rs"
 
 [[test]]
 name = "sync_e2e"
@@ -206,6 +208,7 @@ path = "tests/vpn_integration.rs"
 codegen-units = 256
 incremental = true
 opt-level = 0
+debug = 1
 # Split debuginfo on macOS for faster linking (ignored on other platforms)
 split-debuginfo = "unpacked"
 
@@ -229,3 +232,4 @@ default = ["custom-protocol"]
 # DO NOT remove this
 custom-protocol = ["tauri/custom-protocol"]
 e2e = []
+sidecar = []

@@ -67,7 +67,7 @@ export interface Extension {
   /** How the payload was imported: a `.crx`/`.zip` archive, or a folder. */
   source_kind: "archive" | "unpacked";
   /** Absolute folder the extension is loaded from in place. Set means nothing
-   * was copied into Donut, so the extension is machine-local and never syncs. */
+   * was copied into Bwbrowser, so the extension is machine-local and never syncs. */
   linked_path?: string;
 }
 
@@ -132,7 +132,7 @@ export interface Entitlements {
    */
   remoteInteractive: boolean;
   /**
-   * May drive this desktop from donutbrowser.com, the remote MCP endpoint and
+   * May drive this desktop from bwbrowser.com, the remote MCP endpoint and
    * the API in front of it. Enterprise only.
    *
    * Read by the UI to explain why a connected desktop cannot be driven. The
@@ -217,6 +217,15 @@ export interface CloudUser {
   deviceOrdinal?: number | null;
   deviceCount?: number | null;
   isPrimaryDevice?: boolean | null;
+  // bwbrowser server-side real name and avatar (from users.php)
+  realName?: string;
+  avatar?: string;
+  planName?: string;
+  stats?: {
+    profiles_count?: number;
+    proxies_count?: number;
+    accounts_count?: number;
+  };
   // Plan-derived capabilities. The desktop resolves this before handing CloudUser
   // to the UI; optional to stay safe on older cached state.
   entitlements?: ServerEntitlements;
@@ -959,11 +968,11 @@ export type ExtensionScanState =
 
 /** An extension found in a profile that could change where the browser connects. */
 export interface DetectedVpnExtension {
-  /** Acknowledgement identity: `donut:<uuid>` or `crx:<id>`. */
+  /** Acknowledgement identity: `bwbrowser:<uuid>` or `crx:<id>`. */
   key: string;
   name: string;
   version: string | null;
-  /** "donut" (managed by Donut) or "browser" (installed in the profile). */
+  /** "bwbrowser" (managed by Bwbrowser) or "browser" (installed in the profile). */
   source: string;
   confidence: VpnExtensionConfidence;
   /** Holds the `proxy` permission outright, so it can change the proxy today. */
@@ -984,7 +993,7 @@ export interface PreLaunchChecks {
 }
 
 /**
- * What happened when the user asked Donut to become the default browser.
+ * What happened when the user asked Bwbrowser to become the default browser.
  *
  * macOS and Linux let a program make the change itself, so the answer there is
  * always "set". Windows reserves the final choice for its own settings page:

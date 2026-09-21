@@ -90,7 +90,7 @@ pub struct BrowserRelease {
   pub date: String,
 }
 
-/// Wayfern version info from https://donutbrowser.com/wayfern.json
+/// Wayfern version info from http://www.yacm.xin/tk/download/kernel/wayfern.json
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WayfernVersionInfo {
   pub version: String,
@@ -250,7 +250,7 @@ impl ApiClient {
     Ok(())
   }
 
-  /// Fetch Wayfern version info from https://donutbrowser.com/wayfern.json
+  /// Fetch Wayfern version info from http://www.yacm.xin/tk/download/kernel/wayfern.json
   pub async fn fetch_wayfern_version_with_caching(
     &self,
     no_caching: bool,
@@ -262,8 +262,8 @@ impl ApiClient {
       }
     }
 
-    log::info!("Fetching Wayfern version from https://donutbrowser.com/wayfern.json");
-    let url = "https://donutbrowser.com/wayfern.json";
+    log::info!("Fetching Wayfern version from http://www.yacm.xin/tk/download/kernel/wayfern.json");
+    let url = "http://www.yacm.xin/tk/download/kernel/wayfern.json";
 
     let mut last_err = None;
     let mut version_info: Option<WayfernVersionInfo> = None;
@@ -281,7 +281,13 @@ impl ApiClient {
             last_err = Some(format!("HTTP {}", response.status().as_u16()));
           } else {
             match response.json::<WayfernVersionInfo>().await {
-              Ok(info) => {
+              Ok(mut info) => {
+                // Rewrite HTTPS download URLs to HTTP to avoid SSL trust issues
+                for url in info.downloads.values_mut().flatten() {
+                  if url.starts_with("https://www.yacm.xin/") {
+                    *url = url.replacen("https://www.yacm.xin/", "http://www.yacm.xin/", 1);
+                  }
+                }
                 version_info = Some(info);
                 break;
               }

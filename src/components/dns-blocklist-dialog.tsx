@@ -166,7 +166,7 @@ export function DnsBlocklistDialog({
         format,
       });
       const path = await saveDialog({
-        defaultPath: `donut-dns-rules.${format}`,
+        defaultPath: `bwbrowser-dns-rules.${format}`,
         filters: [{ name: format.toUpperCase(), extensions: [format] }],
       });
       if (!path) return;

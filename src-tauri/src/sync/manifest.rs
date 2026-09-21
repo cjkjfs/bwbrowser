@@ -54,7 +54,7 @@ pub const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
   "**/*-wal",
   "**/*-shm",
   "**/SingletonLock",
-  // Rewritten by donut before every launch from the profile metadata that
+  // Rewritten by bwbrowser before every launch from the profile metadata that
   // already syncs; uploading it would only duplicate that state.
   "**/wayfern-identity.json",
   "**/wayfern-persona.json",
@@ -69,7 +69,7 @@ pub const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
   // it in the browser-file manifest creates two competing sync mechanisms and
   // lets a stale in-memory profile overwrite a metadata download.
   "metadata.json",
-  ".donut-sync/**",
+  ".bwbrowser-sync/**",
   // Orphaned local-only marker from earlier rollover-based fingerprint
   // regeneration. Keep excluding it so any markers left on disk from
   // prior builds never get uploaded.
@@ -536,7 +536,7 @@ pub fn compute_diff_with_bias(
 
 /// Get the path to the hash cache file for a profile
 pub fn get_cache_path(profile_dir: &Path) -> std::path::PathBuf {
-  profile_dir.join(".donut-sync").join("cache.json")
+  profile_dir.join(".bwbrowser-sync").join("cache.json")
 }
 
 #[cfg(test)]

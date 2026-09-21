@@ -1,7 +1,7 @@
-# Donut Browser SDKs
+# BW Browser SDKs
 
-Two thin clients for the REST API that Donut Browser serves on this machine:
-[`python/`](python) (`donutbrowser`) and [`node/`](node) (`@donutbrowser/sdk`).
+Two thin clients for the REST API that BW Browser serves on this machine:
+[`python/`](python) (`bwbrowser`) and [`node/`](node) (`@bwbrowser/sdk`).
 
 They are deliberately thin. Every method is one request to one path that the
 app publishes in its own `/openapi.json`, with the request and response shapes
@@ -37,8 +37,8 @@ Both SDKs read arguments first, then the environment:
 
 | Setting | Argument | Environment | Default |
 | --- | --- | --- | --- |
-| Token | `token` | `DONUT_API_TOKEN` | none; required |
-| Port | `port` | `DONUT_API_PORT` | `10108` |
+| Token | `token` | `BWBROWSER_API_TOKEN` | none; required |
+| Port | `port` | `BWBROWSER_API_PORT` | `10108` |
 | Host | `host` | — | `127.0.0.1` |
 
 `base_url` / `baseUrl` overrides host and port entirely, for the rare case of a
@@ -48,7 +48,7 @@ tunnel or a path prefix in front of the app.
 
 Requires Python 3.10 or newer. **No runtime dependencies:** the client talks to
 a loopback server on the same machine, so `http.client` from the standard
-library is enough. That keeps `pip install donutbrowser` from dragging anything
+library is enough. That keeps `pip install bwbrowser` from dragging anything
 into an automation environment, and it sidesteps a real trap — `urllib.request`
 honours `http_proxy` from the environment, which would send calls meant for the
 local app through whatever proxy the shell happens to have set.
@@ -62,11 +62,11 @@ A worked example: launch a profile, drive the page through the agent endpoints,
 and stop the browser.
 
 ```python
-from donutbrowser import Conflict, DonutClient, NotFound, RateLimited
+from bwbrowser import Conflict, BwbrowserClient, NotFound, RateLimited
 
 PROFILE_ID = "your-profile-id"
 
-with DonutClient(token="...") as client:
+with BwbrowserClient(token="...") as client:
     # `run` starts the browser on entry and stops it on exit, even if the body
     # raises. `session.cdp_url` is the DevTools endpoint the launch returned.
     with client.run(PROFILE_ID, url="https://example.com", headless=True) as session:
@@ -81,7 +81,7 @@ with DonutClient(token="...") as client:
         resolved = client.agent_resolve_locator(PROFILE_ID, locator=search)
         assert resolved["matchCount"] == 1
 
-        client.agent_type(PROFILE_ID, locator=search, text="donut browser")
+        client.agent_type(PROFILE_ID, locator=search, text="bw browser")
         client.agent_click(PROFILE_ID, locator={"role": "button", "name": "Search"})
 
         # Pull a table out of whatever came back.
@@ -143,10 +143,10 @@ implement `Symbol.asyncDispose`, so `await using` is there for anyone whose
 toolchain already handles it.
 
 ```ts
-import { Conflict, DonutClient, NotFound, RateLimited } from "@donutbrowser/sdk";
+import { Conflict, BwbrowserClient, NotFound, RateLimited } from "@bwbrowser/sdk";
 
 const PROFILE_ID = "your-profile-id";
-const client = new DonutClient({ token: "..." });
+const client = new BwbrowserClient({ token: "..." });
 
 // The browser starts before `work` runs and is stopped after it, even when it
 // throws. `session.cdpUrl` is the DevTools endpoint the launch returned.
@@ -165,7 +165,7 @@ const titles = await client.withProfile(
       throw new Error("the search box is ambiguous");
     }
 
-    await client.agentType(PROFILE_ID, { locator: search, text: "donut browser" });
+    await client.agentType(PROFILE_ID, { locator: search, text: "bw browser" });
     await client.agentClick(PROFILE_ID, {
       locator: { role: "button", name: "Search" },
     });
@@ -229,11 +229,11 @@ server-side failure.
 | 502 | `BadGateway` | `BadGateway` | The browser or the relay answered wrongly |
 | 503 | `ServiceUnavailable` | `ServiceUnavailable` | Cloud, fleet or lock service unreachable |
 
-Anything else becomes `DonutAPIError` / `DonutApiError` (a `ServerError` for an
+Anything else becomes `BwbrowserAPIError` / `BwbrowserApiError` (a `ServerError` for an
 unrecognised 5xx), so a status added to the app later still arrives as
 something a caller can catch. A transport failure — the app not running, the
-API switched off, the wrong port — is `DonutConnectionError`, never an API
-error, so "Donut is not there" is never confused with "Donut said no".
+API switched off, the wrong port — is `BwbrowserConnectionError`, never an API
+error, so "Bwbrowser is not there" is never confused with "Bwbrowser said no".
 
 Every error carries `status`, `body`, `method` and `path`. When the body is one
 of the app's structured `{"code": ..., "params": {...}}` strings, `code` and
@@ -255,7 +255,7 @@ disappears from the spec.
 python3 sdk/tools/extract-api-paths.py
 ```
 
-Each SDK keeps its own table of operation to method (`donutbrowser.coverage` and
+Each SDK keeps its own table of operation to method (`bwbrowser.coverage` and
 `OPERATIONS` in the Node package), and both test suites hold that table against
 the snapshot in **both** directions:
 

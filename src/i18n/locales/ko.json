@@ -134,16 +134,16 @@
       "title": "기본 브라우저",
       "setAsDefault": "기본 브라우저로 설정",
       "alreadyDefault": "이미 기본 브라우저입니다",
-      "description": "기본 브라우저로 설정하면 Donut Browser가 웹 링크를 처리하고 사용할 프로필을 선택할 수 있습니다.",
-      "setSuccess": "이제 Donut Browser가 기본 브라우저입니다",
+      "description": "기본 브라우저로 설정하면 BW Browser가 웹 링크를 처리하고 사용할 프로필을 선택할 수 있습니다.",
+      "setSuccess": "이제 BW Browser가 기본 브라우저입니다",
       "setFailed": "기본 브라우저를 설정하지 못했습니다",
       "finishInSystemSettings": "Windows 설정에서 완료하세요",
-      "finishInSystemSettingsDescription": "Donut Browser가 등록되었습니다. Windows 설정이 열려 있습니다. '웹 브라우저'에서 Donut Browser를 선택하면 완료됩니다."
+      "finishInSystemSettingsDescription": "BW Browser가 등록되었습니다. Windows 설정이 열려 있습니다. '웹 브라우저'에서 BW Browser를 선택하면 완료됩니다."
     },
     "permissions": {
       "title": "시스템 권한",
       "loading": "권한 불러오는 중...",
-      "description": "이 권한은 Donut Browser에서 실행된 브라우저가 시스템 리소스에 액세스할 수 있도록 합니다. 각 웹사이트는 여전히 개별적으로 권한을 요청합니다.",
+      "description": "이 권한은 BW Browser에서 실행된 브라우저가 시스템 리소스에 액세스할 수 있도록 합니다. 각 웹사이트는 여전히 개별적으로 권한을 요청합니다.",
       "microphone": "마이크",
       "microphoneDescription": "브라우저 애플리케이션의 마이크 액세스",
       "camera": "카메라",
@@ -187,7 +187,7 @@
       "trialExpired": "체험판이 만료되었습니다",
       "trialExpiredDescription": "개인 사용은 무료로 유지됩니다. 상업적 사용에는 라이선스가 필요합니다.",
       "subscriptionActive": "구독 중 — {{plan}} 플랜",
-      "subscriptionActiveDescription": "Donut Browser 구독이 활성 상태입니다. 플랜 기간 동안 상업적 사용이 라이선스됩니다."
+      "subscriptionActiveDescription": "BW Browser 구독이 활성 상태입니다. 플랜 기간 동안 상업적 사용이 라이선스됩니다."
     },
     "advanced": {
       "title": "고급",
@@ -200,7 +200,7 @@
       "copyLogsDescription": "최근 로그를 민감 정보가 제거된 묶음으로 복사합니다(최대 5MB). 모든 유형의 개인 데이터를 식별할 수는 없으므로 공유하기 전에 검토하세요."
     },
     "disableAutoUpdates": "앱 자동 업데이트 사용 안 함",
-    "disableAutoUpdatesDescription": "Donut Browser 업데이트를 앱이 자동으로 확인하고 설치하지 않도록 합니다. 브라우저 업데이트는 영향을 받지 않습니다.",
+    "disableAutoUpdatesDescription": "BW Browser 업데이트를 앱이 자동으로 확인하고 설치하지 않도록 합니다. 브라우저 업데이트는 영향을 받지 않습니다.",
     "keepDecryptedProfilesInRam": "복호화된 프로필을 RAM에 유지",
     "keepDecryptedProfilesInRamDescription": "비밀번호로 보호된 프로필의 복호화된 RAM 사본을 실행 사이에 유지하여 시작 속도를 높입니다. 디스크의 사본은 그대로 암호화된 상태로 유지됩니다.",
     "privacy": {
@@ -225,10 +225,10 @@
       "chooseTitle": "데이터 디렉터리로 쓸 폴더를 선택하세요",
       "move": "옮기기",
       "willMoveTo": "모두 옮겨질 위치",
-      "moved": "데이터 디렉터리를 옮겼습니다. Donut Browser를 다시 시작하면 적용됩니다.",
+      "moved": "데이터 디렉터리를 옮겼습니다. BW Browser를 다시 시작하면 적용됩니다.",
       "reading": "데이터 디렉터리를 읽는 중…",
-      "restartRequired": "새 위치를 쓰려면 Donut Browser를 다시 시작하세요. 그때까지는 이전 위치에서 동작합니다.",
-      "environmentOverride": "DONUTBROWSER_DATA_DIR이 설정되어 있어, 여기서 무엇을 골라도 앱은 그 위치를 사용합니다.",
+      "restartRequired": "새 위치를 쓰려면 BW Browser를 다시 시작하세요. 그때까지는 이전 위치에서 동작합니다.",
+      "environmentOverride": "BWBROWSER_DATA_DIR이 설정되어 있어, 여기서 무엇을 골라도 앱은 그 위치를 사용합니다.",
       "missing": "선택한 데이터 디렉터리가 없습니다. 이동식 드라이브에 있다면 다시 연결하고 재시작하세요.",
       "useDefault": "기본 위치로 되돌리기",
       "usingDefault": "다음 시작부터 기본 위치를 사용합니다.",
@@ -257,7 +257,7 @@
       "extensions": "확장 프로그램"
     },
     "newProfile": "새로 만들기",
-    "donutLogo": "Donut Browser 로고",
+    "bwbrowserLogo": "BW Browser 로고",
     "scrollGroupsLeft": "그룹 왼쪽으로 스크롤",
     "scrollGroupsRight": "그룹 오른쪽으로 스크롤"
   },
@@ -592,7 +592,8 @@
       "socks5": "SOCKS5",
       "ss": "Shadowsocks",
       "httpstls": "HTTP over TLS",
-      "vless": "VLESS (REALITY)"
+      "vless": "VLESS (REALITY)",
+      "trojan": "Trojan"
     },
     "tabs": {
       "regular": "일반",
@@ -867,8 +868,8 @@
     "tabRemote": "원격 MCP",
     "remote": {
       "enableLabel": "원격 제어",
-      "enableDescription": "Donut 클라우드가 이 브라우저를 구동하도록 허용하여 donutbrowser.com의 에이전트가 제어할 수 있게 합니다. 들어오는 연결을 수신하는 것은 없습니다. 이 앱이 바깥으로 연결하며 언제든지 끊을 수 있습니다.",
-      "signInRequired": "원격 제어를 사용하려면 Donut 계정에 로그인하세요.",
+      "enableDescription": "Bwbrowser 클라우드가 이 브라우저를 구동하도록 허용하여 bwbrowser.com의 에이전트가 제어할 수 있게 합니다. 들어오는 연결을 수신하는 것은 없습니다. 이 앱이 바깥으로 연결하며 언제든지 끊을 수 있습니다.",
+      "signInRequired": "원격 제어를 사용하려면 Bwbrowser 계정에 로그인하세요.",
       "connected": "연결됨",
       "connecting": "연결 중",
       "notConnected": "연결되지 않음",
@@ -892,7 +893,7 @@
       "credentialClientsFailed": "자격 증명은 저장되었지만 다음 클라이언트를 업데이트하지 못했습니다: {{clients}}. 다시 시도하려면 자격 증명을 다시 교체하세요.",
       "switchToRemote": "전환",
       "switchedClient": "{{name}}이(가) 이제 원격 MCP를 사용합니다",
-      "fxHint": "fx는 DONUT_MCP_TOKEN에서 자격 증명을 읽습니다. fx를 시작하는 셸에서 내보내세요.",
+      "fxHint": "fx는 BWBROWSER_MCP_TOKEN에서 자격 증명을 읽습니다. fx를 시작하는 셸에서 내보내세요.",
       "fxExportCopied": "내보내기 줄을 복사했습니다"
     }
   },
@@ -1405,7 +1406,7 @@
     "launchHook": {
       "title": "실행 후크 URL",
       "label": "실행 후크 URL",
-      "description": "Donut Browser는 프로필이 실행될 때마다 이 URL로 GET 요청을 보냅니다.",
+      "description": "BW Browser는 프로필이 실행될 때마다 이 URL로 GET 요청을 보냅니다.",
       "placeholder": "https://example.com/hooks/profile-launch",
       "invalidUrlHint": "유효한 http:// 또는 https:// URL을 입력하세요."
     },
@@ -1479,7 +1480,7 @@
   },
   "profileTransfer": {
     "exportTitle": "프로필 내보내기",
-    "archiveFilter": "Donut 프로필 아카이브",
+    "archiveFilter": "Bwbrowser 프로필 아카이브",
     "exportDescription": "이 프로필을 다른 컴퓨터에서 읽을 수 있는 파일로 저장합니다. 아카이브에는 설정이 담기며, 원하면 브라우저 데이터(쿠키, 로그인, 확장 프로그램 상태)도 함께 담깁니다.",
     "includeData": "브라우저 데이터 포함",
     "protectedNotice": "이 프로필은 비밀번호로 보호되어 있어 데이터는 이 컴퓨터에 남습니다. 아카이브에는 설정만 담깁니다.",
@@ -1554,8 +1555,8 @@
     "selectedFolder": "선택한 폴더",
     "selectFolder": "폴더 선택",
     "linkFolder": "이 폴더에서 바로 불러오기",
-    "linkFolderOff": "폴더가 Donut으로 복사됩니다. 확장 프로그램을 옮길 수 있고 다른 기기와 동기화됩니다.",
-    "linkFolderOn": "Donut이 실행할 때마다 이 폴더에서 바로 확장 프로그램을 불러옵니다. 수정한 내용은 브라우저를 다시 시작할 때 적용되지만, 확장 프로그램은 이 컴퓨터에만 남고 동기화되지 않습니다.",
+    "linkFolderOff": "폴더가 Bwbrowser으로 복사됩니다. 확장 프로그램을 옮길 수 있고 다른 기기와 동기화됩니다.",
+    "linkFolderOn": "Bwbrowser이 실행할 때마다 이 폴더에서 바로 확장 프로그램을 불러옵니다. 수정한 내용은 브라우저를 다시 시작할 때 적용되지만, 확장 프로그램은 이 컴퓨터에만 남고 동기화되지 않습니다.",
     "replaceSource": "소스 교체",
     "linkedNoSync": "연결된 확장 프로그램은 이 컴퓨터에만 있어 동기화할 수 없습니다.",
     "uploadFailed": "확장 프로그램을 추가하지 못했습니다",
@@ -1588,7 +1589,7 @@
     "fromUrl": "링크에서",
     "fromUrlTooltip": "Chrome 웹 스토어 링크, 확장 프로그램 ID 또는 .crx/.zip 직접 링크에서 확장 프로그램을 추가합니다",
     "urlPlaceholder": "웹 스토어 링크, 확장 프로그램 ID 또는 .crx 링크",
-    "urlHint": "Donut은 HTTPS로 패키지를 내려받고, 저장하기 전에 이름과 버전을 읽습니다.",
+    "urlHint": "Bwbrowser은 HTTPS로 패키지를 내려받고, 저장하기 전에 이름과 버전을 읽습니다.",
     "fetchExtension": "가져오기",
     "fetching": "가져오는 중…",
     "fetchedIdentity": "{{name}} · 버전 {{version}}",
@@ -1720,7 +1721,7 @@
     "title": "브라우저 프로필 가져오기",
     "autoDetect": "자동 감지",
     "manualImport": "수동 가져오기",
-    "donutArchive": "Donut 아카이브",
+    "bwbrowserArchive": "Bwbrowser 아카이브",
     "detectedProfilesTitle": "감지된 브라우저 프로필",
     "scanning": "브라우저 프로필 검색 중...",
     "noneFound": "시스템에서 브라우저 프로필을 찾을 수 없습니다.",
@@ -1878,7 +1879,7 @@
   },
   "wayfernTerms": {
     "title": "Wayfern 이용 약관",
-    "description": "Donut Browser를 사용하기 전에 Wayfern의 이용 약관을 읽고 동의해야 합니다.",
+    "description": "BW Browser를 사용하기 전에 Wayfern의 이용 약관을 읽고 동의해야 합니다.",
     "reviewLabel": "다음 위치에서 이용 약관을 검토하세요:",
     "agreeNotice": "\"동의함\"을 클릭하면 이 약관에 동의하는 것입니다.",
     "acceptButton": "동의함",
@@ -1889,7 +1890,7 @@
   "commercialTrial": {
     "title": "상업용 체험판 만료됨",
     "description": "2주 상업용 체험판 기간이 종료되었습니다.",
-    "body": "Donut Browser를 비즈니스 용도로 사용하는 경우 계속 사용하려면 상업용 라이선스를 구매해야 합니다. 개인 용도로는 계속 무료로 사용할 수 있습니다.",
+    "body": "BW Browser를 비즈니스 용도로 사용하는 경우 계속 사용하려면 상업용 라이선스를 구매해야 합니다. 개인 용도로는 계속 무료로 사용할 수 있습니다.",
     "understandButton": "이해했습니다",
     "failed": "확인 저장 실패",
     "tryAgain": "다시 시도하세요"
@@ -1897,10 +1898,10 @@
   "permissionDialog": {
     "titleMicrophone": "마이크 액세스가 필요합니다",
     "titleCamera": "카메라 액세스가 필요합니다",
-    "descMicrophone": "Donut Browser는 웹 브라우저에서 마이크 기능을 활성화하기 위해 마이크에 액세스해야 합니다. 마이크를 사용하려는 각 웹사이트는 여전히 개별적으로 권한을 요청합니다.",
-    "descCamera": "Donut Browser는 웹 브라우저에서 카메라 기능을 활성화하기 위해 카메라에 액세스해야 합니다. 카메라를 사용하려는 각 웹사이트는 여전히 개별적으로 권한을 요청합니다.",
-    "grantedMicrophone": "권한이 허용되었습니다! 이제 Donut Browser에서 실행된 브라우저가 마이크에 액세스할 수 있습니다.",
-    "grantedCamera": "권한이 허용되었습니다! 이제 Donut Browser에서 실행된 브라우저가 카메라에 액세스할 수 있습니다.",
+    "descMicrophone": "BW Browser는 웹 브라우저에서 마이크 기능을 활성화하기 위해 마이크에 액세스해야 합니다. 마이크를 사용하려는 각 웹사이트는 여전히 개별적으로 권한을 요청합니다.",
+    "descCamera": "BW Browser는 웹 브라우저에서 카메라 기능을 활성화하기 위해 카메라에 액세스해야 합니다. 카메라를 사용하려는 각 웹사이트는 여전히 개별적으로 권한을 요청합니다.",
+    "grantedMicrophone": "권한이 허용되었습니다! 이제 BW Browser에서 실행된 브라우저가 마이크에 액세스할 수 있습니다.",
+    "grantedCamera": "권한이 허용되었습니다! 이제 BW Browser에서 실행된 브라우저가 카메라에 액세스할 수 있습니다.",
     "notGrantedMicrophone": "권한이 허용되지 않았습니다. 아래 버튼을 클릭하여 마이크에 대한 액세스를 요청하세요.",
     "notGrantedCamera": "권한이 허용되지 않았습니다. 아래 버튼을 클릭하여 카메라에 대한 액세스를 요청하세요.",
     "doneButton": "완료",
@@ -2020,7 +2021,7 @@
   },
   "appUpdate": {
     "toast": {
-      "updateFailed": "Donut Browser 업데이트 실패",
+      "updateFailed": "BW Browser 업데이트 실패",
       "restartFailed": "재시작 실패",
       "updateReady": "업데이트 준비됨, 적용하려면 재시작하세요",
       "manualDownloadRequired": "수동 다운로드 필요",
@@ -2029,7 +2030,8 @@
       "later": "나중에",
       "uploading": "업로드 중",
       "downloading": "다운로드 중",
-      "startingUpdate": "업데이트를 시작하는 중..."
+      "startingUpdate": "업데이트를 시작하는 중...",
+      "checkFailed": "업데이트 확인 실패"
     }
   },
   "browserDownload": {
@@ -2114,7 +2116,7 @@
     },
     "warnings": {
       "forgetWarningTitle": "중요: 이 비밀번호는 복구할 수 없습니다",
-      "forgetWarningBody": "Donut Browser는 이 비밀번호를 재설정, 복구 또는 우회할 수 없습니다. 잊어버리면 이 프로필의 데이터에 영구적으로 액세스할 수 없게 됩니다."
+      "forgetWarningBody": "BW Browser는 이 비밀번호를 재설정, 복구 또는 우회할 수 없습니다. 잊어버리면 이 프로필의 데이터에 영구적으로 액세스할 수 없게 됩니다."
     },
     "modes": {
       "set": "설정",
@@ -2157,7 +2159,7 @@
     "extensionNotADirectory": "해당 경로는 폴더가 아닙니다.",
     "extensionManifestMissing": "해당 폴더에 manifest.json이 없습니다. 확장 프로그램의 manifest.json이 있는 폴더를 선택하세요.",
     "extensionManifestInvalid": "해당 폴더의 manifest.json을 읽을 수 없습니다.",
-    "extensionDirTooLarge": "폴더가 너무 커서 Donut으로 복사할 수 없습니다(최대 256MB, 20,000개 파일). 대신 폴더를 연결해 사용하세요.",
+    "extensionDirTooLarge": "폴더가 너무 커서 Bwbrowser으로 복사할 수 없습니다(최대 256MB, 20,000개 파일). 대신 폴더를 연결해 사용하세요.",
     "extensionPathHasComma": "폴더 경로에 쉼표가 있어 Chromium이 불러올 수 없습니다. 폴더 이름을 바꾸거나 옮기세요.",
     "extensionLinkRequiresDirectory": "폴더만 그 자리에서 불러올 수 있습니다. 압축 파일을 추가하려면 연결을 끄세요.",
     "extensionLinkedCannotSync": "이 확장 프로그램은 이 컴퓨터의 폴더에서 불러오므로 동기화할 항목이 없습니다.",
@@ -2172,7 +2174,7 @@
     "cookieImportProfileProtected": "비밀번호로 보호된 프로필에는 쿠키를 가져올 수 없습니다. 먼저 비밀번호를 해제하세요.",
     "cookieImportRemoteSession": "원격 세션이 이 프로필을 사용하는 동안에는 쿠키를 가져올 수 없습니다. 동기화가 끝날 때까지 기다리세요.",
     "cookieImportNoCookies": "붙여넣은 내용에서 쿠키를 찾지 못했습니다.",
-    "selfHostedRequiresLogout": "자체 호스팅 서버를 구성하기 전에 Donut 계정에서 로그아웃하세요.",
+    "selfHostedRequiresLogout": "자체 호스팅 서버를 구성하기 전에 Bwbrowser 계정에서 로그아웃하세요.",
     "fingerprintRequiresPro": "핑거프린트를 보거나 편집하려면 활성 유료 요금제가 필요합니다. 보호 기능은 모든 요금제에 포함되어 있습니다.",
     "proxyNotWorking": "선택한 프록시가 작동하지 않아 프로필이 생성되지 않았습니다.",
     "proxyPaymentRequired": "선택한 프록시는 결제가 필요합니다(402). 구독이 만료되었을 수 있어 프로필이 생성되지 않았습니다.",
@@ -2197,9 +2199,9 @@
     "dnsRulesSaveFailed": "DNS 규칙을 저장하지 못했습니다.",
     "dnsRulesExportFailed": "DNS 규칙을 내보내지 못했습니다.",
     "fingerprintMatchFailed": "지문을 프록시에 맞추지 못했습니다.",
-    "proxySidecarVersionMismatch": "Donut Browser 파일에 서로 다른 버전이 섞여 있습니다. 최신 업데이트를 다시 설치해 주세요. 프로필은 안전하게 유지됩니다.",
+    "proxySidecarVersionMismatch": "BW Browser 파일에 서로 다른 버전이 섞여 있습니다. 최신 업데이트를 다시 설치해 주세요. 프로필은 안전하게 유지됩니다.",
     "updateProfilesRunning": "업데이트를 설치하기 전에 실행 중인 모든 프로필을 중지하세요.",
-    "updatePreparationFailed": "Donut Browser가 백그라운드 네트워크 프로세스를 안전하게 중지하지 못했습니다. 컴퓨터를 다시 시작한 후 업데이트를 다시 시도하세요.",
+    "updatePreparationFailed": "BW Browser가 백그라운드 네트워크 프로세스를 안전하게 중지하지 못했습니다. 컴퓨터를 다시 시작한 후 업데이트를 다시 시도하세요.",
     "wayfernTermsRequired": "MCP 서버를 시작하기 전에 Wayfern 이용 약관에 동의하세요.",
     "apiPortUnavailable": "API 서버에서 사용 가능한 포트를 찾지 못했습니다.",
     "mcpServerAlreadyRunning": "MCP 서버가 이미 실행 중입니다.",
@@ -2207,14 +2209,14 @@
     "mcpPortUnavailable": "MCP 서버에서 사용 가능한 포트를 찾지 못했습니다.",
     "mcpConfigurationUnavailable": "MCP 서버 구성을 사용할 수 없습니다. 서버를 다시 시작한 후 다시 시도하세요.",
     "mcpAgentUnknown": "이 MCP 클라이언트는 지원되지 않습니다.",
-    "mcpAgentInstallFailed": "MCP 클라이언트에 Donut Browser를 추가하지 못했습니다: {{detail}}",
-    "mcpAgentRemoveFailed": "MCP 클라이언트에서 Donut Browser를 제거하지 못했습니다: {{detail}}",
+    "mcpAgentInstallFailed": "MCP 클라이언트에 BW Browser를 추가하지 못했습니다: {{detail}}",
+    "mcpAgentRemoveFailed": "MCP 클라이언트에서 BW Browser를 제거하지 못했습니다: {{detail}}",
     "vlessConfigInvalid": "VLESS URI가 올바르지 않습니다.",
     "xrayUnavailable": "이 시스템에서는 Xray-core를 사용할 수 없습니다.",
     "xrayUnsupportedOs": "VLESS를 사용하려면 macOS 12 이상이 필요합니다.",
     "xrayStartFailed": "Xray-core를 시작할 수 없습니다.",
-    "cloudNotSignedIn": "이 기능을 사용하려면 Donut Browser 계정에 로그인하세요.",
-    "cloudUnreachable": "Donut Browser 서버에 연결하지 못했습니다. 연결 상태를 확인하고 다시 시도하세요.",
+    "cloudNotSignedIn": "이 기능을 사용하려면 BW Browser 계정에 로그인하세요.",
+    "cloudUnreachable": "BW Browser 서버에 연결하지 못했습니다. 연결 상태를 확인하고 다시 시도하세요.",
     "cloudRequestFailed": "요청이 실패했습니다. 잠시 후 다시 시도하세요.",
     "remoteRateLimited": "요청이 너무 많습니다. 잠시 기다렸다가 다시 시도하세요.",
     "remoteNoCapacity": "지금은 사용 가능한 원격 머신이 없습니다. 몇 분 후에 다시 시도하세요.",
@@ -2256,16 +2258,16 @@
     "vpnWorkerStartFailed": "VPN 연결을 시작하지 못했습니다: {{detail}}",
     "exitProbeFailed": "프록시 출구 노드에 연결할 수 없어 위치를 확인하지 못했습니다.",
     "vlessUnsupported": {
-      "security": "이 VLESS 서버는 REALITY를 사용하지 않습니다. Donut은 REALITY를 사용하는 VLESS만 지원합니다.",
-      "flow": "이 VLESS 서버는 Donut이 요구하는 XTLS Vision 플로우를 사용하지 않습니다.",
-      "transport": "Donut은 일반 TCP 기반 VLESS만 지원합니다. 이 서버는 다른 전송 방식(WebSocket, gRPC 등)을 사용합니다.",
-      "encryption": "이 VLESS 서버는 Donut이 지원하지 않는 암호화 설정을 사용합니다.",
-      "headerType": "이 VLESS 서버는 Donut이 지원하지 않는 헤더 난독화를 사용합니다.",
-      "fingerprint": "이 VLESS URI는 Donut이 지원하지 않는 TLS 지문을 요청합니다.",
+      "security": "이 VLESS 서버는 REALITY를 사용하지 않습니다. Bwbrowser은 REALITY를 사용하는 VLESS만 지원합니다.",
+      "flow": "이 VLESS 서버는 Bwbrowser이 요구하는 XTLS Vision 플로우를 사용하지 않습니다.",
+      "transport": "Bwbrowser은 일반 TCP 기반 VLESS만 지원합니다. 이 서버는 다른 전송 방식(WebSocket, gRPC 등)을 사용합니다.",
+      "encryption": "이 VLESS 서버는 Bwbrowser이 지원하지 않는 암호화 설정을 사용합니다.",
+      "headerType": "이 VLESS 서버는 Bwbrowser이 지원하지 않는 헤더 난독화를 사용합니다.",
+      "fingerprint": "이 VLESS URI는 Bwbrowser이 지원하지 않는 TLS 지문을 요청합니다.",
       "sni": "VLESS URI에 REALITY에 필요한 SNI(sni)가 없습니다.",
       "publicKey": "VLESS URI에 REALITY 공개 키(pbk)가 없습니다.",
       "scheme": "VLESS 링크가 아닙니다. vless:// 로 시작해야 합니다.",
-      "parameter": "VLESS URI에 Donut이 지원하지 않는 옵션이 있습니다.",
+      "parameter": "VLESS URI에 Bwbrowser이 지원하지 않는 옵션이 있습니다.",
       "malformed": "VLESS URI가 올바르지 않습니다."
     },
     "camoufoxRemoved": "Camoufox는 더 이상 지원되지 않습니다. Wayfern으로 이 프로필을 다시 만드세요.",
@@ -2281,20 +2283,20 @@
     "profileExportFailed": "이 프로필을 내보낼 수 없습니다. {{detail}}",
     "profileExportTooLarge": "이 프로필은 너무 커서 내보낼 수 없습니다. 검색 데이터를 일부 지우고 다시 시도하세요.",
     "profileImportFailed": "이 아카이브를 읽을 수 없습니다. {{detail}}",
-    "profileImportTooNew": "이 아카이브는 더 새로운 버전의 Donut Browser에서 만들어졌습니다. 앱을 업데이트한 뒤 다시 시도하세요.",
+    "profileImportTooNew": "이 아카이브는 더 새로운 버전의 BW Browser에서 만들어졌습니다. 앱을 업데이트한 뒤 다시 시도하세요.",
     "profileImportUnsafeArchive": "이 아카이브가 프로필 폴더 밖에 쓰려고 해서 거부했습니다.",
     "recordingAlreadyRunning": "이미 기록이 진행 중입니다. 새로 시작하기 전에 중지하세요.",
     "profileNotRunning": "기록하기 전에 이 프로필의 브라우저를 시작하세요.",
     "wayfern152Required": "기록하려면 Wayfern 152 이상이 필요합니다. 이 프로필의 브라우저를 업데이트하세요.",
     "recordingFailed": "기록을 시작할 수 없습니다. {{detail}}",
-    "mcpRemoteRequiresSignIn": "원격 제어를 켜기 전에 Donut 계정에 로그인하세요.",
-    "mcpRemoteUnauthorized": "Donut 클라우드가 이 기기의 자격 증명을 거부했습니다. 로그아웃한 뒤 다시 로그인하세요.",
-    "mcpRemoteSlotTaken": "이 계정의 다른 Donut 인스턴스가 이미 연결되어 있습니다. 한 번에 하나만 원격 제어할 수 있습니다.",
+    "mcpRemoteRequiresSignIn": "원격 제어를 켜기 전에 Bwbrowser 계정에 로그인하세요.",
+    "mcpRemoteUnauthorized": "Bwbrowser 클라우드가 이 기기의 자격 증명을 거부했습니다. 로그아웃한 뒤 다시 로그인하세요.",
+    "mcpRemoteSlotTaken": "이 계정의 다른 Bwbrowser 인스턴스가 이미 연결되어 있습니다. 한 번에 하나만 원격 제어할 수 있습니다.",
     "mcpRemoteNotEntitled": "이 요금제에는 원격 제어가 포함되지 않습니다. 활성화하려면 문의하세요.",
-    "mcpRemoteUnreachable": "지금은 Donut 클라우드에 연결할 수 없습니다. 자동으로 다시 연결합니다.",
+    "mcpRemoteUnreachable": "지금은 Bwbrowser 클라우드에 연결할 수 없습니다. 자동으로 다시 연결합니다.",
     "mcpRemoteKeyMissing": "이 기기에는 아직 원격 MCP 자격 증명이 없습니다. 먼저 하나를 만든 다음 클라이언트를 다시 추가하세요.",
     "mcpRemoteKeyLimit": "이 계정은 보유할 수 있는 MCP 자격 증명 수의 상한에 이미 도달했습니다. 계정 페이지에서 하나를 취소한 뒤 다시 시도하세요.",
-    "mcpRemoteKeyUnavailable": "Donut cloud가 지금 MCP 자격 증명을 발급하지 못했습니다. 잠시 후 다시 시도하세요.",
+    "mcpRemoteKeyUnavailable": "Bwbrowser cloud가 지금 MCP 자격 증명을 발급하지 못했습니다. 잠시 후 다시 시도하세요.",
     "urlSchemeNotAllowed": "http 및 https 주소만 열 수 있습니다.",
     "toolIsLocalOnly": "이 작업은 이 컴퓨터의 파일이 필요하므로 원격으로는 수행할 수 없습니다.",
     "typingTooLong": "이 텍스트를 입력하려면 약 {{seconds}}초가 걸리며, 요청 하나는 최대 {{limit}}초까지만 가능합니다. 더 작게 나누어 보내세요.",
@@ -2308,7 +2310,7 @@
     "remoteSessionNotDrivable": "이 원격 세션은 아직 제어할 준비가 되지 않았습니다. 활성 상태가 될 때까지 기다리세요.",
     "remotePlatformUnsupported": "원격 세션은 macOS, Windows 또는 Linux 호스트에서만 실행됩니다. 이 프로필의 플랫폼은 {{platform}}입니다.",
     "remoteProfileNotSynced": "이 프로필은 아직 클라우드 동기화 업로드가 완료되지 않았습니다. 첫 동기화가 끝난 후 다시 시도하세요.",
-    "mcpLocalRemoved": "Donut의 로컬 MCP 서버가 제거되었습니다. 대신 원격 MCP를 사용하세요. 설정 > 통합에서 설정하면 어디서든 연결할 수 있습니다.",
+    "mcpLocalRemoved": "Bwbrowser의 로컬 MCP 서버가 제거되었습니다. 대신 원격 MCP를 사용하세요. 설정 > 통합에서 설정하면 어디서든 연결할 수 있습니다.",
     "trashEntryNotFound": "이 프로필은 더 이상 휴지통에 없습니다.",
     "trashRestoreConflict": "같은 ID의 프로필이 이미 있어 복원할 수 없습니다.",
     "agentNotEntitled": "현재 요금제에는 에이전트가 포함되어 있지 않습니다.",
@@ -2358,7 +2360,7 @@
       "importProfileHint": "다른 도구에서 프로필 가져오기",
       "keyboardShortcuts": "키보드 단축키",
       "keyboardShortcutsHint": "모든 단축키 보기",
-      "about": "Donut Browser 정보",
+      "about": "BW Browser 정보",
       "aboutHint": "버전 및 앱 정보",
       "trash": "휴지통",
       "trashHint": "삭제한 프로필 복원",
@@ -2384,7 +2386,8 @@
     "shortcuts": "키보드 단축키",
     "cookieBot": "Cookie Bot",
     "trash": "휴지통",
-    "agent": "에이전트"
+    "agent": "에이전트",
+    "cloudAccounts": "클라우드 계정"
   },
   "encryption": {
     "required": {
@@ -2434,8 +2437,8 @@
     },
     "selfHosted": {
       "title": "자체 호스팅 동기화 서버",
-      "description": "호스팅 클라우드를 사용하지 않고 프로필, 프록시, 그룹 및 확장 프로그램을 동기화하려면 Donut을 자체 donut-sync 서버로 연결하세요.",
-      "disabledWhileLoggedIn": "Donut 계정에 로그인되어 있는 동안에는 자체 호스팅 동기화를 사용할 수 없습니다. 사용자 지정 서버를 사용하려면 로그아웃하세요.",
+      "description": "호스팅 클라우드를 사용하지 않고 프로필, 프록시, 그룹 및 확장 프로그램을 동기화하려면 Bwbrowser을 자체 bwbrowser-sync 서버로 연결하세요.",
+      "disabledWhileLoggedIn": "Bwbrowser 계정에 로그인되어 있는 동안에는 자체 호스팅 동기화를 사용할 수 없습니다. 사용자 지정 서버를 사용하려면 로그아웃하세요.",
       "connectionStatus": "연결:",
       "statusUnknown": "테스트 안 됨",
       "testConnection": "연결 테스트",
@@ -2464,7 +2467,7 @@
       "stopProfile": "{{name}} 중지",
       "profileInfo": "정보 — {{name}}",
       "createProfile": "프로필 생성",
-      "about": "Donut Browser 정보"
+      "about": "BW Browser 정보"
     }
   },
   "shortcuts": {
@@ -2484,13 +2487,13 @@
     "openTips": "팁 열기"
   },
   "closeConfirm": {
-    "title": "Donut Browser를 닫으시겠습니까?",
+    "title": "BW Browser를 닫으시겠습니까?",
     "description": "앱을 시스템 트레이로 보내시겠습니까, 아니면 종료하시겠습니까?",
     "minimize": "트레이로 최소화",
     "quit": "종료"
   },
   "tray": {
-    "show": "Donut Browser 표시",
+    "show": "BW Browser 표시",
     "quit": "종료"
   },
   "onboarding": {
@@ -2511,13 +2514,13 @@
       "finish": "완료"
     },
     "thankYou": {
-      "title": "Donut Browser를 선택해 주셔서 감사합니다",
+      "title": "BW Browser를 선택해 주셔서 감사합니다",
       "body": "각 ID를 분리하고 어떤 데이터도 기기 밖으로 내보내지 않으면서 더 프라이빗한 브라우징에 도움이 되길 바랍니다. 즐겁게 사용하세요.",
       "cta": "브라우징 시작"
     }
   },
   "welcome": {
-    "title": "Donut Browser에 오신 것을 환영합니다",
+    "title": "BW Browser에 오신 것을 환영합니다",
     "tagline": "여러 ID를 한 번에 관리할 수 있는 오픈 소스 안티디텍트 브라우저입니다.",
     "skip": "건너뛰기",
     "next": "다음",
@@ -2561,7 +2564,7 @@
     },
     "license": {
       "title": "라이선스",
-      "body": "Donut Browser는 오픈 소스이며 무료로 사용할 수 있습니다.",
+      "body": "BW Browser는 오픈 소스이며 무료로 사용할 수 있습니다.",
       "agree": "이해했습니다",
       "personalTitle": "개인 사용",
       "personalDesc": "영구적으로 무료입니다.",
@@ -2946,16 +2949,16 @@
     "vpnExtensionConfirmed": "알려진 VPN 또는 프록시 도구",
     "vpnExtensionLikely": "VPN 또는 프록시 도구로 보임",
     "vpnExtensionCapability": "프록시 권한을 보유함",
-    "vpnExtensionExplainer": "이 중 하나가 트래픽을 다른 곳으로 보내면 브라우저의 실제 위치가 이 프로필을 만들 때 사용한 시간대, 언어, 지리 정보와 더 이상 일치하지 않으며, Donut은 외부에서 이를 감지할 수 없습니다.",
+    "vpnExtensionExplainer": "이 중 하나가 트래픽을 다른 곳으로 보내면 브라우저의 실제 위치가 이 프로필을 만들 때 사용한 시간대, 언어, 지리 정보와 더 이상 일치하지 않으며, Bwbrowser은 외부에서 이를 감지할 수 없습니다.",
     "proxyCapableHeading": "프록시를 변경할 수 있는 확장 프로그램",
-    "proxyCapableIntro": "VPN으로 보이지는 않지만 Chromium의 프록시 권한을 가지고 있습니다. 다운로드 관리자나 디버깅 도구에도 필요한 권한이며, 실제로 사용하는지는 Donut이 알 수 없습니다:",
-    "sourceDonut": "Donut이 관리",
+    "proxyCapableIntro": "VPN으로 보이지는 않지만 Chromium의 프록시 권한을 가지고 있습니다. 다운로드 관리자나 디버깅 도구에도 필요한 권한이며, 실제로 사용하는지는 Bwbrowser이 알 수 없습니다:",
+    "sourceBwbrowser": "Bwbrowser이 관리",
     "sourceBrowser": "프로필에 설치됨",
     "measurementUnreliable": "이 프로필의 확장 프로그램이 프록시 권한을 가지고 있어, 출구 확인 결과가 브라우저의 실제 경로와 다를 수 있습니다.",
-    "scanIncompleteEncrypted": "이 프로필은 암호화되어 있어 Donut이 관리하는 확장 프로그램만 확인할 수 있었습니다.",
-    "scanIncompleteEphemeral": "이 프로필에는 아직 데이터가 없어 Donut이 관리하는 확장 프로그램만 확인할 수 있었습니다.",
+    "scanIncompleteEncrypted": "이 프로필은 암호화되어 있어 Bwbrowser이 관리하는 확장 프로그램만 확인할 수 있었습니다.",
+    "scanIncompleteEphemeral": "이 프로필에는 아직 데이터가 없어 Bwbrowser이 관리하는 확장 프로그램만 확인할 수 있었습니다.",
     "scanIncompletePartial": "확장 프로그램 검사가 중단되어 일부가 표시되지 않을 수 있습니다.",
-    "probePending": "프록시 출구를 아직 측정하지 않았습니다. Donut이 시작 중에 확인하고 일치하지 않으면 중단합니다.",
+    "probePending": "프록시 출구를 아직 측정하지 않았습니다. Bwbrowser이 시작 중에 확인하고 일치하지 않으면 중단합니다.",
     "launchAnyway": "그래도 실행",
     "dontBlockAgain": "이 불일치에 대해 다시 차단하지 않기",
     "dontWarnExtensions": "이 확장 프로그램에 대해 다시 경고하지 않기",
@@ -2963,7 +2966,7 @@
     "cancelledSummary": "{{total}}개 중 {{cancelled}}개의 실행이 취소됨",
     "vpnExtensionEntry": " {{version}} — {{capability}}, {{source}}",
     "vpnExtensionEntryNoVersion": " — {{capability}}, {{source}}",
-    "scanIncompleteMissing": "이 프로필은 아직 실행된 적이 없어 Donut이 관리하는 확장 프로그램만 확인할 수 있었습니다.",
+    "scanIncompleteMissing": "이 프로필은 아직 실행된 적이 없어 Bwbrowser이 관리하는 확장 프로그램만 확인할 수 있었습니다.",
     "exitUnverifiedTimezone": "이 프로필의 핑거프린트에 시간대가 없어 출구 검사로 확인할 수 없습니다. 실행은 차단되지 않지만 비교된 것도 없습니다.",
     "exitUnverifiedLanguage": "이 프로필의 핑거프린트 언어는 출구 국가와 비교할 수 없으므로, 이 검사는 통과가 아니라 미확인 상태입니다."
   },
@@ -3023,7 +3026,7 @@
   },
   "mcpLocalDeprecated": {
     "title": "로컬 MCP가 제거되었습니다",
-    "description": "이제 Donut은 어디서나 연결할 수 있는 원격 MCP를 사용합니다. 원격 MCP 탭에서 설정하고 AI 클라이언트를 그쪽으로 지정하세요."
+    "description": "이제 Bwbrowser은 어디서나 연결할 수 있는 원격 MCP를 사용합니다. 원격 MCP 탭에서 설정하고 AI 클라이언트를 그쪽으로 지정하세요."
   },
   "mcpLocalMigrated": {
     "title": "원격 MCP로 이동됨",
@@ -3137,11 +3140,11 @@
     },
     "unavailable": {
       "signInTitle": "에이전트를 사용하려면 로그인하세요",
-      "signInHint": "에이전트 실행은 Donut 클라우드를 거칩니다. 계정 페이지에서 로그인하세요.",
+      "signInHint": "에이전트 실행은 Bwbrowser 클라우드를 거칩니다. 계정 페이지에서 로그인하세요.",
       "planTitle": "에이전트는 현재 요금제에 포함되어 있지 않습니다",
       "planHint": "브라우저 자동화가 포함된 요금제로 업그레이드하면 목표를 지정할 수 있습니다.",
       "notConfiguredTitle": "에이전트를 아직 사용할 수 없습니다",
-      "notConfiguredHint": "이 Donut 환경에는 에이전트가 설정되어 있지 않습니다. 계정에는 문제가 없습니다."
+      "notConfiguredHint": "이 Bwbrowser 환경에는 에이전트가 설정되어 있지 않습니다. 계정에는 문제가 없습니다."
     },
     "form": {
       "profile": "프로필",
@@ -3252,7 +3255,7 @@
       "recording": {
         "record": "기록",
         "recording": "기록 중",
-        "description": "프로필 브라우저에서 작업을 한 번 수행하면 Donut이 단계를 기록합니다. 비밀번호는 기록하지 않습니다.",
+        "description": "프로필 브라우저에서 작업을 한 번 수행하면 Bwbrowser이 단계를 기록합니다. 비밀번호는 기록하지 않습니다.",
         "stop": "기록 중지",
         "steps": "{{count}}개 단계를 기록했습니다",
         "hint": "기록할 실행 중인 프로필을 선택하세요.",
@@ -3327,7 +3330,7 @@
   },
   "groupBookmarks": {
     "title": "{{name}} 북마크",
-    "description": "이 그룹의 모든 프로필이 Donut이 관리하는 폴더로 이 북마크를 받습니다. 다른 북마크는 그대로 유지됩니다.",
+    "description": "이 그룹의 모든 프로필이 Bwbrowser이 관리하는 폴더로 이 북마크를 받습니다. 다른 북마크는 그대로 유지됩니다.",
     "editTooltip": "그룹 북마크 ({{n}})",
     "empty": "이 그룹에는 아직 공유 북마크가 없습니다.",
     "addRow": "북마크 추가",
@@ -3350,7 +3353,7 @@
     "previous": "이전 팁",
     "next": "다음 팁",
     "done": "완료",
-    "autoShow": "Donut 시작 시 팁 표시",
+    "autoShow": "Bwbrowser 시작 시 팁 표시",
     "items": {
       "dnsBlocklist": {
         "label": "DNS 차단",
@@ -3379,7 +3382,7 @@
       "fingerprintGate": {
         "label": "핑거프린트 검사",
         "title": "핑거프린트를 출구와 일치시키기",
-        "body": "실행 전에 Donut은 프록시 출구의 시간대와 언어를 프로필 핑거프린트와 비교하고 불일치가 있으면 실행을 막습니다. 핑거프린트를 고치거나, 잘 알고 있다면 고급 설정에서 게이트를 끄세요.",
+        "body": "실행 전에 Bwbrowser은 프록시 출구의 시간대와 언어를 프로필 핑거프린트와 비교하고 불일치가 있으면 실행을 막습니다. 핑거프린트를 고치거나, 잘 알고 있다면 고급 설정에서 게이트를 끄세요.",
         "action": "고급 설정 열기"
       },
       "profilePassword": {
@@ -3397,7 +3400,7 @@
       "defaultBrowser": {
         "label": "기본 브라우저",
         "title": "모든 링크를 알맞은 프로필에서 열기",
-        "body": "Donut을 기본 브라우저로 설정하면 다른 앱에서 온 링크마다 어떤 프로필로 열지 물어봅니다.",
+        "body": "Bwbrowser을 기본 브라우저로 설정하면 다른 앱에서 온 링크마다 어떤 프로필로 열지 물어봅니다.",
         "action": "기본 브라우저 설정 열기"
       },
       "extensionGroups": {
@@ -3409,7 +3412,7 @@
       "selfHostedSync": {
         "label": "자체 호스팅 동기화",
         "title": "내 서버에 백업",
-        "body": "자체 호스팅한 donut-sync 서버를 지정하면 프로필, 프록시, 그룹이 그곳에 미러링됩니다. 종단 간 비밀번호를 추가하면 서버는 암호문만 봅니다.",
+        "body": "자체 호스팅한 bwbrowser-sync 서버를 지정하면 프로필, 프록시, 그룹이 그곳에 미러링됩니다. 종단 간 비밀번호를 추가하면 서버는 암호문만 봅니다.",
         "action": "계정 열기"
       },
       "trash": {
@@ -3420,14 +3423,14 @@
       },
       "localApi": {
         "label": "API와 MCP",
-        "title": "스크립트와 에이전트로 Donut 자동화",
+        "title": "스크립트와 에이전트로 Bwbrowser 자동화",
         "body": "로컬 REST API와 MCP 서버로 스크립트와 AI 에이전트가 프로필을 나열, 생성, 설정할 수 있습니다. 통합에서 켜고 토큰을 복사하세요.",
         "action": "통합 열기"
       },
       "importProfiles": {
         "label": "가져오기",
         "title": "Chrome, Edge, Brave에서 프로필 가져오기",
-        "body": "가져오기는 Chromium 프로필이나 아카이브의 쿠키, 로그인 정보, 확장 프로그램을 새 Donut 프로필로 복사해 바로 실행할 수 있게 합니다.",
+        "body": "가져오기는 Chromium 프로필이나 아카이브의 쿠키, 로그인 정보, 확장 프로그램을 새 Bwbrowser 프로필로 복사해 바로 실행할 수 있게 합니다.",
         "action": "가져오기 열기"
       },
       "cloudBackup": {
@@ -3468,7 +3471,7 @@
       },
       "remoteControl": {
         "label": "원격 제어",
-        "title": "donutbrowser.com에서 이 데스크톱 제어",
+        "title": "bwbrowser.com에서 이 데스크톱 제어",
         "body": "원격 제어를 켜면 웹사이트의 에이전트가 아웃바운드 브리지를 통해 이 컴퓨터의 프로필에 접근합니다. 통합에서 켜세요.",
         "action": "통합 열기"
       }

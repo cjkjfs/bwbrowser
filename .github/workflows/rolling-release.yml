@@ -1,4 +1,4 @@
-name: Rolling Release
+﻿name: Rolling Release
 
 on:
   push:
@@ -25,7 +25,7 @@ env:
 
 jobs:
   security-scan:
-    if: github.repository == 'zhom/donutbrowser'
+    if: true
     name: Security Vulnerability Scan
     uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@6e4298ebc4db23e847df9b2e2de2939d6f066c67" # v2.5.1
     with:
@@ -41,21 +41,21 @@ jobs:
       actions: read
 
   lint-js:
-    if: github.repository == 'zhom/donutbrowser'
+    if: true
     name: Lint JavaScript/TypeScript
     uses: ./.github/workflows/lint-js.yml
     permissions:
       contents: read
 
   lint-rust:
-    if: github.repository == 'zhom/donutbrowser'
+    if: true
     name: Lint Rust
     uses: ./.github/workflows/lint-rs.yml
     permissions:
       contents: read
 
   codeql:
-    if: github.repository == 'zhom/donutbrowser'
+    if: true
     name: CodeQL
     uses: ./.github/workflows/codeql.yml
     permissions:
@@ -65,14 +65,14 @@ jobs:
       actions: read
 
   spellcheck:
-    if: github.repository == 'zhom/donutbrowser'
+    if: true
     name: Spell Check
     uses: ./.github/workflows/spellcheck.yml
     permissions:
       contents: read
 
   rolling-release:
-    if: github.repository == 'zhom/donutbrowser'
+    if: true
     needs: [security-scan, lint-js, lint-rust, codeql, spellcheck]
     permissions:
       contents: write
@@ -180,17 +180,17 @@ jobs:
           BUILD_TAG: "nightly-${{ steps.timestamp.outputs.timestamp }}"
           GITHUB_REF_NAME: "nightly-${{ steps.timestamp.outputs.timestamp }}"
         run: |
-          cargo build --bin donut-proxy --target ${{ matrix.target }} --release
+          cargo build --bin bwbrowser-proxy --target ${{ matrix.target }} --release
 
       - name: Copy sidecar binaries to Tauri binaries
         shell: bash
         run: |
           mkdir -p src-tauri/binaries
           if [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
-            cp src-tauri/target/${{ matrix.target }}/release/donut-proxy.exe src-tauri/binaries/donut-proxy-${{ matrix.target }}.exe
+            cp src-tauri/target/${{ matrix.target }}/release/bwbrowser-proxy.exe src-tauri/binaries/bwbrowser-proxy-${{ matrix.target }}.exe
           else
-            cp src-tauri/target/${{ matrix.target }}/release/donut-proxy src-tauri/binaries/donut-proxy-${{ matrix.target }}
-            chmod +x src-tauri/binaries/donut-proxy-${{ matrix.target }}
+            cp src-tauri/target/${{ matrix.target }}/release/bwbrowser-proxy src-tauri/binaries/bwbrowser-proxy-${{ matrix.target }}
+            chmod +x src-tauri/binaries/bwbrowser-proxy-${{ matrix.target }}
           fi
 
       - name: Download verified Xray-core sidecar
@@ -247,7 +247,7 @@ jobs:
         with:
           projectPath: ./src-tauri
           tagName: "nightly-${{ steps.timestamp.outputs.timestamp }}"
-          releaseName: "Donut Browser Nightly (Build ${{ steps.timestamp.outputs.timestamp }})"
+          releaseName: "BW Browser Nightly (Build ${{ steps.timestamp.outputs.timestamp }})"
           releaseBody: "⚠️ **Nightly Release** - This is an automatically generated pre-release build from the latest main branch. Use with caution.\n\nCommit: ${{ github.sha }}\nBuild: ${{ steps.timestamp.outputs.timestamp }}"
           releaseDraft: false
           prerelease: true
@@ -257,19 +257,19 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: bash
         run: |
-          PORTABLE_DIR="Donut-Portable"
+          PORTABLE_DIR="Bwbrowser-Portable"
           mkdir -p "$PORTABLE_DIR"
 
-          cp "src-tauri/target/${{ matrix.target }}/release/donutbrowser.exe" "$PORTABLE_DIR/Donut.exe"
-          cp "src-tauri/target/${{ matrix.target }}/release/donut-proxy.exe" "$PORTABLE_DIR/"
+          cp "src-tauri/target/${{ matrix.target }}/release/bwbrowser.exe" "$PORTABLE_DIR/Bwbrowser.exe"
+          cp "src-tauri/target/${{ matrix.target }}/release/bwbrowser-proxy.exe" "$PORTABLE_DIR/"
           cp "src-tauri/binaries/xray-${{ matrix.target }}.exe" "$PORTABLE_DIR/xray.exe"
           mkdir -p "$PORTABLE_DIR/licenses"
           cp "src-tauri/binaries/xray-LICENSE.txt" "$PORTABLE_DIR/licenses/Xray-core-LICENSE.txt"
           # The daemon is currently disabled (no Cargo bin target), so it isn't
           # built. Copy it only if a build produced it, so the absent binary
           # doesn't fail the job.
-          if [ -f "src-tauri/target/${{ matrix.target }}/release/donut-daemon.exe" ]; then
-            cp "src-tauri/target/${{ matrix.target }}/release/donut-daemon.exe" "$PORTABLE_DIR/"
+          if [ -f "src-tauri/target/${{ matrix.target }}/release/bwbrowser-daemon.exe" ]; then
+            cp "src-tauri/target/${{ matrix.target }}/release/bwbrowser-daemon.exe" "$PORTABLE_DIR/"
           fi
 
           if [ -f "src-tauri/target/${{ matrix.target }}/release/WebView2Loader.dll" ]; then
@@ -278,7 +278,7 @@ jobs:
 
           touch "$PORTABLE_DIR/.portable"
 
-          7z a "Donut_x64-portable.zip" "$PORTABLE_DIR"
+          7z a "Bwbrowser_x64-portable.zip" "$PORTABLE_DIR"
 
       - name: Upload portable ZIP to release
         if: matrix.platform == 'windows-latest'
@@ -287,7 +287,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NIGHTLY_TAG: "nightly-${{ steps.timestamp.outputs.timestamp }}"
         run: |
-          gh release upload "$NIGHTLY_TAG" "Donut_x64-portable.zip" --clobber
+          gh release upload "$NIGHTLY_TAG" "Bwbrowser_x64-portable.zip" --clobber
 
       - name: Clean up Apple certificate
         if: matrix.platform == 'macos-latest' && always()
@@ -296,7 +296,7 @@ jobs:
           rm -f $RUNNER_TEMP/build_certificate.p12 || true
 
   update-nightly-release:
-    if: github.repository == 'zhom/donutbrowser'
+    if: true
     needs: [rolling-release]
     runs-on: ubuntu-latest
     permissions:
@@ -381,25 +381,25 @@ jobs:
           # --repo is required: ASSETS_DIR is outside the git checkout, so gh
           # cannot infer the repository from the working directory.
           cd "$ASSETS_DIR"
-          sha256sum Donut* > SHA256SUMS.txt
+          sha256sum Bwbrowser* > SHA256SUMS.txt
           gh release upload "$NIGHTLY_TAG" SHA256SUMS.txt --clobber --repo "$GITHUB_REPOSITORY"
 
           # Rename versioned filenames to stable nightly names
-          for f in Donut_*_aarch64.dmg; do [ -f "$f" ] && mv "$f" Donut_nightly_aarch64.dmg; done
-          for f in Donut_*_x64.dmg; do [ -f "$f" ] && mv "$f" Donut_nightly_x64.dmg; done
-          for f in Donut_*_x64-setup.exe; do [ -f "$f" ] && mv "$f" Donut_nightly_x64-setup.exe; done
-          for f in Donut_*_aarch64.AppImage; do [ -f "$f" ] && mv "$f" Donut_nightly_aarch64.AppImage; done
-          for f in Donut_*_amd64.AppImage; do [ -f "$f" ] && mv "$f" Donut_nightly_amd64.AppImage; done
-          for f in Donut_*_amd64.deb; do [ -f "$f" ] && mv "$f" Donut_nightly_amd64.deb; done
-          for f in Donut_*_arm64.deb; do [ -f "$f" ] && mv "$f" Donut_nightly_arm64.deb; done
-          for f in Donut-*.x86_64.rpm; do [ -f "$f" ] && mv "$f" Donut_nightly_x86_64.rpm; done
-          for f in Donut-*.aarch64.rpm; do [ -f "$f" ] && mv "$f" Donut_nightly_aarch64.rpm; done
-          for f in Donut_*_aarch64.app.tar.gz; do [ -f "$f" ] && mv "$f" Donut_aarch64.app.tar.gz; done
-          for f in Donut_*_x64.app.tar.gz; do [ -f "$f" ] && mv "$f" Donut_x64.app.tar.gz; done
+          for f in Bwbrowser_*_aarch64.dmg; do [ -f "$f" ] && mv "$f" Bwbrowser_nightly_aarch64.dmg; done
+          for f in Bwbrowser_*_x64.dmg; do [ -f "$f" ] && mv "$f" Bwbrowser_nightly_x64.dmg; done
+          for f in Bwbrowser_*_x64-setup.exe; do [ -f "$f" ] && mv "$f" Bwbrowser_nightly_x64-setup.exe; done
+          for f in Bwbrowser_*_aarch64.AppImage; do [ -f "$f" ] && mv "$f" Bwbrowser_nightly_aarch64.AppImage; done
+          for f in Bwbrowser_*_amd64.AppImage; do [ -f "$f" ] && mv "$f" Bwbrowser_nightly_amd64.AppImage; done
+          for f in Bwbrowser_*_amd64.deb; do [ -f "$f" ] && mv "$f" Bwbrowser_nightly_amd64.deb; done
+          for f in Bwbrowser_*_arm64.deb; do [ -f "$f" ] && mv "$f" Bwbrowser_nightly_arm64.deb; done
+          for f in Bwbrowser-*.x86_64.rpm; do [ -f "$f" ] && mv "$f" Bwbrowser_nightly_x86_64.rpm; done
+          for f in Bwbrowser-*.aarch64.rpm; do [ -f "$f" ] && mv "$f" Bwbrowser_nightly_aarch64.rpm; done
+          for f in Bwbrowser_*_aarch64.app.tar.gz; do [ -f "$f" ] && mv "$f" Bwbrowser_aarch64.app.tar.gz; done
+          for f in Bwbrowser_*_x64.app.tar.gz; do [ -f "$f" ] && mv "$f" Bwbrowser_x64.app.tar.gz; done
 
           # Checksums for the rolling release (renamed filenames), restricted
           # to exactly the assets uploaded below.
-          sha256sum Donut_nightly_* Donut_aarch64.app.tar.gz Donut_x64.app.tar.gz > SHA256SUMS.txt
+          sha256sum Bwbrowser_nightly_* Bwbrowser_aarch64.app.tar.gz Bwbrowser_x64.app.tar.gz > SHA256SUMS.txt
           cd "$GITHUB_WORKSPACE"
 
           # Delete existing rolling nightly release and tag
@@ -408,16 +408,16 @@ jobs:
 
           # Create new rolling nightly release with all assets
           gh release create nightly \
-            "$ASSETS_DIR"/Donut_nightly_* \
-            "$ASSETS_DIR"/Donut_aarch64.app.tar.gz \
-            "$ASSETS_DIR"/Donut_x64.app.tar.gz \
+            "$ASSETS_DIR"/Bwbrowser_nightly_* \
+            "$ASSETS_DIR"/Bwbrowser_aarch64.app.tar.gz \
+            "$ASSETS_DIR"/Bwbrowser_x64.app.tar.gz \
             "$ASSETS_DIR"/SHA256SUMS.txt \
-            --title "Donut Browser Nightly" \
+            --title "BW Browser Nightly" \
             --notes-file /tmp/nightly-notes.md \
             --prerelease
 
   deploy-website:
-    if: github.repository == 'zhom/donutbrowser'
+    if: true
     needs: [update-nightly-release]
     runs-on: ubuntu-latest
     steps:
@@ -427,7 +427,7 @@ jobs:
         run: curl -fsSL -X POST "$DEPLOYMENT_HOOK"
 
   notify-discord:
-    if: github.repository == 'zhom/donutbrowser'
+    if: true
     needs: [update-nightly-release]
     runs-on: ubuntu-latest
     steps:
@@ -440,7 +440,7 @@ jobs:
           COMMIT_URL="https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
 
           PAYLOAD=$(jq -n \
-            --arg title "Donut Browser Nightly (${COMMIT_SHORT})" \
+            --arg title "BW Browser Nightly (${COMMIT_SHORT})" \
             --arg url "$RELEASE_URL" \
             --arg commit_url "$COMMIT_URL" \
             --arg commit_short "$COMMIT_SHORT" \
@@ -453,7 +453,7 @@ jobs:
                   { name: "Commit", value: ("[" + $commit_short + "](" + $commit_url + ")"), inline: true },
                   { name: "Download", value: ("[Nightly Release](" + $url + ")"), inline: true }
                 ],
-                footer: { text: "donutbrowser.com" }
+                footer: { text: "bwbrowser.com" }
               }]
             }')
 

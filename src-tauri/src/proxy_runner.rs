@@ -27,7 +27,7 @@ fn prune_stale_proxy_logs(temp_dir: &Path, retain: usize) {
       let file_name = entry.file_name();
       let file_name = file_name.to_str()?;
       let id = file_name
-        .strip_prefix("donut-proxy-")?
+        .strip_prefix("bwbrowser-proxy-")?
         .strip_suffix(".log")?;
       if active_ids.iter().any(|active_id| active_id == id) {
         return None;
@@ -51,7 +51,7 @@ fn prune_stale_proxy_logs(temp_dir: &Path, retain: usize) {
 }
 
 fn target_binary_name(base_name: &str) -> String {
-  let target = env!("DONUT_BUILD_TARGET");
+  let target = env!("BWBROWSER_BUILD_TARGET");
   #[cfg(windows)]
   {
     format!("{base_name}-{target}.exe")
@@ -192,7 +192,7 @@ pub(crate) fn find_sidecar_executable(
 fn parse_sidecar_version(stdout: &[u8]) -> Option<String> {
   let output = std::str::from_utf8(stdout).ok()?.trim();
   output
-    .strip_prefix("donut-proxy ")
+    .strip_prefix("bwbrowser-proxy ")
     .map(str::trim)
     .filter(|version| !version.is_empty() && !version.contains(char::is_whitespace))
     .map(str::to_string)
@@ -214,10 +214,10 @@ pub(crate) async fn ensure_sidecar_version() -> Result<(), Box<dyn std::error::E
     return Ok(());
   }
 
-  let executable = match find_sidecar_executable("donut-proxy") {
+  let executable = match find_sidecar_executable("bwbrowser-proxy") {
     Ok(executable) => executable,
     Err(e) => {
-      log::error!("Failed to locate donut-proxy for version verification: {e}");
+      log::error!("Failed to locate bwbrowser-proxy for version verification: {e}");
       return Err(sidecar_version_mismatch_error());
     }
   };
@@ -250,7 +250,7 @@ pub(crate) async fn ensure_sidecar_version() -> Result<(), Box<dyn std::error::E
   }
 
   log::error!(
-    "donut-proxy version mismatch: expected {}, got {:?}; status={}, stdout={:?}, stderr={:?}",
+    "bwbrowser-proxy version mismatch: expected {}, got {:?}; status={}, stdout={:?}, stderr={:?}",
     expected_version,
     actual_version,
     output.status,
@@ -306,9 +306,9 @@ pub async fn start_proxy_process_with_profile(
 
   // Spawn proxy worker process in the background using std::process::Command
   // This ensures proper process detachment on Unix systems
-  let exe = find_sidecar_executable("donut-proxy")?;
+  let exe = find_sidecar_executable("bwbrowser-proxy")?;
   let temp_dir = std::env::temp_dir();
-  let log_path = temp_dir.join(format!("donut-proxy-{id}.log"));
+  let log_path = temp_dir.join(format!("bwbrowser-proxy-{id}.log"));
   let log_file = crate::app_dirs::create_owner_only(&log_path);
   prune_stale_proxy_logs(&temp_dir, RETAINED_PROXY_LOGS);
 
@@ -322,8 +322,8 @@ pub async fn start_proxy_process_with_profile(
     cmd.arg("start");
     cmd.arg("--id");
     cmd.arg(&id);
-    cmd.env_remove("DONUT_PROXY_USERNAME");
-    cmd.env_remove("DONUT_PROXY_PASSWORD");
+    cmd.env_remove("BWBROWSER_PROXY_USERNAME");
+    cmd.env_remove("BWBROWSER_PROXY_PASSWORD");
 
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::null());
@@ -400,8 +400,8 @@ pub async fn start_proxy_process_with_profile(
     cmd.arg("start");
     cmd.arg("--id");
     cmd.arg(&id);
-    cmd.env_remove("DONUT_PROXY_USERNAME");
-    cmd.env_remove("DONUT_PROXY_PASSWORD");
+    cmd.env_remove("BWBROWSER_PROXY_USERNAME");
+    cmd.env_remove("BWBROWSER_PROXY_PASSWORD");
 
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::null());
@@ -566,11 +566,11 @@ mod tests {
   #[test]
   fn parses_exact_sidecar_version_output() {
     assert_eq!(
-      parse_sidecar_version(b"donut-proxy v0.28.2\n").as_deref(),
+      parse_sidecar_version(b"bwbrowser-proxy v0.28.2\n").as_deref(),
       Some("v0.28.2")
     );
     assert_eq!(
-      parse_sidecar_version(b"donut-proxy nightly-2026-07-19-a4ed5c8\r\n").as_deref(),
+      parse_sidecar_version(b"bwbrowser-proxy nightly-2026-07-19-a4ed5c8\r\n").as_deref(),
       Some("nightly-2026-07-19-a4ed5c8")
     );
   }
@@ -578,10 +578,10 @@ mod tests {
   #[test]
   fn rejects_missing_or_ambiguous_sidecar_version_output() {
     assert_eq!(parse_sidecar_version(b""), None);
-    assert_eq!(parse_sidecar_version(b"donut-proxy"), None);
+    assert_eq!(parse_sidecar_version(b"bwbrowser-proxy"), None);
     assert_eq!(parse_sidecar_version(b"other-proxy v0.28.2"), None);
     assert_eq!(
-      parse_sidecar_version(b"donut-proxy v0.28.2\nunexpected"),
+      parse_sidecar_version(b"bwbrowser-proxy v0.28.2\nunexpected"),
       None
     );
   }
@@ -590,7 +590,7 @@ mod tests {
   fn sidecar_target_name_is_exact_and_metadata_files_are_not_executables() {
     let target_name = target_binary_name("xray");
     assert!(target_name.starts_with("xray-"));
-    assert!(target_name.contains(env!("DONUT_BUILD_TARGET")));
+    assert!(target_name.contains(env!("BWBROWSER_BUILD_TARGET")));
 
     let temp = tempfile::tempdir().unwrap();
     let marker = temp.path().join(format!("{target_name}.source.json"));
@@ -611,16 +611,16 @@ mod tests {
   fn prunes_only_old_proxy_logs() {
     let temp = tempfile::tempdir().unwrap();
     for id in ["oldest", "middle", "newest"] {
-      fs::write(temp.path().join(format!("donut-proxy-{id}.log")), id).unwrap();
+      fs::write(temp.path().join(format!("bwbrowser-proxy-{id}.log")), id).unwrap();
       std::thread::sleep(Duration::from_millis(10));
     }
     fs::write(temp.path().join("unrelated.log"), "keep").unwrap();
 
     prune_stale_proxy_logs(temp.path(), 2);
 
-    assert!(!temp.path().join("donut-proxy-oldest.log").exists());
-    assert!(temp.path().join("donut-proxy-middle.log").exists());
-    assert!(temp.path().join("donut-proxy-newest.log").exists());
+    assert!(!temp.path().join("bwbrowser-proxy-oldest.log").exists());
+    assert!(temp.path().join("bwbrowser-proxy-middle.log").exists());
+    assert!(temp.path().join("bwbrowser-proxy-newest.log").exists());
     assert!(temp.path().join("unrelated.log").exists());
   }
 }

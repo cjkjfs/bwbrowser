@@ -43,11 +43,11 @@ pub struct AppSettings {
   pub mcp_port: Option<u16>, // Port for MCP server (default 51080)
   #[serde(default)]
   pub mcp_token: Option<String>, // Displayed token for user to copy (not persisted, loaded from encrypted file)
-  /// Let Donut cloud drive this installation's MCP tools over an outbound
+  /// Let Bwbrowser cloud drive this installation's MCP tools over an outbound
   /// bridge, so an agent on the website can control this browser.
   ///
   /// Defaults to OFF and stays off until the user says otherwise. It opens a
-  /// long-lived socket to Donut cloud and hands the far end the ability to
+  /// long-lived socket to Bwbrowser cloud and hands the far end the ability to
   /// launch and drive profiles, which is not something to switch on for
   /// somebody by default because their plan happens to include it.
   #[serde(default)]
@@ -133,7 +133,7 @@ fn default_trash_retention_days() -> u32 {
 }
 
 fn default_tips_auto_show() -> bool {
-  true
+  false
 }
 
 /// How long the automatic tip flow waits between two tips, so a busy day of
@@ -166,14 +166,34 @@ impl Default for AppSettings {
       window_resize_warning_dismissed: false,
       fingerprint_gate_disabled: false,
       vpn_extension_warning_disabled: false,
-      onboarding_completed: false,
+      onboarding_completed: true,
       disable_auto_updates: false,
       keep_decrypted_profiles_in_ram: false,
       trash_retention_days: crate::profile::trash::DEFAULT_RETENTION_DAYS,
-      tips_auto_show: true,
-      tips_seen: Vec::new(),
+      tips_auto_show: false,
+      tips_seen: vec![
+        "dnsBlocklist".to_string(),
+        "proxyCheck".to_string(),
+        "groups".to_string(),
+        "commandPalette".to_string(),
+        "fingerprintGate".to_string(),
+        "profilePassword".to_string(),
+        "clearOnClose".to_string(),
+        "defaultBrowser".to_string(),
+        "extensionGroups".to_string(),
+        "selfHostedSync".to_string(),
+        "trash".to_string(),
+        "localApi".to_string(),
+        "importProfiles".to_string(),
+        "cloudBackup".to_string(),
+        "cookieBot".to_string(),
+        "crossOs".to_string(),
+        "automation".to_string(),
+        "agent".to_string(),
+        "team".to_string(),
+      ],
       tips_last_auto_shown_at: None,
-      paid_welcome_seen_for: Vec::new(),
+      paid_welcome_seen_for: vec!["all".to_string()],
       cloud_plan_memory: std::collections::HashMap::new(),
     }
   }
@@ -990,7 +1010,7 @@ fn paid_welcome_due(
   if settings
     .paid_welcome_seen_for
     .iter()
-    .any(|id| id == user_id)
+    .any(|id| id == user_id || id == "all")
   {
     return false;
   }
@@ -1141,15 +1161,17 @@ mod tests {
   fn tips_state_defaults_to_automatic_and_due() {
     let settings = AppSettings::default();
     let state = TipsState::of(&settings, 1_000_000);
-    assert!(state.auto_show);
-    assert!(state.seen.is_empty());
+    assert!(!state.auto_show);
+    assert!(!state.seen.is_empty());
     assert_eq!(state.last_auto_shown_at, None);
-    assert!(state.auto_due, "a fresh install owes its first tip");
+    assert!(!state.auto_due, "tips are disabled by default");
   }
 
   #[test]
   fn tips_seen_dedupes_and_paces_the_automatic_flow() {
     let mut settings = AppSettings::default();
+    settings.tips_seen.clear();
+    settings.tips_auto_show = true;
     record_tip_seen(&mut settings, "dns", false, 100);
     record_tip_seen(&mut settings, "dns", false, 200);
     assert_eq!(settings.tips_seen, vec!["dns".to_string()]);
@@ -1176,6 +1198,7 @@ mod tests {
   #[test]
   fn paid_welcome_is_due_once_when_an_account_turns_paid() {
     let mut settings = AppSettings::default();
+    settings.paid_welcome_seen_for.clear();
     assert!(!paid_welcome_due(&mut settings, "u1", false, true));
     assert!(
       settings.paid_welcome_seen_for.is_empty(),
@@ -1192,6 +1215,7 @@ mod tests {
   #[test]
   fn paid_welcome_greets_a_fresh_sign_in_but_not_an_old_paid_session() {
     let mut settings = AppSettings::default();
+    settings.paid_welcome_seen_for.clear();
     assert!(
       paid_welcome_due(&mut settings, "bought-on-web", true, true),
       "first sight right after signing in: they came back from checkout"
@@ -1284,11 +1308,11 @@ mod tests {
       window_resize_warning_dismissed: false,
       fingerprint_gate_disabled: false,
       vpn_extension_warning_disabled: false,
-      onboarding_completed: false,
+      onboarding_completed: true,
       disable_auto_updates: false,
       keep_decrypted_profiles_in_ram: false,
       trash_retention_days: 14,
-      tips_auto_show: true,
+      tips_auto_show: false,
       tips_seen: Vec::new(),
       tips_last_auto_shown_at: None,
       paid_welcome_seen_for: Vec::new(),

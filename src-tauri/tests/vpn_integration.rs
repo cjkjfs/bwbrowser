@@ -6,10 +6,10 @@
 mod common;
 mod test_harness;
 
-use common::TestUtils;
-use donutbrowser_lib::vpn::{
+use bwbrowser_lib::vpn::{
   detect_vpn_type, parse_wireguard_config, VpnConfig, VpnStorage, VpnType, WireGuardConfig,
 };
+use common::TestUtils;
 use serde_json::Value;
 use serial_test::serial;
 use std::path::PathBuf;
@@ -303,7 +303,7 @@ async fn test_wireguard_tunnel_init() {
     preshared_key: None,
   };
 
-  use donutbrowser_lib::vpn::{VpnTunnel, WireGuardTunnel};
+  use bwbrowser_lib::vpn::{VpnTunnel, WireGuardTunnel};
 
   let tunnel = WireGuardTunnel::new("test-wg".to_string(), config);
   assert_eq!(tunnel.vpn_id(), "test-wg");
@@ -315,7 +315,7 @@ async fn test_wireguard_tunnel_init() {
 #[tokio::test]
 #[serial]
 async fn test_tunnel_manager() {
-  use donutbrowser_lib::vpn::{TunnelManager, VpnStatus, VpnTunnel};
+  use bwbrowser_lib::vpn::{TunnelManager, VpnStatus, VpnTunnel};
 
   // Create a mock tunnel for testing the manager
   struct MockTunnel {
@@ -325,12 +325,12 @@ async fn test_tunnel_manager() {
 
   #[async_trait::async_trait]
   impl VpnTunnel for MockTunnel {
-    async fn connect(&mut self) -> Result<(), donutbrowser_lib::vpn::VpnError> {
+    async fn connect(&mut self) -> Result<(), bwbrowser_lib::vpn::VpnError> {
       self.connected = true;
       Ok(())
     }
 
-    async fn disconnect(&mut self) -> Result<(), donutbrowser_lib::vpn::VpnError> {
+    async fn disconnect(&mut self) -> Result<(), bwbrowser_lib::vpn::VpnError> {
       self.connected = false;
       Ok(())
     }
@@ -392,7 +392,7 @@ impl TestEnvGuard {
 
     let root = TEST_RUNTIME_ROOT
       .get_or_init(|| {
-        std::env::temp_dir().join(format!("donutbrowser-vpn-e2e-{}", std::process::id()))
+        std::env::temp_dir().join(format!("bwbrowser-vpn-e2e-{}", std::process::id()))
       })
       .clone();
     let data_dir = root.join("data");
@@ -405,11 +405,11 @@ impl TestEnvGuard {
     std::fs::create_dir_all(&data_dir)?;
     std::fs::create_dir_all(&cache_dir)?;
 
-    let previous_data_dir = std::env::var("DONUTBROWSER_DATA_DIR").ok();
-    let previous_cache_dir = std::env::var("DONUTBROWSER_CACHE_DIR").ok();
+    let previous_data_dir = std::env::var("BWBROWSER_DATA_DIR").ok();
+    let previous_cache_dir = std::env::var("BWBROWSER_CACHE_DIR").ok();
 
-    std::env::set_var("DONUTBROWSER_DATA_DIR", &data_dir);
-    std::env::set_var("DONUTBROWSER_CACHE_DIR", &cache_dir);
+    std::env::set_var("BWBROWSER_DATA_DIR", &data_dir);
+    std::env::set_var("BWBROWSER_CACHE_DIR", &cache_dir);
 
     Ok(Self {
       _root: root,
@@ -422,15 +422,15 @@ impl TestEnvGuard {
 impl Drop for TestEnvGuard {
   fn drop(&mut self) {
     if let Some(value) = &self.previous_data_dir {
-      std::env::set_var("DONUTBROWSER_DATA_DIR", value);
+      std::env::set_var("BWBROWSER_DATA_DIR", value);
     } else {
-      std::env::remove_var("DONUTBROWSER_DATA_DIR");
+      std::env::remove_var("BWBROWSER_DATA_DIR");
     }
 
     if let Some(value) = &self.previous_cache_dir {
-      std::env::set_var("DONUTBROWSER_CACHE_DIR", value);
+      std::env::set_var("BWBROWSER_CACHE_DIR", value);
     } else {
-      std::env::remove_var("DONUTBROWSER_CACHE_DIR");
+      std::env::remove_var("BWBROWSER_CACHE_DIR");
     }
   }
 }
@@ -440,7 +440,8 @@ struct ProxyProcess {
   local_port: u16,
 }
 
-async fn ensure_donut_proxy_binary() -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
+async fn ensure_bwbrowser_proxy_binary() -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>>
+{
   let cargo_manifest_dir = std::env::var("CARGO_MANIFEST_DIR")?;
   let project_root = PathBuf::from(cargo_manifest_dir)
     .parent()
@@ -448,9 +449,9 @@ async fn ensure_donut_proxy_binary() -> Result<PathBuf, Box<dyn std::error::Erro
     .to_path_buf();
 
   let proxy_binary_name = if cfg!(windows) {
-    "donut-proxy.exe"
+    "bwbrowser-proxy.exe"
   } else {
-    "donut-proxy"
+    "bwbrowser-proxy"
   };
   let proxy_binary = project_root
     .join("src-tauri")
@@ -460,18 +461,18 @@ async fn ensure_donut_proxy_binary() -> Result<PathBuf, Box<dyn std::error::Erro
 
   if !proxy_binary.exists() {
     let build_status = tokio::process::Command::new("cargo")
-      .args(["build", "--bin", "donut-proxy"])
+      .args(["build", "--bin", "bwbrowser-proxy"])
       .current_dir(project_root.join("src-tauri"))
       .status()
       .await?;
 
     if !build_status.success() {
-      return Err("Failed to build donut-proxy binary".into());
+      return Err("Failed to build bwbrowser-proxy binary".into());
     }
   }
 
   if !proxy_binary.exists() {
-    return Err("donut-proxy binary was not created successfully".into());
+    return Err("bwbrowser-proxy binary was not created successfully".into());
   }
 
   Ok(proxy_binary)
@@ -622,8 +623,8 @@ async fn raw_http_request_via_proxy(
 }
 
 async fn cleanup_runtime() {
-  let _ = donutbrowser_lib::proxy_runner::stop_all_proxy_processes().await;
-  let _ = donutbrowser_lib::vpn_worker_runner::stop_all_vpn_workers().await;
+  let _ = bwbrowser_lib::proxy_runner::stop_all_proxy_processes().await;
+  let _ = bwbrowser_lib::vpn_worker_runner::stop_all_vpn_workers().await;
   test_harness::stop_vpn_servers().await;
 }
 
@@ -680,7 +681,7 @@ async fn run_proxy_feature_suite(
   vpn_id: &str,
   server_tunnel_ip: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-  let vpn_worker = donutbrowser_lib::vpn_worker_runner::start_vpn_worker(vpn_id)
+  let vpn_worker = bwbrowser_lib::vpn_worker_runner::start_vpn_worker(vpn_id)
     .await
     .map_err(|error| error.to_string())?;
   let vpn_upstream = vpn_worker
@@ -710,11 +711,11 @@ async fn run_proxy_feature_suite(
   .await?;
   assert!(
     http_response.contains("WG-TUNNEL-OK"),
-    "HTTP traffic through donut-proxy+VPN tunnel should succeed, got: {}",
+    "HTTP traffic through bwbrowser-proxy+VPN tunnel should succeed, got: {}",
     &http_response[..http_response.len().min(300)]
   );
 
-  let stats_file = donutbrowser_lib::app_dirs::cache_dir()
+  let stats_file = bwbrowser_lib::app_dirs::cache_dir()
     .join("traffic_stats")
     .join(format!("{}.json", profile_id));
   wait_for_file(&stats_file, Duration::from_secs(8)).await?;
@@ -797,12 +798,12 @@ async fn run_proxy_feature_suite(
   .await?;
   assert!(
     bypass_response.contains("VPN-BYPASS-OK"),
-    "Bypass rules should still work when donut-proxy is chained to a VPN worker"
+    "Bypass rules should still work when bwbrowser-proxy is chained to a VPN worker"
   );
   stop_proxy(binary_path, &bypass_proxy.id).await?;
   bypass_server.abort();
 
-  donutbrowser_lib::vpn_worker_runner::stop_vpn_worker(&vpn_worker.id)
+  bwbrowser_lib::vpn_worker_runner::stop_vpn_worker(&vpn_worker.id)
     .await
     .map_err(|error| error.to_string())?;
   Ok(())
@@ -810,7 +811,7 @@ async fn run_proxy_feature_suite(
 
 #[tokio::test]
 #[serial]
-async fn test_wireguard_traffic_flows_through_donut_proxy(
+async fn test_wireguard_traffic_flows_through_bwbrowser_proxy(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let _env = TestEnvGuard::new()?;
 
@@ -820,7 +821,7 @@ async fn test_wireguard_traffic_flows_through_donut_proxy(
     return Ok(());
   }
 
-  let binary_path = ensure_donut_proxy_binary().await?;
+  let binary_path = ensure_bwbrowser_proxy_binary().await?;
   let wg_config = test_harness::start_wireguard_server()
     .await
     .map_err(|error| format!("failed to start Docker WireGuard fixture: {error}"))?;
@@ -831,7 +832,7 @@ async fn test_wireguard_traffic_flows_through_donut_proxy(
     build_wireguard_config(&wg_config),
   );
   {
-    let storage = donutbrowser_lib::vpn::VPN_STORAGE.lock().unwrap();
+    let storage = bwbrowser_lib::vpn::VPN_STORAGE.lock().unwrap();
     storage.save_config(&vpn_config)?;
   }
 

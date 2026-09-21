@@ -414,7 +414,18 @@ impl CookieManager {
     db_path: &Path,
     encryption_key: Option<&[u8; 16]>,
   ) -> Result<Vec<UnifiedCookie>, String> {
-    let conn = Connection::open(db_path).map_err(|e| format!("Failed to open database: {e}"))?;
+    // Use immutable=1 URI so we can read even while the browser is running
+    // and holding an exclusive lock on the database. The trade-off is a
+    // potentially slightly stale snapshot, which is fine for cookie reads.
+    let path_str = db_path.to_string_lossy();
+    let uri = format!("file:{}?mode=ro&immutable=1", path_str);
+    let conn = Connection::open_with_flags(
+      &uri,
+      OpenFlags::SQLITE_OPEN_READ_ONLY
+        | OpenFlags::SQLITE_OPEN_URI
+        | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|e| format!("Failed to open cookie database: {e}"))?;
 
     let mut stmt = conn
       .prepare(
@@ -1223,7 +1234,7 @@ mod tests {
   #[cfg(target_os = "macos")]
   const SYNTHETIC_COOKIE_VALUE: &str = "synthetic-cookie-value";
   #[cfg(target_os = "macos")]
-  const SYNTHETIC_OS_CRYPT_PASSWORD: &[u8] = b"donut-synthetic-cookie-key";
+  const SYNTHETIC_OS_CRYPT_PASSWORD: &[u8] = b"bwbrowser-synthetic-cookie-key";
   #[cfg(target_os = "macos")]
   const SYNTHETIC_ENCRYPTED_COOKIE_HEX: &str = "763130d83b9fd3e6d1b1c793769f55251f5e9d1193be72c0c08ea32e2cf068a85d9d0b97d8b2e6deca93a2b3c290e98e1a851f83d5566f9aa9314befe56dc6bdbd423d";
 
@@ -1446,7 +1457,8 @@ mod tests {
 
   #[test]
   fn test_write_chrome_cookies_stores_plaintext_values() {
-    let tmp = std::env::temp_dir().join(format!("donut_cookie_test_{}.db", uuid::Uuid::new_v4()));
+    let tmp =
+      std::env::temp_dir().join(format!("bwbrowser_cookie_test_{}.db", uuid::Uuid::new_v4()));
     create_chrome_cookies_db(&tmp);
 
     let cookies = vec![UnifiedCookie {
@@ -1508,7 +1520,8 @@ mod tests {
 
   #[test]
   fn test_write_chrome_cookies_session_cookie_persisted() {
-    let tmp = std::env::temp_dir().join(format!("donut_cookie_test_{}.db", uuid::Uuid::new_v4()));
+    let tmp =
+      std::env::temp_dir().join(format!("bwbrowser_cookie_test_{}.db", uuid::Uuid::new_v4()));
     create_chrome_cookies_db(&tmp);
 
     let cookies = vec![UnifiedCookie {
@@ -1565,7 +1578,8 @@ mod tests {
 
   #[test]
   fn test_write_chrome_cookies_replaces_existing() {
-    let tmp = std::env::temp_dir().join(format!("donut_cookie_test_{}.db", uuid::Uuid::new_v4()));
+    let tmp =
+      std::env::temp_dir().join(format!("bwbrowser_cookie_test_{}.db", uuid::Uuid::new_v4()));
     create_chrome_cookies_db(&tmp);
 
     let cookie = UnifiedCookie {
@@ -1646,7 +1660,8 @@ mod tests {
   /// not a subdomain, not another site.
   #[test]
   fn test_write_chrome_cookies_replace_matching_sites_scope() {
-    let tmp = std::env::temp_dir().join(format!("donut_cookie_test_{}.db", uuid::Uuid::new_v4()));
+    let tmp =
+      std::env::temp_dir().join(format!("bwbrowser_cookie_test_{}.db", uuid::Uuid::new_v4()));
     create_chrome_cookies_db(&tmp);
 
     let seeded = vec![
@@ -1682,7 +1697,8 @@ mod tests {
 
   #[test]
   fn test_write_chrome_cookies_merge_deletes_nothing() {
-    let tmp = std::env::temp_dir().join(format!("donut_cookie_test_{}.db", uuid::Uuid::new_v4()));
+    let tmp =
+      std::env::temp_dir().join(format!("bwbrowser_cookie_test_{}.db", uuid::Uuid::new_v4()));
     create_chrome_cookies_db(&tmp);
 
     CookieManager::write_chrome_cookies(
@@ -1710,7 +1726,8 @@ mod tests {
   /// kept their stale values.
   #[test]
   fn test_write_chrome_cookies_probe_is_partition_aware() {
-    let tmp = std::env::temp_dir().join(format!("donut_cookie_test_{}.db", uuid::Uuid::new_v4()));
+    let tmp =
+      std::env::temp_dir().join(format!("bwbrowser_cookie_test_{}.db", uuid::Uuid::new_v4()));
     create_chrome_cookies_db(&tmp);
 
     let conn = Connection::open(&tmp).unwrap();
@@ -1751,7 +1768,8 @@ mod tests {
   /// Chromium evicts by creation_utc, so refreshing a cookie must not reset it.
   #[test]
   fn test_write_chrome_cookies_preserves_creation_time() {
-    let tmp = std::env::temp_dir().join(format!("donut_cookie_test_{}.db", uuid::Uuid::new_v4()));
+    let tmp =
+      std::env::temp_dir().join(format!("bwbrowser_cookie_test_{}.db", uuid::Uuid::new_v4()));
     create_chrome_cookies_db(&tmp);
 
     CookieManager::write_chrome_cookies(
@@ -1784,7 +1802,8 @@ mod tests {
   /// replace mode that includes the deletes it had already issued.
   #[test]
   fn test_write_chrome_cookies_rolls_back_on_failure() {
-    let tmp = std::env::temp_dir().join(format!("donut_cookie_test_{}.db", uuid::Uuid::new_v4()));
+    let tmp =
+      std::env::temp_dir().join(format!("bwbrowser_cookie_test_{}.db", uuid::Uuid::new_v4()));
     create_chrome_cookies_db(&tmp);
     CookieManager::write_chrome_cookies(
       &tmp,
@@ -1838,7 +1857,7 @@ mod tests {
   #[cfg(target_os = "macos")]
   fn test_decrypt_v10_cookie_with_synthetic_vector() {
     let profile_dir =
-      std::env::temp_dir().join(format!("donut_decrypt_vector_{}", uuid::Uuid::new_v4()));
+      std::env::temp_dir().join(format!("bwbrowser_decrypt_vector_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&profile_dir).unwrap();
     std::fs::write(
       profile_dir.join("os_crypt_key"),
@@ -1860,8 +1879,10 @@ mod tests {
   #[test]
   #[cfg(target_os = "macos")]
   fn test_decrypt_with_wrong_host_returns_none_or_raw() {
-    let profile_dir =
-      std::env::temp_dir().join(format!("donut_decrypt_wrong_host_{}", uuid::Uuid::new_v4()));
+    let profile_dir = std::env::temp_dir().join(format!(
+      "bwbrowser_decrypt_wrong_host_{}",
+      uuid::Uuid::new_v4()
+    ));
     std::fs::create_dir_all(&profile_dir).unwrap();
     std::fs::write(
       profile_dir.join("os_crypt_key"),
@@ -1885,7 +1906,7 @@ mod tests {
   /// such a profile must create the file on demand.
   #[test]
   fn test_create_empty_chrome_cookies_db_then_write() {
-    let dir = std::env::temp_dir().join(format!("donut_empty_chrome_{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("bwbrowser_empty_chrome_{}", uuid::Uuid::new_v4()));
     let db_path = dir.join("Default").join("Cookies");
     assert!(!db_path.exists());
 

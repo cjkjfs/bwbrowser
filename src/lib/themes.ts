@@ -36,8 +36,8 @@ export interface Theme {
 
 export const THEMES: Theme[] = [
   {
-    id: "donut-mono",
-    name: "Donut Mono",
+    id: "bwbrowser-mono",
+    name: "Bwbrowser Mono",
     mode: "dark",
     colors: {
       "--background": "#070707",

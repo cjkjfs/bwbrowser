@@ -10,6 +10,10 @@ import { useTranslation } from "react-i18next";
 import { AboutDialog } from "@/components/about-dialog";
 import { AccountPage } from "@/components/account-page";
 import { AgentPage, type AgentTab } from "@/components/agent-page";
+import { BwbrowserCloudAccountsDialog } from "@/components/bwbrowser-cloud-accounts";
+import { BwbrowserEnvManagementDialog } from "@/components/bwbrowser-env-management";
+import { BwbrowserLoginDialog } from "@/components/bwbrowser-login-dialog";
+import { BwbrowserProxyManagementDialog } from "@/components/bwbrowser-proxy-management";
 import { CloneProfileDialog } from "@/components/clone-profile-dialog";
 import { CloseConfirmDialog } from "@/components/close-confirm-dialog";
 import { CommandPalette } from "@/components/command-palette";
@@ -19,7 +23,6 @@ import { CookieCopyDialog } from "@/components/cookie-copy-dialog";
 import { CookieManagementDialog } from "@/components/cookie-management-dialog";
 import { CreateProfileDialog } from "@/components/create-profile-dialog";
 import { DeleteConfirmationDialog } from "@/components/delete-confirmation-dialog";
-import { DeviceCodeVerifyDialog } from "@/components/device-code-verify-dialog";
 import { ExtensionGroupAssignmentDialog } from "@/components/extension-group-assignment-dialog";
 import { ExtensionManagementDialog } from "@/components/extension-management-dialog";
 import { GroupAssignmentDialog } from "@/components/group-assignment-dialog";
@@ -28,7 +31,6 @@ import HomeHeader from "@/components/home-header";
 import { ImportProfileDialog } from "@/components/import-profile-dialog";
 import { IntegrationsDialog } from "@/components/integrations-dialog";
 import { ONBOARDING_TOUR } from "@/components/onboarding-provider";
-import { PaidWelcomeDialog } from "@/components/paid-welcome-dialog";
 import { PermissionDialog } from "@/components/permission-dialog";
 import {
   type GateDecision,
@@ -56,6 +58,8 @@ import { SynchronizerPanel } from "@/components/synchronizer-panel";
 import { ThankYouDialog } from "@/components/thank-you-dialog";
 import { TipsDialog } from "@/components/tips-dialog";
 import { TrashPage } from "@/components/trash-page";
+import { UserManagementPage } from "@/components/user-management-page";
+import { VideoDownloadPage } from "@/components/video-download-page";
 import { WayfernConfigDialog } from "@/components/wayfern-config-dialog";
 import { WayfernTermsDialog } from "@/components/wayfern-terms-dialog";
 import { WelcomeDialog } from "@/components/welcome-dialog";
@@ -344,8 +348,31 @@ export default function Home() {
   } = useCommercialTrial();
 
   // Cloud auth for cross-OS unlock
-  const { user: cloudUser, loggedInAt: cloudLoggedInAt } = useCloudAuth();
+  const {
+    user: cloudUser,
+    loggedInAt: cloudLoggedInAt,
+    isBwbrowserLogin,
+  } = useCloudAuth();
   const crossOsUnlocked = getEntitlements(cloudUser).crossOsFingerprints;
+
+  // 应用启动时，自动弹出 Bwbrowser 登录对话框
+  // 即使已登录也弹：记住密码时显示倒计时自动登录，用户可取消后切换账号
+  const [hasShownLoginDialog, setHasShownLoginDialog] = useState(false);
+  useEffect(() => {
+    if (hasShownLoginDialog) return;
+    // 等首屏初始化完成后再弹
+    if (profilesLoading || termsLoading) return;
+    if (firstRunOnboarding === true) return;
+    if (welcomeOpen) return;
+    setBwbrowserLoginDialogOpen(true);
+    setHasShownLoginDialog(true);
+  }, [
+    hasShownLoginDialog,
+    profilesLoading,
+    termsLoading,
+    firstRunOnboarding,
+    welcomeOpen,
+  ]);
   // Shown once when the commercial trial runs out; modal, so it goes first.
   const commercialTrialModalOpen =
     !termsLoading &&
@@ -404,7 +431,7 @@ export default function Home() {
   const cloudBackupUnlocked = getEntitlements(cloudUser).cloudBackup;
   const syncUnlocked = cloudBackupUnlocked || selfHostedSyncConfigured;
 
-  const [currentPage, setCurrentPage] = useState<AppPage>("profiles");
+  const [currentPage, setCurrentPage] = useState<AppPage>("cloudAccounts");
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   // Tracks which tab inside the shared proxy-management page should be active.
   // The VPN rail item routes to the same page but pre-selects the VPN tab.
@@ -432,6 +459,13 @@ export default function Home() {
   const [importProfileDialogOpen, setImportProfileDialogOpen] = useState(false);
   const [proxyManagementDialogOpen, setProxyManagementDialogOpen] =
     useState(false);
+  const [bwbrowserProxyDialogOpen, setBwbrowserProxyDialogOpen] =
+    useState(false);
+  const [bwbrowserEnvDialogOpen, setBwbrowserEnvDialogOpen] = useState(false);
+  const [
+    bwbrowserCloudAccountsDialogOpen,
+    setBwbrowserCloudAccountsDialogOpen,
+  ] = useState(false);
   const [wayfernConfigDialogOpen, setWayfernConfigDialogOpen] = useState(false);
   const [groupManagementDialogOpen, setGroupManagementDialogOpen] =
     useState(false);
@@ -492,7 +526,8 @@ export default function Home() {
     useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [syncConfigDialogOpen, setSyncConfigDialogOpen] = useState(false);
-  const [deviceCodeDialogOpen, setDeviceCodeDialogOpen] = useState(false);
+  const [bwbrowserLoginDialogOpen, setBwbrowserLoginDialogOpen] =
+    useState(false);
   const [syncAllDialogOpen, setSyncAllDialogOpen] = useState(false);
   const [profileSyncDialogOpen, setProfileSyncDialogOpen] = useState(false);
   const [currentProfileForSync, setCurrentProfileForSync] =
@@ -548,68 +583,82 @@ export default function Home() {
     setSelectedProfiles([]);
   }, []);
 
-  const handleRailNavigate = useCallback((page: AppPage) => {
-    // Always reset every sub-page-able dialog before opening the next one,
-    // so navigating from one rail item to another doesn't stack two
-    // sub-pages on top of each other.
-    setSettingsDialogOpen(false);
-    setProxyManagementDialogOpen(false);
-    setExtensionManagementDialogOpen(false);
-    setGroupManagementDialogOpen(false);
-    setIntegrationsDialogOpen(false);
-    setImportProfileDialogOpen(false);
-    setAccountDialogOpen(false);
-    setCookieBotDialogOpen(false);
-    setAgentDialogOpen(false);
-    setTrashPageOpen(false);
-    setSettingsInitialSection(null);
+  const handleRailNavigate = useCallback(
+    (page: AppPage) => {
+      // Always reset every sub-page-able dialog before opening the next one,
+      // so navigating from one rail item to another doesn't stack two
+      // sub-pages on top of each other.
+      setSettingsDialogOpen(false);
+      setProxyManagementDialogOpen(false);
+      setExtensionManagementDialogOpen(false);
+      setGroupManagementDialogOpen(false);
+      setIntegrationsDialogOpen(false);
+      setImportProfileDialogOpen(false);
+      setAccountDialogOpen(false);
+      setCookieBotDialogOpen(false);
+      setAgentDialogOpen(false);
+      setTrashPageOpen(false);
+      setSettingsInitialSection(null);
 
-    setCurrentPage(page);
-    switch (page) {
-      case "profiles":
-        break;
-      case "settings":
-        setSettingsDialogOpen(true);
-        break;
-      case "proxies":
-        setProxyManagementInitialTab("proxies");
-        setProxyManagementDialogOpen(true);
-        break;
-      case "extensions":
-        setExtensionManagementDialogOpen(true);
-        break;
-      case "groups":
-        setGroupManagementDialogOpen(true);
-        break;
-      case "cookieBot":
-        setCookieBotDialogOpen(true);
-        break;
-      case "agent":
-        setAgentDialogOpen(true);
-        break;
-      case "integrations":
-        setIntegrationsDialogOpen(true);
-        break;
-      case "import":
-        setImportProfileDialogOpen(true);
-        break;
-      case "vpns":
-        // VPNs share the proxy management page; pre-select the VPN tab so
-        // the user lands directly on the right list.
-        setProxyManagementInitialTab("vpns");
-        setProxyManagementDialogOpen(true);
-        break;
-      case "account":
-        setAccountDialogOpen(true);
-        break;
-      case "trash":
-        setTrashPageOpen(true);
-        break;
-      case "shortcuts":
-        // Plain page render — nothing else to open.
-        break;
-    }
-  }, []);
+      setCurrentPage(page);
+      switch (page) {
+        case "profiles":
+          // Bwbrowser 登录时直接显示云端环境管理（嵌入式页面，不需要弹对话框）
+          break;
+        case "settings":
+          setSettingsDialogOpen(true);
+          break;
+        case "proxies":
+          // Bwbrowser 登录时直接显示嵌入式代理中心页面
+          if (!isBwbrowserLogin) {
+            setProxyManagementInitialTab("proxies");
+            setProxyManagementDialogOpen(true);
+          }
+          break;
+        case "cloudAccounts":
+          // 直接显示嵌入式云端账号页面
+          break;
+        case "extensions":
+          setExtensionManagementDialogOpen(true);
+          break;
+        case "groups":
+          setGroupManagementDialogOpen(true);
+          break;
+        case "cookieBot":
+          setCookieBotDialogOpen(true);
+          break;
+        case "agent":
+          setAgentDialogOpen(true);
+          break;
+        case "integrations":
+          setIntegrationsDialogOpen(true);
+          break;
+        case "import":
+          setImportProfileDialogOpen(true);
+          break;
+        case "vpns":
+          // VPNs share the proxy management page; pre-select the VPN tab so
+          // the user lands directly on the right list.
+          if (isBwbrowserLogin) {
+            setBwbrowserProxyDialogOpen(true);
+          } else {
+            setProxyManagementInitialTab("vpns");
+            setProxyManagementDialogOpen(true);
+          }
+          break;
+        case "account":
+          setAccountDialogOpen(true);
+          break;
+        case "trash":
+          setTrashPageOpen(true);
+          break;
+        case "shortcuts":
+          // Plain page render — nothing else to open.
+          break;
+      }
+    },
+    [isBwbrowserLogin],
+  );
 
   const runTipAction = useCallback(
     (action: TipAction) => {
@@ -806,7 +855,7 @@ export default function Home() {
         id: "cheat-code",
         description: t("easterEgg.konami.description"),
       });
-      window.dispatchEvent(new CustomEvent("donut-cheat-code"));
+      window.dispatchEvent(new CustomEvent("bwbrowser-cheat-code"));
       if (!reducedMotion) fireSprinkleConfetti();
     }, [reducedMotion, t]),
   );
@@ -2255,634 +2304,731 @@ export default function Home() {
         : t(`pageTitle.${currentPage}`);
 
   return (
-    <ProfileGroupDragProvider
-      enabled={currentPage === "profiles"}
-      onAssign={handleDropProfilesToGroup}
-    >
-      <div className="flex h-dvh flex-col bg-background font-(family-name:--font-geist-sans)">
-        <CloseConfirmDialog />
-        <HomeHeader
-          onCreateProfileDialogOpen={setCreateProfileDialogOpen}
-          searchQuery={searchQuery}
-          onSearchQueryChange={setSearchQuery}
-          groups={groupsData}
-          totalProfiles={profiles.length}
-          selectedGroupId={selectedGroupId}
-          onGroupSelect={handleSelectGroup}
-          pageTitle={subPageTitle}
+    <>
+      {/* 登录对话框 — 始终渲染在最外层 */}
+      {pendingUrls.length === 0 && (
+        <BwbrowserLoginDialog
+          isOpen={bwbrowserLoginDialogOpen}
+          hideCloseButton={!isLoading && !isBwbrowserLogin && !cloudUser}
+          onClose={(_loginOccurred) => {
+            setBwbrowserLoginDialogOpen(false);
+          }}
         />
-        <div className="flex min-h-0 flex-1">
-          <RailNav
-            currentPage={currentPage}
-            onNavigate={handleRailNavigate}
-            onOpenAbout={() => {
-              setAboutDialogOpen(true);
-            }}
-            onOpenTips={() => openTips()}
-            cookieBotRunning={Object.keys(cookieBotLiveSessions).length > 0}
-          />
-          <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            {currentPage === "profiles" && (
-              <div className="flex min-h-0 flex-1 flex-col px-3 pt-2.5">
-                <SynchronizerPanel
-                  sessions={syncSessions}
-                  onSessionChanged={applySession}
-                />
-                <ProfilesDataTable
-                  isLoading={isLoading && profiles.length === 0}
-                  showOnboardingEmptyState={profiles.length === 0}
-                  profiles={filteredProfiles}
-                  allProfiles={profiles}
-                  infoDialogProfile={profileInfoDialog}
-                  infoOpenMethod={profileInfoOpenMethod}
-                  onInfoOpenMethodChange={setProfileInfoOpenMethod}
-                  onInfoDialogProfileChange={setProfileInfoDialog}
-                  onLaunchProfile={launchProfile}
-                  onKillProfile={handleKillProfile}
-                  onCloneProfile={handleCloneProfile}
-                  onSetPassword={handleSetPassword}
-                  onChangePassword={handleChangePassword}
-                  onRemovePassword={handleRemovePassword}
-                  onDeleteProfile={handleDeleteProfile}
-                  onRenameProfile={handleRenameProfile}
-                  onConfigureWayfern={handleConfigureWayfern}
-                  onCopyCookiesToProfile={handleCopyCookiesToProfile}
-                  onOpenCookieManagement={handleOpenCookieManagement}
-                  runningProfiles={runningProfiles}
-                  extensionGroups={extensionGroups}
-                  isUpdating={isUpdating}
-                  onDeleteSelectedProfiles={handleDeleteSelectedProfiles}
-                  onAssignProfilesToGroup={handleAssignProfilesToGroup}
-                  onAssignProfilesToProxy={handleAssignProfilesToProxy}
-                  selectedGroupId={selectedGroupId}
-                  selectedProfiles={selectedProfiles}
-                  onSelectedProfilesChange={setSelectedProfiles}
-                  onBulkDelete={handleBulkDelete}
-                  onBulkGroupAssignment={handleBulkGroupAssignment}
-                  onBulkProxyAssignment={handleBulkProxyAssignment}
-                  onBulkProxyDistribution={handleBulkProxyDistribution}
-                  onBulkCopyCookies={handleBulkCopyCookies}
-                  onBulkRun={handleBulkRun}
-                  onBulkStop={handleBulkStop}
-                  bulkActionsUnlocked={automationUnlocked}
-                  onBulkExtensionGroupAssignment={
-                    handleBulkExtensionGroupAssignment
-                  }
-                  onAssignExtensionGroup={handleAssignExtensionGroup}
-                  onOpenProfileSyncDialog={handleOpenProfileSyncDialog}
-                  onToggleProfileSync={handleToggleProfileSync}
-                  crossOsUnlocked={crossOsUnlocked}
-                  syncUnlocked={syncUnlocked}
-                  getProfileSyncInfo={getProfileSyncInfo}
-                  onLaunchWithSync={(profile) => {
-                    setSyncLeaderProfile(profile);
-                  }}
-                  onCreateProfile={() => {
-                    setCreateProfileDialogOpen(true);
-                  }}
-                  onImportProfiles={() => {
-                    handleRailNavigate("import");
-                  }}
-                />
-              </div>
-            )}
+      )}
 
-            {currentPage === "shortcuts" && (
-              <div className="flex min-h-0 flex-1 flex-col">
-                <ShortcutsPage groupTargets={orderedGroupTargets} />
-              </div>
-            )}
-
-            {settingsDialogOpen && (
-              <SettingsDialog
-                isOpen={settingsDialogOpen}
-                onClose={() => {
-                  setSettingsDialogOpen(false);
-                  setCurrentPage("profiles");
+      {/* 登录对话框打开时不渲染主窗口，登录关闭后才显示主界面 */}
+      {!bwbrowserLoginDialogOpen && (isBwbrowserLogin || cloudUser) ? (
+        <ProfileGroupDragProvider
+          enabled={currentPage === "profiles"}
+          onAssign={handleDropProfilesToGroup}
+        >
+          <div className="flex h-dvh flex-col bg-background font-(family-name:--font-geist-sans)">
+            <CloseConfirmDialog />
+            <HomeHeader
+              onCreateProfileDialogOpen={setCreateProfileDialogOpen}
+              searchQuery={searchQuery}
+              onSearchQueryChange={setSearchQuery}
+              groups={groupsData}
+              totalProfiles={profiles.length}
+              selectedGroupId={selectedGroupId}
+              onGroupSelect={handleSelectGroup}
+              pageTitle={subPageTitle}
+            />
+            <div className="flex min-h-0 flex-1">
+              <RailNav
+                currentPage={currentPage}
+                onNavigate={handleRailNavigate}
+                onOpenAbout={() => {
+                  setAboutDialogOpen(true);
                 }}
-                onIntegrationsOpen={() => {
-                  setSettingsDialogOpen(false);
-                  setIntegrationsDialogOpen(true);
-                  setCurrentPage("integrations");
-                }}
-                subPage={currentPage === "settings"}
-                initialSection={settingsInitialSection}
+                onOpenTips={() => openTips()}
+                cookieBotRunning={Object.keys(cookieBotLiveSessions).length > 0}
               />
-            )}
+              <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                {currentPage === "profiles" && !isBwbrowserLogin && (
+                  <div className="flex min-h-0 flex-1 flex-col px-3 pt-2.5">
+                    <SynchronizerPanel
+                      sessions={syncSessions}
+                      onSessionChanged={applySession}
+                    />
+                    <ProfilesDataTable
+                      isLoading={isLoading && profiles.length === 0}
+                      showOnboardingEmptyState={profiles.length === 0}
+                      profiles={filteredProfiles}
+                      allProfiles={profiles}
+                      infoDialogProfile={profileInfoDialog}
+                      infoOpenMethod={profileInfoOpenMethod}
+                      onInfoOpenMethodChange={setProfileInfoOpenMethod}
+                      onInfoDialogProfileChange={setProfileInfoDialog}
+                      onLaunchProfile={launchProfile}
+                      onKillProfile={handleKillProfile}
+                      onCloneProfile={handleCloneProfile}
+                      onSetPassword={handleSetPassword}
+                      onChangePassword={handleChangePassword}
+                      onRemovePassword={handleRemovePassword}
+                      onDeleteProfile={handleDeleteProfile}
+                      onRenameProfile={handleRenameProfile}
+                      onConfigureWayfern={handleConfigureWayfern}
+                      onCopyCookiesToProfile={handleCopyCookiesToProfile}
+                      onOpenCookieManagement={handleOpenCookieManagement}
+                      runningProfiles={runningProfiles}
+                      extensionGroups={extensionGroups}
+                      isUpdating={isUpdating}
+                      onDeleteSelectedProfiles={handleDeleteSelectedProfiles}
+                      onAssignProfilesToGroup={handleAssignProfilesToGroup}
+                      onAssignProfilesToProxy={handleAssignProfilesToProxy}
+                      selectedGroupId={selectedGroupId}
+                      selectedProfiles={selectedProfiles}
+                      onSelectedProfilesChange={setSelectedProfiles}
+                      onBulkDelete={handleBulkDelete}
+                      onBulkGroupAssignment={handleBulkGroupAssignment}
+                      onBulkProxyAssignment={handleBulkProxyAssignment}
+                      onBulkProxyDistribution={handleBulkProxyDistribution}
+                      onBulkCopyCookies={handleBulkCopyCookies}
+                      onBulkRun={handleBulkRun}
+                      onBulkStop={handleBulkStop}
+                      bulkActionsUnlocked={automationUnlocked}
+                      onBulkExtensionGroupAssignment={
+                        handleBulkExtensionGroupAssignment
+                      }
+                      onAssignExtensionGroup={handleAssignExtensionGroup}
+                      onOpenProfileSyncDialog={handleOpenProfileSyncDialog}
+                      onToggleProfileSync={handleToggleProfileSync}
+                      crossOsUnlocked={crossOsUnlocked}
+                      syncUnlocked={syncUnlocked}
+                      getProfileSyncInfo={getProfileSyncInfo}
+                      onLaunchWithSync={(profile) => {
+                        setSyncLeaderProfile(profile);
+                      }}
+                      onCreateProfile={() => {
+                        setCreateProfileDialogOpen(true);
+                      }}
+                      onImportProfiles={() => {
+                        handleRailNavigate("import");
+                      }}
+                    />
+                  </div>
+                )}
 
-            {integrationsDialogOpen && (
-              <IntegrationsDialog
-                isOpen={integrationsDialogOpen}
+                {/* Bwbrowser 环境管理 - 嵌入式页面 */}
+                {currentPage === "profiles" && isBwbrowserLogin && (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <BwbrowserEnvManagementDialog
+                      isOpen={true}
+                      onClose={() => {}}
+                      embedded={true}
+                    />
+                  </div>
+                )}
+
+                {currentPage === "shortcuts" && (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <ShortcutsPage groupTargets={orderedGroupTargets} />
+                  </div>
+                )}
+
+                {/* Bwbrowser 云端账号 - 嵌入式页面 */}
+                {currentPage === "cloudAccounts" && isBwbrowserLogin && (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <BwbrowserCloudAccountsDialog
+                      isOpen={true}
+                      onClose={() => setCurrentPage("profiles")}
+                      embedded={true}
+                      onNavigateToEnvManagement={() =>
+                        setCurrentPage("profiles")
+                      }
+                    />
+                  </div>
+                )}
+
+                {/* 用户管理 - 嵌入式页面 */}
+                {currentPage === "userManagement" && isBwbrowserLogin && (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <UserManagementPage />
+                  </div>
+                )}
+
+                {/* 视频下载 - 嵌入式页面 */}
+                {currentPage === "videoDownload" && isBwbrowserLogin && (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <VideoDownloadPage
+                      open={true}
+                      onOpenChange={() => {}}
+                      embedded={true}
+                    />
+                  </div>
+                )}
+
+                {/* Bwbrowser 代理中心 - 嵌入式页面 */}
+                {currentPage === "proxies" && isBwbrowserLogin && (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <BwbrowserProxyManagementDialog
+                      isOpen={true}
+                      onClose={() => setCurrentPage("profiles")}
+                      embedded={true}
+                    />
+                  </div>
+                )}
+
+                {settingsDialogOpen && (
+                  <SettingsDialog
+                    isOpen={settingsDialogOpen}
+                    onClose={() => {
+                      setSettingsDialogOpen(false);
+                      setCurrentPage("profiles");
+                    }}
+                    onIntegrationsOpen={() => {
+                      setSettingsDialogOpen(false);
+                      setIntegrationsDialogOpen(true);
+                      setCurrentPage("integrations");
+                    }}
+                    subPage={currentPage === "settings"}
+                    initialSection={settingsInitialSection}
+                  />
+                )}
+
+                {integrationsDialogOpen && (
+                  <IntegrationsDialog
+                    isOpen={integrationsDialogOpen}
+                    onClose={() => {
+                      setIntegrationsDialogOpen(false);
+                      setCurrentPage("profiles");
+                    }}
+                    subPage={currentPage === "integrations"}
+                    initialTab={integrationsInitialTab}
+                  />
+                )}
+
+                {proxyManagementDialogOpen && (
+                  <ProxyManagementDialog
+                    isOpen={proxyManagementDialogOpen}
+                    onClose={() => {
+                      setProxyManagementDialogOpen(false);
+                      setCurrentPage("profiles");
+                    }}
+                    subPage={
+                      currentPage === "proxies" || currentPage === "vpns"
+                    }
+                    initialTab={proxyManagementInitialTab}
+                  />
+                )}
+
+                {bwbrowserProxyDialogOpen && (
+                  <BwbrowserProxyManagementDialog
+                    isOpen={bwbrowserProxyDialogOpen}
+                    onClose={() => {
+                      setBwbrowserProxyDialogOpen(false);
+                      setCurrentPage("profiles");
+                    }}
+                  />
+                )}
+
+                {bwbrowserEnvDialogOpen && (
+                  <BwbrowserEnvManagementDialog
+                    isOpen={bwbrowserEnvDialogOpen}
+                    onClose={() => {
+                      setBwbrowserEnvDialogOpen(false);
+                      setCurrentPage("profiles");
+                    }}
+                  />
+                )}
+
+                {bwbrowserCloudAccountsDialogOpen && (
+                  <BwbrowserCloudAccountsDialog
+                    isOpen={bwbrowserCloudAccountsDialogOpen}
+                    onClose={() => {
+                      setBwbrowserCloudAccountsDialogOpen(false);
+                      setCurrentPage("profiles");
+                    }}
+                  />
+                )}
+
+                {groupManagementDialogOpen && (
+                  <GroupManagementDialog
+                    isOpen={groupManagementDialogOpen}
+                    onClose={() => {
+                      setGroupManagementDialogOpen(false);
+                      setCurrentPage("profiles");
+                    }}
+                    onGroupManagementComplete={handleGroupManagementComplete}
+                    subPage={currentPage === "groups"}
+                  />
+                )}
+
+                {extensionManagementDialogOpen && (
+                  <ExtensionManagementDialog
+                    isOpen={extensionManagementDialogOpen}
+                    onClose={() => {
+                      setExtensionManagementDialogOpen(false);
+                      setCurrentPage("profiles");
+                    }}
+                    limitedMode={false}
+                    subPage={currentPage === "extensions"}
+                    initialTab={extensionManagementInitialTab}
+                  />
+                )}
+
+                {importProfileDialogOpen && (
+                  <ImportProfileDialog
+                    isOpen={importProfileDialogOpen}
+                    onClose={() => {
+                      setImportProfileDialogOpen(false);
+                      setCurrentPage("profiles");
+                    }}
+                    crossOsUnlocked={crossOsUnlocked}
+                    subPage={currentPage === "import"}
+                  />
+                )}
+
+                {cookieBotDialogOpen && (
+                  <CookieBotPage
+                    isOpen={cookieBotDialogOpen}
+                    onClose={() => {
+                      setCookieBotDialogOpen(false);
+                      setCurrentPage("profiles");
+                    }}
+                    subPage={currentPage === "cookieBot"}
+                    initialTab={cookieBotInitialTab}
+                    profiles={profiles}
+                    cloudUser={cloudUser}
+                    onOpenProfileSync={handleOpenProfileSyncDialog}
+                    onAssignProxy={handleAssignProfilesToProxy}
+                  />
+                )}
+
+                {agentDialogOpen && (
+                  <AgentPage
+                    isOpen={agentDialogOpen}
+                    onClose={() => {
+                      setAgentDialogOpen(false);
+                      setCurrentPage("profiles");
+                    }}
+                    subPage={currentPage === "agent"}
+                    initialTab={agentInitialTab}
+                    profiles={profiles}
+                    cloudUser={cloudUser}
+                  />
+                )}
+
+                {accountDialogOpen && (
+                  <AccountPage
+                    isOpen={accountDialogOpen}
+                    onClose={() => {
+                      setAccountDialogOpen(false);
+                      setCurrentPage("profiles");
+                    }}
+                    subPage={currentPage === "account"}
+                    onOpenSignIn={() => {
+                      setAccountDialogOpen(false);
+                      setCurrentPage("profiles");
+                      setBwbrowserLoginDialogOpen(true);
+                    }}
+                  />
+                )}
+
+                {trashPageOpen && (
+                  <TrashPage
+                    isOpen={trashPageOpen}
+                    onClose={() => {
+                      setTrashPageOpen(false);
+                      setCurrentPage("profiles");
+                    }}
+                    subPage={currentPage === "trash"}
+                  />
+                )}
+              </main>
+            </div>
+
+            <CreateProfileDialog
+              isOpen={createProfileDialogOpen}
+              onClose={() => {
+                setCreateProfileDialogOpen(false);
+              }}
+              onCreateProfile={handleCreateProfile}
+              selectedGroupId={selectedGroupId}
+              crossOsUnlocked={crossOsUnlocked}
+            />
+
+            <CommandPalette
+              open={commandPaletteOpen}
+              onOpenChange={setCommandPaletteOpen}
+              onAction={runShortcut}
+              groupTargets={orderedGroupTargets}
+              onSelectGroup={(id) => {
+                handleRailNavigate("profiles");
+                handleSelectGroup(id);
+              }}
+              profiles={profiles}
+              runningProfileIds={runningProfiles}
+              onLaunchProfile={(profile) => {
+                void launchProfile(profile);
+              }}
+              onKillProfile={(profile) => {
+                void handleKillProfile(profile);
+              }}
+              onShowProfileInfo={(profile) => {
+                handleRailNavigate("profiles");
+                setProfileInfoOpenMethod("keyboard");
+                setProfileInfoDialog(profile);
+              }}
+              onCreateProfile={() => {
+                setCreateProfileDialogOpen(true);
+              }}
+              onOpenAbout={() => {
+                setAboutDialogOpen(true);
+              }}
+            />
+
+            <AboutDialog
+              isOpen={aboutDialogOpen}
+              onClose={() => {
+                setAboutDialogOpen(false);
+              }}
+            />
+
+            <PreLaunchGateDialog
+              isOpen={gateState !== null}
+              profileName={gateState?.req.profile.name ?? ""}
+              profileId={gateState?.req.profile.id ?? ""}
+              requestId={gateState?.id ?? 0}
+              findings={gateState?.req.findings ?? null}
+              remainingCount={gateState?.remaining ?? 0}
+              onResult={settleGate}
+            />
+
+            {pendingUrls.map((pendingUrl) => (
+              <ProfileSelectorDialog
+                key={pendingUrl.id}
+                isOpen={true}
                 onClose={() => {
-                  setIntegrationsDialogOpen(false);
-                  setCurrentPage("profiles");
+                  setPendingUrls((prev) =>
+                    prev.filter((u) => u.id !== pendingUrl.id),
+                  );
                 }}
-                subPage={currentPage === "integrations"}
-                initialTab={integrationsInitialTab}
+                url={pendingUrl.url}
+                isUpdating={isUpdating}
+                runningProfiles={runningProfiles}
               />
-            )}
+            ))}
 
-            {proxyManagementDialogOpen && (
-              <ProxyManagementDialog
-                isOpen={proxyManagementDialogOpen}
-                onClose={() => {
-                  setProxyManagementDialogOpen(false);
-                  setCurrentPage("profiles");
-                }}
-                subPage={currentPage === "proxies" || currentPage === "vpns"}
-                initialTab={proxyManagementInitialTab}
-              />
-            )}
+            <PermissionDialog
+              isOpen={permissionDialogOpen}
+              onClose={() => {
+                setPermissionDialogOpen(false);
+              }}
+              permissionType={currentPermissionType}
+              onPermissionGranted={checkNextPermission}
+            />
 
-            {groupManagementDialogOpen && (
-              <GroupManagementDialog
-                isOpen={groupManagementDialogOpen}
-                onClose={() => {
-                  setGroupManagementDialogOpen(false);
-                  setCurrentPage("profiles");
-                }}
-                onGroupManagementComplete={handleGroupManagementComplete}
-                subPage={currentPage === "groups"}
-              />
-            )}
+            <WelcomeDialog
+              isOpen={welcomeOpen}
+              needsSetup={profiles.length === 0}
+              onComplete={handleWelcomeComplete}
+            />
+            <ThankYouDialog
+              isOpen={thankYouOpen}
+              onClose={() => setThankYouOpen(false)}
+            />
+            <TipsDialog
+              key={tipsFlow.dialog.session}
+              open={tipsFlow.dialog.open}
+              mode={tipsFlow.dialog.mode}
+              tips={tipsFlow.tips}
+              seen={tipsFlow.seen}
+              initialTipId={tipsFlow.dialog.initialTipId}
+              auto={tipsFlow.dialog.auto}
+              autoShow={tipsFlow.autoShow}
+              onOpenChange={(open) => {
+                if (!open) closeTips();
+              }}
+              onTipShown={tipsFlow.markSeen}
+              onAutoShowChange={(enabled) => void tipsFlow.setAutoShow(enabled)}
+              onAction={runTipAction}
+            />
 
-            {extensionManagementDialogOpen && (
-              <ExtensionManagementDialog
-                isOpen={extensionManagementDialogOpen}
-                onClose={() => {
-                  setExtensionManagementDialogOpen(false);
-                  setCurrentPage("profiles");
-                }}
-                limitedMode={false}
-                subPage={currentPage === "extensions"}
-                initialTab={extensionManagementInitialTab}
-              />
-            )}
+            <CloneProfileDialog
+              isOpen={!!cloneProfile}
+              onClose={() => {
+                setCloneProfile(null);
+              }}
+              profile={cloneProfile}
+            />
 
-            {importProfileDialogOpen && (
-              <ImportProfileDialog
-                isOpen={importProfileDialogOpen}
-                onClose={() => {
-                  setImportProfileDialogOpen(false);
-                  setCurrentPage("profiles");
-                }}
-                crossOsUnlocked={crossOsUnlocked}
-                subPage={currentPage === "import"}
-              />
-            )}
+            <ProfilePasswordDialog
+              isOpen={!!passwordDialogProfile}
+              onClose={() => {
+                pendingLaunchAfterUnlockRef.current = null;
+                setPasswordDialogProfile(null);
+              }}
+              profile={passwordDialogProfile}
+              mode={passwordDialogMode}
+              onSuccess={(p) => {
+                // Resume pending launch after unlock.
+                if (
+                  passwordDialogMode === "unlock" &&
+                  pendingLaunchAfterUnlockRef.current?.id === p.id
+                ) {
+                  const target = pendingLaunchAfterUnlockRef.current;
+                  pendingLaunchAfterUnlockRef.current = null;
+                  void launchProfile(target);
+                }
+                // On set/change/remove, the profile's encryption state changed.
+                // Push that state to the sync server immediately so other devices
+                // see the new envelope before they next pull. Skip if the profile
+                // is currently running — its files would be in flux.
+                if (
+                  (passwordDialogMode === "set" ||
+                    passwordDialogMode === "change" ||
+                    passwordDialogMode === "remove") &&
+                  !runningProfiles.has(p.id) &&
+                  p.sync_mode !== "Disabled"
+                ) {
+                  void invoke("request_profile_sync", {
+                    profileId: p.id,
+                  }).catch((err: unknown) => {
+                    console.error("post-password sync failed", err);
+                  });
+                }
+              }}
+            />
 
-            {cookieBotDialogOpen && (
-              <CookieBotPage
-                isOpen={cookieBotDialogOpen}
-                onClose={() => {
-                  setCookieBotDialogOpen(false);
-                  setCurrentPage("profiles");
-                }}
-                subPage={currentPage === "cookieBot"}
-                initialTab={cookieBotInitialTab}
-                profiles={profiles}
-                cloudUser={cloudUser}
-                onOpenProfileSync={handleOpenProfileSyncDialog}
-                onAssignProxy={handleAssignProfilesToProxy}
-              />
-            )}
-
-            {agentDialogOpen && (
-              <AgentPage
-                isOpen={agentDialogOpen}
-                onClose={() => {
-                  setAgentDialogOpen(false);
-                  setCurrentPage("profiles");
-                }}
-                subPage={currentPage === "agent"}
-                initialTab={agentInitialTab}
-                profiles={profiles}
-                cloudUser={cloudUser}
-              />
-            )}
-
-            {accountDialogOpen && (
-              <AccountPage
-                isOpen={accountDialogOpen}
-                onClose={() => {
-                  setAccountDialogOpen(false);
-                  setCurrentPage("profiles");
-                }}
-                subPage={currentPage === "account"}
-                onOpenSignIn={() => {
-                  setAccountDialogOpen(false);
-                  setCurrentPage("profiles");
-                  setDeviceCodeDialogOpen(true);
-                }}
-              />
-            )}
-
-            {trashPageOpen && (
-              <TrashPage
-                isOpen={trashPageOpen}
-                onClose={() => {
-                  setTrashPageOpen(false);
-                  setCurrentPage("profiles");
-                }}
-                subPage={currentPage === "trash"}
-              />
-            )}
-          </main>
-        </div>
-
-        <CreateProfileDialog
-          isOpen={createProfileDialogOpen}
-          onClose={() => {
-            setCreateProfileDialogOpen(false);
-          }}
-          onCreateProfile={handleCreateProfile}
-          selectedGroupId={selectedGroupId}
-          crossOsUnlocked={crossOsUnlocked}
-        />
-
-        <CommandPalette
-          open={commandPaletteOpen}
-          onOpenChange={setCommandPaletteOpen}
-          onAction={runShortcut}
-          groupTargets={orderedGroupTargets}
-          onSelectGroup={(id) => {
-            handleRailNavigate("profiles");
-            handleSelectGroup(id);
-          }}
-          profiles={profiles}
-          runningProfileIds={runningProfiles}
-          onLaunchProfile={(profile) => {
-            void launchProfile(profile);
-          }}
-          onKillProfile={(profile) => {
-            void handleKillProfile(profile);
-          }}
-          onShowProfileInfo={(profile) => {
-            handleRailNavigate("profiles");
-            setProfileInfoOpenMethod("keyboard");
-            setProfileInfoDialog(profile);
-          }}
-          onCreateProfile={() => {
-            setCreateProfileDialogOpen(true);
-          }}
-          onOpenAbout={() => {
-            setAboutDialogOpen(true);
-          }}
-        />
-
-        <AboutDialog
-          isOpen={aboutDialogOpen}
-          onClose={() => {
-            setAboutDialogOpen(false);
-          }}
-        />
-
-        <PreLaunchGateDialog
-          isOpen={gateState !== null}
-          profileName={gateState?.req.profile.name ?? ""}
-          profileId={gateState?.req.profile.id ?? ""}
-          requestId={gateState?.id ?? 0}
-          findings={gateState?.req.findings ?? null}
-          remainingCount={gateState?.remaining ?? 0}
-          onResult={settleGate}
-        />
-
-        {pendingUrls.map((pendingUrl) => (
-          <ProfileSelectorDialog
-            key={pendingUrl.id}
-            isOpen={true}
-            onClose={() => {
-              setPendingUrls((prev) =>
-                prev.filter((u) => u.id !== pendingUrl.id),
-              );
-            }}
-            url={pendingUrl.url}
-            isUpdating={isUpdating}
-            runningProfiles={runningProfiles}
-          />
-        ))}
-
-        <PermissionDialog
-          isOpen={permissionDialogOpen}
-          onClose={() => {
-            setPermissionDialogOpen(false);
-          }}
-          permissionType={currentPermissionType}
-          onPermissionGranted={checkNextPermission}
-        />
-
-        <WelcomeDialog
-          isOpen={welcomeOpen}
-          needsSetup={profiles.length === 0}
-          onComplete={handleWelcomeComplete}
-        />
-        <ThankYouDialog
-          isOpen={thankYouOpen}
-          onClose={() => setThankYouOpen(false)}
-        />
-        <TipsDialog
-          key={tipsFlow.dialog.session}
-          open={tipsFlow.dialog.open}
-          mode={tipsFlow.dialog.mode}
-          tips={tipsFlow.tips}
-          seen={tipsFlow.seen}
-          initialTipId={tipsFlow.dialog.initialTipId}
-          auto={tipsFlow.dialog.auto}
-          autoShow={tipsFlow.autoShow}
-          onOpenChange={(open) => {
-            if (!open) closeTips();
-          }}
-          onTipShown={tipsFlow.markSeen}
-          onAutoShowChange={(enabled) => void tipsFlow.setAutoShow(enabled)}
-          onAction={runTipAction}
-        />
-        <PaidWelcomeDialog
-          open={tipsFlow.paidWelcome.open}
-          plan={tipsFlow.paidWelcome.plan}
-          tips={tipsFlow.planTips}
-          onOpenChange={(open) => {
-            if (!open) tipsFlow.dismissPaidWelcome();
-          }}
-          onOpenTip={(id) => {
-            tipsFlow.dismissPaidWelcome();
-            openTips(id);
-          }}
-        />
-
-        <CloneProfileDialog
-          isOpen={!!cloneProfile}
-          onClose={() => {
-            setCloneProfile(null);
-          }}
-          profile={cloneProfile}
-        />
-
-        <ProfilePasswordDialog
-          isOpen={!!passwordDialogProfile}
-          onClose={() => {
-            pendingLaunchAfterUnlockRef.current = null;
-            setPasswordDialogProfile(null);
-          }}
-          profile={passwordDialogProfile}
-          mode={passwordDialogMode}
-          onSuccess={(p) => {
-            // Resume pending launch after unlock.
-            if (
-              passwordDialogMode === "unlock" &&
-              pendingLaunchAfterUnlockRef.current?.id === p.id
-            ) {
-              const target = pendingLaunchAfterUnlockRef.current;
-              pendingLaunchAfterUnlockRef.current = null;
-              void launchProfile(target);
-            }
-            // On set/change/remove, the profile's encryption state changed.
-            // Push that state to the sync server immediately so other devices
-            // see the new envelope before they next pull. Skip if the profile
-            // is currently running — its files would be in flux.
-            if (
-              (passwordDialogMode === "set" ||
-                passwordDialogMode === "change" ||
-                passwordDialogMode === "remove") &&
-              !runningProfiles.has(p.id) &&
-              p.sync_mode !== "Disabled"
-            ) {
-              void invoke("request_profile_sync", { profileId: p.id }).catch(
-                (err: unknown) => {
-                  console.error("post-password sync failed", err);
-                },
-              );
-            }
-          }}
-        />
-
-        <WayfernConfigDialog
-          isOpen={wayfernConfigDialogOpen}
-          onClose={() => {
-            setWayfernConfigDialogOpen(false);
-          }}
-          profile={currentProfileForWayfernConfig}
-          onSave={handleSaveWayfernConfig}
-          isRunning={
-            currentProfileForWayfernConfig
-              ? runningProfiles.has(currentProfileForWayfernConfig.id)
-              : false
-          }
-          crossOsUnlocked={crossOsUnlocked}
-        />
-
-        <GroupAssignmentDialog
-          isOpen={groupAssignmentDialogOpen}
-          onClose={() => {
-            setGroupAssignmentDialogOpen(false);
-          }}
-          selectedProfiles={selectedProfilesForGroup}
-          onAssignmentComplete={handleGroupAssignmentComplete}
-          profiles={profiles}
-        />
-
-        <ExtensionGroupAssignmentDialog
-          isOpen={extensionGroupAssignmentDialogOpen}
-          onClose={() => {
-            setExtensionGroupAssignmentDialogOpen(false);
-          }}
-          selectedProfiles={selectedProfilesForExtensionGroup}
-          onAssignmentComplete={handleExtensionGroupAssignmentComplete}
-          profiles={profiles}
-        />
-
-        <ProxyAssignmentDialog
-          isOpen={proxyAssignmentDialogOpen}
-          onClose={() => {
-            setProxyAssignmentDialogOpen(false);
-          }}
-          selectedProfiles={selectedProfilesForProxy}
-          onAssignmentComplete={handleProxyAssignmentComplete}
-          profiles={profiles}
-          storedProxies={storedProxies}
-          vpnConfigs={vpnConfigs}
-        />
-
-        <ProxyDistributionDialog
-          isOpen={proxyDistributionDialogOpen}
-          onClose={() => {
-            setProxyDistributionDialogOpen(false);
-          }}
-          selectedProfiles={selectedProfilesForDistribution}
-          profiles={profiles}
-          storedProxies={storedProxies}
-          onDistributionComplete={() => {
-            // useProfileEvents refreshes the table; only the selection needs
-            // clearing, and only once the assignments actually landed.
-            setSelectedProfiles([]);
-          }}
-        />
-
-        <CookieCopyDialog
-          isOpen={cookieCopyDialogOpen}
-          onClose={() => {
-            setCookieCopyDialogOpen(false);
-            setSelectedProfilesForCookies([]);
-          }}
-          selectedProfiles={selectedProfilesForCookies}
-          profiles={profiles}
-          runningProfiles={runningProfiles}
-          onCopyComplete={() => {
-            setSelectedProfilesForCookies([]);
-          }}
-        />
-
-        <CookieManagementDialog
-          isOpen={cookieManagementDialogOpen}
-          onClose={() => {
-            setCookieManagementDialogOpen(false);
-            setCurrentProfileForCookieManagement(null);
-          }}
-          profile={currentProfileForCookieManagement}
-        />
-
-        <DeleteConfirmationDialog
-          isOpen={pendingBulkAction !== null}
-          onClose={() => {
-            setPendingBulkAction(null);
-          }}
-          onConfirm={() => {
-            if (!pendingBulkAction) return;
-            if (pendingBulkAction.action === "run") {
-              void executeBulkRun(pendingBulkAction.profiles);
-            } else {
-              void executeBulkStop(pendingBulkAction.profiles);
-            }
-          }}
-          title={
-            pendingBulkAction?.action === "stop"
-              ? t("profiles.bulkStop.confirmTitle", {
-                  count: pendingBulkAction?.profiles.length ?? 0,
-                })
-              : t("profiles.bulkRun.confirmTitle", {
-                  count: pendingBulkAction?.profiles.length ?? 0,
-                })
-          }
-          description={
-            pendingBulkAction?.action === "stop"
-              ? t("profiles.bulkStop.confirmDescription", {
-                  count: pendingBulkAction?.profiles.length ?? 0,
-                })
-              : t("profiles.bulkRun.confirmDescription", {
-                  count: pendingBulkAction?.profiles.length ?? 0,
-                })
-          }
-          confirmButtonText={
-            pendingBulkAction?.action === "stop"
-              ? t("profiles.bulkStop.confirmButton", {
-                  count: pendingBulkAction?.profiles.length ?? 0,
-                })
-              : t("profiles.bulkRun.confirmButton", {
-                  count: pendingBulkAction?.profiles.length ?? 0,
-                })
-          }
-          confirmButtonVariant="default"
-          isLoading={isBulkActing}
-        />
-        <DeleteConfirmationDialog
-          isOpen={showBulkDeleteConfirmation}
-          onClose={() => {
-            setShowBulkDeleteConfirmation(false);
-          }}
-          onConfirm={confirmBulkDelete}
-          title={t("profiles.bulkDelete.title")}
-          description={t("profiles.bulkDelete.description", {
-            count: selectedProfiles.length,
-          })}
-          confirmButtonText={t("profiles.bulkDelete.confirmButton", {
-            count: selectedProfiles.length,
-          })}
-          isLoading={isBulkDeleting}
-          profileIds={selectedProfiles}
-          profiles={profiles.map((p) => ({ id: p.id, name: p.name }))}
-        />
-
-        <SyncConfigDialog
-          isOpen={syncConfigDialogOpen}
-          onClose={(loginOccurred) => {
-            setSyncConfigDialogOpen(false);
-            void checkSelfHostedSync();
-            if (loginOccurred) {
-              setSyncAllDialogOpen(true);
-            }
-          }}
-          onLoginStarted={() => {
-            // Hand the verify step off to its own dialog. We close this one
-            // first so the verify dialog isn't stacked on top of it (and
-            // can't end up stacked on top of the profile selector either).
-            setSyncConfigDialogOpen(false);
-            setDeviceCodeDialogOpen(true);
-          }}
-        />
-
-        {/* Only render while no profile-selector flow is in progress, so the
-          verify dialog never lands on top of a deep-link-triggered selector. */}
-        {pendingUrls.length === 0 && (
-          <DeviceCodeVerifyDialog
-            isOpen={deviceCodeDialogOpen}
-            onClose={(loginOccurred) => {
-              setDeviceCodeDialogOpen(false);
-              if (loginOccurred) {
-                setSyncAllDialogOpen(true);
+            <WayfernConfigDialog
+              isOpen={wayfernConfigDialogOpen}
+              onClose={() => {
+                setWayfernConfigDialogOpen(false);
+              }}
+              profile={currentProfileForWayfernConfig}
+              onSave={handleSaveWayfernConfig}
+              isRunning={
+                currentProfileForWayfernConfig
+                  ? runningProfiles.has(currentProfileForWayfernConfig.id)
+                  : false
               }
-            }}
-          />
-        )}
+              crossOsUnlocked={crossOsUnlocked}
+            />
 
-        <SyncAllDialog
-          isOpen={syncAllDialogOpen}
-          onClose={() => {
-            setSyncAllDialogOpen(false);
-          }}
-        />
+            <GroupAssignmentDialog
+              isOpen={groupAssignmentDialogOpen}
+              onClose={() => {
+                setGroupAssignmentDialogOpen(false);
+              }}
+              selectedProfiles={selectedProfilesForGroup}
+              onAssignmentComplete={handleGroupAssignmentComplete}
+              profiles={profiles}
+            />
 
-        <ProfileSyncDialog
-          isOpen={profileSyncDialogOpen}
-          onClose={() => {
-            setProfileSyncDialogOpen(false);
-            setCurrentProfileForSync(null);
-          }}
-          profile={currentProfileForSync}
-          onSyncConfigOpen={() => {
-            setSyncConfigDialogOpen(true);
-          }}
-        />
+            <ExtensionGroupAssignmentDialog
+              isOpen={extensionGroupAssignmentDialogOpen}
+              onClose={() => {
+                setExtensionGroupAssignmentDialogOpen(false);
+              }}
+              selectedProfiles={selectedProfilesForExtensionGroup}
+              onAssignmentComplete={handleExtensionGroupAssignmentComplete}
+              profiles={profiles}
+            />
 
-        {/* Wayfern Terms and Conditions Dialog - shown if terms not accepted */}
-        <WayfernTermsDialog
-          isOpen={!termsLoading && termsAccepted === false}
-          onAccepted={checkTerms}
-        />
+            <ProxyAssignmentDialog
+              isOpen={proxyAssignmentDialogOpen}
+              onClose={() => {
+                setProxyAssignmentDialogOpen(false);
+              }}
+              selectedProfiles={selectedProfilesForProxy}
+              onAssignmentComplete={handleProxyAssignmentComplete}
+              profiles={profiles}
+              storedProxies={storedProxies}
+              vpnConfigs={vpnConfigs}
+            />
 
-        {/* Commercial Trial Modal - shown once when trial expires (skip for paid users) */}
-        <CommercialTrialModal
-          isOpen={commercialTrialModalOpen}
-          onClose={checkTrialStatus}
-        />
+            <ProxyDistributionDialog
+              isOpen={proxyDistributionDialogOpen}
+              onClose={() => {
+                setProxyDistributionDialogOpen(false);
+              }}
+              selectedProfiles={selectedProfilesForDistribution}
+              profiles={profiles}
+              storedProxies={storedProxies}
+              onDistributionComplete={() => {
+                // useProfileEvents refreshes the table; only the selection needs
+                // clearing, and only once the assignments actually landed.
+                setSelectedProfiles([]);
+              }}
+            />
 
-        <WindowResizeWarningDialog
-          isOpen={windowResizeWarningOpen}
-          onResult={(proceed) => {
-            setWindowResizeWarningOpen(false);
-            windowResizeWarningResolver.current?.(proceed);
-            windowResizeWarningResolver.current = null;
-          }}
-        />
+            <CookieCopyDialog
+              isOpen={cookieCopyDialogOpen}
+              onClose={() => {
+                setCookieCopyDialogOpen(false);
+                setSelectedProfilesForCookies([]);
+              }}
+              selectedProfiles={selectedProfilesForCookies}
+              profiles={profiles}
+              runningProfiles={runningProfiles}
+              onCopyComplete={() => {
+                setSelectedProfilesForCookies([]);
+              }}
+            />
 
-        <SyncFollowerDialog
-          isOpen={syncLeaderProfile !== null}
-          onClose={() => {
-            setSyncLeaderProfile(null);
-          }}
-          leaderProfile={syncLeaderProfile}
-          allProfiles={profiles}
-          runningProfiles={runningProfiles}
-        />
-      </div>
-    </ProfileGroupDragProvider>
+            <CookieManagementDialog
+              isOpen={cookieManagementDialogOpen}
+              onClose={() => {
+                setCookieManagementDialogOpen(false);
+                setCurrentProfileForCookieManagement(null);
+              }}
+              profile={currentProfileForCookieManagement}
+            />
+
+            <DeleteConfirmationDialog
+              isOpen={pendingBulkAction !== null}
+              onClose={() => {
+                setPendingBulkAction(null);
+              }}
+              onConfirm={() => {
+                if (!pendingBulkAction) return;
+                if (pendingBulkAction.action === "run") {
+                  void executeBulkRun(pendingBulkAction.profiles);
+                } else {
+                  void executeBulkStop(pendingBulkAction.profiles);
+                }
+              }}
+              title={
+                pendingBulkAction?.action === "stop"
+                  ? t("profiles.bulkStop.confirmTitle", {
+                      count: pendingBulkAction?.profiles.length ?? 0,
+                    })
+                  : t("profiles.bulkRun.confirmTitle", {
+                      count: pendingBulkAction?.profiles.length ?? 0,
+                    })
+              }
+              description={
+                pendingBulkAction?.action === "stop"
+                  ? t("profiles.bulkStop.confirmDescription", {
+                      count: pendingBulkAction?.profiles.length ?? 0,
+                    })
+                  : t("profiles.bulkRun.confirmDescription", {
+                      count: pendingBulkAction?.profiles.length ?? 0,
+                    })
+              }
+              confirmButtonText={
+                pendingBulkAction?.action === "stop"
+                  ? t("profiles.bulkStop.confirmButton", {
+                      count: pendingBulkAction?.profiles.length ?? 0,
+                    })
+                  : t("profiles.bulkRun.confirmButton", {
+                      count: pendingBulkAction?.profiles.length ?? 0,
+                    })
+              }
+              confirmButtonVariant="default"
+              isLoading={isBulkActing}
+            />
+            <DeleteConfirmationDialog
+              isOpen={showBulkDeleteConfirmation}
+              onClose={() => {
+                setShowBulkDeleteConfirmation(false);
+              }}
+              onConfirm={confirmBulkDelete}
+              title={t("profiles.bulkDelete.title")}
+              description={t("profiles.bulkDelete.description", {
+                count: selectedProfiles.length,
+              })}
+              confirmButtonText={t("profiles.bulkDelete.confirmButton", {
+                count: selectedProfiles.length,
+              })}
+              isLoading={isBulkDeleting}
+              profileIds={selectedProfiles}
+              profiles={profiles.map((p) => ({ id: p.id, name: p.name }))}
+            />
+
+            <SyncConfigDialog
+              isOpen={syncConfigDialogOpen}
+              onClose={(_loginOccurred) => {
+                setSyncConfigDialogOpen(false);
+                void checkSelfHostedSync();
+              }}
+              onLoginStarted={() => {
+                // Hand the verify step off to its own dialog. We close this one
+                // first so the verify dialog isn't stacked on top of it (and
+                // can't end up stacked on top of the profile selector either).
+                setSyncConfigDialogOpen(false);
+                setBwbrowserLoginDialogOpen(true);
+              }}
+            />
+
+            <SyncAllDialog
+              isOpen={syncAllDialogOpen}
+              onClose={() => {
+                setSyncAllDialogOpen(false);
+              }}
+            />
+
+            <ProfileSyncDialog
+              isOpen={profileSyncDialogOpen}
+              onClose={() => {
+                setProfileSyncDialogOpen(false);
+                setCurrentProfileForSync(null);
+              }}
+              profile={currentProfileForSync}
+              onSyncConfigOpen={() => {
+                setSyncConfigDialogOpen(true);
+              }}
+            />
+
+            {/* Wayfern Terms and Conditions Dialog - shown if terms not accepted */}
+            <WayfernTermsDialog
+              isOpen={!termsLoading && termsAccepted === false}
+              onAccepted={checkTerms}
+            />
+
+            {/* Commercial Trial Modal - shown once when trial expires (skip for paid users) */}
+            <CommercialTrialModal
+              isOpen={commercialTrialModalOpen}
+              onClose={checkTrialStatus}
+            />
+
+            <WindowResizeWarningDialog
+              isOpen={windowResizeWarningOpen}
+              onResult={(proceed) => {
+                setWindowResizeWarningOpen(false);
+                windowResizeWarningResolver.current?.(proceed);
+                windowResizeWarningResolver.current = null;
+              }}
+            />
+
+            <SyncFollowerDialog
+              isOpen={syncLeaderProfile !== null}
+              onClose={() => {
+                setSyncLeaderProfile(null);
+              }}
+              leaderProfile={syncLeaderProfile}
+              allProfiles={profiles}
+              runningProfiles={runningProfiles}
+            />
+          </div>
+        </ProfileGroupDragProvider>
+      ) : (
+        /* 未登录时的占位背景 */
+        <div className="flex h-dvh items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+          <div className="text-center">
+            <div className="mx-auto mb-6 flex size-16 items-center justify-center rounded-2xl bg-white/10 backdrop-blur">
+              <svg
+                className="size-8 text-white"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                role="img"
+                aria-label="BW Browser logo"
+              >
+                <title>BW Browser logo</title>
+                <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                <path d="M2 17l10 5 10-5" />
+                <path d="M2 12l10 5 10-5" />
+              </svg>
+            </div>
+            <h1 className="text-xl font-semibold text-white">BW Browser</h1>
+            <p className="mt-2 text-sm text-slate-400">请登录以继续使用</p>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

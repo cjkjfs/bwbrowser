@@ -5,7 +5,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
-GITHUB_REPO="zhom/donutbrowser"
+GITHUB_REPO="zhom/bwbrowser"
 
 # Load .env if running locally
 if [[ -f "$REPO_ROOT/.env" ]]; then
@@ -128,8 +128,8 @@ done
 # Generate Release file
 echo "  Generating Release file..."
 {
-  echo "Origin: Donut Browser"
-  echo "Label: Donut Browser"
+  echo "Origin: BW Browser"
+  echo "Label: BW Browser"
   echo "Suite: stable"
   echo "Codename: stable"
   echo "Architectures: amd64 arm64"
@@ -229,15 +229,15 @@ echo ""
 echo "Done! Repository published for $TAG"
 echo ""
 echo "Users can add the DEB repo with:"
-echo "  echo 'deb [trusted=yes] https://repo.donutbrowser.com/deb stable main' | sudo tee /etc/apt/sources.list.d/donutbrowser.list"
-echo "  sudo apt update && sudo apt install donut"
+echo "  echo 'deb [trusted=yes] https://repo.bwbrowser.com/deb stable main' | sudo tee /etc/apt/sources.list.d/bwbrowser.list"
+echo "  sudo apt update && sudo apt install bwbrowser"
 echo ""
 echo "Users can add the RPM repo with:"
-echo "  sudo tee /etc/yum.repos.d/donutbrowser.repo << 'EOF'"
-echo "  [donutbrowser]"
-echo "  name=Donut Browser"
-echo "  baseurl=https://repo.donutbrowser.com/rpm"
+echo "  sudo tee /etc/yum.repos.d/bwbrowser.repo << 'EOF'"
+echo "  [bwbrowser]"
+echo "  name=BW Browser"
+echo "  baseurl=https://repo.bwbrowser.com/rpm"
 echo "  enabled=1"
 echo "  gpgcheck=0"
 echo "  EOF"
-echo "  sudo dnf install Donut"
+echo "  sudo dnf install Bwbrowser"

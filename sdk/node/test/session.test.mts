@@ -3,10 +3,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { Conflict, DonutError, RunSession } from "../src/index.mts";
+import { BwbrowserError, Conflict, RunSession } from "../src/index.mts";
 import { withClient } from "./support.mts";
 
-const RUN_BODY = { profile_id: "p1", remote_debugging_port: 9222, headless: true };
+const RUN_BODY = {
+  profile_id: "p1",
+  remote_debugging_port: 9222,
+  headless: true,
+};
 
 test("the callback gets the CDP endpoint", async () => {
   await withClient(async (client, fake) => {
@@ -31,7 +35,10 @@ test("the callback gets the CDP endpoint", async () => {
       fake.requests.map((sent) => `${sent.method} ${sent.path}`),
       ["POST /v1/profiles/p1/run", "POST /v1/profiles/p1/kill"],
     );
-    assert.deepEqual(fake.requests[0]?.json, { url: "https://example.com", headless: true });
+    assert.deepEqual(fake.requests[0]?.json, {
+      url: "https://example.com",
+      headless: true,
+    });
   });
 });
 
@@ -79,7 +86,7 @@ test("a failed stop is thrown when the callback was fine", async () => {
 
     await assert.rejects(
       client.withProfile("p1", {}, () => "done"),
-      DonutError,
+      BwbrowserError,
     );
   });
 });

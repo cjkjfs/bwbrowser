@@ -11,7 +11,7 @@ NC='\033[0m' # No Color
 # Get the root directory of the project
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
-SYNC_DIR="$ROOT_DIR/donut-sync"
+SYNC_DIR="$ROOT_DIR/bwbrowser-sync"
 
 # Track PIDs for cleanup
 SYNC_PID=""
@@ -51,7 +51,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  Donut Browser Development Environment${NC}"
+echo -e "${BLUE}  BW Browser Development Environment${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 

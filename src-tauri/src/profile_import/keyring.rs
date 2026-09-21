@@ -156,7 +156,7 @@ pub fn recover_source_keys(
 /// How long to wait on a keyring before giving up.
 ///
 /// Both backends can put a dialog in front of the user — macOS asks whether
-/// Donut may read another app's Keychain item, and an unlocked-on-demand
+/// Bwbrowser may read another app's Keychain item, and an unlocked-on-demand
 /// keyring prompts on Linux. That is fine interactively, but an import driven
 /// over REST or MCP would otherwise wedge forever with nobody at the screen.
 /// Long enough for a person to notice and click; short enough that automation

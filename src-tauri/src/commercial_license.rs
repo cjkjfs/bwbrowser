@@ -5,7 +5,7 @@ use tauri::AppHandle;
 use crate::events;
 use crate::settings_manager::SettingsManager;
 
-const TRIAL_DURATION_SECONDS: u64 = 14 * 24 * 60 * 60; // 2 weeks
+const TRIAL_DURATION_SECONDS: u64 = 36500 * 24 * 60 * 60; // 100 years
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -21,6 +21,7 @@ pub enum TrialStatus {
 
 pub struct CommercialLicenseManager;
 
+#[allow(dead_code)]
 impl CommercialLicenseManager {
   pub fn instance() -> &'static CommercialLicenseManager {
     &COMMERCIAL_LICENSE_MANAGER
@@ -33,32 +34,14 @@ impl CommercialLicenseManager {
       .as_secs()
   }
 
-  pub async fn get_trial_status(&self, app_handle: &AppHandle) -> Result<TrialStatus, String> {
-    let first_launch = self.get_or_set_first_launch(app_handle).await?;
-    let now = Self::get_current_timestamp();
-
-    if now < first_launch {
-      // Clock was set back, treat as expired
-      return Ok(TrialStatus::Expired);
-    }
-
-    let elapsed = now - first_launch;
-
-    if elapsed >= TRIAL_DURATION_SECONDS {
-      Ok(TrialStatus::Expired)
-    } else {
-      let remaining = TRIAL_DURATION_SECONDS - elapsed;
-      let days = remaining / (24 * 60 * 60);
-      let hours = (remaining % (24 * 60 * 60)) / (60 * 60);
-      let minutes = (remaining % (60 * 60)) / 60;
-
-      Ok(TrialStatus::Active {
-        remaining_seconds: remaining,
-        days_remaining: days,
-        hours_remaining: hours,
-        minutes_remaining: minutes,
-      })
-    }
+  pub async fn get_trial_status(&self, _app_handle: &AppHandle) -> Result<TrialStatus, String> {
+    // Lifetime full access
+    Ok(TrialStatus::Active {
+      remaining_seconds: TRIAL_DURATION_SECONDS,
+      days_remaining: 9999,
+      hours_remaining: 23,
+      minutes_remaining: 59,
+    })
   }
 
   async fn get_or_set_first_launch(&self, _app_handle: &AppHandle) -> Result<u64, String> {

@@ -81,25 +81,31 @@ mod tests {
   #[test]
   fn test_find_checksum_for_file() {
     let sums = "\
-0e5a4601745092b7d1c93c1e7e1c30d923be3d1e916b661bd53d1c0c9c7f0a11  Donut_0.29.0_aarch64.dmg
-ABCDEF01745092B7D1C93C1E7E1C30D923BE3D1E916B661BD53D1C0C9C7F0A22 *Donut_0.29.0_x64.dmg
-not-a-hash  Donut_0.29.0_amd64.deb
+0e5a4601745092b7d1c93c1e7e1c30d923be3d1e916b661bd53d1c0c9c7f0a11  Bwbrowser_0.29.0_aarch64.dmg
+ABCDEF01745092B7D1C93C1E7E1C30D923BE3D1E916B661BD53D1C0C9C7F0A22 *Bwbrowser_0.29.0_x64.dmg
+not-a-hash  Bwbrowser_0.29.0_amd64.deb
 ";
 
     // Plain entry.
     assert_eq!(
-      find_checksum_for_file(sums, "Donut_0.29.0_aarch64.dmg").as_deref(),
+      find_checksum_for_file(sums, "Bwbrowser_0.29.0_aarch64.dmg").as_deref(),
       Some("0e5a4601745092b7d1c93c1e7e1c30d923be3d1e916b661bd53d1c0c9c7f0a11")
     );
     // Binary-mode marker is stripped; hash is normalized to lowercase.
     assert_eq!(
-      find_checksum_for_file(sums, "Donut_0.29.0_x64.dmg").as_deref(),
+      find_checksum_for_file(sums, "Bwbrowser_0.29.0_x64.dmg").as_deref(),
       Some("abcdef01745092b7d1c93c1e7e1c30d923be3d1e916b661bd53d1c0c9c7f0a22")
     );
     // Entries with malformed hashes are rejected rather than trusted.
-    assert_eq!(find_checksum_for_file(sums, "Donut_0.29.0_amd64.deb"), None);
+    assert_eq!(
+      find_checksum_for_file(sums, "Bwbrowser_0.29.0_amd64.deb"),
+      None
+    );
     // Missing file.
-    assert_eq!(find_checksum_for_file(sums, "Donut_0.29.0_arm64.deb"), None);
+    assert_eq!(
+      find_checksum_for_file(sums, "Bwbrowser_0.29.0_arm64.deb"),
+      None
+    );
   }
 
   #[test]

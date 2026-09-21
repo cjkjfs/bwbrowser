@@ -88,22 +88,22 @@ async function activateFocusedByKeyboard(app, key = "\uE006") {
     document.addEventListener("keydown", state.recordKey, true);
     document.addEventListener("keyup", state.recordKey, true);
     document.addEventListener("click", state.recordClick, true);
-    window.__donutMotionKeyboard = state;
+    window.__bwbrowserMotionKeyboard = state;
   `);
   try {
     await app.pressShortcut({ key });
     await app.execute(`
-      const state = window.__donutMotionKeyboard;
+      const state = window.__bwbrowserMotionKeyboard;
       if (!state.clicks && !state.events.some((event) => event.defaultPrevented) && state.target.isConnected) state.target.click();
     `);
   } finally {
     await app.execute(`
-      const state = window.__donutMotionKeyboard;
+      const state = window.__bwbrowserMotionKeyboard;
       if (!state) return;
       document.removeEventListener("keydown", state.recordKey, true);
       document.removeEventListener("keyup", state.recordKey, true);
       document.removeEventListener("click", state.recordClick, true);
-      delete window.__donutMotionKeyboard;
+      delete window.__bwbrowserMotionKeyboard;
     `);
   }
 }
@@ -302,15 +302,15 @@ test("paused CSS animations cannot retain dismissed selects or dropdowns", async
       // Presence must not wait for animationend, which cannot arrive here.
       await app.execute(`
         const style = document.createElement("style");
-        style.id = "donut-motion-paused-css";
+        style.id = "bwbrowser-motion-paused-css";
         style.textContent = "*, *::before, *::after { animation-play-state: paused !important; }";
         document.head.append(style);
-        window.__donutPausedSelect = document.querySelector('[data-slot="select-content"]');
+        window.__bwbrowserPausedSelect = document.querySelector('[data-slot="select-content"]');
       `);
       try {
         assert.equal(
           await app.execute(
-            `return getComputedStyle(window.__donutPausedSelect).animationPlayState;`,
+            `return getComputedStyle(window.__bwbrowserPausedSelect).animationPlayState;`,
           ),
           "paused",
         );
@@ -318,7 +318,7 @@ test("paused CSS animations cannot retain dismissed selects or dropdowns", async
         await app.waitFor(
           () =>
             app.execute(
-              `return !window.__donutPausedSelect.isConnected && !document.querySelector('[data-slot="select-content"]');`,
+              `return !window.__bwbrowserPausedSelect.isConnected && !document.querySelector('[data-slot="select-content"]');`,
             ),
           {
             timeoutMs: 2000,
@@ -389,8 +389,8 @@ test("paused CSS animations cannot retain dismissed selects or dropdowns", async
         await app.capture("paused-css-about-replay");
       } finally {
         await app.execute(`
-          document.getElementById("donut-motion-paused-css")?.remove();
-          delete window.__donutPausedSelect;
+          document.getElementById("bwbrowser-motion-paused-css")?.remove();
+          delete window.__bwbrowserPausedSelect;
         `);
       }
     },
@@ -515,7 +515,7 @@ async function installSynchronizerFixture(app) {
   // picker fixture in ui.test.mjs, this wraps only their IPC fetch transport.
   await app.execute(`
     const fixture = { originalFetch: window.fetch, requests: [], pending: [] };
-    window.__donutMotionSynchronizer = fixture;
+    window.__bwbrowserMotionSynchronizer = fixture;
     const response = (value, ok = true) => new Response(JSON.stringify(value), {
       status: 200, headers: { "content-type": "application/json", "Tauri-Response": ok ? "ok" : "error" }
     });
@@ -559,11 +559,11 @@ async function installSynchronizerFixture(app) {
 
 async function restoreSynchronizerFixture(app) {
   await app.execute(`
-    const fixture = window.__donutMotionSynchronizer;
+    const fixture = window.__bwbrowserMotionSynchronizer;
     if (!fixture) return;
     window.fetch = fixture.originalFetch;
     for (const pending of fixture.pending) pending.reject("Motion fixture disposed");
-    delete window.__donutMotionSynchronizer;
+    delete window.__bwbrowserMotionSynchronizer;
   `);
   await emit(app, "cloud-auth-expired", null);
 }
@@ -650,7 +650,7 @@ test("synchronizer rehearsal targets selected profiles and waits for actual comm
         );
         assert.equal(
           await app.execute(
-            `return window.__donutMotionSynchronizer.requests.length;`,
+            `return window.__bwbrowserMotionSynchronizer.requests.length;`,
           ),
           0,
           "rehearsal never starts browsers",
@@ -690,7 +690,7 @@ test("synchronizer rehearsal targets selected profiles and waits for actual comm
         await waitForSelector(app, slot("synchronizer-starting"));
         assert.deepEqual(
           await app.execute(
-            `return window.__donutMotionSynchronizer.requests;`,
+            `return window.__bwbrowserMotionSynchronizer.requests;`,
           ),
           [
             {
@@ -716,7 +716,7 @@ test("synchronizer rehearsal targets selected profiles and waits for actual comm
         await app.pressShortcut({ key: "Escape" });
         assert.equal(
           await app.execute(
-            `return window.__donutMotionSynchronizer.requests.length;`,
+            `return window.__bwbrowserMotionSynchronizer.requests.length;`,
           ),
           1,
           "pending startup cannot be duplicated",
@@ -724,7 +724,7 @@ test("synchronizer rehearsal targets selected profiles and waits for actual comm
         await waitForSelector(app, slot("synchronizer-follower-dialog"));
         await app.capture("synchronizer-awaiting-readiness");
         await app.execute(
-          `window.__donutMotionSynchronizer.pending.shift().reject(JSON.stringify({ code: "PROFILE_RUNNING" }));`,
+          `window.__bwbrowserMotionSynchronizer.pending.shift().reject(JSON.stringify({ code: "PROFILE_RUNNING" }));`,
         );
         await waitForSelector(app, slot("synchronizer-start-error"));
         await checked(first.id, true);
@@ -742,12 +742,12 @@ test("synchronizer rehearsal targets selected profiles and waits for actual comm
         await waitForSelector(app, slot("synchronizer-starting"));
         assert.equal(
           await app.execute(
-            `return window.__donutMotionSynchronizer.requests.length;`,
+            `return window.__bwbrowserMotionSynchronizer.requests.length;`,
           ),
           2,
         );
         await app.execute(
-          `window.__donutMotionSynchronizer.pending.shift().resolve(arguments[0]);`,
+          `window.__bwbrowserMotionSynchronizer.pending.shift().resolve(arguments[0]);`,
           [session],
         );
         await waitForSelector(app, slot("synchronizer-follower-dialog"), false);
@@ -781,7 +781,7 @@ async function freezeAnimations(app) {
       animateDescriptor: Object.getOwnPropertyDescriptor(Element.prototype, "animate"),
       animations: []
     };
-    window.__donutFrozenMotion = state;
+    window.__bwbrowserFrozenMotion = state;
     Object.defineProperty(performance, "now", { configurable: true, value: () => state.now });
     if (state.animateDescriptor?.value) {
       Object.defineProperty(Element.prototype, "animate", {
@@ -808,7 +808,7 @@ async function freezeAnimations(app) {
 
 async function resumeAnimations(app) {
   await app.execute(`
-    const state = window.__donutFrozenMotion;
+    const state = window.__bwbrowserFrozenMotion;
     if (!state) return;
     if (state.nowDescriptor) Object.defineProperty(performance, "now", state.nowDescriptor);
     else delete performance.now;
@@ -818,7 +818,7 @@ async function resumeAnimations(app) {
       else delete animation.play;
       if (animation.playState === "paused") play.call(animation);
     }
-    delete window.__donutFrozenMotion;
+    delete window.__bwbrowserFrozenMotion;
   `);
 }
 
@@ -903,7 +903,7 @@ test("profile replay, inspector, group gestures, and remote handoff preserve con
         );
         assert.equal(
           await app.execute(
-            `return performance.now() === window.__donutFrozenMotion.now && window.__donutFrozenMotion.animations.every(({ animation }) => animation.playState !== "running" && (animation.currentTime === null || animation.currentTime === 0));`,
+            `return performance.now() === window.__bwbrowserFrozenMotion.now && window.__bwbrowserFrozenMotion.animations.every(({ animation }) => animation.playState !== "running" && (animation.currentTime === null || animation.currentTime === 0));`,
           ),
           true,
           "both JavaScript and newly created native animations remain frozen",
@@ -1008,12 +1008,12 @@ test("profile replay, inspector, group gestures, and remote handoff preserve con
       await app.clickSelector(`${slot("popover-content")} input`);
       const colorBefore = await app.execute(`
         const popup = document.querySelector('[data-slot="popover-content"]');
-        window.__donutMotionOwnedPopup = { popup, focused: document.activeElement };
+        window.__bwbrowserMotionOwnedPopup = { popup, focused: document.activeElement };
         return popup.querySelector('input').value;
       `);
       assert.equal(
         await app.execute(
-          `return document.querySelector(arguments[0]).getAttribute('aria-controls') === window.__donutMotionOwnedPopup.popup.id;`,
+          `return document.querySelector(arguments[0]).getAttribute('aria-controls') === window.__bwbrowserMotionOwnedPopup.popup.id;`,
           [colorTrigger],
         ),
         true,
@@ -1027,8 +1027,8 @@ test("profile replay, inspector, group gestures, and remote handoff preserve con
           await app.execute(`
           const popup = document.querySelector('[data-slot="popover-content"]');
           return {
-            samePopup: popup === window.__donutMotionOwnedPopup.popup,
-            sameFocus: document.activeElement === window.__donutMotionOwnedPopup.focused,
+            samePopup: popup === window.__bwbrowserMotionOwnedPopup.popup,
+            sameFocus: document.activeElement === window.__bwbrowserMotionOwnedPopup.focused,
             focusInside: popup?.contains(document.activeElement),
             accessible: Boolean(popup && !popup.closest('[aria-hidden="true"]'))
           };
@@ -1115,7 +1115,7 @@ test("profile replay, inspector, group gestures, and remote handoff preserve con
             "inspector remains accessible after its owned popup closes",
         });
       } finally {
-        await app.execute(`delete window.__donutMotionOwnedPopup;`);
+        await app.execute(`delete window.__bwbrowserMotionOwnedPopup;`);
       }
       await resize(app, 1480, 900);
       await waitForSelector(app, slot("profile-inspector"));
@@ -1125,7 +1125,7 @@ test("profile replay, inspector, group gestures, and remote handoff preserve con
       const draft = "https://example.com/inspector-draft";
       await app.fillSelector(slot("profile-launch-hook-input"), draft);
       await app.execute(
-        `window.__donutMotionDraftInput = document.querySelector('[data-slot="profile-launch-hook-input"]');`,
+        `window.__bwbrowserMotionDraftInput = document.querySelector('[data-slot="profile-launch-hook-input"]');`,
       );
       await resize(app, 720, 600);
       await waitForSelector(app, slot("profile-inspector"), false);
@@ -1136,7 +1136,7 @@ test("profile replay, inspector, group gestures, and remote handoff preserve con
       assert.deepEqual(
         await app.execute(`
         const input = document.querySelector('[data-slot="profile-launch-hook-input"]');
-        return { value: input?.value, sameNode: input === window.__donutMotionDraftInput };
+        return { value: input?.value, sameNode: input === window.__bwbrowserMotionDraftInput };
       `),
         { value: draft, sameNode: true },
         "wide-to-narrow transition preserves the actual unsaved editor",
@@ -1165,12 +1165,12 @@ test("profile replay, inspector, group gestures, and remote handoff preserve con
       assert.deepEqual(
         await app.execute(`
         const input = document.querySelector('[data-slot="profile-launch-hook-input"]');
-        return { value: input?.value, sameNode: input === window.__donutMotionDraftInput };
+        return { value: input?.value, sameNode: input === window.__bwbrowserMotionDraftInput };
       `),
         { value: draft, sameNode: true },
         "narrow-to-wide transition also preserves the unsaved editor",
       );
-      await app.execute(`delete window.__donutMotionDraftInput;`);
+      await app.execute(`delete window.__bwbrowserMotionDraftInput;`);
       await resize(app, 720, 600);
       await waitForSelector(app, slot("profile-inspector"), false);
       await app.pressShortcut({ key: "Escape" });
@@ -1464,7 +1464,7 @@ test("schedule displays every timezone and slot, and skipped run details work by
       `
       const schedules = arguments[0], id = arguments[1];
       const previous = window.fetch;
-      window.__donutScheduleCalls = [];
+      window.__bwbrowserScheduleCalls = [];
       const response = value => Promise.resolve(new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json", "Tauri-Response": "ok" } }));
       window.fetch = function(input, init) {
         let command = "";
@@ -1668,18 +1668,18 @@ test("partial import receipts survive retry without duplicating successful profi
       // Only fingerprint generation is fixed for this offline UI suite. Scanning,
       // file copying, reports, progress events and retries run through real IPC.
       await app.execute(`
-      window.__donutImportFetch = window.fetch;
-      window.__donutImportBatches = [];
+      window.__bwbrowserImportFetch = window.fetch;
+      window.__bwbrowserImportBatches = [];
       window.fetch = function(input, init) {
         let command = "";
         try { const url = new URL(typeof input === "string" ? input : input.url); if (url.hostname === "localhost" && url.protocol === "ipc:" || url.hostname === "ipc.localhost") command = decodeURIComponent(url.pathname.split("/").pop() || ""); } catch {}
         if (command === "import_browser_profiles") {
           const body = JSON.parse(init.body);
-          window.__donutImportBatches.push(body.items.map(item => item.source_path));
+          window.__bwbrowserImportBatches.push(body.items.map(item => item.source_path));
           body.wayfernConfig = { fingerprint: "{}" };
-          return window.__donutImportFetch.call(this, input, { ...init, body: JSON.stringify(body) });
+          return window.__bwbrowserImportFetch.call(this, input, { ...init, body: JSON.stringify(body) });
         }
-        return window.__donutImportFetch.apply(this, arguments);
+        return window.__bwbrowserImportFetch.apply(this, arguments);
       };
     `);
       try {
@@ -1736,7 +1736,7 @@ test("partial import receipts survive retry without duplicating successful profi
           { description: "retry toast agrees with the cumulative receipts" },
         );
         const batches = await app.execute(
-          `return window.__donutImportBatches;`,
+          `return window.__bwbrowserImportBatches;`,
         );
         assert.equal(batches[0].length, 2);
         assert.deepEqual(batches[1], [sources[1]]);
@@ -1745,7 +1745,7 @@ test("partial import receipts survive retry without duplicating successful profi
         await app.capture("import-retry-receipts-small");
       } finally {
         await app.execute(
-          `window.fetch = window.__donutImportFetch; delete window.__donutImportFetch; delete window.__donutImportBatches;`,
+          `window.fetch = window.__bwbrowserImportFetch; delete window.__bwbrowserImportFetch; delete window.__bwbrowserImportBatches;`,
         );
       }
     },
@@ -1754,7 +1754,7 @@ test("partial import receipts survive retry without duplicating successful profi
 });
 
 test("About hides a snack drawer that responds to bites and resets on close", async () => {
-  await withApp("motion-donut-snack", async (app) => {
+  await withApp("motion-bwbrowser-snack", async (app) => {
     await resize(app, 760, 620);
     const openAbout = async () => {
       await app.clickSelector(`[aria-label="${en.rail.more.label}"]`);
@@ -1766,35 +1766,35 @@ test("About hides a snack drawer that responds to bites and resets on close", as
     };
     await openAbout();
     await app.clickSelector(slot("about-logo"));
-    await waitForSelector(app, slot("donut-snack"), false);
+    await waitForSelector(app, slot("bwbrowser-snack"), false);
     await app.execute(
       `document.querySelector('[data-slot="about-logo"]').focus();`,
     );
     await app.pressShortcut({ key: "\uE006", shift: true });
-    await waitForSelector(app, slot("donut-snack"));
+    await waitForSelector(app, slot("bwbrowser-snack"));
     const biteCount = () =>
       app.execute(
-        `return Number(document.querySelector('[data-slot="donut-snack"]').dataset.bites);`,
+        `return Number(document.querySelector('[data-slot="bwbrowser-snack"]').dataset.bites);`,
       );
     assert.equal(await biteCount(), 0);
     await app.capture("secret-snack-drawer");
     for (const count of [1, 2, 3]) {
-      await app.clickSelector(slot("donut-snack-bite"));
+      await app.clickSelector(slot("bwbrowser-snack-bite"));
       assert.equal(await biteCount(), count);
-      await assertContained(app, slot("donut-snack"));
+      await assertContained(app, slot("bwbrowser-snack"));
       if (count === 2) await app.capture("secret-snack-two-bites");
     }
     await app.waitForText(en.about.snack.finished);
     await app.capture("secret-snack-crumbs");
-    await app.clickSelector(slot("donut-snack-bite"));
+    await app.clickSelector(slot("bwbrowser-snack-bite"));
     assert.equal(await biteCount(), 0);
     await activateFocusedByKeyboard(app);
     assert.equal(await biteCount(), 1);
     await freezeAnimations(app);
     try {
-      await app.clickSelector(slot("donut-snack-bite"));
+      await app.clickSelector(slot("bwbrowser-snack-bite"));
       assert.equal(await biteCount(), 2);
-      await assertPopupReadable(app, slot("donut-snack"));
+      await assertPopupReadable(app, slot("bwbrowser-snack"));
     } finally {
       await resumeAnimations(app);
     }
@@ -1804,9 +1804,9 @@ test("About hides a snack drawer that responds to bites and resets on close", as
       "the snack never touches profiles",
     );
     await app.pressShortcut({ key: "Escape" });
-    await waitForSelector(app, slot("donut-snack"), false);
+    await waitForSelector(app, slot("bwbrowser-snack"), false);
     await openAbout();
-    await waitForSelector(app, slot("donut-snack"), false);
+    await waitForSelector(app, slot("bwbrowser-snack"), false);
   });
 });
 

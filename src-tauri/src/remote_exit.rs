@@ -18,7 +18,7 @@
 //! it did not check.
 //!
 //! Local proxies are not an exotic case. A local MITM proxy, an SSH tunnel, a
-//! locally-run SOCKS client and Donut's own VLESS support all present to the
+//! locally-run SOCKS client and Bwbrowser's own VLESS support all present to the
 //! browser as `127.0.0.1:<port>`.
 //!
 //! This module is the single answer, shared by every caller, and it FAILS
@@ -232,7 +232,7 @@ fn normalize_host(raw: &str) -> String {
 /// The host a VLESS URI actually dials.
 ///
 /// Load-bearing because of an asymmetry that is easy to get backwards: a VLESS
-/// proxy presents to the browser as `127.0.0.1:<port>` — Donut runs a local xray
+/// proxy presents to the browser as `127.0.0.1:<port>` — Bwbrowser runs a local xray
 /// worker and points the browser at it — but the address that decides whether
 /// anyone else could use this config is the SERVER inside the URI. The local
 /// port is an implementation detail of this machine; the URI is the exit.

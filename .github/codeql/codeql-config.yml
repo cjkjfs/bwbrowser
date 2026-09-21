@@ -1,4 +1,4 @@
-name: "Donut Browser CodeQL configuration"
+name: "BW Browser CodeQL configuration"
 
 queries:
   - uses: security-extended

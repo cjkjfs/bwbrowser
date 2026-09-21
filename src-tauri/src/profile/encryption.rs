@@ -27,8 +27,8 @@ const HMAC_FILENAME_LEN: usize = 32;
 
 /// Marker file written into encrypted profile dirs so launch code can verify
 /// the password before attempting to decrypt actual user data files.
-const VERIFY_FILE_NAME: &str = ".donut-pw-verify";
-const VERIFY_FILE_PATH: &str = "__donut_pw_verify__";
+const VERIFY_FILE_NAME: &str = ".bwbrowser-pw-verify";
+const VERIFY_FILE_PATH: &str = "__bwbrowser_pw_verify__";
 
 lazy_static::lazy_static! {
   /// In-memory cache of derived per-profile encryption keys, keyed by profile UUID.
@@ -147,13 +147,13 @@ fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
   if let Some(parent) = path.parent() {
     std::fs::create_dir_all(parent)?;
   }
-  let tmp = path.with_extension("donut-tmp");
+  let tmp = path.with_extension("bwbrowser-tmp");
   std::fs::write(&tmp, data)?;
   std::fs::rename(&tmp, path)
 }
 
 fn write_verifier(key: &[u8; 32], encrypted_dir: &Path) -> PasswordResult<()> {
-  let encrypted = encrypt_profile_file(key, VERIFY_FILE_PATH, b"donut-verify")?;
+  let encrypted = encrypt_profile_file(key, VERIFY_FILE_PATH, b"bwbrowser-verify")?;
   let path = encrypted_dir.join(VERIFY_FILE_NAME);
   atomic_write(&path, &encrypted)?;
   Ok(())
@@ -169,7 +169,7 @@ pub fn verify_key_against_dir(key: &[u8; 32], encrypted_dir: &Path) -> PasswordR
   }
   let bytes = std::fs::read(&path)?;
   let (relpath, content) = decrypt_profile_file(key, &bytes)?;
-  if relpath != VERIFY_FILE_PATH || content != b"donut-verify" {
+  if relpath != VERIFY_FILE_PATH || content != b"bwbrowser-verify" {
     return Err(PasswordError::InvalidFormat);
   }
   Ok(())

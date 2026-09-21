@@ -30,7 +30,7 @@ function isolatedEnvironment(root, extra = {}) {
   const home = path.join(root, "home");
   const temp = path.join(root, "tmp");
   return {
-    DONUTBROWSER_DATA_ROOT: path.join(root, "donut"),
+    BWBROWSER_DATA_ROOT: path.join(root, "bwbrowser"),
     HOME: home,
     USERPROFILE: home,
     ...(process.platform === "darwin" ? { CFFIXED_USER_HOME: home } : {}),
@@ -91,7 +91,7 @@ export class AppSession {
   }
 
   get dataRoot() {
-    return path.join(this.root, "donut");
+    return path.join(this.root, "bwbrowser");
   }
 
   /** Where this session's app looks for the Wayfern terms marker. */
@@ -174,7 +174,7 @@ export class AppSession {
           : "150.0.7871.100";
       const versionCache = path.join(
         this.root,
-        "donut",
+        "bwbrowser",
         "cache",
         "version_cache",
         "wayfern_versions.json",
@@ -242,21 +242,21 @@ export class AppSession {
       });
     }
     const env = isolatedEnvironment(this.root, {
-      DONUT_E2E_DISABLE_STARTUP_NETWORK: "1",
-      ...(process.env.DONUT_E2E_FIXTURE_URL
+      BWBROWSER_E2E_DISABLE_STARTUP_NETWORK: "1",
+      ...(process.env.BWBROWSER_E2E_FIXTURE_URL
         ? {
-            DONUT_E2E_DNS_BLOCKLIST_BASE_URL: `${process.env.DONUT_E2E_FIXTURE_URL}/dns`,
-            ...(process.env.DONUT_E2E_GEOIP_FIXTURE_READY === "1"
+            BWBROWSER_E2E_DNS_BLOCKLIST_BASE_URL: `${process.env.BWBROWSER_E2E_FIXTURE_URL}/dns`,
+            ...(process.env.BWBROWSER_E2E_GEOIP_FIXTURE_READY === "1"
               ? {
-                  DONUT_E2E_GEOIP_DOWNLOAD_URL: `${process.env.DONUT_E2E_FIXTURE_URL}/geoip.mmdb`,
+                  BWBROWSER_E2E_GEOIP_DOWNLOAD_URL: `${process.env.BWBROWSER_E2E_FIXTURE_URL}/geoip.mmdb`,
                 }
               : {}),
             // The city database has no organisation for an address; the ASN
             // one does, and it is what a proxy check reports as the exit's
             // ISP. Seeded separately so the suite can assert a real value.
-            ...(process.env.DONUT_E2E_GEOIP_ASN_FIXTURE_READY === "1"
+            ...(process.env.BWBROWSER_E2E_GEOIP_ASN_FIXTURE_READY === "1"
               ? {
-                  DONUT_E2E_GEOIP_ASN_DOWNLOAD_URL: `${process.env.DONUT_E2E_FIXTURE_URL}/geoip-asn.mmdb`,
+                  BWBROWSER_E2E_GEOIP_ASN_DOWNLOAD_URL: `${process.env.BWBROWSER_E2E_FIXTURE_URL}/geoip-asn.mmdb`,
                 }
               : {}),
           }
@@ -270,11 +270,11 @@ export class AppSession {
       env,
       cwd: this.cwd,
       startupTimeout: 120_000,
-      // Set by run.mjs for every suite. The driver keeps the Donut window off
+      // Set by run.mjs for every suite. The driver keeps the Bwbrowser window off
       // the user's screen (on macOS transparent, click-through and never key,
       // with the app as an accessory; hidden elsewhere), so a suite never
       // pops a window or steals focus.
-      headless: process.env.DONUT_E2E_HEADLESS === "1",
+      headless: process.env.BWBROWSER_E2E_HEADLESS === "1",
     });
     await this.session.setTimeouts();
     await this.waitFor(
@@ -583,14 +583,14 @@ export class AppSession {
 }
 
 export function appFromEnvironment(name, options = {}) {
-  const runRoot = process.env.DONUT_E2E_RUN_ROOT;
-  assert.ok(runRoot, "DONUT_E2E_RUN_ROOT is required");
+  const runRoot = process.env.BWBROWSER_E2E_RUN_ROOT;
+  assert.ok(runRoot, "BWBROWSER_E2E_RUN_ROOT is required");
   return new AppSession({
     name,
     root: options.root ?? path.join(runRoot, "sessions", name),
-    application: process.env.DONUT_E2E_APP,
-    driverUrl: process.env.DONUT_E2E_DRIVER_URL,
-    cwd: process.env.DONUT_E2E_PROJECT_ROOT,
+    application: process.env.BWBROWSER_E2E_APP,
+    driverUrl: process.env.BWBROWSER_E2E_DRIVER_URL,
+    cwd: process.env.BWBROWSER_E2E_PROJECT_ROOT,
     token: process.env.WAYFERN_TEST_TOKEN,
     extraEnv: options.extraEnv,
     args: options.args,

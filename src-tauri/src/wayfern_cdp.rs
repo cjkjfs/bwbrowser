@@ -143,7 +143,7 @@ impl From<CdpError> for WayfernError {
 /// "entitled but too fast".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserRefusal {
-  /// "Browser automation requires a paid Donut Browser plan."
+  /// "Browser automation requires a paid BW Browser plan."
   PaymentRequired,
   /// "Automation rate limit exceeded (N requests/minute). Retry shortly."
   RateLimited,
@@ -179,7 +179,7 @@ pub fn protocol_code(error: &CdpError) -> Option<i64> {
 /// Whether `error` is the browser's gate saying no, and which no it said.
 pub fn classify_refusal(error: &CdpError) -> Option<BrowserRefusal> {
   let message = protocol_message(error)?;
-  if message.contains("requires a paid Donut Browser plan") {
+  if message.contains("requires a paid BW Browser plan") {
     Some(BrowserRefusal::PaymentRequired)
   } else if message.starts_with("Automation rate limit exceeded") {
     Some(BrowserRefusal::RateLimited)
@@ -1657,7 +1657,7 @@ mod tests {
     };
     assert_eq!(
       classify_refusal(&refusal(
-        "Browser automation requires a paid Donut Browser plan."
+        "Browser automation requires a paid BW Browser plan."
       )),
       Some(BrowserRefusal::PaymentRequired)
     );

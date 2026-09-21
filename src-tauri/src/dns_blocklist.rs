@@ -323,7 +323,7 @@ impl BlocklistManager {
       return Err(format!("No URL for level {:?}", level));
     }
     #[cfg(feature = "e2e")]
-    let urls = std::env::var("DONUT_E2E_DNS_BLOCKLIST_BASE_URL")
+    let urls = std::env::var("BWBROWSER_E2E_DNS_BLOCKLIST_BASE_URL")
       .ok()
       .filter(|base| !base.is_empty())
       .map(|base| {

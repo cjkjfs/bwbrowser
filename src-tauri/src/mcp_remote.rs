@@ -1,10 +1,10 @@
-//! The remote-control bridge: one outbound socket that lets Donut cloud drive
+//! The remote-control bridge: one outbound socket that lets Bwbrowser cloud drive
 //! this installation's MCP tools.
 //!
 //! The local MCP server in [`crate::mcp_server`] answers on loopback, which is
 //! only reachable by an agent running on this machine. Remote control inverts
 //! the reach without inverting the trust: nothing dials in to the desktop. The
-//! app dials OUT to `wss://api.donutbrowser.com/api/mcp-bridge`, proves who it
+//! app dials OUT to `wss://api.bwbrowser.com/api/mcp-bridge`, proves who it
 //! is with the same cloud access token every other cloud call uses, and then
 //! answers JSON-RPC that arrives down that socket.
 //!
@@ -18,7 +18,7 @@
 //! Text frames of JSON, versioned by [`BRIDGE_PROTOCOL`]. Server to app:
 //!
 //! ```jsonc
-//! {"t":"hello","protocol":"donut-mcp-bridge/1","instanceId":"…"}
+//! {"t":"hello","protocol":"bwbrowser-mcp-bridge/1","instanceId":"…"}
 //! {"t":"rpc","cid":"…","sessionId":"…|null","payload":{ /* JSON-RPC */ }}
 //! {"t":"endSession","sessionId":"…"}
 //! ```
@@ -65,7 +65,7 @@ use crate::mcp_server::{McpOutcome, McpServer};
 /// The wire contract's version. Bumped only for a change a current desktop
 /// could not understand, so the relay can refuse a build it cannot talk to
 /// instead of failing one frame at a time.
-pub const BRIDGE_PROTOCOL: &str = "donut-mcp-bridge/1";
+pub const BRIDGE_PROTOCOL: &str = "bwbrowser-mcp-bridge/1";
 
 /// Path on the cloud API. Absolute rather than derived, and paired with the
 /// protocol string above so the two can never be changed apart.
@@ -227,13 +227,13 @@ pub fn instance_id() -> String {
 /// inside `dispatch`'s hello branch, which reaches `publish_state` -> `status`
 /// -> `instance_id`, and that CREATES the file when it is absent. Four tests
 /// feed a real `hello` through the real `pump`, so `cargo test` began writing
-/// into the developer's own DonutBrowserDev settings directory. Making each of
+/// into the developer's own BwBrowserDev settings directory. Making each of
 /// those tests seed a cache would work only until the fifth test forgot; making
 /// the PATH itself test-aware cannot be forgotten.
 fn instance_id_path() -> std::path::PathBuf {
   #[cfg(test)]
   {
-    std::env::temp_dir().join("donut-mcp-instance-id-test")
+    std::env::temp_dir().join("bwbrowser-mcp-instance-id-test")
   }
   #[cfg(not(test))]
   {
@@ -514,7 +514,7 @@ async fn run() {
       } else if error.is_terminal_refusal() {
         // Everything the server will keep saying no to, a slot conflict, an
         // unentitled plan, a credential a refresh did not fix. Without this a
-        // second copy of Donut reconnects on a one-second timer for as long as
+        // second copy of Bwbrowser reconnects on a one-second timer for as long as
         // both are open.
         attempt = attempt.max(TERMINAL_BACKOFF_ATTEMPT);
       }
@@ -611,10 +611,13 @@ fn bridge_request(bearer: &str) -> Result<WsRequest, BridgeError> {
     tokio_tungstenite::tungstenite::http::header::AUTHORIZATION,
     header(&format!("Bearer {bearer}"))?,
   );
-  headers.insert("x-donut-instance", header(&instance_id())?);
-  headers.insert("x-donut-protocol", header(BRIDGE_PROTOCOL)?);
-  headers.insert("x-donut-client-version", header(env!("CARGO_PKG_VERSION"))?);
-  headers.insert("x-donut-platform", header(std::env::consts::OS)?);
+  headers.insert("x-bwbrowser-instance", header(&instance_id())?);
+  headers.insert("x-bwbrowser-protocol", header(BRIDGE_PROTOCOL)?);
+  headers.insert(
+    "x-bwbrowser-client-version",
+    header(env!("CARGO_PKG_VERSION"))?,
+  );
+  headers.insert("x-bwbrowser-platform", header(std::env::consts::OS)?);
   Ok(request)
 }
 
@@ -656,7 +659,7 @@ async fn dial(bearer: &str) -> Result<BridgeStream, BridgeError> {
 /// Turn a refused upgrade into the reason it means.
 ///
 /// The three refusals a user can act on are told apart on purpose: sign in
-/// again, close the other copy of Donut, or upgrade the plan. Collapsing them
+/// again, close the other copy of Bwbrowser, or upgrade the plan. Collapsing them
 /// into "connection failed" is what makes a feature look broken when it is
 /// merely saying no.
 fn classify_status(status: u16) -> BridgeError {
@@ -666,7 +669,8 @@ fn classify_status(status: u16) -> BridgeError {
       "this plan does not include remote control of the desktop app".to_string(),
     ),
     409 => BridgeError::SlotTaken(
-      "another Donut instance on this account already holds the remote-control slot".to_string(),
+      "another Bwbrowser instance on this account already holds the remote-control slot"
+        .to_string(),
     ),
     other => BridgeError::Unreachable(format!("the bridge answered HTTP {other}")),
   }
@@ -683,7 +687,7 @@ fn classify_close(code: u16, reason: &str) -> BridgeError {
     // Matched on "slot", not on the bare word "instance": the malformed-header
     // refusal is "an instance id is required", which shares that noun while
     // meaning something completely different. Reading it as a conflict told the
-    // customer to close a second Donut that was not running, and never showed
+    // customer to close a second Bwbrowser that was not running, and never showed
     // the real cause.
     1008 if lowered.contains("slot") => BridgeError::SlotTaken(reason.to_string()),
     1008 if lowered.contains("entitle") || lowered.contains("plan") => {
@@ -982,7 +986,7 @@ mod tests {
 
   #[test]
   fn bridge_url_is_the_websocket_scheme_of_the_cloud_api() {
-    assert_eq!(bridge_url(), "wss://api.donutbrowser.com/api/mcp-bridge");
+    assert_eq!(bridge_url(), "wss://api.bwbrowser.com/api/mcp-bridge");
   }
 
   #[test]
@@ -1370,7 +1374,7 @@ mod tests {
     // on the Integrations page telling the customer what to do about it.
     for (reason, expect_slot, expect_plan) in [
       (
-        "another Donut instance on this account holds the remote-control slot",
+        "another Bwbrowser instance on this account holds the remote-control slot",
         true,
         false,
       ),
@@ -1392,13 +1396,13 @@ mod tests {
 
     // The malformed-header refusal shares the word "instance" with the slot
     // conflict and means something entirely different. Read as a conflict it
-    // told the customer to close a second Donut that was not running.
+    // told the customer to close a second Bwbrowser that was not running.
     assert!(
       !matches!(
         classify_close(1008, "an instance id is required"),
         BridgeError::SlotTaken(_)
       ),
-      "a malformed instance id is not a second copy of Donut"
+      "a malformed instance id is not a second copy of Bwbrowser"
     );
 
     for reason in [
@@ -1437,7 +1441,7 @@ mod tests {
     // earlier version of this test asserted only `is_valid_instance_id`, so
     // deleting its call site from the reader changed nothing and the test
     // still passed.
-    let dir = std::env::temp_dir().join(format!("donut-iid-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("bwbrowser-iid-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let path = dir.join("mcp_instance_id");
 
@@ -1502,7 +1506,7 @@ mod tests {
         "MCP_REMOTE_UNAUTHORIZED",
       ),
       (
-        BridgeError::SlotTaken("another Donut instance holds the slot".into()),
+        BridgeError::SlotTaken("another Bwbrowser instance holds the slot".into()),
         "MCP_REMOTE_SLOT_TAKEN",
       ),
       (
@@ -1820,9 +1824,9 @@ mod tests {
     // Against a temp path, not `instance_id()`. That reads
     // `app_dirs::settings_dir()`, which `cargo test` does not redirect, so the
     // old version of this test MINTED AND WROTE an id into the developer's
-    // real DonutBrowserDev data directory every time the suite ran, a test
+    // real BwBrowserDev data directory every time the suite ran, a test
     // reaching outside its sandbox to touch state the app itself owns.
-    let dir = std::env::temp_dir().join(format!("donut-iid-stable-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("bwbrowser-iid-stable-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let path = dir.join("mcp_instance_id");
 
@@ -1852,7 +1856,7 @@ mod tests {
   // friendlier fixture and fail in production.
   // ---------------------------------------------------------------------
 
-  /// A server that speaks the relay's half of `donut-mcp-bridge/1`.
+  /// A server that speaks the relay's half of `bwbrowser-mcp-bridge/1`.
   ///
   /// Returns the URL to dial and a handle yielding every `result` frame the
   /// desktop sent back, in order.
@@ -2322,7 +2326,7 @@ mod tests {
       let _ = stream
         .close(Some(CloseFrame {
           code: CloseCode::Policy,
-          reason: "another Donut instance on this account holds the remote-control slot".into(),
+          reason: "another Bwbrowser instance on this account holds the remote-control slot".into(),
         }))
         .await;
       while stream.next().await.is_some() {}

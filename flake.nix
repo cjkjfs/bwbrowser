@@ -1,5 +1,5 @@
 {
-  description = "Donut Browser development environment and quick-start commands";
+  description = "BW Browser development environment and quick-start commands";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -100,12 +100,12 @@
         releaseAppImage =
           if system == "x86_64-linux" then
             pkgs.fetchurl {
-              url = "https://github.com/zhom/donutbrowser/releases/download/v0.30.0/Donut_0.30.0_amd64.AppImage";
+              url = "https://github.com/zhom/bwbrowser/releases/download/v0.30.0/Donut_0.30.0_amd64.AppImage";
               hash = "sha256-Vcs7ZyWUOcny+ZjoxoP5U6laOTXbqMFAdr+DZABUeJM=";
             }
           else if system == "aarch64-linux" then
             pkgs.fetchurl {
-              url = "https://github.com/zhom/donutbrowser/releases/download/v0.30.0/Donut_0.30.0_aarch64.AppImage";
+              url = "https://github.com/zhom/bwbrowser/releases/download/v0.30.0/Donut_0.30.0_aarch64.AppImage";
               hash = "sha256-KLZe+Vgce9KCzacVESnCkleD6x7yZbWofdMCrHjlJjE=";
             }
           else
@@ -258,7 +258,7 @@
             export RUST_SRC_PATH="${pkgs.rustPlatform.rustLibSrc}"
             export XDG_DATA_DIRS="${pkgs.gsettings-desktop-schemas}/share:${pkgs.gtk3}/share:''${XDG_DATA_DIRS:-}"
 
-            echo "Donut Browser dev shell ready."
+            echo "BW Browser dev shell ready."
             echo "Quick start:"
             echo "  nix run .#setup"
             echo "  nix run .#tauri-dev"
@@ -319,7 +319,7 @@
           set -euo pipefail
 
           if [ ! -f "package.json" ]; then
-            echo "package.json not found. Run this from the donutbrowser repo root."
+            echo "package.json not found. Run this from the bwbrowser repo root."
             exit 1
           fi
 

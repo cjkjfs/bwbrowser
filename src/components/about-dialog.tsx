@@ -6,7 +6,7 @@ import { useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LuArrowLeft, LuExternalLink, LuSearch } from "react-icons/lu";
-import { DonutSnack } from "@/components/donut-snack";
+import { BwbrowserSnack } from "@/components/bwbrowser-snack";
 import { ProfileIsolationDemo } from "@/components/profile-isolation-demo";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { StepTransition } from "@/components/ui/step-transition";
 import licenses from "@/generated/licenses.json";
 import xraySource from "@/generated/xray-source.json";
-import { launchDonutClone } from "@/lib/donut-physics";
+import { launchBwbrowserClone } from "@/lib/bwbrowser-physics";
 import { Logo } from "./icons/logo";
 import { RippleButton } from "./ui/ripple";
 
@@ -38,7 +38,7 @@ interface SystemInfo {
 
 type AboutView = "about" | "licenses" | "isolation";
 
-// Flywheel: each click adds spin; past this speed the donut escapes the
+// Flywheel: each click adds spin; past this speed the bwbrowser escapes the
 // dialog and bounces around the window (shared physics with the rail egg).
 const SPIN_PER_CLICK = 540; // deg/s
 const ESCAPE_VELOCITY = 2200; // deg/s
@@ -92,11 +92,11 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
       el.style.transform = `rotate(${rotationRef.current}deg)`;
 
       if (velocityRef.current >= ESCAPE_VELOCITY) {
-        // The flywheel wins: the donut tears loose and joins the bounce sim,
+        // The flywheel wins: the bwbrowser tears loose and joins the bounce sim,
         // keeping its spin.
         stopSpin();
         setLogoFlown(true);
-        cancelLaunchRef.current = launchDonutClone(el, {
+        cancelLaunchRef.current = launchBwbrowserClone(el, {
           initialVX: Math.random() > 0.5 ? 420 : -420,
           initialVY: -750,
           spinSpeed: ESCAPE_VELOCITY,
@@ -221,13 +221,13 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
 
               <div className="flex flex-col items-center gap-3 py-4">
                 {snackOpen ? (
-                  <DonutSnack />
+                  <BwbrowserSnack />
                 ) : (
                   <button
                     ref={logoRef}
                     type="button"
                     data-slot="about-logo"
-                    aria-label={t("header.donutLogo")}
+                    aria-label={t("header.bwbrowserLogo")}
                     onClick={(event) => {
                       if (event.shiftKey) {
                         resetLogo();
@@ -254,7 +254,7 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
                 )}
 
                 <div className="text-center">
-                  <p className="text-lg font-semibold">Donut Browser</p>
+                  <p className="text-lg font-semibold">BW Browser</p>
                   {systemInfo && (
                     <>
                       <p className="text-sm text-muted-foreground">
@@ -282,7 +282,7 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => void openUrl("https://donutbrowser.com")}
+                    onClick={() => void openUrl("https://bwbrowser.com")}
                   >
                     {t("about.website")}
                   </Button>
@@ -290,7 +290,7 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
                     variant="outline"
                     size="sm"
                     onClick={() =>
-                      void openUrl("https://github.com/zhom/donutbrowser")
+                      void openUrl("https://github.com/zhom/bwbrowser")
                     }
                   >
                     {t("about.github")}

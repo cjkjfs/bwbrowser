@@ -1533,7 +1533,7 @@ pub async fn ensure_active_browsers_downloaded(
 ) -> Result<Vec<String>, String> {
   #[cfg(feature = "e2e")]
   if crate::e2e_automation_enabled()
-    && std::env::var_os("DONUT_E2E_DISABLE_STARTUP_NETWORK").is_some()
+    && std::env::var_os("BWBROWSER_E2E_DISABLE_STARTUP_NETWORK").is_some()
   {
     log::info!("E2E: skipping proactive browser download");
     return Ok(Vec::new());
@@ -1690,7 +1690,7 @@ pub async fn ensure_all_binaries_exist(
 ) -> Result<Vec<String>, String> {
   #[cfg(feature = "e2e")]
   if crate::e2e_automation_enabled()
-    && std::env::var_os("DONUT_E2E_DISABLE_STARTUP_NETWORK").is_some()
+    && std::env::var_os("BWBROWSER_E2E_DISABLE_STARTUP_NETWORK").is_some()
   {
     log::info!("E2E: skipping proactive binary and GeoIP downloads");
     return Ok(Vec::new());

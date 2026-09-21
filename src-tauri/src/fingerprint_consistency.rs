@@ -193,7 +193,7 @@ pub fn unverifiable_dimensions(profile: &BrowserProfile) -> Vec<String> {
 
 /// True when measuring the exit can still verify at least one dimension of this
 /// profile's fingerprint. False means a probe would compare nothing, so telling
-/// the user "Donut will check it while starting" would be a promise it cannot
+/// the user "Bwbrowser will check it while starting" would be a promise it cannot
 /// keep.
 pub fn can_verify_anything(profile: &BrowserProfile) -> bool {
   unverifiable_dimensions(profile).len() < CHECKED_DIMENSIONS.len()
@@ -218,7 +218,7 @@ fn probe_url(settings: &crate::browser::ProxySettings) -> Option<String> {
 /// (`geolocation::LocaleSelector`), not a hand-written country->language table.
 /// The generator picks a language at random weighted by CLDR speaker share, so
 /// any table naming one "expected" language per country flags fingerprints
-/// Donut itself produced — roughly 10% of US profiles legitimately get `es-US`
+/// Bwbrowser itself produced — roughly 10% of US profiles legitimately get `es-US`
 /// and ~23% of Canadian ones get `fr-CA`. `None` means the country has no CLDR
 /// data, so the language cannot be judged either way, the caller reports that
 /// dimension as unverified rather than counting it as a match.
@@ -541,7 +541,7 @@ mod tests {
     // These are not the "expected" language for the country, but the generator
     // samples the CLDR distribution and produces them routinely — CLDR puts es
     // at 9.6% in the US and fr at 30% in Canada. Flagging them warns the user
-    // about a fingerprint Donut itself created.
+    // about a fingerprint Bwbrowser itself created.
     assert_eq!(language_matches_country("US", "es-US"), Some(true));
     assert_eq!(language_matches_country("CA", "fr-CA"), Some(true));
     assert_eq!(language_matches_country("CA", "en-CA"), Some(true));

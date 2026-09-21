@@ -1,4 +1,4 @@
-//! Moving Donut's data directory to another volume.
+//! Moving Bwbrowser's data directory to another volume.
 //!
 //! Everything the app keeps lives under `app_dirs::data_dir()`: profiles,
 //! downloaded browser binaries, settings, proxies, VPNs and extensions. A fleet
@@ -60,7 +60,7 @@ pub struct DataRootInfo {
   pub size_bytes: u64,
   /// Regular files under `active_path`.
   pub file_count: u64,
-  /// True when `DONUTBROWSER_DATA_DIR` decides the directory, so a choice made
+  /// True when `BWBROWSER_DATA_DIR` decides the directory, so a choice made
   /// here would be recorded and then ignored.
   pub overridden_by_environment: bool,
   /// True once a move has completed in this process.
@@ -149,7 +149,7 @@ pub(crate) fn check_move_preconditions(p: &MovePreconditions) -> Result<(), Stri
 
 /// Bytes as a person reads them, for the one refusal that has to quote a size.
 ///
-/// The unit symbols are the same in every language Donut ships, so the sentence
+/// The unit symbols are the same in every language Bwbrowser ships, so the sentence
 /// around them is translated and the figure is not. It is written here rather
 /// than in the frontend because `backend-errors.ts` is loaded by a bare
 /// `node --test` run and cannot import anything of ours.
@@ -216,8 +216,8 @@ pub(crate) fn probe_writable(destination: &Path) -> Result<(), String> {
     );
     return Err(code("DATA_ROOT_DESTINATION_NOT_WRITABLE"));
   }
-  let probe = destination.join(".donut-write-probe");
-  match std::fs::write(&probe, b"donut") {
+  let probe = destination.join(".bwbrowser-write-probe");
+  match std::fs::write(&probe, b"bwbrowser") {
     Ok(()) => {
       let _ = std::fs::remove_file(&probe);
       Ok(())
@@ -237,7 +237,7 @@ pub(crate) fn ensure_empty(destination: &Path) -> Result<(), String> {
     return Ok(());
   };
   for entry in entries.flatten() {
-    if entry.file_name() == ".donut-write-probe" {
+    if entry.file_name() == ".bwbrowser-write-probe" {
       continue;
     }
     return Err(code("DATA_ROOT_DESTINATION_NOT_EMPTY"));
@@ -821,7 +821,7 @@ mod tests {
     std::fs::create_dir_all(&parent).unwrap();
     std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o500)).unwrap();
 
-    let destination = parent.join("DonutBrowser");
+    let destination = parent.join("BwBrowser");
     let outcome = probe_writable(&destination);
     // Root ignores the mode bits, so the probe legitimately succeeds there and
     // there is nothing for this test to assert.

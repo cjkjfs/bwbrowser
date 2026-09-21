@@ -1,10 +1,10 @@
 //! Detects VPN/proxy browser extensions present in a profile.
 //!
 //! An extension holding Chromium's `proxy` permission can override the proxy
-//! Donut passes on the command line, so the browser's real exit stops being the
-//! one Donut measured and generated the fingerprint against. That produces
+//! Bwbrowser passes on the command line, so the browser's real exit stops being the
+//! one Bwbrowser measured and generated the fingerprint against. That produces
 //! exactly the geo/timezone/language mismatch the fingerprint exists to avoid,
-//! except Donut cannot observe it from the outside — hence a launch-time
+//! except Bwbrowser cannot observe it from the outside — hence a launch-time
 //! warning rather than a measurement.
 //!
 //! That permission is a capability, not an identity. Chromium exposes no
@@ -12,7 +12,7 @@
 //! route for its own transfers declares exactly what a VPN hijacking it
 //! declares. The two are reported as different things — see `rules::classify`.
 //!
-//! Two sources, deliberately both: Donut-managed extensions live in the app's
+//! Two sources, deliberately both: Bwbrowser-managed extensions live in the app's
 //! own store and are handed to Chromium via `--load-extension` from *outside*
 //! the profile directory, while extensions the user installed from the Web
 //! Store live *inside* it. Neither set appears in the other.
@@ -41,12 +41,12 @@ pub struct ExtensionScan {
   pub scan_state: String,
 }
 
-/// Donut-managed extensions, reached through the profile's extension group.
+/// Bwbrowser-managed extensions, reached through the profile's extension group.
 ///
 /// Read live from the stored archive rather than from the metadata cached on
 /// `Extension`, so replacing an extension's file cannot leave a stale verdict
 /// behind. N is the group size — typically a handful.
-fn scan_donut_extensions(profile: &BrowserProfile, out: &mut Vec<DetectedVpnExtension>) {
+fn scan_bwbrowser_extensions(profile: &BrowserProfile, out: &mut Vec<DetectedVpnExtension>) {
   let Some(group_id) = &profile.extension_group_id else {
     return;
   };
@@ -77,7 +77,7 @@ fn scan_donut_extensions(profile: &BrowserProfile, out: &mut Vec<DetectedVpnExte
       crate::extension_manager::resolve_archive_i18n(&data, &ext.file_type, &manifest, &raw_name)
         .unwrap_or_else(|| {
           // An unresolvable placeholder is not a name — fall back to the one
-          // the extension carries in Donut.
+          // the extension carries in Bwbrowser.
           if message_placeholder_key(&raw_name).is_some() {
             ext.name.clone()
           } else {
@@ -96,7 +96,7 @@ fn scan_donut_extensions(profile: &BrowserProfile, out: &mut Vec<DetectedVpnExte
 
     let signals = signals_from_manifest(&manifest);
     let keyword = vpn_keyword_hit(&name, description.as_deref());
-    // A Donut-managed extension is stored under Donut's own uuid, not the Web
+    // A Bwbrowser-managed extension is stored under Bwbrowser's own uuid, not the Web
     // Store id the known-VPN list is keyed on, so it is classified on what its
     // manifest says about itself.
     let Some(confidence) = classify(None, &signals, keyword) else {
@@ -104,10 +104,10 @@ fn scan_donut_extensions(profile: &BrowserProfile, out: &mut Vec<DetectedVpnExte
     };
 
     out.push(DetectedVpnExtension {
-      key: format!("donut:{ext_id}"),
+      key: format!("bwbrowser:{ext_id}"),
       name,
       version: manifest_str(&manifest, "version").or_else(|| ext.version.clone()),
-      source: "donut".to_string(),
+      source: "bwbrowser".to_string(),
       confidence: confidence.to_string(),
       proxy_control: signals.proxy_permission,
       signals: signal_labels(None, &signals, keyword),
@@ -123,7 +123,7 @@ pub fn scan_profile(profile: &BrowserProfile) -> ExtensionScan {
   let started = Instant::now();
   let mut extensions = Vec::new();
 
-  scan_donut_extensions(profile, &mut extensions);
+  scan_bwbrowser_extensions(profile, &mut extensions);
 
   let profiles_dir = crate::app_dirs::profiles_dir();
   let user_data_dir = crate::ephemeral_dirs::get_effective_profile_path(profile, &profiles_dir);
@@ -152,7 +152,7 @@ pub fn scan_profile(profile: &BrowserProfile) -> ExtensionScan {
   };
 
   // Collapse only exact duplicates of the same extension. `key` is the real
-  // identity (`donut:<uuid>` / `crx:<id>`); name+version is not, and two
+  // identity (`bwbrowser:<uuid>` / `crx:<id>`); name+version is not, and two
   // distinct extensions sharing a display name would silently fold into one,
   // hiding a real detection behind an unrelated namesake.
   let mut seen = HashSet::new();

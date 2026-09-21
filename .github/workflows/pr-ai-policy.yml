@@ -22,7 +22,7 @@ jobs:
     # template, and closing them would silently stop dependency updates and
     # break dependabot-automerge.yml.
     if: >-
-      github.repository == 'zhom/donutbrowser' &&
+      github.repository == 'zhom/bwbrowser' &&
       github.event.pull_request.state == 'open' &&
       github.event.pull_request.user.type != 'Bot'
     runs-on: ubuntu-latest
@@ -65,7 +65,7 @@ jobs:
           cat > /tmp/system.txt <<'PROMPT'
           You are enforcing the AI contribution policy on a pull request. Return ONLY a single JSON object, no prose, no markdown fences.
 
-          Project: Donut Browser. Two rules. Each one is independently sufficient to close the pull request.
+          Project: BW Browser. Two rules. Each one is independently sufficient to close the pull request.
 
           ## RULE 1: AI disclosure is mandatory
           The pull request template contains a required AI usage section with exactly two boxes:
@@ -185,7 +185,7 @@ jobs:
               for v in violations:
                   parts.append(f"- {v.get('detail', v.get('rule', 'policy violation'))}")
               parts.append('')
-              parts.append('The policy ([CONTRIBUTING.md](https://github.com/zhom/donutbrowser/blob/main/CONTRIBUTING.md#ai-policy)):')
+              parts.append('The policy ([CONTRIBUTING.md](https://github.com/zhom/bwbrowser/blob/main/CONTRIBUTING.md#ai-policy)):')
               parts.append('')
               parts.append('- Every pull request states, explicitly, whether AI was used. Tick exactly one box in the AI usage section. Neither, both, or a deleted section closes the PR.')
               parts.append('- No commit may be co-authored by an AI. Strip `Co-Authored-By:` and "Generated with ..." trailers before pushing. `git commit --amend` or a rebase is enough.')

@@ -10,15 +10,15 @@ import pytest
 # straight after a checkout.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from donutbrowser import DonutClient  # noqa: E402
-from fake_donut import FakeDonut  # noqa: E402
+from bwbrowser import BwbrowserClient  # noqa: E402
+from fake_bwbrowser import FakeBwbrowser  # noqa: E402
 
 TOKEN = "test-token-abc123"
 
 
 @pytest.fixture
-def fake() -> Iterator[FakeDonut]:
-    server = FakeDonut().start()
+def fake() -> Iterator[FakeBwbrowser]:
+    server = FakeBwbrowser().start()
     try:
         yield server
     finally:
@@ -26,6 +26,6 @@ def fake() -> Iterator[FakeDonut]:
 
 
 @pytest.fixture
-def client(fake: FakeDonut) -> Iterator[DonutClient]:
-    with DonutClient(token=TOKEN, port=fake.port, timeout=5.0, env={}) as connected:
+def client(fake: FakeBwbrowser) -> Iterator[BwbrowserClient]:
+    with BwbrowserClient(token=TOKEN, port=fake.port, timeout=5.0, env={}) as connected:
         yield connected
