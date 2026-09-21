@@ -180,7 +180,7 @@ jobs:
           BUILD_TAG: "nightly-${{ steps.timestamp.outputs.timestamp }}"
           GITHUB_REF_NAME: "nightly-${{ steps.timestamp.outputs.timestamp }}"
         run: |
-          cargo build --bin bwbrowser-proxy --target ${{ matrix.target }} --release
+          cargo build --bin bwbrowser-proxy --target ${{ matrix.target }} --release --features sidecar
 
       - name: Copy sidecar binaries to Tauri binaries
         shell: bash
