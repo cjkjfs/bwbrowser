@@ -785,7 +785,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "bwbrowser"
-version = "2.0.7"
+version = "2.0.8"
 dependencies = [
  "aes 0.9.3",
  "aes-gcm 0.11.1",

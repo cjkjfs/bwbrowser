@@ -10,7 +10,20 @@ permissions:
 
 jobs:
   release:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: windows
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            label: macos-arm
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            label: macos-intel
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -28,7 +41,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-msvc
+          targets: ${{ matrix.target }}
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -50,18 +63,27 @@ jobs:
         shell: bash
         working-directory: ./src-tauri
         run: |
-          cargo build --bin bwbrowser-proxy --target x86_64-pc-windows-msvc --release --features sidecar
+          cargo build --bin bwbrowser-proxy --target ${{ matrix.target }} --release --features sidecar
           echo "Sidecar build OK"
 
-      - name: Copy sidecar binary
+      - name: Copy sidecar binary (Windows)
+        if: matrix.label == 'windows'
         shell: bash
         run: |
           mkdir -p src-tauri/binaries
-          cp src-tauri/target/x86_64-pc-windows-msvc/release/bwbrowser-proxy.exe src-tauri/binaries/bwbrowser-proxy-x86_64-pc-windows-msvc.exe
+          cp src-tauri/target/${{ matrix.target }}/release/bwbrowser-proxy.exe src-tauri/binaries/bwbrowser-proxy-${{ matrix.target }}.exe
+          echo "Sidecar copied OK"
+
+      - name: Copy sidecar binary (macOS)
+        if: matrix.label != 'windows'
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries
+          cp src-tauri/target/${{ matrix.target }}/release/bwbrowser-proxy src-tauri/binaries/bwbrowser-proxy-${{ matrix.target }}
           echo "Sidecar copied OK"
 
       - name: Download Xray sidecar
-        run: node src-tauri/download-xray.mjs --target x86_64-pc-windows-msvc
+        run: node src-tauri/download-xray.mjs --target ${{ matrix.target }}
 
       - name: List binaries
         shell: bash
@@ -84,9 +106,10 @@ jobs:
           releaseBody: "See the assets to download this version and install."
           releaseDraft: false
           prerelease: false
-          args: --target x86_64-pc-windows-msvc --verbose
+          args: --target ${{ matrix.target }} --verbose
 
-      - name: Create portable ZIP
+      - name: Create portable ZIP (Windows)
+        if: matrix.label == 'windows'
         shell: bash
         env:
           TAG: ${{ github.ref_name }}
@@ -95,9 +118,9 @@ jobs:
           PORTABLE_DIR="Bwbrowser-Portable"
           mkdir -p "$PORTABLE_DIR"
 
-          cp "src-tauri/target/x86_64-pc-windows-msvc/release/bwbrowser.exe" "$PORTABLE_DIR/Bwbrowser.exe" || echo "main exe not found"
-          cp "src-tauri/target/x86_64-pc-windows-msvc/release/bwbrowser-proxy.exe" "$PORTABLE_DIR/" || echo "proxy not found"
-          cp "src-tauri/binaries/xray-x86_64-pc-windows-msvc.exe" "$PORTABLE_DIR/xray.exe" || echo "xray not found"
+          cp "src-tauri/target/${{ matrix.target }}/release/bwbrowser.exe" "$PORTABLE_DIR/Bwbrowser.exe" || echo "main exe not found"
+          cp "src-tauri/target/${{ matrix.target }}/release/bwbrowser-proxy.exe" "$PORTABLE_DIR/" || echo "proxy not found"
+          cp "src-tauri/binaries/xray-${{ matrix.target }}.exe" "$PORTABLE_DIR/xray.exe" || echo "xray not found"
 
           mkdir -p "$PORTABLE_DIR/licenses"
           cp "src-tauri/binaries/xray-LICENSE.txt" "$PORTABLE_DIR/licenses/" || echo "license not found"
@@ -105,7 +128,8 @@ jobs:
           touch "$PORTABLE_DIR/.portable"
           7z a "Bwbrowser_${VERSION}_x64-portable.zip" "$PORTABLE_DIR"
 
-      - name: Upload portable ZIP
+      - name: Upload portable ZIP (Windows)
+        if: matrix.label == 'windows'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
