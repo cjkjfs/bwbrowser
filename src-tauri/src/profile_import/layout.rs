@@ -2,7 +2,7 @@
 //!
 //! Two layout facts drive everything here:
 //!
-//! 1. Donut launches with `--user-data-dir` and no `--profile-directory`, so
+//! 1. Bwbrowser launches with `--user-data-dir` and no `--profile-directory`, so
 //!    Chromium reads `<user-data-dir>/Default/` (`chrome_constants.cc`
 //!    `kInitialProfile`). A source *profile* directory therefore has to be
 //!    copied one level down, not onto the root.

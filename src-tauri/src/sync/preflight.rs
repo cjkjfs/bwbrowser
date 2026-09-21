@@ -296,7 +296,7 @@ mod tests {
   #[test]
   fn a_presigned_url_yields_only_its_authority() {
     // The query carries the signature and the key. Neither may reach a log.
-    let signed = "http://minio:9000/donut/profiles/p1/profile/Default/Cookies\
+    let signed = "http://minio:9000/bwbrowser/profiles/p1/profile/Default/Cookies\
                   ?X-Amz-Signature=deadbeef&X-Amz-Credential=minioadmin";
     assert_eq!(storage_host(signed).as_deref(), Some("minio:9000"));
 
@@ -313,7 +313,7 @@ mod tests {
     // names and a bare "connection failed", and could not tell that the host
     // their server had signed into every URL was one only the server could
     // resolve.
-    let url = "https://minio.invalid:9000/donut/profiles/p1/Cookies?X-Amz-Signature=abc";
+    let url = "https://minio.invalid:9000/bwbrowser/profiles/p1/Cookies?X-Amz-Signature=abc";
     let error = probe_client()
       .put(url)
       .body(b"payload".to_vec())

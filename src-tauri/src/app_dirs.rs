@@ -27,18 +27,18 @@ pub fn is_portable() -> bool {
 }
 
 /// Optional single-root override for all on-disk state. Set
-/// `DONUTBROWSER_DATA_ROOT=/path` (e.g. a tmpfs mount) to relocate
+/// `BWBROWSER_DATA_ROOT=/path` (e.g. a tmpfs mount) to relocate
 /// data/cache/logs under `<root>/{data,cache,logs}` without touching the real
-/// dev/prod directories. The more specific `DONUTBROWSER_DATA_DIR` /
-/// `DONUTBROWSER_CACHE_DIR` overrides still take precedence over this.
+/// dev/prod directories. The more specific `BWBROWSER_DATA_DIR` /
+/// `BWBROWSER_CACHE_DIR` overrides still take precedence over this.
 fn data_root() -> Option<PathBuf> {
-  std::env::var_os("DONUTBROWSER_DATA_ROOT")
+  std::env::var_os("BWBROWSER_DATA_ROOT")
     .filter(|v| !v.is_empty())
     .map(PathBuf::from)
 }
 
 /// Where logs go when something other than the platform default applies:
-/// `<root>/logs` for `DONUTBROWSER_DATA_ROOT`, else `<exe dir>/logs` in
+/// `<root>/logs` for `BWBROWSER_DATA_ROOT`, else `<exe dir>/logs` in
 /// portable mode. `None` means the platform default app log dir.
 ///
 /// Portable belongs here for the same reason `data_dir` and `cache_dir` honour
@@ -74,7 +74,7 @@ static CUSTOM_DATA_ROOT: OnceLock<Option<PathBuf>> = OnceLock::new();
 /// send the next start back to the platform default. Every branch below
 /// therefore resolves OUTSIDE the data directory it points at.
 ///
-/// - With `DONUTBROWSER_DATA_ROOT` set, `<root>/data-root.json`, a sibling of
+/// - With `BWBROWSER_DATA_ROOT` set, `<root>/data-root.json`, a sibling of
 ///   `<root>/data`. An isolated run (the E2E harness) then keeps its own
 ///   pointer and can never read, or write, the real machine's.
 /// - In portable mode, `<exe dir>/data-root.json`, beside `<exe dir>/data`, so
@@ -174,7 +174,7 @@ pub fn custom_data_root() -> Option<&'static PathBuf> {
 /// portable mode, either directory override, or a data directory the user
 /// chose in Settings.
 fn state_is_relocated() -> bool {
-  std::env::var_os("DONUTBROWSER_DATA_DIR").is_some_and(|v| !v.is_empty())
+  std::env::var_os("BWBROWSER_DATA_DIR").is_some_and(|v| !v.is_empty())
     || custom_data_root().is_some()
     || data_root().is_some()
     || portable_dir().is_some()
@@ -213,7 +213,7 @@ fn window_state_override_for(relocated: bool, data_dir: PathBuf) -> Option<PathB
   let path = data_dir.join(WINDOW_STATE_FILENAME);
   if !path.is_absolute() {
     log::warn!(
-      "Ignoring relative window-state override {}: the plugin resolves its filename against app_config_dir, so geometry would never persist. Set DONUTBROWSER_DATA_DIR/DONUTBROWSER_DATA_ROOT to an absolute path.",
+      "Ignoring relative window-state override {}: the plugin resolves its filename against app_config_dir, so geometry would never persist. Set BWBROWSER_DATA_DIR/BWBROWSER_DATA_ROOT to an absolute path.",
       path.display()
     );
     return None;
@@ -238,9 +238,9 @@ pub fn window_state_path<R: tauri::Runtime>(handle: &tauri::AppHandle<R>) -> Opt
 
 pub fn app_name() -> &'static str {
   if cfg!(debug_assertions) {
-    "DonutBrowserDev"
+    "BwBrowserDev"
   } else {
-    "DonutBrowser"
+    "BwBrowser"
   }
 }
 
@@ -253,7 +253,7 @@ pub fn data_dir() -> PathBuf {
   }
 
   data_dir_for(
-    std::env::var_os("DONUTBROWSER_DATA_DIR")
+    std::env::var_os("BWBROWSER_DATA_DIR")
       .filter(|v| !v.is_empty())
       .map(PathBuf::from),
     custom_data_root(),
@@ -266,12 +266,12 @@ pub fn data_dir() -> PathBuf {
 /// The data directory resolution order, split out so it can be tested without
 /// mutating process-wide environment variables.
 ///
-/// `DONUTBROWSER_DATA_DIR` stays on top: it names an exact directory and is the
+/// `BWBROWSER_DATA_DIR` stays on top: it names an exact directory and is the
 /// bluntest override there is. The directory the user picked in Settings comes
-/// next, ahead of `DONUTBROWSER_DATA_ROOT` and portable mode, because both of
+/// next, ahead of `BWBROWSER_DATA_ROOT` and portable mode, because both of
 /// those are defaults for where state *would* live and an explicit choice
 /// outranks a default. It cannot break an isolated run, because the pointer it
-/// is read from lives under that same `DONUTBROWSER_DATA_ROOT`.
+/// is read from lives under that same `BWBROWSER_DATA_ROOT`.
 fn data_dir_for(
   env_data_dir: Option<PathBuf>,
   custom_root: Option<&PathBuf>,
@@ -298,7 +298,7 @@ fn data_dir_for(
 /// in Settings so a person can see what they moved away from.
 pub fn default_data_dir() -> PathBuf {
   data_dir_for(
-    std::env::var_os("DONUTBROWSER_DATA_DIR")
+    std::env::var_os("BWBROWSER_DATA_DIR")
       .filter(|v| !v.is_empty())
       .map(PathBuf::from),
     None,
@@ -311,7 +311,7 @@ pub fn default_data_dir() -> PathBuf {
 /// True when an environment override decides the data directory, so a
 /// directory chosen in Settings would be recorded but not used.
 pub fn data_dir_forced_by_environment() -> bool {
-  std::env::var_os("DONUTBROWSER_DATA_DIR").is_some_and(|v| !v.is_empty())
+  std::env::var_os("BWBROWSER_DATA_DIR").is_some_and(|v| !v.is_empty())
 }
 
 pub fn cache_dir() -> PathBuf {
@@ -322,7 +322,7 @@ pub fn cache_dir() -> PathBuf {
     }
   }
 
-  if let Ok(dir) = std::env::var("DONUTBROWSER_CACHE_DIR") {
+  if let Ok(dir) = std::env::var("BWBROWSER_CACHE_DIR") {
     return PathBuf::from(dir);
   }
 
@@ -481,8 +481,8 @@ mod tests {
   fn test_app_name() {
     let name = app_name();
     assert!(
-      name == "DonutBrowser" || name == "DonutBrowserDev",
-      "app_name should be DonutBrowser or DonutBrowserDev, got: {name}"
+      name == "BwBrowser" || name == "BwBrowserDev",
+      "app_name should be BwBrowser or BwBrowserDev, got: {name}"
     );
   }
 
@@ -529,8 +529,8 @@ mod tests {
 
   #[test]
   fn log_dir_follows_portable_mode_and_data_root() {
-    let root = PathBuf::from("/tmp/donut-root");
-    let portable = PathBuf::from("/tmp/donut-portable");
+    let root = PathBuf::from("/tmp/bwbrowser-root");
+    let portable = PathBuf::from("/tmp/bwbrowser-portable");
 
     // Neither: the platform default app log dir is used.
     assert_eq!(log_dir_for(None, None), None);
@@ -541,7 +541,7 @@ mod tests {
       Some(portable.join("logs"))
     );
 
-    // DONUTBROWSER_DATA_ROOT wins over portable, matching data_dir/cache_dir.
+    // BWBROWSER_DATA_ROOT wins over portable, matching data_dir/cache_dir.
     assert_eq!(
       log_dir_for(Some(root.clone()), Some(&portable)),
       Some(root.join("logs"))
@@ -558,8 +558,8 @@ mod tests {
     // absolute path discards the base. tauri-plugin-window-state does
     // `app_config_dir().join(filename)`, so an absolute "filename" relocates
     // the file. If this ever stops holding, the redirect silently stops too.
-    let base = PathBuf::from("/Users/someone/Library/Application Support/com.donutbrowser");
-    let absolute = PathBuf::from("/Volumes/Stick/Donut/data").join(WINDOW_STATE_FILENAME);
+    let base = PathBuf::from("/Users/someone/Library/Application Support/com.bwbrowser");
+    let absolute = PathBuf::from("/Volumes/Stick/Bwbrowser/data").join(WINDOW_STATE_FILENAME);
     assert_eq!(base.join(&absolute), absolute);
     assert!(!base.join(&absolute).starts_with(&base));
   }
@@ -575,7 +575,7 @@ mod tests {
 
   #[test]
   fn window_state_override_rejects_a_relative_data_dir() {
-    // `DONUTBROWSER_DATA_ROOT=don-state` (or a relative DATA_DIR) would hand the
+    // `BWBROWSER_DATA_ROOT=don-state` (or a relative DATA_DIR) would hand the
     // plugin a relative filename it resolves against app_config_dir, into a
     // directory nothing creates. Falling back to the default keeps geometry.
     assert_eq!(
@@ -586,7 +586,7 @@ mod tests {
 
     // temp_dir is absolute on every platform; a hard-coded "/tmp/..." is not
     // absolute on Windows, where these tests also run.
-    let relocated = std::env::temp_dir().join("donut-relocated");
+    let relocated = std::env::temp_dir().join("bwbrowser-relocated");
     assert_eq!(
       window_state_override_for(true, relocated.clone()),
       Some(relocated.join(WINDOW_STATE_FILENAME))
@@ -596,7 +596,7 @@ mod tests {
 
   #[test]
   fn window_state_follows_a_relocated_data_dir() {
-    let tmp = PathBuf::from("/tmp/donut-relocated");
+    let tmp = PathBuf::from("/tmp/bwbrowser-relocated");
     let _guard = set_test_data_dir(tmp.clone());
     // data_dir is overridden, so the file tracks it rather than app_config_dir.
     assert_eq!(
@@ -609,7 +609,7 @@ mod tests {
   fn portable_keeps_data_cache_and_logs_under_one_root() {
     // The three state directories must agree on where portable state lives, so
     // a portable install leaves nothing behind on the host.
-    let portable = PathBuf::from("/tmp/donut-portable");
+    let portable = PathBuf::from("/tmp/bwbrowser-portable");
     assert_eq!(
       log_dir_for(None, Some(&portable)),
       Some(portable.join("logs"))
@@ -621,12 +621,12 @@ mod tests {
   #[test]
   fn data_dir_resolution_order_puts_the_chosen_directory_under_the_exact_override() {
     let env_dir = PathBuf::from("/env/exact");
-    let chosen = PathBuf::from("/Volumes/Big/DonutBrowser");
+    let chosen = PathBuf::from("/Volumes/Big/BwBrowser");
     let env_root = PathBuf::from("/env/root");
     let portable = PathBuf::from("/stick");
-    let default = PathBuf::from("/home/user/.local/share/DonutBrowser");
+    let default = PathBuf::from("/home/user/.local/share/BwBrowser");
 
-    // DONUTBROWSER_DATA_DIR names an exact directory and outranks everything.
+    // BWBROWSER_DATA_DIR names an exact directory and outranks everything.
     assert_eq!(
       data_dir_for(
         Some(env_dir.clone()),
@@ -673,11 +673,11 @@ mod tests {
 
   #[test]
   fn the_pointer_never_lives_inside_the_directory_it_points_at() {
-    let root = PathBuf::from("/tmp/donut-root");
-    let portable = PathBuf::from("/tmp/donut-portable");
-    let preference = PathBuf::from("/home/user/.config/DonutBrowser");
+    let root = PathBuf::from("/tmp/bwbrowser-root");
+    let portable = PathBuf::from("/tmp/bwbrowser-portable");
+    let preference = PathBuf::from("/home/user/.config/BwBrowser");
 
-    // With DONUTBROWSER_DATA_ROOT the data dir is <root>/data, so a sibling
+    // With BWBROWSER_DATA_ROOT the data dir is <root>/data, so a sibling
     // file survives deleting it — and an isolated run reads only its own.
     let with_root =
       data_root_pointer_file_for(Some(root.clone()), Some(&portable), preference.clone());
@@ -698,7 +698,7 @@ mod tests {
   fn a_written_pointer_reads_back_and_a_broken_one_falls_back() {
     let temp = tempfile::tempdir().unwrap();
     let file = temp.path().join("nested").join(DATA_ROOT_POINTER_FILENAME);
-    let target = std::env::temp_dir().join("donut-moved-root");
+    let target = std::env::temp_dir().join("bwbrowser-moved-root");
 
     assert_eq!(read_data_root_pointer(&file), None, "missing file");
 
@@ -738,7 +738,7 @@ mod tests {
 
   #[test]
   fn test_set_test_data_dir() {
-    let tmp = PathBuf::from("/tmp/test-donut-data");
+    let tmp = PathBuf::from("/tmp/test-bwbrowser-data");
     let _guard = set_test_data_dir(tmp.clone());
     assert_eq!(data_dir(), tmp);
     assert_eq!(profiles_dir(), tmp.join("profiles"));
@@ -747,7 +747,7 @@ mod tests {
 
   #[test]
   fn test_set_test_cache_dir() {
-    let tmp = PathBuf::from("/tmp/test-donut-cache");
+    let tmp = PathBuf::from("/tmp/test-bwbrowser-cache");
     let _guard = set_test_cache_dir(tmp.clone());
     assert_eq!(cache_dir(), tmp);
   }

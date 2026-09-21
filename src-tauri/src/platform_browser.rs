@@ -10,7 +10,7 @@ use std::process::Command;
 /// caught unrelated processes that legitimately name the directory (`du -sh
 /// <profile>`, `tar czf backup.tgz <profile>`, an editor, a sibling profile
 /// whose path has this one as a prefix). `browser.rs` only ever emits the flag
-/// form, so nothing Donut launches is missed.
+/// form, so nothing Bwbrowser launches is missed.
 ///
 /// Only the macOS and Linux process-kill paths use this; Windows has no
 /// `find_processes_by_profile_path`, so gate it to avoid a dead-code error there.
@@ -45,7 +45,7 @@ mod profile_path_match_tests {
 
   #[test]
   fn bare_path_argument_does_not_match() {
-    let profile = "/tmp/donut/profiles/work";
+    let profile = "/tmp/bwbrowser/profiles/work";
     assert!(!cmd_matches_profile_path(
       &cmd(&["du", "-sh", profile]),
       profile
@@ -58,7 +58,7 @@ mod profile_path_match_tests {
 
   #[test]
   fn user_data_dir_flag_matches() {
-    let profile = "/tmp/donut/profiles/work";
+    let profile = "/tmp/bwbrowser/profiles/work";
     assert!(cmd_matches_profile_path(
       &cmd(&["wayfern", &format!("--user-data-dir={profile}")]),
       profile
@@ -71,9 +71,9 @@ mod profile_path_match_tests {
 
   #[test]
   fn a_sibling_profile_prefix_does_not_match() {
-    let profile = "/tmp/donut/profiles/work";
+    let profile = "/tmp/bwbrowser/profiles/work";
     assert!(!cmd_matches_profile_path(
-      &cmd(&["wayfern", "--user-data-dir=/tmp/donut/profiles/work-2"]),
+      &cmd(&["wayfern", "--user-data-dir=/tmp/bwbrowser/profiles/work-2"]),
       profile
     ));
   }
@@ -328,8 +328,8 @@ pub mod macos {
     // The Chromium `--user-data-dir=<path> <url>` remote command failed.
     // We intentionally do NOT fall back to an AppleScript `System Events`
     // keystroke path: that would send Apple Events to another application
-    // and trigger the macOS TCC "<Donut> wants control of <Browser>" /
-    // "prevented from modifying other apps" prompts. Donut must never touch
+    // and trigger the macOS TCC "<Bwbrowser> wants control of <Browser>" /
+    // "prevented from modifying other apps" prompts. Bwbrowser must never touch
     // other apps on the user's Mac.
     Err(
       format!(

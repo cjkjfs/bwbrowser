@@ -1426,6 +1426,64 @@ impl WayfernManager {
     Some(serde_json::Value::Object(document))
   }
 
+  /// Build a launch-time "location-only" identity document for profiles that
+  /// have no real `identityId`. We still want the browser to apply the
+  /// timezone (and language / coordinates) before the first navigation so
+  /// that no page script ever sees the host's timezone — which is what makes
+  /// CDP-based timezone injection detectable.
+  ///
+  /// The document carries a synthetic identity id so the file format is
+  /// valid. If Wayfern refuses the unknown id we still fall back to
+  /// `setFingerprint` over CDP, but the happy path (id accepted, or at least
+  /// timezone applied despite the id) gives us kernel-level timezone that
+  /// browserscan cannot distinguish from a real identity.
+  ///
+  /// Returns `None` when the config has no timezone (nothing to gain).
+  pub fn launch_location_document(config: &WayfernConfig) -> Option<serde_json::Value> {
+    if config.identity_id.is_some() {
+      return None; // real identity — use launch_identity_document instead
+    }
+    if config.fingerprint.is_some() {
+      return None; // fingerprint profile — setFingerprint handles it
+    }
+    let host_os = crate::profile::types::get_host_os();
+    let os = Self::claimed_operating_system(config, None).unwrap_or(host_os.as_str());
+    let location = Self::stored_object(config.location.as_deref());
+    let geo = Self::geo_params(&location);
+    let timezone = geo
+      .get("timezone")
+      .and_then(|v| v.as_str())
+      .filter(|tz| !tz.is_empty())?;
+
+    let mut document = serde_json::Map::new();
+    // Synthetic id — valid format, obviously not a real identity.
+    document.insert("identityId".to_string(), json!("local-timezone-override"));
+    document.insert("operatingSystem".to_string(), json!(os));
+    document.insert("timezone".to_string(), json!(timezone));
+    if let Some(language) = geo
+      .get("language")
+      .and_then(|v| v.as_str())
+      .filter(|l| !l.is_empty())
+    {
+      document.insert("language".to_string(), json!(language));
+    }
+    if let (Some(latitude), Some(longitude)) = (
+      geo.get("latitude").and_then(|v| v.as_f64()),
+      geo.get("longitude").and_then(|v| v.as_f64()),
+    ) {
+      document.insert("latitude".to_string(), json!(latitude));
+      document.insert("longitude".to_string(), json!(longitude));
+    }
+    let overrides = Self::stored_object(config.identity_overrides.as_deref());
+    if !overrides.is_empty() {
+      document.insert(
+        "overrides".to_string(),
+        serde_json::Value::Object(overrides),
+      );
+    }
+    Some(serde_json::Value::Object(document))
+  }
+
   /// Write the launch identity into the profile directory and return the
   /// absolute path the browser is given. Private to the user on Unix: the
   /// document names the identity and the user's overrides.
@@ -2128,14 +2186,74 @@ impl WayfernManager {
     }
 
     let use_identity_api = supports_identity_api(&profile.version);
+    let mut fell_back_to_legacy = false;
 
     // No geolocation override is passed here. Donut resolves the exit's
     // location itself, below, through the profile's own proxy, because the
     // browser cannot resolve it through an authenticated upstream.
     let generate_result = if use_identity_api {
-      self
-        .send_cdp_command(&ws_url, "Wayfern.createIdentity", generate_params)
-        .await
+      let identity_result = self
+        .send_cdp_command(&ws_url, "Wayfern.createIdentity", generate_params.clone())
+        .await;
+
+      match identity_result {
+        Ok(r) => Ok(r),
+        Err(e) => {
+          let err_str = e.to_string();
+          log::warn!(
+            "Wayfern.createIdentity failed: {} (checking for quota limit fallback)",
+            err_str
+          );
+          // 配额不足时自动降级
+          let is_limit_error = err_str.contains("limit reached")
+            || err_str.contains("generation limit")
+            || err_str.contains("quota")
+            || err_str.contains("LIMIT_REACHED")
+            || err_str.contains("limit");
+          if is_limit_error {
+            log::warn!("Quota limit detected; trying legacy refreshFingerprint fallback",);
+            fell_back_to_legacy = true;
+            // 第一步：试 legacy 的 refreshFingerprint
+            match self
+              .send_cdp_command(
+                &ws_url,
+                "Wayfern.refreshFingerprint",
+                generate_params.clone(),
+              )
+              .await
+            {
+              Ok(_) => {
+                log::info!("Legacy refreshFingerprint succeeded");
+                self
+                  .send_cdp_command(&ws_url, "Wayfern.getFingerprint", json!({}))
+                  .await
+              }
+              Err(refresh_err) => {
+                log::warn!(
+                  "Legacy refreshFingerprint also failed ({}); falling back to default fingerprint + location override",
+                  refresh_err
+                );
+                // 第二步：直接用默认指纹 + 手动覆盖时区（不消耗配额）
+                match self
+                  .send_cdp_command(&ws_url, "Wayfern.getFingerprint", json!({}))
+                  .await
+                {
+                  Ok(default_fp) => {
+                    log::info!("Got default Wayfern fingerprint; will apply location override");
+                    Ok(default_fp)
+                  }
+                  Err(get_err) => {
+                    log::error!("Even getFingerprint failed: {}", get_err);
+                    Err(e)
+                  }
+                }
+              }
+            }
+          } else {
+            Err(e)
+          }
+        }
+      }
     } else {
       match self
         .send_cdp_command(&ws_url, "Wayfern.refreshFingerprint", generate_params)
@@ -2266,11 +2384,17 @@ impl WayfernManager {
       );
     }
 
-    if use_identity_api && identity_id.is_none() {
+    if use_identity_api && identity_id.is_none() && !fell_back_to_legacy {
       // Without the handle the stored fingerprint is not reproducible, which
       // would leave a profile that silently changes device on every launch.
       // The headless browser is already torn down by the `cleanup()` above.
       return Err("Wayfern.createIdentity returned no identityId".into());
+    }
+
+    if fell_back_to_legacy {
+      log::info!(
+        "Legacy fallback fingerprint generated successfully (no identity_id, setFingerprint mode)",
+      );
     }
 
     Ok(GeneratedFingerprint {
@@ -2375,8 +2499,8 @@ impl WayfernManager {
                       "Pre-launch: Cookie decryption SUCCEEDED for '{}' (host: {}, decrypted {} bytes)",
                       name, host, val.len()
                     ),
-                    None => log::error!(
-                      "Pre-launch: Cookie decryption FAILED for '{}' (host: {}, encrypted {} bytes)",
+                    None => log::warn!(
+                      "Pre-launch: Cookie decryption skipped for '{}' (host: {}, encrypted {} bytes) - not fatal",
                       name, host, encrypted.len()
                     ),
                   }
@@ -2578,8 +2702,12 @@ impl WayfernManager {
     // the profile's device rather than the host's. Older browsers, legacy
     // device payloads and a profile whose location carries no timezone keep
     // the post-launch CDP apply below.
+    //
+    // We also try a location-only document when there is no real identity and
+    // no stored fingerprint: the browser still gets the right timezone before
+    // first paint, avoiding the detectable CDP Emulation fallback.
     let launch_identity = if supports_wayfern_152(&profile.version) {
-      Self::launch_identity_document(config)
+      Self::launch_identity_document(config).or_else(|| Self::launch_location_document(config))
     } else {
       None
     };
@@ -2697,6 +2825,27 @@ impl WayfernManager {
       log::info!("Wayfern authorization configured for browser process");
     }
 
+    // Set TZ environment variable — V8's ICU library reads this on all platforms,
+    // making Intl.DateTimeFormat and Date return the proxy's timezone on every tab
+    // without any CDP injection. This is the most reliable cross-tab method and
+    // cannot be detected as an injection.
+    {
+      let location = Self::stored_object(config.location.as_deref());
+      let geo = Self::geo_params(&location);
+      if let Some(tz) = geo
+        .get("timezone")
+        .and_then(|v| v.as_str())
+        .filter(|tz| !tz.is_empty())
+      {
+        command.env("TZ", tz);
+        log::info!(
+          "TZ environment variable set to {} for profile {}",
+          tz,
+          profile.name
+        );
+      }
+    }
+
     let mut child = command
       .spawn()
       .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
@@ -2722,6 +2871,28 @@ impl WayfernManager {
 
     let page_targets: Vec<_> = targets.iter().filter(|t| t.target_type == "page").collect();
     log::info!("Found {} page targets", page_targets.len());
+
+    crate::bwbrowser_cloud::log_bwbrowser(
+      "launch_account",
+      &format!(
+        "  [Launch] config: identity_id={:?}, fingerprint={} chars, location={}",
+        config.identity_id,
+        config
+          .fingerprint
+          .as_deref()
+          .map(|f| f.len().to_string())
+          .unwrap_or("None".to_string()),
+        config
+          .location
+          .as_deref()
+          .map(|l| if l.is_empty() || l == "{}" {
+            "empty"
+          } else {
+            "set"
+          })
+          .unwrap_or("None"),
+      ),
+    );
 
     // An identity-backed profile: the id, the user's overrides and the exit's
     // location are all the browser needs, and all the profile stores. The
@@ -2859,9 +3030,12 @@ impl WayfernManager {
         );
       }
     } else if let Some(fingerprint_json) = &config.fingerprint {
-      log::info!(
-        "Applying fingerprint to Wayfern browser, fingerprint length: {} chars",
-        fingerprint_json.len()
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "launch_account",
+        &format!(
+          "  [Launch] Applying fingerprint to Wayfern browser, fingerprint length: {} chars",
+          fingerprint_json.len()
+        ),
       );
       Self::warn_on_screen_over_host(fingerprint_json, profile, _app_handle);
 
@@ -2870,7 +3044,32 @@ impl WayfernManager {
       // consistency gate reads, and nothing is defaulted in. A profile that
       // declares no timezone is launched with none, which is exactly what the
       // gate reports to the user.
-      let fingerprint_for_cdp = Self::launch_fingerprint_payload(fingerprint_json)?;
+      let mut fingerprint_for_cdp = Self::launch_fingerprint_payload(fingerprint_json)?;
+
+      // 如果 config.location 里有正确的时区信息，合并到 fingerprint 里。
+      // 这对 setFingerprint 模式尤其重要：identity 模式通过 launch_identity_document 传时区，
+      // 但 setFingerprint 模式只用 fingerprint JSON，必须把 location 里的时区合并进去，
+      // 否则 browserscan 会检测出 IP 时区与浏览器时区不一致。
+      let location_obj = Self::stored_object(config.location.as_deref());
+      if !location_obj.is_empty() {
+        if let Some(obj) = fingerprint_for_cdp.as_object_mut() {
+          let mut merged = 0;
+          for key in LOCALE_CARRY_OVER_KEYS {
+            if let Some(value) = location_obj.get(key) {
+              if !value.is_null() {
+                obj.insert(key.to_string(), value.clone());
+                merged += 1;
+              }
+            }
+          }
+          if merged > 0 {
+            log::info!(
+              "Merged {} location fields into setFingerprint payload (from config.location)",
+              merged
+            );
+          }
+        }
+      }
 
       log::info!(
         "Fingerprint prepared for CDP command, fields: {:?}",
@@ -2919,17 +3118,26 @@ impl WayfernManager {
 
       for target in &page_targets {
         if let Some(ws_url) = &target.websocket_debugger_url {
-          log::info!("Applying fingerprint to page target");
+          crate::bwbrowser_cloud::log_bwbrowser(
+            "launch_account",
+            "  [Launch] Applying fingerprint to page target via setFingerprint...",
+          );
           match self
             .send_cdp_command(ws_url, "Wayfern.setFingerprint", apply_params.clone())
             .await
           {
             Ok(_) => {
               applied_ok = true;
-              log::info!("Successfully applied fingerprint to page target");
+              crate::bwbrowser_cloud::log_bwbrowser(
+                "launch_account",
+                "  [Launch] ✓ Successfully applied fingerprint to page target",
+              );
             }
             Err(e) => {
-              log::error!("Failed to apply fingerprint to target: {e}");
+              crate::bwbrowser_cloud::log_bwbrowser_error(
+                "launch_account",
+                &format!("  [Launch] ✗ Failed to apply fingerprint to target: {e}"),
+              );
               last_apply_error = Some(e.to_string());
             }
           }
@@ -2959,7 +3167,141 @@ impl WayfernManager {
         );
       }
     } else {
-      log::warn!("No fingerprint found in config, browser will use default fingerprint");
+      // No identity, no stored fingerprint. We may have written a
+      // location-only launch identity file so the browser picks up the
+      // timezone before first navigation. Check whether that already worked
+      // before falling back to a CDP setFingerprint (which fingerprint
+      // detection sites can spot).
+      let location_obj = Self::stored_object(config.location.as_deref());
+      let expected_timezone = location_obj
+        .get("timezone")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
+      let mut needs_setfingerprint = expected_timezone.is_some();
+
+      // If we used a launch identity file, check if the browser already has
+      // the right timezone. If yes, we're done — no CDP injection needed.
+      if launch_identity.is_some() && needs_setfingerprint {
+        if let Some(expected_tz) = expected_timezone {
+          let mut current_tz: Option<String> = None;
+          for target in &page_targets {
+            if let Some(ws_url) = &target.websocket_debugger_url {
+              if let Ok(fp) = self
+                .send_cdp_command(ws_url, "Wayfern.getFingerprint", json!({}))
+                .await
+              {
+                current_tz = fp
+                  .get("timezone")
+                  .and_then(|v| v.as_str())
+                  .map(|s| s.to_string());
+                break;
+              }
+            }
+          }
+
+          if current_tz.as_deref() == Some(expected_tz) {
+            log::info!(
+              "Launch location document already applied timezone {}; skipping CDP setFingerprint",
+              expected_tz
+            );
+            needs_setfingerprint = false;
+          } else {
+            log::warn!(
+              "Launch location document did not apply timezone (expected: {}, got: {:?}); falling back to setFingerprint",
+              expected_tz,
+              current_tz
+            );
+          }
+        }
+      }
+
+      if needs_setfingerprint {
+        log::info!(
+          "Applying timezone via setFingerprint fallback; fetching default fingerprint for location merge",
+        );
+
+        // Get default fingerprint from the first available page target
+        let mut default_fp: Option<serde_json::Value> = None;
+        for target in &page_targets {
+          if let Some(ws_url) = &target.websocket_debugger_url {
+            match self
+              .send_cdp_command(ws_url, "Wayfern.getFingerprint", json!({}))
+              .await
+            {
+              Ok(fp) => {
+                default_fp = Some(fp);
+                break;
+              }
+              Err(e) => log::warn!("Failed to get default fingerprint from target: {e}"),
+            }
+          }
+        }
+
+        if let Some(default_fp_val) = default_fp {
+          let mut fingerprint_for_cdp =
+            Self::launch_fingerprint_payload(&default_fp_val.to_string())?;
+
+          // Merge location fields into the default fingerprint
+          if let Some(obj) = fingerprint_for_cdp.as_object_mut() {
+            let mut merged = 0;
+            for key in LOCALE_CARRY_OVER_KEYS {
+              if let Some(value) = location_obj.get(key) {
+                if !value.is_null() {
+                  obj.insert(key.to_string(), value.clone());
+                  merged += 1;
+                }
+              }
+            }
+            log::info!(
+              "Merged {} location fields into default fingerprint (timezone: {:?})",
+              merged,
+              location_obj.get("timezone")
+            );
+          }
+
+          // Include wayfern token if available
+          let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+          let mut apply_params = fingerprint_for_cdp.clone();
+          if let Some(ref token) = wayfern_token {
+            if let Some(obj) = apply_params.as_object_mut() {
+              obj.insert("wayfernToken".to_string(), json!(token));
+            }
+          }
+
+          let mut applied_ok = false;
+          let mut last_apply_error: Option<String> = None;
+          for target in &page_targets {
+            if let Some(ws_url) = &target.websocket_debugger_url {
+              match self
+                .send_cdp_command(ws_url, "Wayfern.setFingerprint", apply_params.clone())
+                .await
+              {
+                Ok(_) => {
+                  applied_ok = true;
+                  log::info!("Successfully applied default+location fingerprint to page target");
+                }
+                Err(e) => {
+                  log::error!("Failed to apply default+location fingerprint: {e}");
+                  last_apply_error = Some(e.to_string());
+                }
+              }
+            }
+          }
+
+          if !applied_ok {
+            log::warn!(
+              "Failed to apply default+location fingerprint ({}); falling back to default fingerprint",
+              last_apply_error.unwrap_or_else(|| "no page target".to_string())
+            );
+          }
+        } else {
+          log::warn!("Could not get default Wayfern fingerprint; browser will use host timezone");
+        }
+      } else {
+        log::warn!(
+          "No fingerprint and no timezone in location; browser will use default fingerprint"
+        );
+      }
     }
 
     // Geolocation is handled internally by the browser binary.
@@ -3029,6 +3371,218 @@ impl WayfernManager {
       url: url.map(|s| s.to_string()),
       cdp_port: Some(port),
     })
+  }
+
+  /// Set timezone and language via Wayfern's own CDP commands (kernel-level, all tabs).
+  /// getFingerprint → modify timezone + language → setFingerprint
+  pub async fn set_wayfern_timezone(
+    &self,
+    profile: &crate::profile::BrowserProfile,
+    timezone: &str,
+    language: Option<&str>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+  ) -> Result<bool, String> {
+    let target = crate::cdp_target::resolve(profile)
+      .await
+      .map_err(|e| format!("CDP 连接失败: {}", e))?;
+
+    let ws_url = match &target {
+      crate::cdp_target::CdpTarget::Local { ws_url } => ws_url.as_str(),
+      crate::cdp_target::CdpTarget::Remote { ws_url, .. } => ws_url.as_str(),
+    };
+
+    // 1. Use the stored fingerprint (already applied by launch_wayfern) instead of
+    //    calling getFingerprint, which may return a new random fingerprint.
+    //    This ensures the same fingerprint is reused across launches.
+    let stored_fp_str = profile
+      .wayfern_config
+      .as_ref()
+      .and_then(|c| c.fingerprint.as_deref())
+      .filter(|f| !f.is_empty() && *f != "{}");
+
+    let current_fp: serde_json::Value = if let Some(fp_str) = stored_fp_str {
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "launch_account",
+        &format!(
+          "  [Wayfern-TZ] Using stored fingerprint ({} chars) instead of getFingerprint",
+          fp_str.len()
+        ),
+      );
+      Self::fingerprint_object(fp_str)
+        .map(serde_json::Value::Object)
+        .unwrap_or_else(|| {
+          crate::bwbrowser_cloud::log_bwbrowser_error(
+            "launch_account",
+            "  [Wayfern-TZ] Failed to parse stored fingerprint, falling back to getFingerprint",
+          );
+          serde_json::json!({})
+        })
+    } else {
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "launch_account",
+        "  [Wayfern-TZ] No stored fingerprint, calling getFingerprint for current fingerprint",
+      );
+      self
+        .send_cdp_command(ws_url, "Wayfern.getFingerprint", json!({}))
+        .await
+        .map_err(|e| format!("getFingerprint failed: {}", e))?
+    };
+
+    log::info!(
+      "set_wayfern_timezone: current fingerprint timezone = {:?}, language = {:?}",
+      current_fp.get("timezone"),
+      current_fp.get("language")
+    );
+
+    // 2. Modify timezone, language and related fields
+    let mut modified_fp = current_fp.clone();
+    if let Some(obj) = modified_fp.as_object_mut() {
+      // Timezone
+      obj.insert("timezone".to_string(), json!(timezone));
+      if let Some(offset_minutes) = Self::timezone_offset_minutes(timezone) {
+        obj.insert("timezoneOffset".to_string(), json!(offset_minutes));
+      }
+
+      // Language
+      if let Some(lang) = language {
+        if !lang.is_empty() {
+          obj.insert("language".to_string(), json!(lang));
+          // Build languages array: primary lang, base lang, en-US, en
+          let base = lang.split('-').next().unwrap_or(lang);
+          let mut langs = vec![lang.to_string()];
+          if base != lang {
+            langs.push(base.to_string());
+          }
+          if lang != "en-US" {
+            langs.push("en-US".to_string());
+            langs.push("en".to_string());
+          }
+          obj.insert("languages".to_string(), json!(langs));
+          log::info!(
+            "set_wayfern_timezone: setting language to {} (languages: {:?})",
+            lang,
+            langs
+          );
+        }
+      }
+
+      // Geolocation coordinates
+      if let (Some(lat), Some(lng)) = (latitude, longitude) {
+        obj.insert("latitude".to_string(), json!(lat));
+        obj.insert("longitude".to_string(), json!(lng));
+        log::info!("set_wayfern_timezone: setting lat={}, lng={}", lat, lng);
+      }
+
+      log::info!(
+        "set_wayfern_timezone: setting timezone to {} (offset computed)",
+        timezone
+      );
+    }
+
+    // 3. Apply modified fingerprint
+    // Save fingerprint for next launch (before moving into apply_params)
+    let fp_to_save = modified_fp.clone();
+    let mut apply_params = modified_fp;
+    let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+    if let Some(ref token) = wayfern_token {
+      if let Some(obj) = apply_params.as_object_mut() {
+        obj.insert("wayfernToken".to_string(), json!(token));
+      }
+    }
+
+    // (fp_to_save already cloned above)
+
+    match self
+      .send_cdp_command(ws_url, "Wayfern.setFingerprint", apply_params)
+      .await
+    {
+      Ok(_) => {
+        crate::bwbrowser_cloud::log_bwbrowser(
+          "launch_account",
+          &"  [Wayfern-TZ] setFingerprint succeeded, saving fingerprint...".to_string(),
+        );
+
+        // Save fingerprint to profile's wayfern config so next launch reuses it
+        let pm = crate::profile::manager::ProfileManager::instance();
+        match pm.list_profiles() {
+          Ok(profiles) => {
+            crate::bwbrowser_cloud::log_bwbrowser(
+              "launch_account",
+              &format!(
+                "  [Wayfern-TZ] list_profiles returned {} profiles, looking for {}",
+                profiles.len(),
+                profile.id
+              ),
+            );
+            if let Some(mut p) = profiles.into_iter().find(|p| p.id == profile.id) {
+              let fp_str = fp_to_save.to_string();
+              let fp_len = fp_str.len();
+              if let Some(ref mut wc) = p.wayfern_config {
+                wc.fingerprint = Some(fp_str);
+                // Mark as non-randomizing so browser_runner.rs doesn't trigger
+                // migrating_payload (which would generate a new fingerprint every
+                // launch, overwriting the saved one).
+                wc.randomize_fingerprint_on_launch = Some(false);
+                crate::bwbrowser_cloud::log_bwbrowser(
+                  "launch_account",
+                  &format!(
+                    "  [Wayfern-TZ] saved fingerprint ({} chars) to existing wayfern config",
+                    fp_len
+                  ),
+                );
+              } else {
+                let mut wc = crate::wayfern_manager::WayfernConfig::default();
+                wc.fingerprint = Some(fp_str);
+                wc.randomize_fingerprint_on_launch = Some(false);
+                p.wayfern_config = Some(wc);
+                crate::bwbrowser_cloud::log_bwbrowser(
+                  "launch_account",
+                  &format!(
+                    "  [Wayfern-TZ] created new wayfern config with fingerprint ({} chars)",
+                    fp_len
+                  ),
+                );
+              }
+              if let Err(e) = pm.save_profile(&p) {
+                crate::bwbrowser_cloud::log_bwbrowser_error(
+                  "launch_account",
+                  &format!("  [Wayfern-TZ] failed to save fingerprint: {}", e),
+                );
+              } else {
+                crate::bwbrowser_cloud::log_bwbrowser(
+                  "launch_account",
+                  "  [Wayfern-TZ] profile saved successfully with fingerprint",
+                );
+              }
+            } else {
+              crate::bwbrowser_cloud::log_bwbrowser_error(
+                "launch_account",
+                &format!(
+                  "  [Wayfern-TZ] profile {} not found in list_profiles",
+                  profile.id
+                ),
+              );
+            }
+          }
+          Err(e) => {
+            crate::bwbrowser_cloud::log_bwbrowser_error(
+              "launch_account",
+              &format!("  [Wayfern-TZ] list_profiles failed: {}", e),
+            );
+          }
+        }
+
+        Ok(true)
+      }
+      Err(e) => {
+        crate::bwbrowser_cloud::log_bwbrowser_error(
+          "launch_account",
+          &format!("  [Wayfern-TZ] setFingerprint failed: {}", e),
+        );
+        Err(format!("setFingerprint failed: {}", e))
+      }
+    }
   }
 
   pub async fn stop_wayfern(

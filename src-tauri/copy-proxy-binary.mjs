@@ -61,7 +61,7 @@ function copyBinary(baseName) {
   if (isWindows) destName += ".exe";
   const dest = join(destDir, destName);
 
-  const buildArgs = ["build", "--bin", baseName];
+  const buildArgs = ["build", "--bin", baseName, "--features", "sidecar"];
   if (PROFILE === "release") buildArgs.push("--release");
   if (TARGET !== "unknown" && TARGET !== HOST_TARGET) {
     buildArgs.push("--target", TARGET);
@@ -79,5 +79,5 @@ function copyBinary(baseName) {
   console.log(`Built and copied ${binName} to ${dest}`);
 }
 
-copyBinary("donut-proxy");
+copyBinary("bwbrowser-proxy");
 await downloadXray(TARGET);

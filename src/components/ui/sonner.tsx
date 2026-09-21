@@ -10,6 +10,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps["theme"]}
       className="group toaster"
+      expand
+      gap={8}
+      position="bottom-right"
       style={
         {
           "--normal-bg": "var(--card)",

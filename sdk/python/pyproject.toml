@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "donutbrowser"
+name = "bwbrowser"
 version = "0.1.0"
-description = "Thin client for the Donut Browser local REST API"
+description = "Thin client for the BW Browser local REST API"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "AGPL-3.0" }
-keywords = ["donut-browser", "browser-automation", "anti-detect", "cdp"]
+keywords = ["bw-browser", "browser-automation", "anti-detect", "cdp"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
@@ -30,11 +30,11 @@ dependencies = []
 dev = ["pytest>=7"]
 
 [project.urls]
-Homepage = "https://donutbrowser.com"
-Source = "https://github.com/zhom/donutbrowser"
+Homepage = "https://bwbrowser.com"
+Source = "https://github.com/zhom/bwbrowser"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/donutbrowser"]
+packages = ["src/bwbrowser"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

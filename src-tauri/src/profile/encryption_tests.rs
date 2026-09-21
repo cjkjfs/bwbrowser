@@ -251,7 +251,7 @@ fn test_atomic_write_leaves_original_intact_if_tmp_lingers() {
   std::fs::write(&target, b"original").unwrap();
 
   // Simulate a stale tmp from a crashed write
-  std::fs::write(target.with_extension("donut-tmp"), b"partial").unwrap();
+  std::fs::write(target.with_extension("bwbrowser-tmp"), b"partial").unwrap();
 
   // A successful write should overwrite the original even when stale tmp exists
   atomic_write(&target, b"new").unwrap();

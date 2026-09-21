@@ -6,7 +6,7 @@
  * "integration" means the suite exercises the command with real isolated state.
  * "contract" means the command's safe/read-only or unauthenticated path is run.
  * "host-mutating" is reserved for operations whose purpose is to change the
- * machine outside Donut's data roots; their reason must remain explicit.
+ * machine outside Bwbrowser's data roots; their reason must remain explicit.
  */
 export const commandCoverage = {
   lifecycle: {
@@ -295,6 +295,24 @@ export const commandCoverage = {
       "cloud_auth::cloud_refresh_wayfern_token",
       "team_lock::get_team_locks",
       "team_lock::get_team_lock_status",
+    ],
+  },
+  bwbrowserCloud: {
+    suite: "integrations",
+    level: "contract",
+    commands: [
+      "bwbrowser_login",
+      "bwbrowser_get_user",
+      "bwbrowser_logout",
+      "bwbrowser_refresh_profile",
+      "bwbrowser_list_accounts",
+      "bwbrowser_list_proxies",
+      "bwbrowser_sync_proxy",
+      "bwbrowser_delete_proxy",
+      "bwbrowser_list_envs",
+      "bwbrowser_sync_env",
+      "bwbrowser_delete_env",
+      "bwbrowser_get_permissions",
     ],
   },
   remoteSessions: {

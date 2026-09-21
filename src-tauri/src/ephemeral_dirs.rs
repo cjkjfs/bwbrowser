@@ -43,7 +43,7 @@ lazy_static::lazy_static! {
 /// capability nobody should be able to reach in a shipped binary.
 #[cfg(any(test, debug_assertions))]
 fn ephemeral_base_override() -> Option<PathBuf> {
-  std::env::var_os("DONUTBROWSER_EPHEMERAL_ROOT")
+  std::env::var_os("BWBROWSER_EPHEMERAL_ROOT")
     .filter(|v| !v.is_empty())
     .map(PathBuf::from)
 }
@@ -69,7 +69,7 @@ fn get_ephemeral_base_dir() -> Result<(PathBuf, EphemeralBacking), String> {
 
   #[cfg(target_os = "linux")]
   {
-    let base = PathBuf::from("/dev/shm/donut-ephemeral");
+    let base = PathBuf::from("/dev/shm/bwbrowser-ephemeral");
     std::fs::create_dir_all(&base)
       .map_err(|e| format!("Failed to create ephemeral base in /dev/shm: {e}"))?;
     Ok((base, EphemeralBacking::Ram))
@@ -100,7 +100,7 @@ fn get_ephemeral_base_dir() -> Result<(PathBuf, EphemeralBacking), String> {
     // makes and the previous "may use disk" wording was logged unconditionally
     // right before disk was used, so it read as speculative when it was
     // certain. The cause used to be discarded entirely.
-    let base = std::env::temp_dir().join("donut-ephemeral");
+    let base = std::env::temp_dir().join("bwbrowser-ephemeral");
     std::fs::create_dir_all(&base)
       .map_err(|e| format!("Failed to create ephemeral base dir: {e}"))?;
     log::error!(
@@ -113,7 +113,7 @@ fn get_ephemeral_base_dir() -> Result<(PathBuf, EphemeralBacking), String> {
 
 #[cfg(target_os = "macos")]
 fn get_or_create_macos_ramdisk() -> Result<PathBuf, String> {
-  let mount_point = PathBuf::from("/Volumes/DonutEphemeral");
+  let mount_point = PathBuf::from("/Volumes/BwbrowserEphemeral");
 
   // Reuse existing RAM disk from a previous session
   if mount_point.exists() && mount_point.is_dir() {
@@ -137,7 +137,7 @@ fn get_or_create_macos_ramdisk() -> Result<PathBuf, String> {
   let dev = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
   let fmt = std::process::Command::new("diskutil")
-    .args(["erasevolume", "HFS+", "DonutEphemeral", &dev])
+    .args(["erasevolume", "HFS+", "BwbrowserEphemeral", &dev])
     .output()
     .map_err(|e| format!("diskutil erasevolume failed: {e}"))?;
 
@@ -159,7 +159,7 @@ fn get_or_create_macos_ramdisk() -> Result<PathBuf, String> {
 fn get_or_create_windows_ramdisk() -> Result<PathBuf, String> {
   // Check if a previous RAM disk with our directory already exists
   for letter in ['R', 'Q', 'P', 'O'] {
-    let base = PathBuf::from(format!("{}:\\DonutEphemeral", letter));
+    let base = PathBuf::from(format!("{}:\\BwbrowserEphemeral", letter));
     if base.exists() && base.is_dir() {
       return Ok(base);
     }
@@ -178,7 +178,7 @@ fn get_or_create_windows_ramdisk() -> Result<PathBuf, String> {
 
     match output {
       Ok(out) if out.status.success() => {
-        let base = PathBuf::from(format!("{}\\DonutEphemeral", drive));
+        let base = PathBuf::from(format!("{}\\BwbrowserEphemeral", drive));
         std::fs::create_dir_all(&base)
           .map_err(|e| format!("Failed to create dir on RAM disk: {e}"))?;
         log::info!("Created Windows RAM disk at {}", base.display());
@@ -353,7 +353,7 @@ pub fn recover_ephemeral_dirs() {
 /// fallback, unless that fallback is the base being used right now (in which
 /// case `recover_ephemeral_dirs` is about to adopt them instead).
 fn sweep_disk_fallback_residue(current_base: &Path) {
-  let fallback = std::env::temp_dir().join("donut-ephemeral");
+  let fallback = std::env::temp_dir().join("bwbrowser-ephemeral");
   if !fallback.exists() || fallback == current_base {
     return;
   }
@@ -383,7 +383,7 @@ fn cleanup_legacy_dirs() {
     if let Some(name) = entry.file_name().to_str() {
       // These are always in the system temp dir by construction, so they are
       // always on real disk and always worth zeroing.
-      if name.starts_with("donut-ephemeral-") && entry.path().is_dir() {
+      if name.starts_with("bwbrowser-ephemeral-") && entry.path().is_dir() {
         if let Err(e) = crate::fs_secure::secure_remove_dir_all(&entry.path(), true) {
           log::warn!("Failed to clean up legacy ephemeral dir: {e}");
         } else {
@@ -454,7 +454,7 @@ mod tests {
   impl BaseGuard {
     fn new() -> Self {
       let tmp = tempfile::tempdir().unwrap();
-      std::env::set_var("DONUTBROWSER_EPHEMERAL_ROOT", tmp.path());
+      std::env::set_var("BWBROWSER_EPHEMERAL_ROOT", tmp.path());
       BaseGuard(tmp)
     }
 
@@ -465,7 +465,7 @@ mod tests {
 
   impl Drop for BaseGuard {
     fn drop(&mut self) {
-      std::env::remove_var("DONUTBROWSER_EPHEMERAL_ROOT");
+      std::env::remove_var("BWBROWSER_EPHEMERAL_ROOT");
     }
   }
 

@@ -72,3 +72,28 @@ HANDOFF.md
 .claude/stop-failure-events.jsonl
 .claude/quota-blocked.json
 session-recover.yaml
+
+# Large binary archives
+wayfern-*.zip
+*.dmg
+*.exe
+*.msi
+
+# Large icon backups
+icon/bak/
+
+# Trae share packages
+.trae-html-share-packages/
+
+# Local backup scripts
+backup.ps1
+add_php_actions.py
+
+# Browser fingerprint analysis
+browser-fingerprint-macos-analysis/
+
+# Sensitive local files
+ssh服务器信息.txt
+*.log
+src-tauri/bwbrowser_stderr.log
+src-tauri/bwbrowser_stdout.log

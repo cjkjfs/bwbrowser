@@ -544,7 +544,7 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       return t("backendErrors.mcpAgentRemoveFailed", {
         detail: parsed.params?.detail ?? "",
       });
-    // Donut supports exactly one VLESS shape (REALITY + XTLS Vision over TCP),
+    // Bwbrowser supports exactly one VLESS shape (REALITY + XTLS Vision over TCP),
     // so most rejections mean "your server is a kind we do not support", not
     // "you mistyped". Name the unsupported part instead of implying a typo.
     case "VLESS_CONFIG_INVALID": {

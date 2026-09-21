@@ -24,7 +24,7 @@ use report::{warning, ProfileImportReport};
 use std::path::Path;
 
 /// The profile subdirectory Chromium reads when no `--profile-directory` is
-/// passed (`chrome_constants.cc` `kInitialProfile`). Donut never passes one.
+/// passed (`chrome_constants.cc` `kInitialProfile`). Bwbrowser never passes one.
 pub const INITIAL_PROFILE_DIR: &str = "Default";
 
 /// Import `source` into `dest_user_data_dir`, which becomes the new profile's
@@ -135,7 +135,7 @@ fn running_source_browser(shape: &layout::SourceShape) -> Option<String> {
     if !looks_like_a_browser {
       continue;
     }
-    // Donut's own browser is Wayfern; never report it as the source.
+    // Bwbrowser's own browser is Wayfern; never report it as the source.
     if name.contains("wayfern") {
       continue;
     }
@@ -187,10 +187,10 @@ pub fn repair_legacy_layout(user_data_dir: &Path) -> Result<bool, String> {
     "SingletonSocket",
     "user.js",
     "metadata.json",
-    ".donut-sync",
+    ".bwbrowser-sync",
   ];
 
-  let staging = user_data_dir.join(".donut-import-repair");
+  let staging = user_data_dir.join(".bwbrowser-import-repair");
   if staging.exists() {
     std::fs::remove_dir_all(&staging).map_err(|e| format!("Failed to clear staging: {e}"))?;
   }
@@ -203,7 +203,7 @@ pub fn repair_legacy_layout(user_data_dir: &Path) -> Result<bool, String> {
     let Some(name_str) = name.to_str() else {
       continue;
     };
-    if ROOT_LEVEL.contains(&name_str) || name_str == ".donut-import-repair" {
+    if ROOT_LEVEL.contains(&name_str) || name_str == ".bwbrowser-import-repair" {
       continue;
     }
     std::fs::rename(entry.path(), staging.join(name_str))
@@ -336,7 +336,7 @@ mod tests {
       "Local State belongs to the user-data dir, not the profile"
     );
     assert!(profile.join(os_crypt::KEY_FILE_NAME).exists());
-    assert!(!profile.join(".donut-import-repair").exists());
+    assert!(!profile.join(".bwbrowser-import-repair").exists());
   }
 
   #[test]

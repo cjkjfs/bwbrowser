@@ -102,10 +102,10 @@ async function applyThemeForContrastAudit(app, theme) {
       // returns an intermediate colour and the assertion fails on whichever
       // theme the machine happened to be slow on. Kill transitions for the
       // duration of the audit rather than racing them with a fixed sleep.
-      let freeze = document.getElementById("donut-e2e-freeze-transitions");
+      let freeze = document.getElementById("bwbrowser-e2e-freeze-transitions");
       if (!freeze) {
         freeze = document.createElement("style");
-        freeze.id = "donut-e2e-freeze-transitions";
+        freeze.id = "bwbrowser-e2e-freeze-transitions";
         freeze.textContent =
           "*, *::before, *::after { transition: none !important; animation: none !important; }";
         document.head.appendChild(freeze);
@@ -252,10 +252,10 @@ async function dragBackgroundColorPicker(app) {
     { description: "two pointer-interactive background color picker points" },
   );
   await app.execute(`
-    window.__donutE2eThemePointerEvents = [];
+    window.__bwbrowserE2eThemePointerEvents = [];
     for (const type of ["pointermove", "pointerdown", "pointerup"]) {
       window.addEventListener(type, (event) => {
-        window.__donutE2eThemePointerEvents.push({
+        window.__bwbrowserE2eThemePointerEvents.push({
           type,
           x: event.clientX,
           y: event.clientY,
@@ -292,7 +292,7 @@ async function dragBackgroundColorPicker(app) {
     ],
   });
   const pointerEvents = await app.execute(
-    `return window.__donutE2eThemePointerEvents ?? [];`,
+    `return window.__bwbrowserE2eThemePointerEvents ?? [];`,
   );
   assert.equal(pointerEvents[0]?.type, "pointermove");
   assert.equal(pointerEvents[1]?.type, "pointerdown");
@@ -671,7 +671,7 @@ test("VLESS proxy form keeps the share URI as one clear, validated input", async
       true,
     );
 
-    // A well-formed URI for a setup Donut cannot use must say WHICH part is
+    // A well-formed URI for a setup Bwbrowser cannot use must say WHICH part is
     // unsupported, rather than implying the user mistyped it.
     await app.fillSelector(
       "#proxy-vless-uri",
@@ -805,7 +805,7 @@ test("About exposes a searchable, responsive third-party license inventory", asy
         app.execute(`return Boolean(document.querySelector("[role='menu']"));`),
       { description: "More menu" },
     );
-    await app.clickText("About Donut Browser", {
+    await app.clickText("About BW Browser", {
       exact: false,
       roles: ["menuitem"],
     });
@@ -868,7 +868,7 @@ test("About exposes a searchable, responsive third-party license inventory", asy
     assert.ok(
       inventory.rows.some(
         ([name, license]) =>
-          name === "Donut Browser" && license === "AGPL-3.0-only",
+          name === "BW Browser" && license === "AGPL-3.0-only",
       ),
     );
     assert.ok(
@@ -977,7 +977,7 @@ test("first-run onboarding stays recoverable, responsive, and platform-aware", a
   await withApp(
     "ui-onboarding",
     async (app) => {
-      await app.waitForText("Welcome to Donut Browser");
+      await app.waitForText("Welcome to BW Browser");
       assert.equal(await app.invoke("get_onboarding_completed"), false);
 
       await app.session.command("POST", "/window/rect", {
@@ -1194,10 +1194,10 @@ const EXTENSION_STRINGS = en.extensions;
 async function stubFolderPicker(app, folder) {
   await app.execute(
     `const folder = arguments[0];
-     if (!window.__donutOriginalFetch) {
-       window.__donutOriginalFetch = window.fetch;
+     if (!window.__bwbrowserOriginalFetch) {
+       window.__bwbrowserOriginalFetch = window.fetch;
      }
-     window.__donutFolderPickerCalls = [];
+     window.__bwbrowserFolderPickerCalls = [];
      window.fetch = function (input, init) {
        const url = String(
          typeof input === "string" ? input : (input && input.url) || "",
@@ -1215,7 +1215,7 @@ async function stubFolderPicker(app, folder) {
          } catch (_error) {
            payload = null;
          }
-         window.__donutFolderPickerCalls.push(payload);
+         window.__bwbrowserFolderPickerCalls.push(payload);
          return Promise.resolve(
            new Response(JSON.stringify(folder), {
              status: 200,
@@ -1226,7 +1226,7 @@ async function stubFolderPicker(app, folder) {
            }),
          );
        }
-       return window.__donutOriginalFetch.apply(window, arguments);
+       return window.__bwbrowserOriginalFetch.apply(window, arguments);
      };
      return true;`,
     [folder],
@@ -1236,12 +1236,12 @@ async function stubFolderPicker(app, folder) {
 /** Restores the real transport and returns what the picker was asked for. */
 async function restoreFolderPicker(app) {
   return app.execute(
-    `const calls = window.__donutFolderPickerCalls ?? [];
-     if (window.__donutOriginalFetch) {
-       window.fetch = window.__donutOriginalFetch;
-       delete window.__donutOriginalFetch;
+    `const calls = window.__bwbrowserFolderPickerCalls ?? [];
+     if (window.__bwbrowserOriginalFetch) {
+       window.fetch = window.__bwbrowserOriginalFetch;
+       delete window.__bwbrowserOriginalFetch;
      }
-     delete window.__donutFolderPickerCalls;
+     delete window.__bwbrowserFolderPickerCalls;
      return calls;`,
   );
 }
@@ -1376,7 +1376,7 @@ test("an uploaded archive and a loaded folder both import, each under its own so
     await writeFile(archivePath, Buffer.from(extensionZipBase64(), "base64"));
     const folder = await writeUnpackedExtension(
       path.join(app.root, "fixtures", "ui-copied-extension"),
-      { name: "Donut UI Copied Folder" },
+      { name: "Bwbrowser UI Copied Folder" },
     );
 
     await openExtensionsPage(app);
@@ -1385,7 +1385,7 @@ test("an uploaded archive and a loaded folder both import, each under its own so
       archivePath,
       "Overridden By The Manifest",
     );
-    await app.waitForText("Donut E2E Fixture");
+    await app.waitForText("Bwbrowser E2E Fixture");
 
     await stageUnpackedFolder(app, folder);
     assert.ok(await app.visibleTextIncludes(EXTENSION_STRINGS.selectedFolder));
@@ -1397,7 +1397,7 @@ test("an uploaded archive and a loaded folder both import, each under its own so
     assert.equal(staged?.checked, false, "linking a folder has to be opt-in");
     assert.equal(staged.help, EXTENSION_STRINGS.linkFolderOff);
     await app.clickText(en.common.buttons.add, { roles: ["button"] });
-    await app.waitForText("Donut UI Copied Folder");
+    await app.waitForText("Bwbrowser UI Copied Folder");
 
     const pickerCalls = await restoreFolderPicker(app);
     assert.equal(pickerCalls.length, 1, "Load unpacked has to open the picker");
@@ -1413,18 +1413,18 @@ test("an uploaded archive and a loaded folder both import, each under its own so
       EXTENSION_STRINGS.source.unpacked,
     );
     assert.equal(
-      (await extensionRow(app, "Donut E2E Fixture"))?.source,
+      (await extensionRow(app, "Bwbrowser E2E Fixture"))?.source,
       EXTENSION_STRINGS.source.archive,
     );
     assert.equal(
-      (await extensionRow(app, "Donut UI Copied Folder"))?.source,
+      (await extensionRow(app, "Bwbrowser UI Copied Folder"))?.source,
       EXTENSION_STRINGS.source.unpacked,
     );
 
     const extensions = await app.invoke("list_extensions");
     assert.equal(extensions.length, 2);
     const copied = extensions.find(
-      (extension) => extension.name === "Donut UI Copied Folder",
+      (extension) => extension.name === "Bwbrowser UI Copied Folder",
     );
     assert.equal(copied.source_kind, "unpacked");
     assert.equal(
@@ -1434,7 +1434,7 @@ test("an uploaded archive and a loaded folder both import, each under its own so
     );
     assert.equal(copied.file_type, "zip");
     const archive = extensions.find(
-      (extension) => extension.name === "Donut E2E Fixture",
+      (extension) => extension.name === "Bwbrowser E2E Fixture",
     );
     assert.equal(archive.source_kind, "archive");
     assert.equal(archive.linked_path, null);
@@ -1450,11 +1450,11 @@ test("linking a folder says what it costs, records the path, and locks that row'
     });
     const folder = await writeUnpackedExtension(
       path.join(app.root, "fixtures", "ui-linked-extension"),
-      { name: "Donut UI Linked Folder" },
+      { name: "Bwbrowser UI Linked Folder" },
     );
 
     await openExtensionsPage(app);
-    await app.waitForText("Donut E2E Fixture");
+    await app.waitForText("Bwbrowser E2E Fixture");
     await stageUnpackedFolder(app, folder);
 
     const off = await linkCheckboxState(app, "ext-link-folder");
@@ -1478,21 +1478,21 @@ test("linking a folder says what it costs, records the path, and locks that row'
     );
 
     await app.clickText(en.common.buttons.add, { roles: ["button"] });
-    await app.waitForText("Donut UI Linked Folder");
+    await app.waitForText("Bwbrowser UI Linked Folder");
     assert.equal((await restoreFolderPicker(app)).length, 1);
 
-    const linkedRow = await extensionRow(app, "Donut UI Linked Folder");
+    const linkedRow = await extensionRow(app, "Bwbrowser UI Linked Folder");
     assert.equal(linkedRow?.source, EXTENSION_STRINGS.source.linked);
     assert.equal(linkedRow.syncChecked, false);
     assert.equal(linkedRow.syncDisabled, true);
     assert.equal(
-      (await extensionRow(app, "Donut E2E Fixture"))?.syncDisabled,
+      (await extensionRow(app, "Bwbrowser E2E Fixture"))?.syncDisabled,
       false,
       "only the linked row loses its sync control",
     );
 
     const linked = (await app.invoke("list_extensions")).find(
-      (extension) => extension.name === "Donut UI Linked Folder",
+      (extension) => extension.name === "Bwbrowser UI Linked Folder",
     );
     assert.equal(linked.linked_path, await realpath(folder));
     assert.equal(linked.file_type, "unpacked");
@@ -1510,12 +1510,12 @@ test("the edit dialog replaces an extension's payload from a folder", async () =
     assert.equal(original.version, "1.0.0");
     const folder = await writeUnpackedExtension(
       path.join(app.root, "fixtures", "ui-replacement-extension"),
-      { name: "Donut UI Replacement", version: "3.1.4" },
+      { name: "Bwbrowser UI Replacement", version: "3.1.4" },
     );
 
     await openExtensionsPage(app);
-    await app.waitForText("Donut E2E Fixture");
-    const editButton = await extensionEditButton(app, "Donut E2E Fixture");
+    await app.waitForText("Bwbrowser E2E Fixture");
+    const editButton = await extensionEditButton(app, "Bwbrowser E2E Fixture");
     assert.ok(editButton, "the extension row's edit control was not visible");
     await app.clickElement(editButton, "extension edit button");
     const beforeReplace = await app.waitFor(
@@ -1566,11 +1566,11 @@ test("the edit dialog replaces an extension's payload from a folder", async () =
     assert.equal(updated.version, "3.1.4");
     // The dialog's own name field stays authoritative, so the row keeps its
     // name while the payload underneath it is swapped.
-    assert.equal(updated.name, "Donut E2E Fixture");
+    assert.equal(updated.name, "Bwbrowser E2E Fixture");
 
     await app.waitFor(
       async () =>
-        (await extensionRow(app, "Donut E2E Fixture"))?.source ===
+        (await extensionRow(app, "Bwbrowser E2E Fixture"))?.source ===
         EXTENSION_STRINGS.source.unpacked,
       { description: "replaced row to report its new source" },
     );
@@ -1917,7 +1917,7 @@ test("the group bookmark editor adds, reorders and removes a row", async () => {
 
 test("importing from a link validates the input and names the extension before it is saved", async () => {
   await withApp("ui-extension-from-link", async (app) => {
-    const fixtureBase = process.env.DONUT_E2E_FIXTURE_URL;
+    const fixtureBase = process.env.BWBROWSER_E2E_FIXTURE_URL;
     assert.ok(fixtureBase, "the fixture server URL has to reach the suite");
 
     await openExtensionsPage(app);
@@ -2092,14 +2092,14 @@ async function stubCommand(app, command, reply) {
   await app.execute(
     `const wanted = arguments[0];
      const reply = arguments[1];
-     if (!window.__donutOriginalFetch) {
-       window.__donutOriginalFetch = window.fetch;
+     if (!window.__bwbrowserOriginalFetch) {
+       window.__bwbrowserOriginalFetch = window.fetch;
      }
-     window.__donutStubbedCalls = window.__donutStubbedCalls ?? [];
-     window.__donutStubs = window.__donutStubs ?? {};
-     window.__donutStubs[wanted] = reply;
-     if (!window.__donutStubInstalled) {
-       window.__donutStubInstalled = true;
+     window.__bwbrowserStubbedCalls = window.__bwbrowserStubbedCalls ?? [];
+     window.__bwbrowserStubs = window.__bwbrowserStubs ?? {};
+     window.__bwbrowserStubs[wanted] = reply;
+     if (!window.__bwbrowserStubInstalled) {
+       window.__bwbrowserStubInstalled = true;
        window.fetch = function (input, init) {
          const url = String(
            typeof input === "string" ? input : (input && input.url) || "",
@@ -2110,16 +2110,16 @@ async function stubCommand(app, command, reply) {
          } catch (_error) {
            name = "";
          }
-         if (window.__donutStubs[name] !== undefined) {
+         if (window.__bwbrowserStubs[name] !== undefined) {
            let payload = null;
            try {
              payload = JSON.parse((init && init.body) || "null");
            } catch (_error) {
              payload = null;
            }
-           window.__donutStubbedCalls.push({ command: name, payload });
+           window.__bwbrowserStubbedCalls.push({ command: name, payload });
            return Promise.resolve(
-             new Response(JSON.stringify(window.__donutStubs[name]), {
+             new Response(JSON.stringify(window.__bwbrowserStubs[name]), {
                status: 200,
                headers: {
                  "content-type": "application/json",
@@ -2128,7 +2128,7 @@ async function stubCommand(app, command, reply) {
              }),
            );
          }
-         return window.__donutOriginalFetch.apply(window, arguments);
+         return window.__bwbrowserOriginalFetch.apply(window, arguments);
        };
      }
      return true;`,
@@ -2138,14 +2138,14 @@ async function stubCommand(app, command, reply) {
 
 async function restoreStubs(app) {
   return app.execute(
-    `const calls = window.__donutStubbedCalls ?? [];
-     if (window.__donutOriginalFetch) {
-       window.fetch = window.__donutOriginalFetch;
-       delete window.__donutOriginalFetch;
+    `const calls = window.__bwbrowserStubbedCalls ?? [];
+     if (window.__bwbrowserOriginalFetch) {
+       window.fetch = window.__bwbrowserOriginalFetch;
+       delete window.__bwbrowserOriginalFetch;
      }
-     delete window.__donutStubbedCalls;
-     delete window.__donutStubs;
-     delete window.__donutStubInstalled;
+     delete window.__bwbrowserStubbedCalls;
+     delete window.__bwbrowserStubs;
+     delete window.__bwbrowserStubInstalled;
      return calls;`,
   );
 }
@@ -2461,12 +2461,12 @@ test("the synchroniser panel lists a live session and its controls act on the re
       await app.waitFor(
         async () =>
           (await app.execute(
-            `return (window.__donutStubbedCalls ?? []).filter((call) => call.command === "arrange_sync_windows").length;`,
+            `return (window.__bwbrowserStubbedCalls ?? []).filter((call) => call.command === "arrange_sync_windows").length;`,
           )) === 1,
         { description: "the arrange request" },
       );
       const calls = await app.execute(
-        `return window.__donutStubbedCalls.map((call) => call.command + ":" + JSON.stringify(call.payload));`,
+        `return window.__bwbrowserStubbedCalls.map((call) => call.command + ":" + JSON.stringify(call.payload));`,
       );
       const arrange = calls.find((call) =>
         call.startsWith("arrange_sync_windows"),

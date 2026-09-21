@@ -12,6 +12,7 @@ import {
   LuSearch,
   LuX,
 } from "react-icons/lu";
+import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
 import { useWindowDecorations } from "@/hooks/use-window-decorations";
 import { getCurrentOS } from "@/lib/browser-utils";
 import {
@@ -150,6 +151,37 @@ const SearchSyntaxHelp = () => {
         </div>
       </PopoverContent>
     </Popover>
+  );
+};
+
+const UserBadge = () => {
+  const { user } = useBwbrowserAuth();
+  if (!user) return null;
+  const displayName = user.realName || user.email || "";
+  const initial = displayName.charAt(0).toUpperCase() || "?";
+  return (
+    <div className="ml-2 flex items-center gap-2">
+      {user.avatar ? (
+        <span
+          role="img"
+          aria-label={displayName}
+          className="size-5 rounded-full bg-cover bg-center"
+          style={{ backgroundImage: `url(${user.avatar})` }}
+        />
+      ) : (
+        <span className="grid size-5 place-items-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+          {initial}
+        </span>
+      )}
+      <span className="text-xs font-semibold text-card-foreground">
+        {displayName}
+      </span>
+      {user.teamRole && (
+        <span className="text-[10px] text-muted-foreground">
+          {user.teamRole}
+        </span>
+      )}
+    </div>
   );
 };
 
@@ -343,6 +375,8 @@ const HomeHeader = ({
           <div className="size-[11px] rounded-full" />
         </div>
       )}
+
+      <UserBadge />
 
       {pageTitle ? (
         <span className="ml-2 text-xs font-semibold text-card-foreground">

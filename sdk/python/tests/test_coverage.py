@@ -12,8 +12,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Set, Tuple
 
-from donutbrowser import DonutClient
-from donutbrowser.coverage import OMITTED, OPERATIONS
+from bwbrowser import BwbrowserClient
+from bwbrowser.coverage import OMITTED, OPERATIONS
 
 SNAPSHOT = Path(__file__).resolve().parents[2] / "api-paths.json"
 
@@ -63,7 +63,7 @@ def test_every_omission_gives_a_reason() -> None:
 
 def test_every_wrapped_operation_names_a_real_method() -> None:
     for operation, method_name in OPERATIONS.items():
-        attribute = getattr(DonutClient, method_name, None)
+        attribute = getattr(BwbrowserClient, method_name, None)
         assert callable(attribute), f"{operation} names {method_name}, which is not a method"
 
 

@@ -283,3 +283,52 @@ export function showSyncProgressToast(
     },
   });
 }
+
+/**
+ * 显示/更新启动进度 toast（带百分比进度条）
+ * @param id toast 唯一 ID（相同 ID 会更新现有 toast）
+ * @param title 标题
+ * @param percentage 百分比 0-100
+ * @param description 描述文字
+ */
+export function showLaunchProgressToast(
+  id: string,
+  title: string,
+  percentage: number,
+  description?: string,
+) {
+  const clampedPct = Math.max(0, Math.min(100, percentage));
+  return showToast({
+    id,
+    type: "download",
+    stage: "downloading",
+    title,
+    description,
+    progress: {
+      percentage: clampedPct,
+    },
+    duration: Number.POSITIVE_INFINITY,
+    dismissible: false,
+  });
+}
+
+/** 更新启动进度 toast 的百分比（等价于 showLaunchProgressToast） */
+export function updateLaunchProgressToast(
+  id: string,
+  title: string,
+  percentage: number,
+  description?: string,
+) {
+  return showLaunchProgressToast(id, title, percentage, description);
+}
+
+/** 显示启动成功 toast */
+export function showLaunchSuccessToast(id: string, title: string) {
+  return showToast({
+    id,
+    type: "success",
+    title,
+    duration: 2500,
+    dismissible: true,
+  });
+}

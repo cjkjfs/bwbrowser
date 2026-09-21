@@ -24,7 +24,7 @@ export const RELEASE_TARGETS = [
 
 export const MANUAL_LICENSES = [
   {
-    name: "Donut Browser",
+    name: "BW Browser",
     license: "AGPL-3.0-only",
   },
   {
@@ -172,7 +172,7 @@ function generateInventory() {
   const pnpmReport = JSON.parse(
     commandOutput("pnpm", [
       "--filter",
-      "donutbrowser",
+      "bwbrowser",
       "licenses",
       "list",
       "--prod",

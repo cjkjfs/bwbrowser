@@ -1,9 +1,9 @@
-use clap::{Arg, Command};
-use donutbrowser_lib::proxy_runner::{
+use bwbrowser_lib::proxy_runner::{
   start_proxy_process_with_profile, stop_all_proxy_processes, stop_proxy_process,
 };
-use donutbrowser_lib::proxy_server::{redacted_upstream, run_proxy_server};
-use donutbrowser_lib::proxy_storage::{build_proxy_url, get_proxy_config};
+use bwbrowser_lib::proxy_server::{redacted_upstream, run_proxy_server};
+use bwbrowser_lib::proxy_storage::{build_proxy_url, get_proxy_config};
+use clap::{Arg, Command};
 use std::process;
 
 fn set_high_priority() {
@@ -62,7 +62,7 @@ async fn main() {
   // Default filter is Info — Debug pulls in reqwest/hyper internals which
   // make the per-worker log unreadable on a busy browser session and obscure
   // the actual lines we care about (binds, accept errors, upstream failures).
-  // RUST_LOG=debug or RUST_LOG=donut_proxy=trace still works for deep dives.
+  // RUST_LOG=debug or RUST_LOG=bwbrowser_proxy=trace still works for deep dives.
   env_logger::Builder::from_default_env()
     .filter_level(log::LevelFilter::Info)
     .format_timestamp_millis()
@@ -84,7 +84,7 @@ async fn main() {
     }
   }));
 
-  let matches = Command::new("donut-proxy")
+  let matches = Command::new("bwbrowser-proxy")
     .version(env!("BUILD_VERSION"))
     .subcommand(
       Command::new("proxy")
@@ -227,8 +227,8 @@ async fn main() {
         start_matches.get_one::<u16>("proxy-port"),
         start_matches.get_one::<String>("type"),
       ) {
-        let username = std::env::var("DONUT_PROXY_USERNAME").ok();
-        let password = std::env::var("DONUT_PROXY_PASSWORD").ok();
+        let username = std::env::var("BWBROWSER_PROXY_USERNAME").ok();
+        let password = std::env::var("BWBROWSER_PROXY_PASSWORD").ok();
         upstream_url = Some(build_proxy_url(
           proxy_type,
           host,
@@ -301,7 +301,7 @@ async fn main() {
         }
       } else if let Some(upstream) = stop_matches.get_one::<String>("upstream") {
         // Find proxies with this upstream URL
-        let configs = donutbrowser_lib::proxy_storage::list_proxy_configs();
+        let configs = bwbrowser_lib::proxy_storage::list_proxy_configs();
         let matching_configs: Vec<_> = configs
           .iter()
           .filter(|config| config.upstream_url == *upstream)
@@ -334,7 +334,7 @@ async fn main() {
         }
       }
     } else if proxy_matches.subcommand_matches("list").is_some() {
-      let configs = donutbrowser_lib::proxy_storage::list_proxy_configs();
+      let configs = bwbrowser_lib::proxy_storage::list_proxy_configs();
       // Use println! here because this needs to go to stdout for parsing
       println!("{}", serde_json::to_string(&configs).unwrap());
       process::exit(0);
@@ -422,7 +422,7 @@ async fn main() {
         log::info!("Loading VPN worker config from: {}", path);
         match std::fs::read_to_string(path) {
           Ok(content) => match serde_json::from_str::<
-            donutbrowser_lib::vpn_worker_storage::VpnWorkerConfig,
+            bwbrowser_lib::vpn_worker_storage::VpnWorkerConfig,
           >(&content)
           {
             Ok(config) => {
@@ -446,11 +446,11 @@ async fn main() {
         }
       } else {
         // Fallback: discover config by ID with retries
-        let storage_dir = donutbrowser_lib::proxy_storage::get_storage_dir();
+        let storage_dir = bwbrowser_lib::proxy_storage::get_storage_dir();
         log::info!("Looking for VPN worker config in: {:?}", storage_dir);
         let mut attempts = 0;
         loop {
-          if let Some(config) = donutbrowser_lib::vpn_worker_storage::get_vpn_worker_config(id) {
+          if let Some(config) = bwbrowser_lib::vpn_worker_storage::get_vpn_worker_config(id) {
             log::info!(
               "Found VPN worker config: id={}, vpn_type={}, vpn_id={}",
               config.id,
@@ -493,7 +493,7 @@ async fn main() {
 
       match config.vpn_type.as_str() {
         "wireguard" => {
-          let wg_config = match donutbrowser_lib::vpn::parse_wireguard_config(&vpn_config_data) {
+          let wg_config = match bwbrowser_lib::vpn::parse_wireguard_config(&vpn_config_data) {
             Ok(c) => c,
             Err(e) => {
               log::error!("Failed to parse WireGuard config: {}", e);
@@ -502,7 +502,7 @@ async fn main() {
           };
 
           let server =
-            donutbrowser_lib::vpn::socks5_server::WireGuardSocks5Server::new(wg_config, port);
+            bwbrowser_lib::vpn::socks5_server::WireGuardSocks5Server::new(wg_config, port);
           if let Err(e) = server
             .run(id.clone(), config_path.map(std::path::PathBuf::from))
             .await
@@ -534,7 +534,7 @@ async fn main() {
 
     set_high_priority();
     if let Err(error) =
-      donutbrowser_lib::xray_worker_runner::run_xray_worker(std::path::Path::new(config_path)).await
+      bwbrowser_lib::xray_worker_runner::run_xray_worker(std::path::Path::new(config_path)).await
     {
       log::error!("Xray worker failed: {error}");
       process::exit(1);

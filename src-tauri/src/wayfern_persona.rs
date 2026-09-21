@@ -2,7 +2,7 @@
 //!
 //! Wayfern shows a "Fill with generated" submenu in any text field, built
 //! from a document the launcher writes: `{"fields":[{"label","value"},…]}`.
-//! The browser never invents a value, so everything here is donut's.
+//! The browser never invents a value, so everything here is bwbrowser's.
 //!
 //! A persona is DERIVED, not stored as prose: the same profile hands the
 //! browser the same person on every launch, and two profiles never share one,
@@ -344,7 +344,7 @@ mod tests {
       &[
         field("email", "", "me@example.com".into()),
         field("phone", "", "  ".into()),
-        field("company", "Company", "Donut".into()),
+        field("company", "Company", "Bwbrowser".into()),
       ],
     );
     assert_eq!(
@@ -355,7 +355,7 @@ mod tests {
     let extra = edited.iter().find(|f| f.id == "company").unwrap();
     assert_eq!(
       (extra.label.as_str(), extra.value.as_str()),
-      ("Company", "Donut")
+      ("Company", "Bwbrowser")
     );
     // Everything not edited still comes from the seed.
     let derived = derive(seed);

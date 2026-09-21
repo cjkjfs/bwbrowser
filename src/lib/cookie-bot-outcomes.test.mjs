@@ -66,11 +66,11 @@ const UNION_DECLARATION = "export type CookieBotOutcomeCode";
  * A checkout of the API source to read the live union from, when there is one.
  *
  * No default and no assumed location: the cross-repo half runs only where
- * `DONUT_API_SOURCE_DIR` points at that source, and is skipped everywhere else
+ * `BWBROWSER_API_SOURCE_DIR` points at that source, and is skipped everywhere else
  * — CI included — exactly as it was skipped before when nothing was available
  * to read.
  */
-const API_SOURCE_DIR = process.env.DONUT_API_SOURCE_DIR ?? null;
+const API_SOURCE_DIR = process.env.BWBROWSER_API_SOURCE_DIR ?? null;
 
 /** Nothing worth reading lives in these, and walking them is slow. */
 const UNREAD_DIRS = new Set([
@@ -274,7 +274,7 @@ test("the snapshot still matches the server's real union", (t) => {
       "no API source is available, so the snapshot above ran against itself " +
         "only: whether SERVER_OUTCOME_CODES still equals the server's " +
         "CookieBotOutcomeCode union is UNCHECKED here. Set " +
-        "DONUT_API_SOURCE_DIR to a checkout of the API source to check it",
+        "BWBROWSER_API_SOURCE_DIR to a checkout of the API source to check it",
     );
     return;
   }

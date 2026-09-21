@@ -31,7 +31,7 @@ pub enum XrayError {
 impl XrayError {
   /// A stable, translatable identifier for *why* a URI was rejected.
   ///
-  /// Donut supports one VLESS shape — REALITY + XTLS Vision over TCP — so most
+  /// Bwbrowser supports one VLESS shape — REALITY + XTLS Vision over TCP — so most
   /// rejections are "your setup is a kind we do not support", not "you made a
   /// typo". The frontend turns these into a sentence naming the unsupported
   /// part; without them every rejection reads as a malformed URI and a user

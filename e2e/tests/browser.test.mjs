@@ -15,7 +15,7 @@ import {
   writeUnpackedExtension,
 } from "../lib/fixtures.mjs";
 
-const fixtureUrl = process.env.DONUT_E2E_FIXTURE_URL;
+const fixtureUrl = process.env.BWBROWSER_E2E_FIXTURE_URL;
 
 async function request(url, { method = "GET", token, body } = {}) {
   const response = await fetch(url, {
@@ -156,7 +156,7 @@ test("real Wayfern fingerprinting, terms, API automation, CDP, cookies, and proc
   const realTermsFile = realWayfernTermsPath();
   const realTermsBefore = await snapshotFile(realTermsFile);
   const localWayfernVersion = cachedFixtureVersion(
-    process.env.DONUT_E2E_PROJECT_ROOT,
+    process.env.BWBROWSER_E2E_PROJECT_ROOT,
   );
   const app = appFromEnvironment("browser-wayfern", {
     seedVersionCache: localWayfernVersion ?? false,
@@ -167,7 +167,7 @@ test("real Wayfern fingerprinting, terms, API automation, CDP, cookies, and proc
   try {
     const prepared = await prepareWayfern(
       app,
-      process.env.DONUT_E2E_PROJECT_ROOT,
+      process.env.BWBROWSER_E2E_PROJECT_ROOT,
     );
     if (!app.session) await app.start();
 
@@ -490,7 +490,7 @@ test("real Wayfern fingerprinting, terms, API automation, CDP, cookies, and proc
       Array.isArray(checks.consistency.unverified),
       "a consistency result must carry the dimensions nothing compared",
     );
-    // "Donut will check it while starting" is only sayable while some
+    // "Bwbrowser will check it while starting" is only sayable while some
     // dimension is still checkable. Both dimensions unverifiable means the
     // probe would compare nothing, so it is not pending work.
     assert.ok(
@@ -514,7 +514,7 @@ test("real Wayfern fingerprinting, terms, API automation, CDP, cookies, and proc
     // is named as one, a known VPN with an unrevealing name is caught by its
     // id, and a download manager holding the same `proxy` permission is
     // reported as a capability and never as a VPN.
-    // `DONUTBROWSER_DATA_ROOT` puts the data dir at <dataRoot>/data, so this
+    // `BWBROWSER_DATA_ROOT` puts the data dir at <dataRoot>/data, so this
     // is app_dirs::profiles_dir() plus the layout Chromium itself uses.
     const extensionsDir = path.join(
       app.dataRoot,
@@ -643,7 +643,7 @@ test("real Wayfern fingerprinting, terms, API automation, CDP, cookies, and proc
     assert.equal(launched.value.headless, true);
 
     cdp = await CdpClient.connect(launched.value.remote_debugging_port);
-    await cdp.waitFor(`document.title === "Donut E2E Browser Fixture"`, {
+    await cdp.waitFor(`document.title === "Bwbrowser E2E Browser Fixture"`, {
       description: "fixture page title",
     });
     assert.equal(
@@ -665,7 +665,10 @@ test("real Wayfern fingerprinting, terms, API automation, CDP, cookies, and proc
     assert.equal(echo.method, "POST");
     assert.equal(echo.body, "wayfern-cdp-body");
     assert.ok(echo.userAgent.length > 20);
-    assert.match(await cdp.evaluate("document.cookie"), /donut_e2e=browser-ok/);
+    assert.match(
+      await cdp.evaluate("document.cookie"),
+      /bwbrowser_e2e=browser-ok/,
+    );
 
     const runningProfile = (await app.invoke("list_browser_profiles")).find(
       (item) => item.id === profile.id,
@@ -765,7 +768,7 @@ test("real Wayfern fingerprinting, terms, API automation, CDP, cookies, and proc
       /was not applied: \w+/.test(batchRun.value.results[0].error ?? "");
     if (batchBlockedByBrowser) {
       console.log(
-        `[donut-e2e] Batch profile could not launch: ${batchRun.value.results[0].error}`,
+        `[bwbrowser-e2e] Batch profile could not launch: ${batchRun.value.results[0].error}`,
       );
       assert.match(
         batchRun.value.results[0].error,
@@ -833,7 +836,7 @@ test("real Wayfern fingerprinting, terms, API automation, CDP, cookies, and proc
     // and comes back as a NEW profile, owing nothing to the machine that wrote
     // it. Exercised here because this is the suite with a real profile
     // directory to carry.
-    const exportPath = path.join(app.dataRoot, "exported.donutprofile");
+    const exportPath = path.join(app.dataRoot, "exported.bwbrowserprofile");
     const exported = await app.invoke("export_profile", {
       profileId: profile.id,
       destination: exportPath,
@@ -975,7 +978,7 @@ test("real Wayfern fingerprinting, terms, API automation, CDP, cookies, and proc
   }
 });
 
-/// Read every donut-proxy worker config the app has on disk.
+/// Read every bwbrowser-proxy worker config the app has on disk.
 async function readWorkerConfigs(app) {
   const dir = path.join(app.dataRoot, "cache", "proxy_workers");
   let entries;
@@ -1041,14 +1044,14 @@ async function launchWithWorker(app, version, name) {
 }
 
 // The reported orphan, reproduced end to end with a real Wayfern. A detached
-// donut-proxy has to notice its browser is gone and exit on its own — before it
+// bwbrowser-proxy has to notice its browser is gone and exit on its own — before it
 // recorded a verified owner identity it just kept running and users killed it
 // by hand. Phase one covers closing the browser; phase two covers the reported
 // order (app closed first, so nothing is left to reap anything).
 test("a proxy worker dies with its browser, with and without the app running", async () => {
   assert.ok(process.env.WAYFERN_TEST_TOKEN, "WAYFERN_TEST_TOKEN is required");
   const localWayfernVersion = cachedFixtureVersion(
-    process.env.DONUT_E2E_PROJECT_ROOT,
+    process.env.BWBROWSER_E2E_PROJECT_ROOT,
   );
   const app = appFromEnvironment("browser-worker-lifecycle", {
     seedVersionCache: localWayfernVersion ?? false,
@@ -1057,14 +1060,14 @@ test("a proxy worker dies with its browser, with and without the app running", a
     wayfernTermsAccepted: false,
     // The worker polls its owner every 15s in production; shorten it so a reap
     // is observable without padding the suite by minutes.
-    extraEnv: { DONUT_PROXY_WATCHDOG_INTERVAL_MS: "500" },
+    extraEnv: { BWBROWSER_PROXY_WATCHDOG_INTERVAL_MS: "500" },
   });
 
   const strays = new Set();
   try {
     const prepared = await prepareWayfern(
       app,
-      process.env.DONUT_E2E_PROJECT_ROOT,
+      process.env.BWBROWSER_E2E_PROJECT_ROOT,
     );
     if (!app.session) await app.start();
     if (!(await app.invoke("check_wayfern_terms_accepted"))) {
@@ -1081,7 +1084,7 @@ test("a proxy worker dies with its browser, with and without the app running", a
     );
     await waitForCondition(
       () => !processExists(first.workerPid),
-      `donut-proxy ${first.workerPid} to exit after its browser did`,
+      `bwbrowser-proxy ${first.workerPid} to exit after its browser did`,
     );
     assert.equal(
       (await readWorkerConfigs(app)).find(
@@ -1118,7 +1121,7 @@ test("a proxy worker dies with its browser, with and without the app running", a
     );
     await waitForCondition(
       () => !processExists(second.workerPid),
-      `orphaned donut-proxy ${second.workerPid} to reap itself with no app running`,
+      `orphaned bwbrowser-proxy ${second.workerPid} to reap itself with no app running`,
     );
   } finally {
     for (const pid of strays) {
@@ -1145,7 +1148,7 @@ test("a proxy worker dies with its browser, with and without the app running", a
 test("an assigned extension group reaches Wayfern and each profile stages its own copy", async () => {
   assert.ok(process.env.WAYFERN_TEST_TOKEN, "WAYFERN_TEST_TOKEN is required");
   const localWayfernVersion = cachedFixtureVersion(
-    process.env.DONUT_E2E_PROJECT_ROOT,
+    process.env.BWBROWSER_E2E_PROJECT_ROOT,
   );
   const app = appFromEnvironment("browser-extensions", {
     seedVersionCache: localWayfernVersion ?? false,
@@ -1155,7 +1158,7 @@ test("an assigned extension group reaches Wayfern and each profile stages its ow
   try {
     const prepared = await prepareWayfern(
       app,
-      process.env.DONUT_E2E_PROJECT_ROOT,
+      process.env.BWBROWSER_E2E_PROJECT_ROOT,
     );
     if (!app.session) await app.start();
     if (!(await app.invoke("check_wayfern_terms_accepted"))) {
@@ -1163,10 +1166,10 @@ test("an assigned extension group reaches Wayfern and each profile stages its ow
     }
 
     const extension = await app.invoke("add_unpacked_extension", {
-      name: "Donut Launch Fixture",
+      name: "Bwbrowser Launch Fixture",
       path: await writeUnpackedExtension(
         path.join(app.root, "fixtures", "loaded-extension"),
-        { name: "Donut Launch Fixture", version: "1.0.0" },
+        { name: "Bwbrowser Launch Fixture", version: "1.0.0" },
       ),
       link: false,
     });
@@ -1335,7 +1338,7 @@ async function targetUrls(port) {
 test("an interactive launch continues the last session once the identity travels at launch", async () => {
   assert.ok(process.env.WAYFERN_TEST_TOKEN, "WAYFERN_TEST_TOKEN is required");
   const localWayfernVersion = cachedFixtureVersion(
-    process.env.DONUT_E2E_PROJECT_ROOT,
+    process.env.BWBROWSER_E2E_PROJECT_ROOT,
   );
   const app = appFromEnvironment("browser-session", {
     seedVersionCache: localWayfernVersion ?? false,
@@ -1345,7 +1348,7 @@ test("an interactive launch continues the last session once the identity travels
   try {
     const prepared = await prepareWayfern(
       app,
-      process.env.DONUT_E2E_PROJECT_ROOT,
+      process.env.BWBROWSER_E2E_PROJECT_ROOT,
     );
     if (!app.session) await app.start();
     // The browser itself refuses to start until its terms marker exists, and
@@ -1353,10 +1356,10 @@ test("an interactive launch continues the last session once the identity travels
     await app.invoke("accept_wayfern_terms");
     const major = Number.parseInt(prepared.version.split(".")[0], 10);
     if (major < 152) {
-      // Older builds take no launch identity, so Donut starts them on a fresh
+      // Older builds take no launch identity, so Bwbrowser starts them on a fresh
       // tab and there is nothing to continue.
       console.log(
-        `[donut-e2e] Wayfern ${prepared.version} takes no launch identity; session restore is off by design, skipping the restore assertions`,
+        `[bwbrowser-e2e] Wayfern ${prepared.version} takes no launch identity; session restore is off by design, skipping the restore assertions`,
       );
       return;
     }

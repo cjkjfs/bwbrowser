@@ -97,7 +97,7 @@ impl BrowserRunner {
   }
 
   /// Refresh cloud proxy credentials if the profile uses a cloud or cloud-derived proxy,
-  /// then resolve the proxy settings with profile-specific sid for sticky sessions.
+  /// Cloud-only proxy resolution: fetch from MySQL, no local file storage.
   async fn resolve_proxy_with_refresh(
     &self,
     proxy_id: Option<&String>,
@@ -112,13 +112,30 @@ impl BrowserRunner {
       log::info!("Refreshing cloud proxy credentials before launch for proxy {proxy_id}");
       CLOUD_AUTH.sync_cloud_proxy().await;
     }
-    // For cloud-derived proxies, inject profile-specific sid for sticky sessions
-    if let Some(pid) = profile_id {
-      if PROXY_MANAGER.is_cloud_or_derived(proxy_id) {
-        return Ok(PROXY_MANAGER.resolve_proxy_for_profile(proxy_id, pid));
+
+    // Cloud-only: fetch fresh settings from MySQL
+    if let Some(mut cloud_settings) =
+      crate::cloud_proxy_manager::get_proxy_cloud_only(proxy_id).await
+    {
+      log::info!("Cloud proxy resolution succeeded for {proxy_id}");
+      if let Some(pid) = profile_id {
+        if PROXY_MANAGER.is_cloud_or_derived(proxy_id) {
+          if let Some(stored) = PROXY_MANAGER.get_stored_proxy(proxy_id) {
+            if stored.is_cloud_derived && stored.geo_country.is_some() {
+              if let Some(ref username) = cloud_settings.username {
+                cloud_settings.username = Some(
+                  crate::proxy_manager::ProxyManager::build_username_with_sid(username, pid),
+                );
+              }
+            }
+          }
+        }
       }
+      return Ok(Some(cloud_settings));
     }
-    Ok(PROXY_MANAGER.get_proxy_settings_by_id(proxy_id))
+
+    log::warn!("Cloud proxy resolution failed for {proxy_id}");
+    Ok(None)
   }
 
   fn fire_launch_hook(profile: &BrowserProfile) {
@@ -521,9 +538,12 @@ impl BrowserRunner {
         );
       }
       let randomize_requested = wayfern_config.randomize_fingerprint_on_launch == Some(true);
+      let explicitly_non_randomizing =
+        wayfern_config.randomize_fingerprint_on_launch == Some(false);
       let migrating_payload = wayfern_config.identity_id.is_none()
         && wayfern_config.fingerprint.is_some()
-        && crate::wayfern_manager::supports_identity_api(&profile.version);
+        && crate::wayfern_manager::supports_identity_api(&profile.version)
+        && !explicitly_non_randomizing;
       let needs_device = migrating_payload
         || (wayfern_config.fingerprint.is_none() && wayfern_config.identity_id.is_none());
       if randomize_requested || needs_device {

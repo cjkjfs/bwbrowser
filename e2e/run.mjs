@@ -39,7 +39,7 @@ const appBinary = path.join(
   appManifestDir,
   "target",
   "debug",
-  `donutbrowser-e2e${executableSuffix}`,
+  `bwbrowser-e2e${executableSuffix}`,
 );
 const driverRoot = path.join(projectRoot, "e2e", ".driver");
 const driverBinary = path.join(
@@ -49,7 +49,7 @@ const driverBinary = path.join(
 );
 const appManifest = path.join(appManifestDir, "Cargo.toml");
 const appLockfile = path.join(appManifestDir, "Cargo.lock");
-const donutLockfile = path.join(projectRoot, "src-tauri", "Cargo.lock");
+const bwbrowserLockfile = path.join(projectRoot, "src-tauri", "Cargo.lock");
 
 const suiteFiles = {
   smoke: ["diagnostics.test.mjs", "smoke.test.mjs", "coverage.test.mjs"],
@@ -77,8 +77,8 @@ function parseArgs(argv) {
   const options = {
     suite: "full",
     build: true,
-    keep: process.env.DONUT_E2E_KEEP_ARTIFACTS === "1",
-    verbose: process.env.DONUT_E2E_VERBOSE === "1",
+    keep: process.env.BWBROWSER_E2E_KEEP_ARTIFACTS === "1",
+    verbose: process.env.BWBROWSER_E2E_VERBOSE === "1",
   };
   for (const arg of argv) {
     if (arg.startsWith("--suite=")) {
@@ -102,7 +102,7 @@ function parseArgs(argv) {
 }
 
 function log(message) {
-  process.stdout.write(`[donut-e2e] ${message}\n`);
+  process.stdout.write(`[bwbrowser-e2e] ${message}\n`);
 }
 
 function run(command, args, cwd, env = process.env) {
@@ -171,7 +171,7 @@ function startProcess(name, command, args, { cwd, env, runRoot, verbose }) {
     );
   }
   child.on("error", (error) => {
-    process.stderr.write(`[donut-e2e] ${name} process error: ${error}\n`);
+    process.stderr.write(`[bwbrowser-e2e] ${name} process error: ${error}\n`);
   });
   return { name, process: child, stream, logPath };
 }
@@ -289,18 +289,18 @@ function ensureDriver() {
   );
 }
 
-// The harness links the Donut crate, so it has to resolve the same versions
-// Donut itself ships. Seeding the harness lockfile from src-tauri/Cargo.lock
+// The harness links the Bwbrowser crate, so it has to resolve the same versions
+// Bwbrowser itself ships. Seeding the harness lockfile from src-tauri/Cargo.lock
 // keeps the two in step whenever a dependency or the app version moves; cargo
 // fills in the harness-only packages on top. It is generated, never hand-edited.
 function syncHarnessLockfile() {
   if (
     existsSync(appLockfile) &&
-    statSync(appLockfile).mtimeMs >= statSync(donutLockfile).mtimeMs
+    statSync(appLockfile).mtimeMs >= statSync(bwbrowserLockfile).mtimeMs
   ) {
     return;
   }
-  copyFileSync(donutLockfile, appLockfile);
+  copyFileSync(bwbrowserLockfile, appLockfile);
   log("seeded e2e/app/Cargo.lock from src-tauri/Cargo.lock");
 }
 
@@ -327,7 +327,7 @@ function startFixtureServer(geoIpFixture, geoIpAsnFixture) {
       request.on("end", () => {
         response.writeHead(200, {
           "content-type": "application/json",
-          "set-cookie": "donut_e2e=browser-ok; Path=/; SameSite=Lax",
+          "set-cookie": "bwbrowser_e2e=browser-ok; Path=/; SameSite=Lax",
         });
         response.end(
           JSON.stringify({
@@ -395,9 +395,9 @@ function startFixtureServer(geoIpFixture, geoIpAsnFixture) {
     });
     response.end(`<!doctype html>
       <html>
-        <head><title>Donut E2E Browser Fixture</title></head>
+        <head><title>Bwbrowser E2E Browser Fixture</title></head>
         <body>
-          <h1 id="fixture-title">Donut E2E Browser Fixture</h1>
+          <h1 id="fixture-title">Bwbrowser E2E Browser Fixture</h1>
           <p id="path">${url.pathname}</p>
           <button id="fixture-button" onclick="this.dataset.clicked='yes'; this.textContent='Clicked'">Click fixture</button>
           <script>window.__fixtureReady = true;</script>
@@ -414,8 +414,8 @@ function startFixtureServer(geoIpFixture, geoIpAsnFixture) {
 
 async function ensureGeoIpFixture() {
   return ensureMmdbFixture("GeoLite2-City.mmdb", "-City.mmdb", {
-    override: process.env.DONUT_E2E_GEOIP_FIXTURE,
-    overrideName: "DONUT_E2E_GEOIP_FIXTURE",
+    override: process.env.BWBROWSER_E2E_GEOIP_FIXTURE,
+    overrideName: "BWBROWSER_E2E_GEOIP_FIXTURE",
   });
 }
 
@@ -426,8 +426,8 @@ async function ensureGeoIpFixture() {
  */
 async function ensureGeoIpAsnFixture() {
   return ensureMmdbFixture("GeoLite2-ASN.mmdb", "-ASN.mmdb", {
-    override: process.env.DONUT_E2E_GEOIP_ASN_FIXTURE,
-    overrideName: "DONUT_E2E_GEOIP_ASN_FIXTURE",
+    override: process.env.BWBROWSER_E2E_GEOIP_ASN_FIXTURE,
+    overrideName: "BWBROWSER_E2E_GEOIP_ASN_FIXTURE",
   });
 }
 
@@ -443,7 +443,7 @@ async function ensureMmdbFixture(
     }
     return fixture;
   }
-  const toolsDir = path.join(os.tmpdir(), "donut-e2e-tools");
+  const toolsDir = path.join(os.tmpdir(), "bwbrowser-e2e-tools");
   const fixture = path.join(toolsDir, fileName);
   await mkdir(toolsDir, { recursive: true });
   if (existsSync(fixture)) return fixture;
@@ -452,7 +452,7 @@ async function ensureMmdbFixture(
   const releases = await fetch(
     "https://api.github.com/repos/P3TERX/GeoLite.mmdb/releases",
     {
-      headers: { "user-agent": "donut-browser-e2e" },
+      headers: { "user-agent": "bw-browser-e2e" },
       signal: AbortSignal.timeout(30_000),
     },
   ).then((response) => {
@@ -517,8 +517,8 @@ async function download(url, destination) {
 }
 
 async function ensureMinio() {
-  if (process.env.DONUT_E2E_MINIO_BIN) {
-    return path.resolve(process.env.DONUT_E2E_MINIO_BIN);
+  if (process.env.BWBROWSER_E2E_MINIO_BIN) {
+    return path.resolve(process.env.BWBROWSER_E2E_MINIO_BIN);
   }
   const existingHarnessBinary = path.join(
     projectRoot,
@@ -529,7 +529,7 @@ async function ensureMinio() {
   if (existsSync(existingHarnessBinary)) {
     return existingHarnessBinary;
   }
-  const toolsDir = path.join(os.tmpdir(), "donut-e2e-tools");
+  const toolsDir = path.join(os.tmpdir(), "bwbrowser-e2e-tools");
   const binary = path.join(
     toolsDir,
     `minio-${process.platform}-${os.arch()}${executableSuffix}`,
@@ -553,7 +553,7 @@ async function startSyncInfrastructure(runRoot, options, records) {
   const minioPort = await freePort();
   const minioConsolePort = await freePort();
   const syncPort = await freePort();
-  const syncToken = "donut-e2e-sync-token-0123456789abcdef";
+  const syncToken = "bwbrowser-e2e-sync-token-0123456789abcdef";
   const minio = startProcess(
     "minio",
     minioBinary,
@@ -584,11 +584,11 @@ async function startSyncInfrastructure(runRoot, options, records) {
     minio,
   );
 
-  const syncRoot = path.join(projectRoot, "donut-sync");
+  const syncRoot = path.join(projectRoot, "bwbrowser-sync");
   await rm(path.join(syncRoot, "tsconfig.build.tsbuildinfo"), { force: true });
   await rm(path.join(syncRoot, "dist"), { recursive: true, force: true });
   run("pnpm", ["build"], syncRoot);
-  const sync = startProcess("donut-sync", "node", ["dist/main.js"], {
+  const sync = startProcess("bwbrowser-sync", "node", ["dist/main.js"], {
     cwd: syncRoot,
     runRoot,
     verbose: options.verbose,
@@ -600,7 +600,7 @@ async function startSyncInfrastructure(runRoot, options, records) {
       S3_REGION: "us-east-1",
       S3_ACCESS_KEY_ID: "minioadmin",
       S3_SECRET_ACCESS_KEY: "minioadmin",
-      S3_BUCKET: `donut-e2e-${process.pid}`,
+      S3_BUCKET: `bwbrowser-e2e-${process.pid}`,
       S3_FORCE_PATH_STYLE: "true",
     },
   });
@@ -812,9 +812,9 @@ async function startWireGuardInfrastructure() {
   }
 
   const port = await freePort();
-  const name = `donut-wg-e2e-${process.pid}-${Date.now()}`;
+  const name = `bwbrowser-wg-e2e-${process.pid}-${Date.now()}`;
   const image =
-    process.env.DONUT_E2E_WIREGUARD_IMAGE ??
+    process.env.BWBROWSER_E2E_WIREGUARD_IMAGE ??
     "lscr.io/linuxserver/wireguard:latest";
   log("Starting isolated local WireGuard peer");
   runDocker([
@@ -869,7 +869,7 @@ async function startWireGuardInfrastructure() {
       name,
       "sh",
       "-c",
-      'while true; do printf "HTTP/1.1 200 OK\\r\\nContent-Length: 13\\r\\nConnection: close\\r\\n\\r\\nWG-TUNNEL-OK\\n" | nc -l -p 8080 >> /tmp/donut-e2e-target-requests 2>/dev/null; done',
+      'while true; do printf "HTTP/1.1 200 OK\\r\\nContent-Length: 13\\r\\nConnection: close\\r\\n\\r\\nWG-TUNNEL-OK\\n" | nc -l -p 8080 >> /tmp/bwbrowser-e2e-target-requests 2>/dev/null; done',
     ]);
     if (server.status !== 0) {
       throw new Error("Failed to start the WireGuard tunnel target server");
@@ -881,7 +881,7 @@ async function startWireGuardInfrastructure() {
     return {
       name,
       config,
-      targetUrl: "http://10.64.0.1:8080/donut-e2e-wireguard",
+      targetUrl: "http://10.64.0.1:8080/bwbrowser-e2e-wireguard",
     };
   } catch (error) {
     runDocker(["rm", "-f", name], { allowFailure: true });
@@ -901,10 +901,13 @@ async function prepareRetainedArtifacts(
     sessions
       .filter((entry) => entry.isDirectory())
       .map((entry) =>
-        rm(path.join(sessionsRoot, entry.name, "donut", "data", "binaries"), {
-          recursive: true,
-          force: true,
-        }),
+        rm(
+          path.join(sessionsRoot, entry.name, "bwbrowser", "data", "binaries"),
+          {
+            recursive: true,
+            force: true,
+          },
+        ),
       ),
   );
   await createSafeDiagnostics(runRoot, { suite, failed, sensitiveValues });
@@ -912,7 +915,7 @@ async function prepareRetainedArtifacts(
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const runRoot = await mkdtemp(path.join(os.tmpdir(), "donut-e2e-"));
+  const runRoot = await mkdtemp(path.join(os.tmpdir(), "bwbrowser-e2e-"));
   await mkdir(path.join(runRoot, "logs"), { recursive: true });
   const records = [];
   let fixture;
@@ -920,7 +923,7 @@ async function main() {
   let xray;
   let failed = false;
   const sensitiveValues = [
-    "donut-e2e-sync-token-0123456789abcdef",
+    "bwbrowser-e2e-sync-token-0123456789abcdef",
     "minioadmin",
   ];
   const cleanup = async () => {
@@ -996,7 +999,7 @@ async function main() {
       options.suite === "full";
     const networkEnabled =
       (options.suite === "network" || options.suite === "full") &&
-      process.env.DONUT_E2E_SKIP_NETWORK_TEST !== "1";
+      process.env.BWBROWSER_E2E_SKIP_NETWORK_TEST !== "1";
     const geoIpFixture = needsBrowser ? await ensureGeoIpFixture() : null;
     const geoIpAsnFixture = needsBrowser ? await ensureGeoIpAsnFixture() : null;
     fixture = await startFixtureServer(geoIpFixture, geoIpAsnFixture);
@@ -1004,7 +1007,7 @@ async function main() {
     if (options.suite === "sync" || options.suite === "full") {
       sync = await startSyncInfrastructure(runRoot, options, records);
     }
-    if (networkEnabled && process.env.DONUT_E2E_SKIP_VPN_TUNNEL !== "1") {
+    if (networkEnabled && process.env.BWBROWSER_E2E_SKIP_VPN_TUNNEL !== "1") {
       wireGuard = await startWireGuardInfrastructure();
     }
     if (networkEnabled) {
@@ -1038,8 +1041,8 @@ async function main() {
       "--test-reporter=spec",
       // One test out of a suite, for iterating on a failure without paying
       // for the rest of the file. Never set in CI.
-      ...(process.env.DONUT_E2E_TEST_NAME_PATTERN
-        ? [`--test-name-pattern=${process.env.DONUT_E2E_TEST_NAME_PATTERN}`]
+      ...(process.env.BWBROWSER_E2E_TEST_NAME_PATTERN
+        ? [`--test-name-pattern=${process.env.BWBROWSER_E2E_TEST_NAME_PATTERN}`]
         : []),
       ...files,
     ];
@@ -1047,37 +1050,38 @@ async function main() {
       cwd: projectRoot,
       env: {
         ...process.env,
-        DONUT_E2E_RUN_ROOT: runRoot,
-        DONUT_E2E_PROJECT_ROOT: projectRoot,
-        DONUT_E2E_APP: appBinary,
-        DONUT_E2E_DRIVER_URL: `http://127.0.0.1:${driverPort}`,
-        DONUT_E2E_FIXTURE_URL: `http://127.0.0.1:${fixture.port}`,
-        DONUT_E2E_GEOIP_FIXTURE_READY: geoIpFixture ? "1" : "0",
-        DONUT_E2E_GEOIP_ASN_FIXTURE_READY: geoIpAsnFixture ? "1" : "0",
-        // Every suite runs the Donut window headless so a local run never
+        BWBROWSER_E2E_RUN_ROOT: runRoot,
+        BWBROWSER_E2E_PROJECT_ROOT: projectRoot,
+        BWBROWSER_E2E_APP: appBinary,
+        BWBROWSER_E2E_DRIVER_URL: `http://127.0.0.1:${driverPort}`,
+        BWBROWSER_E2E_FIXTURE_URL: `http://127.0.0.1:${fixture.port}`,
+        BWBROWSER_E2E_GEOIP_FIXTURE_READY: geoIpFixture ? "1" : "0",
+        BWBROWSER_E2E_GEOIP_ASN_FIXTURE_READY: geoIpAsnFixture ? "1" : "0",
+        // Every suite runs the Bwbrowser window headless so a local run never
         // pops a window or steals focus: the app builds it hidden and the
         // tauri-wd plugin keeps it off screen (on macOS transparent,
         // click-through and never key, with the app as an accessory; hidden
         // elsewhere). AppSession forwards this as the headless capability;
         // only the driver's TAURI_WEBDRIVER_HEADLESS reaches the app.
-        // DONUT_E2E_HEADED=1 shows the window again when a failure needs
+        // BWBROWSER_E2E_HEADED=1 shows the window again when a failure needs
         // watching. Wayfern itself is a separate process and unaffected.
-        DONUT_E2E_HEADLESS: process.env.DONUT_E2E_HEADED === "1" ? "0" : "1",
+        BWBROWSER_E2E_HEADLESS:
+          process.env.BWBROWSER_E2E_HEADED === "1" ? "0" : "1",
         WAYFERN_TEST_TOKEN: token,
         RESIDENTIAL_PROXY_URL_ONE_SOCKS:
           localValues.RESIDENTIAL_PROXY_URL_ONE_SOCKS ?? "",
         RESIDENTIAL_PROXY_URL_ONE_HTTP:
           localValues.RESIDENTIAL_PROXY_URL_ONE_HTTP ?? "",
-        DONUT_E2E_SYNC_URL: sync.syncUrl ?? "",
-        DONUT_E2E_SYNC_TOKEN: sync.syncToken ?? "",
-        DONUT_E2E_MINIO_URL: sync.minioUrl ?? "",
-        DONUT_E2E_WIREGUARD_CONFIG_BASE64: wireGuard
+        BWBROWSER_E2E_SYNC_URL: sync.syncUrl ?? "",
+        BWBROWSER_E2E_SYNC_TOKEN: sync.syncToken ?? "",
+        BWBROWSER_E2E_MINIO_URL: sync.minioUrl ?? "",
+        BWBROWSER_E2E_WIREGUARD_CONFIG_BASE64: wireGuard
           ? Buffer.from(wireGuard.config).toString("base64")
           : "",
-        DONUT_E2E_WIREGUARD_TARGET_URL: wireGuard?.targetUrl ?? "",
-        DONUT_E2E_WIREGUARD_CONTAINER: wireGuard?.name ?? "",
-        DONUT_E2E_VLESS_URI: xray?.uri ?? "",
-        DONUT_E2E_XRAY_ACCESS_LOG: xray?.accessLog ?? "",
+        BWBROWSER_E2E_WIREGUARD_TARGET_URL: wireGuard?.targetUrl ?? "",
+        BWBROWSER_E2E_WIREGUARD_CONTAINER: wireGuard?.name ?? "",
+        BWBROWSER_E2E_VLESS_URI: xray?.uri ?? "",
+        BWBROWSER_E2E_XRAY_ACCESS_LOG: xray?.accessLog ?? "",
       },
       stdio: "inherit",
     });
@@ -1095,7 +1099,7 @@ async function main() {
     log(`Suite ${options.suite} passed`);
   } catch (error) {
     failed = true;
-    process.stderr.write(`[donut-e2e] ERROR: ${error.stack ?? error}\n`);
+    process.stderr.write(`[bwbrowser-e2e] ERROR: ${error.stack ?? error}\n`);
     process.exitCode = 1;
   } finally {
     await cleanup();

@@ -26,7 +26,7 @@ env:
 
 jobs:
   analyze-issue:
-    if: github.repository == 'zhom/donutbrowser' && github.event_name == 'issues'
+    if: github.repository == 'zhom/bwbrowser' && github.event_name == 'issues'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -73,7 +73,7 @@ jobs:
           fs.writeFileSync('/tmp/issue-fields.json', JSON.stringify(fields, null, 2));
           const get = (k) => fields[k] || '';
           fs.writeFileSync('/tmp/issue-os.txt', get('Operating System'));
-          fs.writeFileSync('/tmp/issue-version.txt', get('Donut Browser version'));
+          fs.writeFileSync('/tmp/issue-version.txt', get('BW Browser version'));
           fs.writeFileSync('/tmp/issue-wayfern-version.txt', get('Wayfern version'));
           fs.writeFileSync('/tmp/issue-repro.txt', get('Steps to reproduce'));
           fs.writeFileSync('/tmp/issue-what.txt', get('What happened?') || get('What do you want?'));
@@ -98,10 +98,10 @@ jobs:
           cat > /tmp/scope-and-pricing.md <<'EOF'
           # PROJECT SCOPE
 
-          - Donut Browser: this repo. A Tauri desktop launcher (Rust + Next.js) that
+          - BW Browser: this repo. A Tauri desktop launcher (Rust + Next.js) that
             downloads, manages, and launches anti-detect browser profiles. In-scope for bug
             reports about profile management, downloads, sync, proxy, VPN, the launcher UI,
-            its API, MCP server, and the bundled `donut-sync` self-hosted server.
+            its API, MCP server, and the bundled `bwbrowser-sync` self-hosted server.
           - Wayfern: a Chromium fork maintained by zhom (the same maintainer). Wayfern
             bugs are in-scope here unless they are obviously upstream Chromium issues.
           - Forks of Wayfern (e.g. CloverLabsAI, VulpineOS) are NOT
@@ -109,7 +109,7 @@ jobs:
 
           # PAID vs FREE FEATURES
 
-          Source: donutbrowser.com pricing tiers (verbatim from translations).
+          Source: bwbrowser.com pricing tiers (verbatim from translations).
 
           ## Free (no account required)
           - Unlimited local profiles
@@ -119,14 +119,14 @@ jobs:
           - Profile Management API & MCP (list / create / launch / kill / config)
           - Cookie & Extension Management
           - Set as default browser
-          - Profile sync IS FREE if the user self-hosts the `donut-sync` server
+          - Profile sync IS FREE if the user self-hosts the `bwbrowser-sync` server
 
           ## Pro ($16/mo) adds:
           - Browser Manipulation API & MCP (`type_text`, `click_element`,
             `evaluate_javascript`, `screenshot`, `navigate`, etc.)
           - Cross-OS fingerprinting (e.g. macOS user appearing as Windows)
           - Profile Synchronizer for Wayfern
-          - 20 cloud profile backup (cloud sync via donutbrowser.com)
+          - 20 cloud profile backup (cloud sync via bwbrowser.com)
           - Commercial use license
 
           ## Team ($80/mo) adds:
@@ -144,21 +144,21 @@ jobs:
             "clear", "reasonable", "well-thought-out", etc.
           - AI-generated / template-violating report: report doesn't follow the
             template, may cite "official documentation" via context7, deepwiki, or any
-            non-`donutbrowser.com` / non-`github.com/zhom` URL. The only authoritative
-            sources are this GitHub repo and donutbrowser.com.
+            non-`bwbrowser.com` / non-`github.com/zhom` URL. The only authoritative
+            sources are this GitHub repo and bwbrowser.com.
           - Speculation about internals: never write a "Possible cause" / "Likely
             cause" / "Root cause" section. Never cite internal file paths or line
             numbers. Never speculate about how subscription / paid-plan checks work.
 
           # OS-SPECIFIC LOG PATHS (use ONLY the one matching the user's OS)
-          # Easiest path for the user: Donut → Settings → Advanced → Copy logs
+          # Easiest path for the user: Bwbrowser → Settings → Advanced → Copy logs
           # (puts the latest rotated log on the clipboard). If they prefer to
-          # attach files directly, the active log is `DonutBrowser.log`; older
-          # rotated copies sit next to it (`DonutBrowser.log.YYYY-MM-DD-...`).
+          # attach files directly, the active log is `BwBrowser.log`; older
+          # rotated copies sit next to it (`BwBrowser.log.YYYY-MM-DD-...`).
 
-          - macOS:   `~/Library/Logs/com.donutbrowser/DonutBrowser.log`
-          - Linux:   `~/.local/share/com.donutbrowser/logs/DonutBrowser.log`
-          - Windows: `%LOCALAPPDATA%\com.donutbrowser\logs\DonutBrowser.log`
+          - macOS:   `~/Library/Logs/com.bwbrowser/BwBrowser.log`
+          - Linux:   `~/.local/share/com.bwbrowser/logs/BwBrowser.log`
+          - Windows: `%LOCALAPPDATA%\com.bwbrowser\logs\BwBrowser.log`
 
           # KNOWN ERROR SIGNATURES (truth, not guesses; match these
           # verbatim before suggesting anything else)
@@ -188,7 +188,7 @@ jobs:
           # Build it to a file instead and load it via --rawfile in the next step.
           {
             cat <<'TRIAGE_HEAD'
-          You are a triage classifier for the Donut Browser GitHub repo. Classify the issue and pick at most 20 source files for a composer to read.
+          You are a triage classifier for the BW Browser GitHub repo. Classify the issue and pick at most 20 source files for a composer to read.
 
           TRIAGE_HEAD
             cat /tmp/scope-and-pricing.md
@@ -212,7 +212,7 @@ jobs:
 
           Classification guidance:
           - "bug-template-violation": missing or filled-in nonsense for required template fields.
-          - "automated-content": cites fabricated "official docs" (context7, deepwiki, non-donutbrowser URLs) or has a highly structured automated-submission pattern with fabricated certainty.
+          - "automated-content": cites fabricated "official docs" (context7, deepwiki, non-bwbrowser URLs) or has a highly structured automated-submission pattern with fabricated certainty.
           - "fork-request": asks for support of CloverLabsAI/VulpineOS/etc. forks.
           - "regression": user names a prior version that worked.
 
@@ -312,7 +312,7 @@ jobs:
           # gymnastics. Build it to a file, load via --rawfile.
           {
             cat <<'COMPOSER_HEAD'
-          You are a triage assistant for Donut Browser. You compose ONE short GitHub comment in response to a freshly opened issue. The triage step has already classified the issue. Use the classification verbatim, do not re-litigate it.
+          You are a triage assistant for BW Browser. You compose ONE short GitHub comment in response to a freshly opened issue. The triage step has already classified the issue. Use the classification verbatim, do not re-litigate it.
 
           COMPOSER_HEAD
             cat /tmp/scope-and-pricing.md
@@ -324,7 +324,7 @@ jobs:
 
           ## Output shape
           - One sentence acknowledging the report.
-          - Then a line reading exactly `Missing information:`, only if something is actually missing. Skip this section if the user already provided OS, Donut Browser version, Wayfern version, repro steps, and any logs the situation calls for.
+          - Then a line reading exactly `Missing information:`, only if something is actually missing. Skip this section if the user already provided OS, BW Browser version, Wayfern version, repro steps, and any logs the situation calls for.
           - Maximum 15 lines.
           - No labels, no `Label:` line, no markdown headings, and no bold. `Missing information:` is a plain line, not a heading.
           - No closing pleasantries ("please let me know", "happy to help", etc.).
@@ -343,14 +343,14 @@ jobs:
           The triage classification (`triage.classification`) determines the response shape:
 
           - `bug-in-scope`: ask for what is missing using the user's reported OS log path. Be concrete about how to obtain logs.
-          - `bug-template-violation` or `automated-content`: politely ask the user to refile using the bug-report template (the Operating System, Donut Browser version, Wayfern version, Steps to reproduce, Error logs sections). If they cited "documentation" from any non-`donutbrowser.com`/non-`github.com/zhom` URL (e.g. context7, deepwiki), gently note that those are AI-generated third-party summaries and the only authoritative sources are this repo and donutbrowser.com.
+          - `bug-template-violation` or `automated-content`: politely ask the user to refile using the bug-report template (the Operating System, BW Browser version, Wayfern version, Steps to reproduce, Error logs sections). If they cited "documentation" from any non-`bwbrowser.com`/non-`github.com/zhom` URL (e.g. context7, deepwiki), gently note that those are AI-generated third-party summaries and the only authoritative sources are this repo and bwbrowser.com.
           - `feature-request`: one neutral sentence acknowledging, then ask only what is genuinely needed (concrete use case, whether a workaround would suffice). Do NOT validate.
           - `fork-request`: one neutral sentence acknowledging the request. Note that this would substantially increase support burden and the maintainer evaluates such requests on a case-by-case basis. Ask whether the alternative fork supports all platforms the user uses (macOS / Windows / Linux). No "clear enhancement" language.
           - `regression`: do NOT call known/expected. Ask which exact previous version was the last working one, what changed in the user's environment between then and now, and the specific delta in symptoms.
           - `question`: answer briefly if obvious from repo guidelines / pricing; otherwise ask for clarification.
 
           ## Paid-feature awareness
-          If `triage.is_paid_feature` is true, factor the pricing tiers into your reply. For Pro-only features (browser manipulation API/MCP, cross-OS fingerprinting, Wayfern Profile Synchronizer, cloud sync), confirm the user is logged in with an active subscription before asking for logs. If the issue is about cloud sync, mention that self-hosting `donut-sync` makes sync free and is a viable alternative.
+          If `triage.is_paid_feature` is true, factor the pricing tiers into your reply. For Pro-only features (browser manipulation API/MCP, cross-OS fingerprinting, Wayfern Profile Synchronizer, cloud sync), confirm the user is logged in with an active subscription before asking for logs. If the issue is about cloud sync, mention that self-hosting `bwbrowser-sync` makes sync free and is a viable alternative.
 
           ## Language
           If the issue body is not in English, write the comment in English (the maintainer reads English). The FIRST line must politely ask the user to communicate in English so the maintainer can help. Then continue with the normal triage response, in English.
@@ -360,10 +360,10 @@ jobs:
           latest rotated log on the clipboard without the user hunting for
           a directory. If they want to attach files directly, point at the
           path that matches `triage.operating_system`. The active log is
-          always `DonutBrowser.log`; rotated copies sit next to it.
-            - macos:   `~/Library/Logs/com.donutbrowser/DonutBrowser.log`
-            - linux:   `~/.local/share/com.donutbrowser/logs/DonutBrowser.log`
-            - windows: `%LOCALAPPDATA%\com.donutbrowser\logs\DonutBrowser.log` (PowerShell: `Get-Content $env:LOCALAPPDATA\com.donutbrowser\logs\DonutBrowser.log -Tail 200`)
+          always `BwBrowser.log`; rotated copies sit next to it.
+            - macos:   `~/Library/Logs/com.bwbrowser/BwBrowser.log`
+            - linux:   `~/.local/share/com.bwbrowser/logs/BwBrowser.log`
+            - windows: `%LOCALAPPDATA%\com.bwbrowser\logs\BwBrowser.log` (PowerShell: `Get-Content $env:LOCALAPPDATA\com.bwbrowser\logs\BwBrowser.log -Tail 200`)
             - unknown: ask the user to share their OS first.
 
           ## Known error signatures (apply BEFORE asking generic questions)
@@ -501,7 +501,7 @@ jobs:
           fi
 
   analyze-pr:
-    if: github.repository == 'zhom/donutbrowser' && github.event_name == 'pull_request_target' && github.actor != 'dependabot[bot]'
+    if: github.repository == 'zhom/bwbrowser' && github.event_name == 'pull_request_target' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -608,7 +608,7 @@ jobs:
               messages: [
                 {
                   role: "system",
-                  content: ("You are a code review bot for Donut Browser, an open-source anti-detect browser (Tauri desktop app: Rust backend + Next.js frontend).\n\nProject guidelines and structure:\n" + $repo_context + "\n\nContributing guidelines:\n" + $contributing + "\n\nYou have access to sanitized head-revision contents for changed files and a sanitized diff. Use them to give a substantive review.\n\nReview this PR and produce a single comment. Format:\n\n1. One sentence summarizing what this PR does and whether the approach is sound.\n2. Code review: specific observations about the actual code changes. Mention file names and what you see in the diff. Look for:\n   - Bugs or logic errors in the changed code\n   - Security issues (SQL injection, path traversal, XSS, command injection)\n   - Missing error handling or edge cases\n   - Breaking changes to existing APIs or behavior\n   - If UI text was added or changed, verify the key exists in every JSON file under src/i18n/locales/\n   - If Tauri commands were added or removed, verify e2e/coverage-map.mjs is updated exactly once per command\n3. Suggestions: concrete improvements if any. Skip if the PR looks good.\n\nRules:\n- Be substantive. Review the actual diff, not just the description.\n- Do NOT nitpick formatting or style; the project has automated linting (biome + clippy + rustfmt).\n- Do NOT just summarize the PR description back to the user. They wrote it, they know what it says.\n- If the PR is good, say so briefly.\n- Never exceed 20 lines.\n- Write plainly: no em dashes, no emoji, no bold.")
+                  content: ("You are a code review bot for BW Browser, an open-source anti-detect browser (Tauri desktop app: Rust backend + Next.js frontend).\n\nProject guidelines and structure:\n" + $repo_context + "\n\nContributing guidelines:\n" + $contributing + "\n\nYou have access to sanitized head-revision contents for changed files and a sanitized diff. Use them to give a substantive review.\n\nReview this PR and produce a single comment. Format:\n\n1. One sentence summarizing what this PR does and whether the approach is sound.\n2. Code review: specific observations about the actual code changes. Mention file names and what you see in the diff. Look for:\n   - Bugs or logic errors in the changed code\n   - Security issues (SQL injection, path traversal, XSS, command injection)\n   - Missing error handling or edge cases\n   - Breaking changes to existing APIs or behavior\n   - If UI text was added or changed, verify the key exists in every JSON file under src/i18n/locales/\n   - If Tauri commands were added or removed, verify e2e/coverage-map.mjs is updated exactly once per command\n3. Suggestions: concrete improvements if any. Skip if the PR looks good.\n\nRules:\n- Be substantive. Review the actual diff, not just the description.\n- Do NOT nitpick formatting or style; the project has automated linting (biome + clippy + rustfmt).\n- Do NOT just summarize the PR description back to the user. They wrote it, they know what it says.\n- If the PR is good, say so briefly.\n- Never exceed 20 lines.\n- Write plainly: no em dashes, no emoji, no bold.")
                 },
                 {
                   role: "user",
@@ -678,7 +678,7 @@ jobs:
 
   opencode-command:
     if: |
-      github.repository == 'zhom/donutbrowser' &&
+      github.repository == 'zhom/bwbrowser' &&
       (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
       (github.event.comment.author_association == 'OWNER' ||
        github.event.comment.author_association == 'MEMBER' ||

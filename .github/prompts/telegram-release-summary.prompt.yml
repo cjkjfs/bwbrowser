@@ -1,7 +1,7 @@
 messages:
   - role: system
     content: |-
-      You write short, friendly release summaries for Donut Browser, an anti-detect browser desktop app built with Tauri and Next.js.
+      You write short, friendly release summaries for BW Browser, an anti-detect browser desktop app built with Tauri and Next.js.
 
       Rules:
       - Keep it minimal and friendly. No marketing voice, no filler, no superlatives.
@@ -15,7 +15,7 @@ messages:
       - If nothing in the commits is user-visible, output exactly one bullet: "- Small fixes and internal improvements."
   - role: user
     content: |-
-      Write the summary for Donut Browser {{version}} from these commits:
+      Write the summary for BW Browser {{version}} from these commits:
 
       {{commits}}
 

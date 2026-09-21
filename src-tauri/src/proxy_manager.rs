@@ -197,6 +197,8 @@ pub struct StoredProxy {
   #[serde(default)]
   pub geo_city: Option<String>,
   #[serde(default)]
+  pub geo_timezone: Option<String>,
+  #[serde(default)]
   pub geo_isp: Option<String>,
   #[serde(default)]
   pub dynamic_proxy_url: Option<String>,
@@ -278,6 +280,7 @@ impl StoredProxy {
       geo_state: None,
       geo_region: None,
       geo_city: None,
+      geo_timezone: None,
       geo_isp: None,
       dynamic_proxy_url: None,
       dynamic_proxy_format: None,
@@ -596,8 +599,26 @@ impl ProxyManager {
   }
 
   fn normalize_proxy_settings(mut proxy_settings: ProxySettings) -> Result<ProxySettings, String> {
-    if !proxy_settings.proxy_type.eq_ignore_ascii_case("vless") {
+    let pt = proxy_settings.proxy_type.to_lowercase();
+    if pt != "vless" && pt != "trojan" {
       proxy_settings.vless_uri = None;
+      return Ok(proxy_settings);
+    }
+
+    if pt == "trojan" {
+      let uri = proxy_settings
+        .vless_uri
+        .as_deref()
+        .filter(|uri| !uri.is_empty())
+        .ok_or_else(|| crate::backend_error("VLESS_CONFIG_INVALID"))?;
+      let parsed =
+        crate::xray::parse_trojan_uri(uri).map_err(|error| crate::vless_config_error(&error))?;
+      proxy_settings.proxy_type = "trojan".to_string();
+      proxy_settings.host = parsed.config.address;
+      proxy_settings.port = parsed.config.port;
+      proxy_settings.username = None;
+      proxy_settings.password = None;
+      proxy_settings.vless_uri = Some(uri.to_string());
       return Ok(proxy_settings);
     }
 
@@ -650,6 +671,8 @@ impl ProxyManager {
     if let Err(e) = self.save_proxy(&stored_proxy) {
       log::warn!("Failed to save proxy: {e}");
     }
+
+    // 时区检测不在创建代理时做，只在设置代理时（bwbrowser_update_account_proxy）检测一次。
 
     // Emit event for reactive UI updates
     if let Err(e) = events::emit_empty("proxies-changed") {
@@ -704,6 +727,7 @@ impl ProxyManager {
         geo_state: None,
         geo_region: None,
         geo_city: None,
+        geo_timezone: None,
         geo_isp: None,
         dynamic_proxy_url: None,
         dynamic_proxy_format: None,
@@ -897,6 +921,7 @@ impl ProxyManager {
       geo_state: None,
       geo_region: region,
       geo_city: city,
+      geo_timezone: None,
       geo_isp: isp,
       dynamic_proxy_url: None,
       dynamic_proxy_format: None,
@@ -1001,6 +1026,12 @@ impl ProxyManager {
     list
   }
 
+  /// Get a single stored proxy by ID.
+  pub fn get_stored_proxy(&self, proxy_id: &str) -> Option<StoredProxy> {
+    let stored_proxies = self.stored_proxies.lock().unwrap();
+    stored_proxies.get(proxy_id).cloned()
+  }
+
   /// Insert/replace a stored proxy in the in-memory map. Used by sync's
   /// download_proxy after it writes the file to disk, mirroring how
   /// download_group/download_vpn/download_extension keep their managers'
@@ -1059,6 +1090,7 @@ impl ProxyManager {
     } // Release the lock here
 
     // Now get mutable access for updates
+    let _was_proxy_settings_updated = proxy_settings.is_some();
     let updated_proxy = {
       let mut stored_proxies = self.stored_proxies.lock().unwrap();
       let stored_proxy = stored_proxies.get_mut(proxy_id).unwrap(); // Safe because we checked above
@@ -1078,6 +1110,8 @@ impl ProxyManager {
       log::warn!("Failed to save proxy: {e}");
     }
 
+    // 时区检测不在更新代理时做，只在设置代理时（bwbrowser_update_account_proxy）检测一次。
+
     // Emit event for reactive UI updates
     if let Err(e) = events::emit_empty("proxies-changed") {
       log::error!("Failed to emit proxies-changed event: {e}");
@@ -1093,6 +1127,21 @@ impl ProxyManager {
     }
 
     Ok(updated_proxy)
+  }
+
+  /// Update the geo_timezone field of a stored proxy and persist to disk.
+  pub fn update_proxy_geo(&self, proxy_id: &str, timezone: Option<String>) {
+    let updated_proxy = {
+      let mut stored_proxies = self.stored_proxies.lock().unwrap();
+      let Some(proxy) = stored_proxies.get_mut(proxy_id) else {
+        return;
+      };
+      proxy.geo_timezone = timezone;
+      proxy.clone()
+    };
+    if let Err(e) = self.save_proxy(&updated_proxy) {
+      log::warn!("Failed to save proxy geo: {e}");
+    }
   }
 
   /// Update the in-memory `sync_enabled` / `last_sync` fields of a stored
@@ -1271,7 +1320,9 @@ impl ProxyManager {
   // a password containing `/`, `#`, `?` or `@` otherwise breaks the URL
   // authority and silently retargets the request at the wrong host.
   pub fn build_proxy_url(proxy_settings: &ProxySettings) -> String {
-    if proxy_settings.proxy_type.eq_ignore_ascii_case("vless") {
+    if proxy_settings.proxy_type.eq_ignore_ascii_case("vless")
+      || proxy_settings.proxy_type.eq_ignore_ascii_case("trojan")
+    {
       return proxy_settings.vless_uri.clone().unwrap_or_default();
     }
 
@@ -1355,7 +1406,7 @@ impl ProxyManager {
     )
   }
 
-  // Check if a proxy is valid by routing through a temporary donut-proxy process.
+  // Check if a proxy is valid by routing through a temporary bwbrowser-proxy process.
   // This tests the exact same code path the browser uses.
   // Falls back to direct reqwest check if the proxy worker fails to start.
   pub async fn check_proxy_validity(
@@ -1364,7 +1415,9 @@ impl ProxyManager {
     proxy_settings: &ProxySettings,
   ) -> Result<ProxyCheckResult, String> {
     let mut xray_worker_id = None;
-    let effective_proxy_settings = if proxy_settings.proxy_type.eq_ignore_ascii_case("vless") {
+    let effective_proxy_settings = if proxy_settings.proxy_type.eq_ignore_ascii_case("vless")
+      || proxy_settings.proxy_type.eq_ignore_ascii_case("trojan")
+    {
       let uri = proxy_settings
         .vless_uri
         .as_deref()
@@ -1446,7 +1499,7 @@ impl ProxyManager {
             "Proxy worker failed to start ({}), falling back to direct check",
             err_msg
           );
-          // reqwest cannot parse Donut's own `httpstls` scheme; without the
+          // reqwest cannot parse Bwbrowser's own `httpstls` scheme; without the
           // rewrite every fallback check on that type dies as "Invalid proxy"
           // rather than telling the user anything true. Deliberately not
           // `build_probe_proxy_url` here: that would also flip existing SOCKS5
@@ -1572,7 +1625,7 @@ impl ProxyManager {
       version: "1.0".to_string(),
       proxies,
       exported_at: Utc::now().to_rfc3339(),
-      source: "DonutBrowser".to_string(),
+      source: "BwBrowser".to_string(),
     };
 
     serde_json::to_string_pretty(&export_data).map_err(|e| format!("Failed to serialize: {e}"))
@@ -1698,6 +1751,24 @@ impl ProxyManager {
       return Some(match crate::xray::parse_vless_uri(line) {
         Ok(parsed) => ProxyParseResult::Parsed(ParsedProxyLine {
           proxy_type: "vless".to_string(),
+          host: parsed.config.address,
+          port: parsed.config.port,
+          username: None,
+          password: None,
+          vless_uri: Some(line.to_string()),
+          original_line: line.to_string(),
+        }),
+        Err(error) => ProxyParseResult::Invalid {
+          line: line.to_string(),
+          reason: error.to_string(),
+        },
+      });
+    }
+
+    if line.starts_with("trojan://") {
+      return Some(match crate::xray::parse_trojan_uri(line) {
+        Ok(parsed) => ProxyParseResult::Parsed(ParsedProxyLine {
+          proxy_type: "trojan".to_string(),
           host: parsed.config.address,
           port: parsed.config.port,
           username: None,
@@ -2031,10 +2102,10 @@ impl ProxyManager {
       .await
       .map_err(|e| e.to_string())?;
 
-    // Start a new proxy using the donut-proxy binary with the correct CLI interface
+    // Start a new proxy using the bwbrowser-proxy binary with the correct CLI interface
     let mut proxy_cmd = app_handle
       .shell()
-      .sidecar("donut-proxy")
+      .sidecar("bwbrowser-proxy")
       .map_err(|e| format!("Failed to create sidecar: {e}"))?
       .arg("proxy")
       .arg("start");
@@ -2052,10 +2123,10 @@ impl ProxyManager {
       // Keep credentials out of process arguments. The short-lived sidecar
       // removes these variables before it spawns the detached worker.
       if let Some(username) = &proxy_settings.username {
-        proxy_cmd = proxy_cmd.env("DONUT_PROXY_USERNAME", username);
+        proxy_cmd = proxy_cmd.env("BWBROWSER_PROXY_USERNAME", username);
       }
       if let Some(password) = &proxy_settings.password {
-        proxy_cmd = proxy_cmd.env("DONUT_PROXY_PASSWORD", password);
+        proxy_cmd = proxy_cmd.env("BWBROWSER_PROXY_PASSWORD", password);
       }
     }
 
@@ -2083,11 +2154,11 @@ impl ProxyManager {
     proxy_cmd = proxy_cmd.arg("--local-protocol").arg(local_protocol);
 
     // Execute the command and wait for it to complete
-    // The donut-proxy binary should start the worker and then exit
+    // The bwbrowser-proxy binary should start the worker and then exit
     let output = proxy_cmd
       .output()
       .await
-      .map_err(|e| format!("Failed to execute donut-proxy: {e}"))?;
+      .map_err(|e| format!("Failed to execute bwbrowser-proxy: {e}"))?;
 
     if !output.status.success() {
       let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2200,10 +2271,10 @@ impl ProxyManager {
       }
     };
 
-    // Stop the proxy using the donut-proxy binary
+    // Stop the proxy using the bwbrowser-proxy binary
     let proxy_cmd = app_handle
       .shell()
-      .sidecar("donut-proxy")
+      .sidecar("bwbrowser-proxy")
       .map_err(|e| format!("Failed to create sidecar: {e}"))?
       .arg("proxy")
       .arg("stop")
@@ -2221,7 +2292,7 @@ impl ProxyManager {
         );
       }
       Ok(_) => {}
-      Err(e) => log::warn!("Failed to run donut-proxy stop: {e}"),
+      Err(e) => log::warn!("Failed to run bwbrowser-proxy stop: {e}"),
     }
 
     // Clear profile-to-proxy mapping if it references this proxy
@@ -2274,7 +2345,7 @@ impl ProxyManager {
         // Proxy not found in active_proxies, try to stop it directly by ID
         let proxy_cmd = app_handle
           .shell()
-          .sidecar("donut-proxy")
+          .sidecar("bwbrowser-proxy")
           .map_err(|e| format!("Failed to create sidecar: {e}"))?
           .arg("proxy")
           .arg("stop")
@@ -2290,7 +2361,7 @@ impl ProxyManager {
             );
           }
           Ok(_) => {}
-          Err(e) => log::warn!("Failed to run donut-proxy stop: {e}"),
+          Err(e) => log::warn!("Failed to run bwbrowser-proxy stop: {e}"),
         }
 
         // Clear profile-to-proxy mapping
@@ -2522,9 +2593,9 @@ impl ProxyManager {
     // profile-associated workers were left alone in the other cleanup branches).
     //
     // Without this, every time a user closes their browser via the window's
-    // X button (bypassing Donut's stop flow) or the browser crashes, the
+    // X button (bypassing Bwbrowser's stop flow) or the browser crashes, the
     // worker keeps running forever. On Windows users reported dozens of
-    // donut-proxy processes accumulating this way.
+    // bwbrowser-proxy processes accumulating this way.
     {
       // Snapshot current active entries first so we don't hold the mutex
       // while running the (expensive on Windows) sysinfo scan.
@@ -2754,17 +2825,17 @@ mod tests {
   use hyper_util::rt::TokioIo;
   use tokio::net::TcpListener;
 
-  // Helper function to build donut-proxy binary for testing
-  async fn ensure_donut_proxy_binary() -> Result<PathBuf, Box<dyn std::error::Error>> {
+  // Helper function to build bwbrowser-proxy binary for testing
+  async fn ensure_bwbrowser_proxy_binary() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR")?;
     let project_root = PathBuf::from(cargo_manifest_dir)
       .parent()
       .unwrap()
       .to_path_buf();
     let proxy_binary_name = if cfg!(windows) {
-      "donut-proxy.exe"
+      "bwbrowser-proxy.exe"
     } else {
-      "donut-proxy"
+      "bwbrowser-proxy"
     };
     let proxy_binary = project_root
       .join("src-tauri")
@@ -2777,21 +2848,21 @@ mod tests {
       return Ok(proxy_binary);
     }
 
-    // Build the donut-proxy binary
-    println!("Building donut-proxy binary for tests...");
+    // Build the bwbrowser-proxy binary
+    println!("Building bwbrowser-proxy binary for tests...");
 
     let build_status = Command::new("cargo")
-      .args(["build", "--bin", "donut-proxy"])
+      .args(["build", "--bin", "bwbrowser-proxy"])
       .current_dir(project_root.join("src-tauri"))
       .status()
       .await?;
 
     if !build_status.success() {
-      return Err("Failed to build donut-proxy binary".into());
+      return Err("Failed to build bwbrowser-proxy binary".into());
     }
 
     if !proxy_binary.exists() {
-      return Err("donut-proxy binary was not created successfully".into());
+      return Err("bwbrowser-proxy binary was not created successfully".into());
     }
 
     Ok(proxy_binary)
@@ -2954,10 +3025,10 @@ mod tests {
     }
   }
 
-  // Integration test that actually builds and uses donut-proxy binary
+  // Integration test that actually builds and uses bwbrowser-proxy binary
   #[tokio::test]
   async fn test_proxy_integration_with_real_proxy() -> Result<(), Box<dyn std::error::Error>> {
-    // This test requires donut-proxy binary to be available
+    // This test requires bwbrowser-proxy binary to be available
     // Skip if we can't find the binary or if proxy startup fails
     use crate::proxy_runner::{start_proxy_process, stop_proxy_process};
     use tokio::net::TcpStream;
@@ -3098,7 +3169,7 @@ mod tests {
   // Test the CLI detachment specifically - ensure the CLI exits properly
   #[tokio::test]
   async fn test_cli_exits_after_proxy_start() -> Result<(), Box<dyn std::error::Error>> {
-    let proxy_path = ensure_donut_proxy_binary().await?;
+    let proxy_path = ensure_bwbrowser_proxy_binary().await?;
 
     // Test that the CLI exits quickly with a mock upstream
     let mut cmd = Command::new(&proxy_path);
@@ -3147,7 +3218,7 @@ mod tests {
   // Test that validates proper CLI detachment behavior
   #[tokio::test]
   async fn test_cli_detachment_behavior() -> Result<(), Box<dyn std::error::Error>> {
-    let proxy_path = ensure_donut_proxy_binary().await?;
+    let proxy_path = ensure_bwbrowser_proxy_binary().await?;
 
     // Test that the CLI command exits quickly even with a real upstream
     let mut cmd = Command::new(&proxy_path);
@@ -4204,6 +4275,7 @@ mod tests {
       geo_state: Some("california".to_string()),
       geo_region: None,
       geo_city: None,
+      geo_timezone: None,
       geo_isp: None,
       dynamic_proxy_url: None,
       dynamic_proxy_format: None,

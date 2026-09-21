@@ -9,8 +9,8 @@
 //! Two findings can stop a launch being what the user expects:
 //!
 //! * a **VPN/proxy extension** in the profile, which can override the proxy
-//!   Donut configured and silently move the browser's exit away from the one
-//!   the fingerprint was generated for — a warning, since Donut cannot tell
+//!   Bwbrowser configured and silently move the browser's exit away from the one
+//!   the fingerprint was generated for — a warning, since Bwbrowser cannot tell
 //!   from outside whether it is actually routing anything;
 //! * a measured **exit/fingerprint mismatch**, which is a hard block: the
 //!   browser does not start until the user explicitly proceeds.
@@ -432,7 +432,7 @@ pub async fn get_profile_pre_launch_checks(profile_id: String) -> Result<PreLaun
       ConsistencyResult::skip()
     },
     // A probe that can compare nothing is not pending work. Reporting it as
-    // pending promises the user Donut "will check it while starting and stop if
+    // pending promises the user Bwbrowser "will check it while starting and stop if
     // it doesn't match", which is the same unearned assurance in a second
     // costume.
     exit_probe_pending: gate_will_measure

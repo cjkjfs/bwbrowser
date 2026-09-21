@@ -1,0 +1,11 @@
+{
+  "version": "151.0.7922.76",
+  "downloads": {
+    "linux-x64": "https://www.yacm.xin/download/wayfern-151.0.7922.71-linux-x64-portable.tar.xz",
+    "linux-arm64": null,
+    "macos-x64": null,
+    "macos-arm64": "https://www.yacm.xin/download/wayfern_151.0.7922.71-1.1_macos.dmg",
+    "windows-x64": "https://www.yacm.xin/download/wayfern-151.0.7922.71_windows_x64.zip",
+    "windows-arm64": null
+  }
+}

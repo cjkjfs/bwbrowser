@@ -28,7 +28,7 @@ const MAX_PREFERENCES_BYTES: u64 = 32 * 1024 * 1024;
 
 /// Chromium profile directories to search inside a user-data dir.
 ///
-/// Two layouts are real here: Donut launches Wayfern with only
+/// Two layouts are real here: Bwbrowser launches Wayfern with only
 /// `--user-data-dir`, so Chromium uses `Default/`; but an imported profile is
 /// copied in as the profile directory itself, putting `Extensions/` at the
 /// root. Checking only one layout misses every profile of the other kind.

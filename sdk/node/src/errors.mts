@@ -1,5 +1,5 @@
 /**
- * Exceptions thrown by the Donut Browser SDK.
+ * Exceptions thrown by the BW Browser SDK.
  *
  * The local REST API answers with a plain-text body and one of a small set of
  * statuses. Each status means one thing, so each gets its own class and a
@@ -26,7 +26,7 @@
  */
 
 /** Base class for everything this package throws. */
-export class DonutError extends Error {
+export class BwbrowserError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = new.target.name;
@@ -39,16 +39,16 @@ export class DonutError extends Error {
  * Usually means the local API is switched off, is listening on another port,
  * or the desktop app is not running.
  */
-export class DonutConnectionError extends DonutError {}
+export class BwbrowserConnectionError extends BwbrowserError {}
 
-export interface DonutApiErrorInit {
+export interface BwbrowserApiErrorInit {
   method?: string;
   path?: string;
   headers?: Headers | Record<string, string>;
 }
 
 /** The app answered, and the answer was an error status. */
-export class DonutApiError extends DonutError {
+export class BwbrowserApiError extends BwbrowserError {
   status: number;
   body: string;
   method: string;
@@ -59,7 +59,7 @@ export class DonutApiError extends DonutError {
   /** The `params` of a structured body, else an empty object. */
   params: Record<string, unknown>;
 
-  constructor(status: number, body: string, init: DonutApiErrorInit = {}) {
+  constructor(status: number, body: string, init: BwbrowserApiErrorInit = {}) {
     const method = init.method ?? "";
     const path = init.path ?? "";
     const headers = normaliseHeaders(init.headers);
@@ -99,25 +99,25 @@ export class DonutApiError extends DonutError {
 }
 
 /** 400: the request was malformed, duplicated a name, or named something unsupported. */
-export class ValidationError extends DonutApiError {}
+export class ValidationError extends BwbrowserApiError {}
 
 /** 401: no bearer token, the wrong one, or the local API has no token stored. */
-export class Unauthorized extends DonutApiError {}
+export class Unauthorized extends BwbrowserApiError {}
 
 /** 402: this action needs an active paid plan, or the proxy behind it lapsed. */
-export class PaymentRequired extends DonutApiError {}
+export class PaymentRequired extends BwbrowserApiError {}
 
 /** 403: the Wayfern terms are not accepted, or this desktop is not signed in. */
-export class Forbidden extends DonutApiError {}
+export class Forbidden extends BwbrowserApiError {}
 
 /** 404: no entity with that id. */
-export class NotFound extends DonutApiError {}
+export class NotFound extends BwbrowserApiError {}
 
 /** 408: `agentPick` waited its whole timeout and nothing was picked. */
-export class RequestTimeout extends DonutApiError {}
+export class RequestTimeout extends BwbrowserApiError {}
 
 /** 409: something else holds the profile — a browser, a teammate, a remote session. */
-export class Conflict extends DonutApiError {}
+export class Conflict extends BwbrowserApiError {}
 
 /**
  * 500 and the other 5xx: the app, the fleet or an upstream failed.
@@ -125,13 +125,13 @@ export class Conflict extends DonutApiError {}
  * `BadGateway` and `ServiceUnavailable` extend this, so one
  * `instanceof ServerError` covers every server-side failure.
  */
-export class ServerError extends DonutApiError {}
+export class ServerError extends BwbrowserApiError {}
 
 /** 502: the browser or the relay did not answer the way it documents. */
 export class BadGateway extends ServerError {}
 
 /**
- * 503: Donut cloud, the remote fleet, or the profile lock service is unreachable.
+ * 503: Bwbrowser cloud, the remote fleet, or the profile lock service is unreachable.
  *
  * Whatever was running keeps running: a 503 from `killProfile` or from stopping
  * a remote session means the browser is still up, not that it stopped.
@@ -145,13 +145,14 @@ export class ServiceUnavailable extends ServerError {}
  * taken from the `Retry-After` response header. It is `null` only when the
  * header is missing or unreadable.
  */
-export class RateLimited extends DonutApiError {
+export class RateLimited extends BwbrowserApiError {
   retryAfter: number | null;
 
-  constructor(status: number, body: string, init: DonutApiErrorInit = {}) {
+  constructor(status: number, body: string, init: BwbrowserApiErrorInit = {}) {
     super(status, body, init);
     const raw = this.headers["retry-after"];
-    const seconds = raw === undefined ? Number.NaN : Number.parseInt(raw.trim(), 10);
+    const seconds =
+      raw === undefined ? Number.NaN : Number.parseInt(raw.trim(), 10);
     this.retryAfter = Number.isFinite(seconds) ? seconds : null;
   }
 }
@@ -163,19 +164,24 @@ function normaliseHeaders(
   if (headers === undefined) {
     return result;
   }
-  if (typeof (headers as Headers).forEach === "function" && !Array.isArray(headers)) {
+  if (
+    typeof (headers as Headers).forEach === "function" &&
+    !Array.isArray(headers)
+  ) {
     (headers as Headers).forEach((value, key) => {
       result[key.toLowerCase()] = value;
     });
     return result;
   }
-  for (const [key, value] of Object.entries(headers as Record<string, string>)) {
+  for (const [key, value] of Object.entries(
+    headers as Record<string, string>,
+  )) {
     result[key.toLowerCase()] = value;
   }
   return result;
 }
 
-const BY_STATUS = new Map<number, typeof DonutApiError>([
+const BY_STATUS = new Map<number, typeof BwbrowserApiError>([
   [400, ValidationError],
   [401, Unauthorized],
   [402, PaymentRequired],
@@ -192,20 +198,20 @@ const BY_STATUS = new Map<number, typeof DonutApiError>([
 /**
  * Build the error that belongs to `status`.
  *
- * A status with no class of its own becomes a plain `DonutApiError`, so a
+ * A status with no class of its own becomes a plain `BwbrowserApiError`, so a
  * future status added to the app still throws something a caller can catch
  * rather than escaping as a decode failure.
  */
 export function errorForStatus(
   status: number,
   body: string,
-  init: DonutApiErrorInit = {},
-): DonutApiError {
+  init: BwbrowserApiErrorInit = {},
+): BwbrowserApiError {
   const known = BY_STATUS.get(status);
   if (known !== undefined) {
     return new known(status, body, init);
   }
   return status >= 500
     ? new ServerError(status, body, init)
-    : new DonutApiError(status, body, init);
+    : new BwbrowserApiError(status, body, init);
 }

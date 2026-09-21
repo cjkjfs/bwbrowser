@@ -163,7 +163,7 @@ test("profile, group, proxy, tag, metadata, clone, and bulk-delete lifecycle", a
         [],
       );
 
-      // Donut accepts one VLESS shape (REALITY + XTLS Vision over TCP). The form
+      // Bwbrowser accepts one VLESS shape (REALITY + XTLS Vision over TCP). The form
       // uses this to tell the user WHICH part of their setup is unsupported
       // instead of implying they mistyped, so the reason must survive the IPC hop.
       const goodVless =
@@ -202,7 +202,7 @@ test("profile, group, proxy, tag, metadata, clone, and bulk-delete lifecycle", a
       const importResult = await app.invoke("import_proxies_json", {
         content: JSON.stringify({
           version: "1",
-          source: "Donut Browser",
+          source: "BW Browser",
           exported_at: new Date().toISOString(),
           proxies: [
             {
@@ -249,7 +249,7 @@ test("profile, group, proxy, tag, metadata, clone, and bulk-delete lifecycle", a
       });
       await app.invoke("update_profile_launch_hook", {
         profileId: profile.id,
-        launchHook: `${process.env.DONUT_E2E_FIXTURE_URL}/launch-hook`,
+        launchHook: `${process.env.BWBROWSER_E2E_FIXTURE_URL}/launch-hook`,
       });
       const invalidHook = await app.invokeError("update_profile_launch_hook", {
         profileId: profile.id,
@@ -561,7 +561,7 @@ test("extensions, extension groups, VPN storage, DNS rules, and event-backed ass
       fileName: "fixture.zip",
       fileData: [...Buffer.from(extensionZipBase64(), "base64")],
     });
-    assert.equal(extension.name, "Donut E2E Fixture");
+    assert.equal(extension.name, "Bwbrowser E2E Fixture");
     assert.equal(extension.version, "1.0.0");
     const extensionGroup = await app.invoke("create_extension_group", {
       name: "Automation Extensions",
@@ -628,7 +628,7 @@ test("extensions, extension groups, VPN storage, DNS rules, and event-backed ass
     assert.equal(copied.linked_path, null);
     assert.equal(copied.file_type, "zip");
     assert.equal(copied.file_name, "unpacked-extension.zip");
-    assert.equal(copied.name, "Donut E2E Unpacked");
+    assert.equal(copied.name, "Bwbrowser E2E Unpacked");
     assert.equal(copied.version, "1.0.0");
     // The folder declares icons, so packing it must carry one through into the
     // store rather than dropping it the way the icon-less ZIP fixture does.
@@ -653,7 +653,7 @@ test("extensions, extension groups, VPN storage, DNS rules, and event-backed ass
 
     const repackedDir = await writeUnpackedExtension(
       path.join(app.root, "fixtures", "unpacked-extension-v2"),
-      { name: "Donut E2E Unpacked v2", version: "2.0.0" },
+      { name: "Bwbrowser E2E Unpacked v2", version: "2.0.0" },
     );
     const repacked = await app.invoke("update_extension_from_path", {
       extensionId: copied.id,
@@ -682,7 +682,7 @@ test("extensions, extension groups, VPN storage, DNS rules, and event-backed ass
     });
     assert.equal(unlinked.linked_path, null);
     assert.equal(unlinked.source_kind, "unpacked");
-    assert.equal(unlinked.name, "Donut E2E Unpacked v2");
+    assert.equal(unlinked.name, "Bwbrowser E2E Unpacked v2");
 
     assert.match(
       await app.invokeError("add_unpacked_extension", {
@@ -714,7 +714,7 @@ test("extensions, extension groups, VPN storage, DNS rules, and event-backed ass
     // Importing from a link. The fixture server answers with a real CRX3
     // container, so this proves the importer unwraps the signed container to
     // the ZIP the store keeps rather than filing the container itself.
-    const fixtureBase = process.env.DONUT_E2E_FIXTURE_URL;
+    const fixtureBase = process.env.BWBROWSER_E2E_FIXTURE_URL;
     assert.ok(fixtureBase, "the fixture server URL has to reach the suite");
     const fetched = await app.invoke("fetch_extension_from_url", {
       url: `${fixtureBase}/extension.crx`,
@@ -857,7 +857,7 @@ test("extensions, extension groups, VPN storage, DNS rules, and event-backed ass
     await app.invoke("delete_vpn_config", { vpnId: vpn.id });
 
     const dns = await app.invoke("set_custom_dns_config", {
-      sources: [`${process.env.DONUT_E2E_FIXTURE_URL}/dns.txt`],
+      sources: [`${process.env.BWBROWSER_E2E_FIXTURE_URL}/dns.txt`],
       blockDomains: [" Ads.Example.com ", "tracker.example"],
       allowDomains: ["safe.example"],
       allowlistMode: false,
@@ -870,7 +870,7 @@ test("extensions, extension groups, VPN storage, DNS rules, and event-backed ass
     assert.equal(
       textExport,
       [
-        `! source: ${process.env.DONUT_E2E_FIXTURE_URL}/dns.txt`,
+        `! source: ${process.env.BWBROWSER_E2E_FIXTURE_URL}/dns.txt`,
         "@@safe.example",
         "ads.example.com",
         "tracker.example",
@@ -1492,7 +1492,7 @@ test("proxies distribute one to one, and group bookmarks reach the profile's Boo
       document.roots.bookmark_bar.children.filter(
         (child) =>
           child.type === "folder" &&
-          child.meta_info?.donut_managed_group_bookmarks === "1",
+          child.meta_info?.bwbrowser_managed_group_bookmarks === "1",
       );
 
     assert.equal(
@@ -1505,7 +1505,7 @@ test("proxies distribute one to one, and group bookmarks reach the profile's Boo
     let document = await readBookmarks();
     let managed = managedFolderOf(document);
     assert.equal(managed.length, 1);
-    assert.equal(managed[0].name, "Donut Group Bookmarks");
+    assert.equal(managed[0].name, "Bwbrowser Group Bookmarks");
     assert.deepEqual(
       managed[0].children.map((child) => child.name),
       ["Support", "Ops"],

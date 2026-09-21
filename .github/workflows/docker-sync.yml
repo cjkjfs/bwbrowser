@@ -1,10 +1,10 @@
-name: Build and Push donut-sync Docker Image
+name: Build and Push bwbrowser-sync Docker Image
 
 on:
   push:
     branches: [main]
     paths:
-      - "donut-sync/**"
+      - "bwbrowser-sync/**"
   workflow_call:
     inputs:
       tag:
@@ -28,10 +28,10 @@ permissions:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: donutbrowser/donut-sync
+  IMAGE_NAME: bwbrowser/bwbrowser-sync
 
 jobs:
-  # donut-sync's own end-to-end suite covers which host it signs into presigned
+  # bwbrowser-sync's own end-to-end suite covers which host it signs into presigned
   # URLs. That is the whole of the self-hosted sync failure in issue 534: sign
   # against an address only the server can reach and every client transfer dies
   # at connect while /health and /readyz stay green. The suite existed and was
@@ -63,15 +63,15 @@ jobs:
 
       # Publishes MinIO on 8987, which is the port test/test-env.ts pins.
       - name: Start test storage
-        run: docker compose -f donut-sync/docker-compose.yml up -d --wait
+        run: docker compose -f bwbrowser-sync/docker-compose.yml up -d --wait
 
-      - name: Run donut-sync end-to-end tests
-        working-directory: ./donut-sync
+      - name: Run bwbrowser-sync end-to-end tests
+        working-directory: ./bwbrowser-sync
         run: pnpm test:e2e
 
       - name: Stop test storage
         if: always()
-        run: docker compose -f donut-sync/docker-compose.yml down -v
+        run: docker compose -f bwbrowser-sync/docker-compose.yml down -v
 
   build-and-push:
     needs: test
@@ -119,7 +119,7 @@ jobs:
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a #v7.3.0
         with:
           context: .
-          file: ./donut-sync/Dockerfile
+          file: ./bwbrowser-sync/Dockerfile
           push: true
           tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha

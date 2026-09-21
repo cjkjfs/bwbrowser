@@ -1,4 +1,4 @@
-//! Sealing of the secrets Donut keeps on this machine.
+//! Sealing of the secrets Bwbrowser keeps on this machine.
 //!
 //! The API and MCP tokens, the cloud session, the sync token and the sync
 //! encryption password each live in a small file under the settings folder.
@@ -8,7 +8,7 @@
 //!
 //! Every build before the per-install key sealed those files under one
 //! password compiled into the binary, the same for every install whose build
-//! did not set `DONUT_BROWSER_VAULT_PASSWORD`. A file that still carries that
+//! did not set `BW_BROWSER_VAULT_PASSWORD`. A file that still carries that
 //! seal is opened with the legacy password and re-sealed under the
 //! installation key on the spot, so an update keeps every login and token.
 //!

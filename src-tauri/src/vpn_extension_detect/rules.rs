@@ -72,11 +72,11 @@ const NAME_TOKEN_KEYWORDS: &[&str] = &["socks", "socks5", "tunnel"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DetectedVpnExtension {
-  /// Stable acknowledgement identity: `donut:<uuid>` or `crx:<32-char-id>`.
+  /// Stable acknowledgement identity: `bwbrowser:<uuid>` or `crx:<32-char-id>`.
   pub key: String,
   pub name: String,
   pub version: Option<String>,
-  /// `"donut"` (managed by Donut) or `"browser"` (installed inside the profile).
+  /// `"bwbrowser"` (managed by Bwbrowser) or `"browser"` (installed inside the profile).
   pub source: String,
   /// `"confirmed"` and `"likely"` are claims that this IS a VPN/proxy tool.
   /// `"capability"` claims only that it *could* change the proxy.

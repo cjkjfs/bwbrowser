@@ -38,7 +38,7 @@ function commandHasExecutableEvidence(source, command) {
 
 test("every Tauri command has exactly one E2E owner and evidence level", async () => {
   const root =
-    process.env.DONUT_E2E_PROJECT_ROOT ??
+    process.env.BWBROWSER_E2E_PROJECT_ROOT ??
     path.resolve(import.meta.dirname, "../..");
   const source = await readFile(
     path.join(root, "src-tauri", "src", "lib.rs"),
@@ -110,7 +110,7 @@ test("WebDriver client preserves application values that contain an error field"
 });
 
 test("Wayfern fixtures are copied into the isolated data root, never linked", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "donut-wayfern-copy-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "bwbrowser-wayfern-copy-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const source =
     process.platform === "darwin"

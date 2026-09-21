@@ -87,7 +87,7 @@ jobs:
         shell: bash
         working-directory: ./src-tauri
         run: |
-          cargo build --bin donut-proxy --release
+          cargo build --bin bwbrowser-proxy --release
 
       - name: Copy sidecar binaries to Tauri binaries
         shell: bash
@@ -95,10 +95,10 @@ jobs:
           mkdir -p src-tauri/binaries
           HOST_TARGET="${{ steps.host_target.outputs.target }}"
           if [[ "$HOST_TARGET" == *"windows"* ]]; then
-            cp src-tauri/target/release/donut-proxy.exe src-tauri/binaries/donut-proxy-${HOST_TARGET}.exe
+            cp src-tauri/target/release/bwbrowser-proxy.exe src-tauri/binaries/bwbrowser-proxy-${HOST_TARGET}.exe
           else
-            cp src-tauri/target/release/donut-proxy src-tauri/binaries/donut-proxy-${HOST_TARGET}
-            chmod +x src-tauri/binaries/donut-proxy-${HOST_TARGET}
+            cp src-tauri/target/release/bwbrowser-proxy src-tauri/binaries/bwbrowser-proxy-${HOST_TARGET}
+            chmod +x src-tauri/binaries/bwbrowser-proxy-${HOST_TARGET}
           fi
 
       - name: Download verified Xray-core sidecar

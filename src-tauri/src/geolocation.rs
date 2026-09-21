@@ -181,7 +181,7 @@ impl LocaleSelector {
   /// this country", not "is this the country's main language": `from_region`
   /// samples the whole listed distribution weighted by speaker share, so every
   /// listed language is one this selector itself can emit. Anything stricter
-  /// would flag fingerprints Donut generated on purpose — CLDR puts `es` at
+  /// would flag fingerprints Bwbrowser generated on purpose — CLDR puts `es` at
   /// 9.6% in the US and `fr` at 30% in Canada, and those get picked.
   pub fn region_speaks(&self, region: &str, language: &str) -> Option<bool> {
     let languages = self.territories.get(&region.to_uppercase())?;

@@ -1,6 +1,6 @@
 packages:
   - nodecar
-  - donut-sync
+  - bwbrowser-sync
 
 onlyBuiltDependencies:
   - '@biomejs/biome'

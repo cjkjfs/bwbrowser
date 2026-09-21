@@ -518,7 +518,7 @@ impl SynchronizerManager {
   ///
   /// On macOS this is a no-op on purpose: the only way to raise another
   /// app's window from Rust is via `osascript` / Apple Events, which
-  /// triggers the TCC "prevented from modifying other apps" prompt. Donut
+  /// triggers the TCC "prevented from modifying other apps" prompt. Bwbrowser
   /// must never touch other apps on the user's Mac.
   async fn focus_leader_window(leader: &BrowserProfile) {
     let profile = match Self::get_profile(&leader.id.to_string()) {

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::{VlessRealityConfig, XrayError, XrayResult};
+use super::{TrojanConfig, VlessRealityConfig, XrayError, XrayResult};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -60,7 +60,7 @@ pub fn build_client_config(
           "users": [{
             "id": config.id,
             "encryption": "none",
-            "flow": config.flow.as_str()
+            "flow": config.flow.map(|f| f.as_str()).unwrap_or("")
           }]
         }]
       },
@@ -89,6 +89,73 @@ pub fn build_client_config_json(
   runtime: &XrayClientRuntime,
 ) -> XrayResult<String> {
   serde_json::to_string_pretty(&build_client_config(config, runtime)?)
+    .map_err(|_| XrayError::Serialization)
+}
+
+pub fn build_trojan_client_config(
+  config: &TrojanConfig,
+  runtime: &XrayClientRuntime,
+) -> XrayResult<Value> {
+  config.validate()?;
+  runtime.validate()?;
+
+  let mut stream_settings = json!({
+    "network": "tcp",
+    "security": config.security,
+    "sockopt": {
+      "tcpKeepAliveIdle": 30,
+      "tcpKeepAliveInterval": 15
+    }
+  });
+  if config.security == "tls" {
+    let mut tls = json!({
+      "serverName": config.sni.as_deref().unwrap_or(&config.address)
+    });
+    if let Some(ref fp) = config.fingerprint {
+      tls["fingerprint"] = json!(fp);
+    }
+    stream_settings["tlsSettings"] = tls;
+  }
+
+  Ok(json!({
+    "log": {
+      "loglevel": "warning"
+    },
+    "inbounds": [{
+      "tag": "local-socks",
+      "listen": "127.0.0.1",
+      "port": runtime.listen_port,
+      "protocol": "socks",
+      "settings": {
+        "auth": "password",
+        "accounts": [{
+          "user": runtime.username,
+          "pass": runtime.password
+        }],
+        "udp": true,
+        "ip": "127.0.0.1"
+      }
+    }],
+    "outbounds": [{
+      "tag": "proxy",
+      "protocol": "trojan",
+      "settings": {
+        "servers": [{
+          "address": config.address,
+          "port": config.port,
+          "password": config.password
+        }]
+      },
+      "streamSettings": stream_settings
+    }]
+  }))
+}
+
+pub fn build_trojan_client_config_json(
+  config: &TrojanConfig,
+  runtime: &XrayClientRuntime,
+) -> XrayResult<String> {
+  serde_json::to_string_pretty(&build_trojan_client_config(config, runtime)?)
     .map_err(|_| XrayError::Serialization)
 }
 
@@ -123,7 +190,7 @@ mod tests {
       address: "vpn.example.com".to_string(),
       port: 443,
       id: "6d6e21a1-4829-4d2b-bc7f-1b25707b61e4".to_string(),
-      flow: VlessFlow::Vision,
+      flow: Some(VlessFlow::Vision),
       reality: RealitySettings {
         server_name: "www.example.com".to_string(),
         public_key: URL_SAFE_NO_PAD.encode([7_u8; 32]),

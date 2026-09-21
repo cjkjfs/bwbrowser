@@ -298,13 +298,13 @@ test("authenticated REST API serves its complete OpenAPI contract and CRUD lifec
       201,
       JSON.stringify(archiveExtension.value),
     );
-    assert.equal(archiveExtension.value.name, "Donut E2E Fixture");
+    assert.equal(archiveExtension.value.name, "Bwbrowser E2E Fixture");
     assert.equal(archiveExtension.value.source_kind, "archive");
     assert.equal(archiveExtension.value.linked_path, null);
 
     const unpackedDir = await writeUnpackedExtension(
       path.join(app.root, "fixtures", "rest-unpacked-extension"),
-      { name: "Donut REST Unpacked", version: "1.2.0" },
+      { name: "Bwbrowser REST Unpacked", version: "1.2.0" },
     );
     const folderExtension = await jsonRequest(`${base}/v1/extensions`, {
       method: "POST",
@@ -316,7 +316,7 @@ test("authenticated REST API serves its complete OpenAPI contract and CRUD lifec
       201,
       JSON.stringify(folderExtension.value),
     );
-    assert.equal(folderExtension.value.name, "Donut REST Unpacked");
+    assert.equal(folderExtension.value.name, "Bwbrowser REST Unpacked");
     assert.equal(folderExtension.value.version, "1.2.0");
     assert.equal(folderExtension.value.source_kind, "unpacked");
     assert.equal(folderExtension.value.linked_path, null);
@@ -807,7 +807,7 @@ test("local MCP is removed: enabling it and installing a local client are refuse
     // user which variable to export; that name travels with the row.
     assert.equal(
       agents.find((agent) => agent.id === "fx").token_env,
-      "DONUT_MCP_TOKEN",
+      "BWBROWSER_MCP_TOKEN",
     );
     assert.equal(agents.find((agent) => agent.id === "cursor").token_env, null);
 
@@ -864,7 +864,7 @@ test("the remote-control bridge refuses a signed-out desktop and stays off", asy
     await seedTerms(app);
 
     // Off by default, and it must stay that way without an explicit opt-in: the
-    // bridge hands Donut cloud the ability to drive this browser, which is not
+    // bridge hands Bwbrowser cloud the ability to drive this browser, which is not
     // something to switch on for somebody because their plan allows it.
     const settings = await app.invoke("get_app_settings");
     assert.equal(settings.mcp_remote_enabled, false);
@@ -895,7 +895,7 @@ test("the remote-control bridge refuses a signed-out desktop and stays off", asy
     // before it spawns the reconnect loop. `connected` is not a substitute:
     // it only goes true once the socket authenticates, which a signed-out
     // desktop never manages, so it reads false whether or not the bridge was
-    // started and is dialling donutbrowser.com in the background.
+    // started and is dialling bwbrowser.com in the background.
     const afterRefusedStart = await app.invoke("get_mcp_remote_status");
     assert.equal(
       afterRefusedStart.enabled,
@@ -1120,8 +1120,8 @@ test("REST browser automation requests hit the shared automation rate limit", as
     },
     {
       extraEnv: {
-        DONUT_E2E_REQUESTS_PER_HOUR: "2",
-        WAYFERN_TEST_TOKEN: "donut-e2e-rate-limit",
+        BWBROWSER_E2E_REQUESTS_PER_HOUR: "2",
+        WAYFERN_TEST_TOKEN: "bwbrowser-e2e-rate-limit",
       },
     },
   );
@@ -1208,13 +1208,13 @@ test("offline cloud, update, team-lock, trial, and synchronizer contracts are de
           // layer, which is what the evidence is for. Pinning only the server's
           // "invalid or expired login code" sentence made a test named
           // "offline ... deterministic" depend on a live round-trip to
-          // api.donutbrowser.com: red offline, behind a proxy, when the
+          // api.bwbrowser.com: red offline, behind a proxy, when the
           // unauthenticated challenge is rate-limited, or the day the backend
           // rewords it, with no signal that the desktop is fine.
           refusedWith:
             /invalid or expired login code|failed to fetch challenge|challenge request failed/i,
         },
-        { code: "DONUT-E2E-INVALID-CODE" },
+        { code: "BWBROWSER-E2E-INVALID-CODE" },
       );
       await assertContract(app, "cloud_refresh_profile", {
         refusedWith: /not logged in/i,
@@ -1297,7 +1297,7 @@ test("offline cloud, update, team-lock, trial, and synchronizer contracts are de
             current_version: "0.0.0",
             new_version: "0.0.1-e2e",
             release_notes: "E2E invalid update contract",
-            download_url: `${process.env.DONUT_E2E_FIXTURE_URL}/invalid-update.zip`,
+            download_url: `${process.env.BWBROWSER_E2E_FIXTURE_URL}/invalid-update.zip`,
             is_nightly: false,
             published_at: "2026-01-01T00:00:00Z",
             manual_update_required: false,

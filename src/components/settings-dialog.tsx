@@ -440,7 +440,7 @@ export function SettingsDialog({
     setIsSettingDefault(true);
     try {
       // Windows keeps the final choice for its own settings page, so a call
-      // that succeeded does not always mean Donut is the default yet. Say which
+      // that succeeded does not always mean Bwbrowser is the default yet. Say which
       // of the two happened. Saying nothing at all is what left the user
       // watching the badge stay "Inactive" with no explanation.
       const outcome = await invoke<SetDefaultBrowserOutcome>(
@@ -1616,7 +1616,7 @@ export function SettingsDialog({
                 <div className="flex items-center justify-between rounded-md border bg-muted/40 p-3">
                   {cloudUser != null &&
                   effectivePlanOf(cloudUser) !== "free" ? (
-                    // Paid Donut plan supersedes the local commercial trial —
+                    // Paid Bwbrowser plan supersedes the local commercial trial —
                     // the trial only exists to gate commercial use until the
                     // user subscribes. Showing "Trial expired" to a paying
                     // customer reads like a billing error, so swap in a
@@ -1890,7 +1890,7 @@ export function SettingsDialog({
               {systemInfo && !needle && (
                 <div className="border-t pt-2">
                   <p className="font-mono text-xs whitespace-pre-line text-muted-foreground select-all">
-                    {`Donut Browser ${systemInfo.app_version}\n${systemInfo.os} ${systemInfo.arch}${systemInfo.portable ? " (portable)" : ""}`}
+                    {`BW Browser ${systemInfo.app_version}\n${systemInfo.os} ${systemInfo.arch}${systemInfo.portable ? " (portable)" : ""}`}
                   </p>
                 </div>
               )}

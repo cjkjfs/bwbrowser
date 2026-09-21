@@ -1,4 +1,4 @@
-//! MCP client installer: writes the Donut Browser server entry into the global
+//! MCP client installer: writes the BW Browser server entry into the global
 //! config of twenty AI clients and reads it back for the Integrations page.
 //!
 //! Two endpoints exist. The local loopback server carries its token in the
@@ -7,7 +7,7 @@
 //! either, and `server_entry` decides per client where the credential goes:
 //! most clients
 //! take a `headers` map, Codex calls it `http_headers`, and fx refuses a
-//! literal header and reads the token from `DONUT_MCP_TOKEN` instead.
+//! literal header and reads the token from `BWBROWSER_MCP_TOKEN` instead.
 //!
 //! Every write edits the user's file in place. JSON goes through a concrete
 //! syntax tree so comments, key order, indentation and trailing commas survive
@@ -30,11 +30,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, Item, Table};
 
-pub const SERVER_NAME: &str = "donut-browser";
+pub const SERVER_NAME: &str = "bw-browser";
 const REMOTE_MCP_PATH: &str = "/api/mcp";
 /// fx rejects a literal `Authorization` header in its config and reads the
 /// bearer from an environment variable named in the entry instead.
-pub const FX_TOKEN_ENV: &str = "DONUT_MCP_TOKEN";
+pub const FX_TOKEN_ENV: &str = "BWBROWSER_MCP_TOKEN";
 
 pub fn remote_mcp_url() -> String {
   format!("{}{REMOTE_MCP_PATH}", crate::cloud_auth::CLOUD_API_URL)
@@ -127,9 +127,9 @@ pub struct McpAgentInfo {
   pub category: AgentCategory,
   pub connected: bool,
   /// True when the client itself appears to be installed (its config
-  /// directory exists), whether or not Donut is configured in it.
+  /// directory exists), whether or not Bwbrowser is configured in it.
   pub detected: bool,
-  /// Which Donut endpoint the client's entry points at, when connected.
+  /// Which Bwbrowser endpoint the client's entry points at, when connected.
   pub endpoint: Option<McpEndpoint>,
   /// Set for clients that read the bearer from an environment variable
   /// instead of the config file, so the UI can tell the user to export it.
@@ -551,7 +551,7 @@ fn token_env_for(agent_id: &str) -> Option<String> {
 /// `serde_json::Map` sorts keys, so the shape stays a list until written.
 type Entry = Vec<(&'static str, serde_json::Value)>;
 
-/// The per-client shape of the Donut entry, including where the credential
+/// The per-client shape of the Bwbrowser entry, including where the credential
 /// goes. Every install replaces the entry wholesale so stale keys from an
 /// earlier shape never linger.
 fn server_entry(agent_id: &str, target: &McpTarget) -> Entry {
@@ -626,7 +626,7 @@ fn server_entry(agent_id: &str, target: &McpTarget) -> Entry {
   entry
 }
 
-/// Which Donut endpoint a URL points at, if any. The remote URL is matched
+/// Which Bwbrowser endpoint a URL points at, if any. The remote URL is matched
 /// exactly (a trailing slash tolerated); the loopback form is any plain-http
 /// `127.0.0.1` or `localhost` origin whose path starts with `/mcp`.
 pub fn endpoint_of_url(url: &str) -> Option<McpEndpoint> {
@@ -656,7 +656,7 @@ fn endpoint_of_entry(value: &serde_json::Value) -> Option<McpEndpoint> {
 
 /// Ours by name, or ours by URL under any name: what detection counts as
 /// connected is exactly what removal deletes.
-fn is_donut_entry(name: &str, value: &serde_json::Value) -> bool {
+fn is_bwbrowser_entry(name: &str, value: &serde_json::Value) -> bool {
   name == SERVER_NAME || endpoint_of_entry(value).is_some()
 }
 
@@ -770,7 +770,7 @@ fn entry_to_yaml(entry: &Entry) -> Result<serde_yaml::Value, String> {
 }
 
 /// A parsed config file that can be edited without disturbing what the user
-/// wrote around the Donut entry.
+/// wrote around the Bwbrowser entry.
 enum Document {
   Json(CstRootNode),
   Toml(DocumentMut),
@@ -842,7 +842,7 @@ impl Document {
     }
   }
 
-  /// Write the Donut entry, replacing any entry of that name wholesale. A root
+  /// Write the Bwbrowser entry, replacing any entry of that name wholesale. A root
   /// or server map that exists but is not an object is an error rather than
   /// something to overwrite.
   fn set_entry(&mut self, key: &str, entry: &Entry) -> Result<(), String> {
@@ -863,7 +863,7 @@ impl Document {
       }
       Self::Toml(doc) => {
         let servers = doc.entry(key).or_insert_with(|| {
-          // Implicit: the entry renders as [mcp_servers.donut-browser] with no
+          // Implicit: the entry renders as [mcp_servers.bw-browser] with no
           // bare [mcp_servers] header above it, the way Codex writes it.
           let mut table = Table::new();
           table.set_implicit(true);
@@ -969,7 +969,7 @@ fn write_text(path: &Path, text: &str, private: bool) -> Result<(), String> {
     .file_name()
     .and_then(|name| name.to_str())
     .ok_or_else(|| format!("{} has no file name", path.display()))?;
-  let tmp = parent.join(format!(".{file_name}.donut-tmp"));
+  let tmp = parent.join(format!(".{file_name}.bwbrowser-tmp"));
   let existing = fs::metadata(path).ok();
   // Owner-only from the first byte whenever the content is secret or the
   // target's own bits are about to be copied over it: a temp file created
@@ -1041,7 +1041,7 @@ fn uninstall_in(env: &AgentEnv, agent_id: &str) -> Result<(), String> {
   let names: Vec<String> = document
     .entries(spec.config_key)
     .into_iter()
-    .filter(|(name, value)| is_donut_entry(name, value))
+    .filter(|(name, value)| is_bwbrowser_entry(name, value))
     .map(|(name, _)| name)
     .collect();
   if names.is_empty() {
@@ -1051,8 +1051,8 @@ fn uninstall_in(env: &AgentEnv, agent_id: &str) -> Result<(), String> {
   write_text(&path, &document.to_text()?, false)
 }
 
-/// The endpoint a client's config points at. The entry named `donut-browser`
-/// decides when it is ours; otherwise any entry with a Donut URL counts, so a
+/// The endpoint a client's config points at. The entry named `bw-browser`
+/// decides when it is ours; otherwise any entry with a Bwbrowser URL counts, so a
 /// renamed entry still reads as connected (and `uninstall_in` removes it).
 fn status_in(env: &AgentEnv, agent_id: &str) -> Option<McpEndpoint> {
   let spec = spec_for(agent_id)?;
@@ -1551,7 +1551,7 @@ mod tests {
     assert!(text.contains("\n    \"vim_mode\": true,\n"));
     assert!(text.contains("\"other\": { \"command\": \"x\", }"));
     assert!(
-      text.contains("\n        \"donut-browser\": {\n            \"source\": \"custom\","),
+      text.contains("\n        \"bw-browser\": {\n            \"source\": \"custom\","),
       "entry must use the file's four-space indent: {text}"
     );
     assert!(text.ends_with("}\n"));
@@ -1561,7 +1561,7 @@ mod tests {
     let text = read(&path);
     assert!(text.starts_with("// Zed settings\n"));
     assert!(text.contains("/* keep me */"));
-    assert!(!text.contains("donut-browser"));
+    assert!(!text.contains("bw-browser"));
     assert!(text.contains("\"other\": { \"command\": \"x\", }"));
     assert_eq!(status_in(&env, "zed"), None);
   }
@@ -1602,9 +1602,9 @@ mod tests {
     let projects = text.find("[projects.\"/tmp/x\"]").unwrap();
     let notice = text.find("[notice]").unwrap();
     let other = text.find("[mcp_servers.other]").unwrap();
-    let donut = text.find("[mcp_servers.donut-browser]").unwrap();
+    let bwbrowser = text.find("[mcp_servers.bw-browser]").unwrap();
     assert!(
-      projects < notice && notice < other && other < donut,
+      projects < notice && notice < other && other < bwbrowser,
       "{text}"
     );
     assert!(
@@ -1623,7 +1623,7 @@ mod tests {
     let text = read(&path);
     assert!(text.starts_with("# codex config\n"));
     assert!(text.contains("[mcp_servers.other]\ncommand = \"npx\"\n"));
-    assert!(!text.contains("donut-browser"));
+    assert!(!text.contains("bw-browser"));
   }
 
   #[test]
@@ -1632,7 +1632,7 @@ mod tests {
     let env = test_env(dir.path(), Platform::Linux);
     install_in(&env, "grok-build", &remote()).unwrap();
     let text = read(&config_path(&env, "grok-build").unwrap());
-    assert!(text.contains("[mcp_servers.donut-browser]\n"));
+    assert!(text.contains("[mcp_servers.bw-browser]\n"));
     assert!(text.contains(&format!("url = \"{}\"", remote_mcp_url())));
     assert!(text.contains(&format!("headers = {{ Authorization = \"Bearer {KEY}\" }}")));
     assert!(!text.contains("type ="));
@@ -1654,9 +1654,12 @@ mod tests {
     let provider = text.find("GOOSE_PROVIDER: openai").unwrap();
     let zeta = text.find("zeta:").unwrap();
     let alpha = text.find("alpha:").unwrap();
-    let donut = text.find("donut-browser:").unwrap();
-    assert!(provider < zeta && zeta < alpha && alpha < donut, "{text}");
-    let name = text.find("name: donut-browser").unwrap();
+    let bwbrowser = text.find("bw-browser:").unwrap();
+    assert!(
+      provider < zeta && zeta < alpha && alpha < bwbrowser,
+      "{text}"
+    );
+    let name = text.find("name: bw-browser").unwrap();
     let uri = text.find("uri:").unwrap();
     let timeout = text.find("timeout: 300").unwrap();
     assert!(name < uri && uri < timeout, "{text}");
@@ -1665,7 +1668,7 @@ mod tests {
     uninstall_in(&env, "goose").unwrap();
     let text = read(&path);
     assert!(text.contains("zeta:") && text.contains("alpha:"));
-    assert!(!text.contains("donut-browser"));
+    assert!(!text.contains("bw-browser"));
   }
 
   #[test]
@@ -1714,7 +1717,7 @@ mod tests {
     install_in(&env, "cursor", &local()).unwrap();
     let text = read(&path);
     assert!(
-      text.starts_with("{\n  \"mcpServers\": {\n    \"donut-browser\": {"),
+      text.starts_with("{\n  \"mcpServers\": {\n    \"bw-browser\": {"),
       "{text}"
     );
     assert!(text.ends_with("}\n"));
@@ -1739,7 +1742,7 @@ mod tests {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(
       &path,
-      "{\"mcpServers\": {\"donut-browser\": {\"url\": \"http://127.0.0.1:1/mcp/old\", \"disabled\": true, \"env\": {\"X\": \"1\"}}}}",
+      "{\"mcpServers\": {\"bw-browser\": {\"url\": \"http://127.0.0.1:1/mcp/old\", \"disabled\": true, \"env\": {\"X\": \"1\"}}}}",
     )
     .unwrap();
     assert_eq!(status_in(&env, "cursor"), Some(McpEndpoint::Local));
@@ -1765,7 +1768,7 @@ mod tests {
     fs::write(
       &path,
       format!(
-        "{{\"mcpServers\": {{\"github\": {{\"url\": \"https://api.githubcopilot.com/mcp/\"}}, \"donut\": {{\"url\": \"{}\"}}, \"donut-browser\": {{\"url\": \"https://example.com/mcp\"}}}}}}",
+        "{{\"mcpServers\": {{\"github\": {{\"url\": \"https://api.githubcopilot.com/mcp/\"}}, \"bwbrowser\": {{\"url\": \"{}\"}}, \"bw-browser\": {{\"url\": \"https://example.com/mcp\"}}}}}}",
         remote_mcp_url()
       ),
     )
@@ -1775,8 +1778,8 @@ mod tests {
     assert_eq!(status_in(&env, "cursor"), None);
     let text = read(&path);
     assert!(text.contains("\"github\""));
-    assert!(!text.contains("\"donut\""));
-    assert!(!text.contains("\"donut-browser\""));
+    assert!(!text.contains("\"bwbrowser\""));
+    assert!(!text.contains("\"bw-browser\""));
 
     // Nothing of ours left: removal is a no-op that does not rewrite the file.
     let before = read(&path);
@@ -1813,7 +1816,7 @@ mod tests {
     assert_eq!(endpoint_of_url("https://api.githubcopilot.com/mcp/"), None);
     assert_eq!(endpoint_of_url("http://evil.example/mcp/tok"), None);
     assert_eq!(
-      endpoint_of_url("https://api.donutbrowser.com/api/mcp-bridge"),
+      endpoint_of_url("https://api.bwbrowser.com/api/mcp-bridge"),
       None
     );
     assert_eq!(McpEndpoint::parse("remote"), Some(McpEndpoint::Remote));
@@ -1901,6 +1904,10 @@ mod tests {
       fs::metadata(&path).unwrap().permissions().mode() & 0o777,
       0o640
     );
-    assert!(!path.parent().unwrap().join(".mcp.json.donut-tmp").exists());
+    assert!(!path
+      .parent()
+      .unwrap()
+      .join(".mcp.json.bwbrowser-tmp")
+      .exists());
   }
 }

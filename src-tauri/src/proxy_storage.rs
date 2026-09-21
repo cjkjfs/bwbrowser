@@ -120,7 +120,7 @@ pub fn build_proxy_url(
 
 /// Rewrite a stored upstream URL into something `reqwest::Proxy` accepts.
 ///
-/// `donut-proxy` dials `httpstls://` itself, so the scheme is Donut's own and
+/// `bwbrowser-proxy` dials `httpstls://` itself, so the scheme is Bwbrowser's own and
 /// reqwest has never heard of it, `Proxy::all` would reject it outright and
 /// every probe through such a proxy would die as "Invalid proxy". reqwest's
 /// `https://` proxy scheme means exactly what `httpstls` means here (TLS to the
@@ -229,10 +229,7 @@ pub fn update_proxy_config(config: &ProxyConfig) -> bool {
   let Ok(content) = serde_json::to_string_pretty(config) else {
     return false;
   };
-  if crate::app_dirs::write_owner_only(&file_path, content.as_bytes()).is_err() {
-    return false;
-  }
-  true
+  !crate::app_dirs::write_owner_only(&file_path, content.as_bytes()).is_err()
 }
 
 pub fn generate_proxy_id() -> String {
@@ -649,7 +646,7 @@ mod tests {
   }
 
   #[test]
-  fn reqwest_upstream_url_rewrites_only_the_donut_specific_scheme() {
+  fn reqwest_upstream_url_rewrites_only_the_bwbrowser_specific_scheme() {
     // reqwest cannot parse `httpstls`, so without this rewrite every probe and
     // every fallback check through such a proxy dies as "Invalid proxy". The
     // credentials, host and port must survive untouched.

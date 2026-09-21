@@ -200,7 +200,7 @@ pub fn export_to(
 
   let manifest = PortableManifest {
     format_version: FORMAT_VERSION,
-    exported_by: format!("Donut Browser {}", env!("CARGO_PKG_VERSION")),
+    exported_by: format!("BW Browser {}", env!("CARGO_PKG_VERSION")),
     exported_at: crate::proxy_manager::now_secs(),
     profile_name: profile.name.clone(),
     browser: profile.browser.clone(),
@@ -591,7 +591,7 @@ mod tests {
     let root = TempDir::new().unwrap();
     let data = root.path().join("profile");
     seed_data(&data);
-    let archive = root.path().join("shop.donutprofile");
+    let archive = root.path().join("shop.bwbrowserprofile");
     let profile = sample();
 
     let manifest = export_to(
@@ -650,7 +650,7 @@ mod tests {
     let root = TempDir::new().unwrap();
     let data = root.path().join("profile");
     seed_data(&data);
-    let archive = root.path().join("locked.donutprofile");
+    let archive = root.path().join("locked.bwbrowserprofile");
     let mut profile = sample();
     profile.password_protected = true;
 
@@ -691,7 +691,7 @@ mod tests {
     let root = TempDir::new().unwrap();
     let data = root.path().join("profile");
     seed_data(&data);
-    let archive = root.path().join("shop.donutprofile");
+    let archive = root.path().join("shop.bwbrowserprofile");
     export_to(&sample(), &data, &archive, true, None, None).unwrap();
 
     let restored_dir = root.path().join("restored");
@@ -704,7 +704,7 @@ mod tests {
     assert!(!restored_dir.join("Default/Cache/data_0").exists());
 
     // A hand-made archive with a traversing entry is refused outright.
-    let hostile = root.path().join("hostile.donutprofile");
+    let hostile = root.path().join("hostile.bwbrowserprofile");
     {
       let file = fs::File::create(&hostile).unwrap();
       let mut writer = zip::ZipWriter::new(file);
@@ -725,7 +725,7 @@ mod tests {
   #[test]
   fn an_archive_from_a_newer_build_is_refused_by_name() {
     let root = TempDir::new().unwrap();
-    let archive = root.path().join("future.donutprofile");
+    let archive = root.path().join("future.bwbrowserprofile");
     {
       let file = fs::File::create(&archive).unwrap();
       let mut writer = zip::ZipWriter::new(file);
@@ -735,7 +735,7 @@ mod tests {
         .write_all(
           serde_json::json!({
             "format_version": FORMAT_VERSION + 1,
-            "exported_by": "Donut Browser 99.0.0",
+            "exported_by": "BW Browser 99.0.0",
             "exported_at": 1,
             "profile_name": "Future",
             "browser": "wayfern",

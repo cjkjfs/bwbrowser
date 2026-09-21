@@ -293,7 +293,9 @@ struct SyncResumeState {
 
 impl SyncResumeState {
   fn path(profile_dir: &Path) -> std::path::PathBuf {
-    profile_dir.join(".donut-sync").join("resume-state.json")
+    profile_dir
+      .join(".bwbrowser-sync")
+      .join("resume-state.json")
   }
 
   fn load(profile_dir: &Path) -> Option<Self> {
@@ -4535,7 +4537,7 @@ mod tests {
   #[tokio::test]
   async fn an_unreachable_storage_host_survives_the_whole_way_to_the_message() {
     let client = SyncClient::new("http://127.0.0.1:1".to_string(), "unused".to_string());
-    let presigned = "http://donut-storage.invalid:9000/bucket/profiles/p1/Cookies\
+    let presigned = "http://bwbrowser-storage.invalid:9000/bucket/profiles/p1/Cookies\
                      ?X-Amz-Signature=deadbeef";
 
     let error = client
@@ -4549,7 +4551,7 @@ mod tests {
     );
 
     assert!(
-      message.contains("donut-storage.invalid:9000"),
+      message.contains("bwbrowser-storage.invalid:9000"),
       "the host has to survive from the transfer to the message: {message}"
     );
     assert!(

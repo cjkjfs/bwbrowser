@@ -1,4 +1,4 @@
-# Donut Browser native E2E tests
+# BW Browser native E2E tests
 
 These tests exercise the actual Tauri application through the published
 [`tauri-wd`](https://crates.io/crates/tauri-wd) native test driver. They do
@@ -9,17 +9,17 @@ cleanup.
 
 ## Local setup
 
-Install Donut dependencies with `pnpm install`. The runner installs the driver itself with
+Install Bwbrowser dependencies with `pnpm install`. The runner installs the driver itself with
 `cargo install`, so a working Rust toolchain is the only extra requirement. The browser suite also
 needs
-`WAYFERN_TEST_TOKEN`. The runner reads it from the environment or Donut's ignored `.env` without
+`WAYFERN_TEST_TOKEN`. The runner reads it from the environment or Bwbrowser's ignored `.env` without
 printing it. The browser suites always run the newest published Wayfern build. The download is
 saved as an ignored cache fixture under `.cache/e2e-wayfern-fixture`, which the runner copies into
 the test data root (using an isolated APFS clone on macOS) on later runs; a cached fixture holding
 any other version is replaced before the suite uses it, so the cache can never keep an old browser
 under test.
 
-Set `DONUT_E2E_WAYFERN_PATH` to pin an explicit local bundle instead, for example a browser built
+Set `BWBROWSER_E2E_WAYFERN_PATH` to pin an explicit local bundle instead, for example a browser built
 from source. A pinned bundle is used as given, without the published-version check.
 
 The real-network suite additionally requires Docker plus
@@ -39,19 +39,19 @@ pnpm e2e:sync
 pnpm e2e:browser
 ```
 
-Run everything with `pnpm e2e`. A normal run builds the Next frontend, `donut-proxy`, and the
+Run everything with `pnpm e2e`. A normal run builds the Next frontend, `bwbrowser-proxy`, and the
 harness in `e2e/app`, then installs the `tauri-wd` CLI into the ignored `e2e/.driver` root when the
-version pinned by `e2e/app/Cargo.toml` is not already there. The harness enables Donut's `e2e`
+version pinned by `e2e/app/Cargo.toml` is not already there. The harness enables Bwbrowser's `e2e`
 feature and injects the WebDriver plugin so the production crate never depends on it. Both the
 plugin and the CLI come from the same pinned crates.io release, so they cannot drift apart. Bump
-the pin in `e2e/app/Cargo.toml` to move to a newer driver. Every suite runs the Donut window
+the pin in `e2e/app/Cargo.toml` to move to a newer driver. Every suite runs the Bwbrowser window
 headless (on macOS the window is transparent, click-through and never focused; elsewhere it is
-hidden), so a run never pops a window or steals focus. Set `DONUT_E2E_HEADED=1` to watch the
+hidden), so a run never pops a window or steals focus. Set `BWBROWSER_E2E_HEADED=1` to watch the
 window while debugging a failure; Wayfern browsers launched by a test are separate processes and
 show their own windows unless the test asks for a headless launch.
 Add `--no-build` to
 `node e2e/run.mjs --suite=<name>` only when all four outputs are current.
-`DONUT_E2E_KEEP_ARTIFACTS=1` retains successful local runs; failed runs are always retained and
+`BWBROWSER_E2E_KEEP_ARTIFACTS=1` retains successful local runs; failed runs are always retained and
 their location is printed. Raw screenshots, captured HTML, logs, and isolated app state stay local.
 The runner also creates a text-only `diagnostics/` directory whose logs are redacted and checked
 against active test secrets. CI uploads only that directory on failure. Disposable copied browser
@@ -72,7 +72,7 @@ asserts their persisted settings and rendered CSS variables across rail navigati
 Each app session receives a unique root under the operating-system test temp directory. The
 runner redirects:
 
-- Donut data, cache, and logs with `DONUTBROWSER_DATA_ROOT`;
+- Bwbrowser data, cache, and logs with `BWBROWSER_DATA_ROOT`;
 - `HOME`, `USERPROFILE`, `CFFIXED_USER_HOME`, XDG paths, `APPDATA`, and `LOCALAPPDATA`;
 - `TMPDIR`, `TMP`, and `TEMP`;
 - the Tauri WebView store (incognito for WKWebView, whose persistent data-directory API is not

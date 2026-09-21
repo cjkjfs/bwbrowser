@@ -1,7 +1,6 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LuEye, LuEyeOff } from "react-icons/lu";
@@ -28,8 +27,6 @@ import { useCloudAuth } from "@/hooks/use-cloud-auth";
 import { effectivePlanOf } from "@/lib/entitlements";
 import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import type { SyncServerCheck, SyncSettings } from "@/types";
-
-const DEVICE_LINK_URL = "https://donutbrowser.com/auth/link";
 
 interface SyncConfigDialogProps {
   isOpen: boolean;
@@ -246,16 +243,8 @@ export function SyncConfigDialog({
   }, [t]);
 
   const handleOpenLogin = useCallback(async () => {
-    try {
-      await openUrl(DEVICE_LINK_URL);
-      // Hand off the verify step to its own dialog so the user has a
-      // focused place to paste the code, and so it doesn't visually
-      // stack with this dialog or any other modal currently on screen.
-      onLoginStarted?.();
-    } catch (error) {
-      console.error("Failed to open login link:", error);
-      showErrorToast(String(error));
-    }
+    // 直接打开 Bwbrowser 登录对话框
+    onLoginStarted?.();
   }, [onLoginStarted]);
 
   const handleCloudLogout = useCallback(async () => {
@@ -350,7 +339,7 @@ export function SyncConfigDialog({
             <div className="flex gap-2 pt-2">
               <Button variant="outline" className="flex-1" asChild>
                 <a
-                  href="https://donutbrowser.com/account"
+                  href="https://bwbrowser.com/account"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -399,13 +388,14 @@ export function SyncConfigDialog({
               ) : (
                 <div className="grid gap-4 py-4">
                   <p className="text-sm text-muted-foreground">
-                    {t("sync.cloud.deviceLinkInstructions")}
+                    使用您的 Bwbrowser 账号登录云端，同步环境、代理和 Cookie
+                    数据。
                   </p>
                   <Button
                     onClick={() => void handleOpenLogin()}
                     className="w-full"
                   >
-                    {t("sync.cloud.openLogin")}
+                    登录
                   </Button>
                 </div>
               )}

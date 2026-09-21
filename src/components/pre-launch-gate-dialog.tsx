@@ -100,8 +100,8 @@ function ExtensionEntry({ extension }: { extension: DetectedVpnExtension }) {
         : "prelaunchGate.vpnExtensionCapability",
   );
   const source = t(
-    extension.source === "donut"
-      ? "prelaunchGate.sourceDonut"
+    extension.source === "bwbrowser"
+      ? "prelaunchGate.sourceBwbrowser"
       : "prelaunchGate.sourceBrowser",
   );
 

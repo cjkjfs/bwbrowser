@@ -1,0 +1,31 @@
+# Storage for developing and testing bwbrowser-sync itself. It runs MinIO only, and
+# the sync server is expected to run on the host beside it (`pnpm start:dev`),
+# which is why MinIO is published and why the port matches the one pinned in
+# test/test-env.ts.
+#
+# This is NOT the self-hosting compose file. That one runs bwbrowser-sync in a
+# container too, and it must set S3_PUBLIC_ENDPOINT, because a server that signs
+# presigned URLs against a compose-internal host such as `http://minio:9000`
+# hands every device a URL it cannot open, while /health and /readyz stay green.
+# Take the self-hosting compose from https://bwbrowser.com/docs/self-hosting
+# rather than from here.
+services:
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "8987:9000"
+      - "8988:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - minio_data:/data
+
+volumes:
+  minio_data:

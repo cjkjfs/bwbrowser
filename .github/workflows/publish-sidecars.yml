@@ -1,10 +1,10 @@
 name: Publish sidecars to R2
 
-# Publishes the `donut-proxy` sidecar to the bucket behind
+# Publishes the `bwbrowser-proxy` sidecar to the bucket behind
 # https://download.wayfern.com, where remote hosts fetch it from.
 #
 # WHY THIS EXISTS SEPARATELY FROM release.yml
-# The desktop app ships donut-proxy INSIDE the bundle as a Tauri sidecar, so a
+# The desktop app ships bwbrowser-proxy INSIDE the bundle as a Tauri sidecar, so a
 # desktop release never needs it in a bucket. Remote execution is the opposite:
 # a remote host has no bundle and cannot launch a browser without the sidecar.
 # Tying publication to a desktop release would mean remote execution could only
@@ -28,7 +28,7 @@ on:
       # modules `src/bin/proxy_server.rs` actually imports, rather than all of
       # src-tauri/src.
       #
-      # BEST EFFORT, deliberately: the bin reaches donutbrowser_lib, so a change
+      # BEST EFFORT, deliberately: the bin reaches bwbrowser_lib, so a change
       # deep in a shared module can alter the binary without matching a path
       # here. `workflow_dispatch` is the escape hatch, and the round-trip digest
       # check means a stale publish is visible rather than silent.
@@ -58,7 +58,7 @@ permissions:
 
 jobs:
   build:
-    name: Build donut-proxy (${{ matrix.target }})
+    name: Build bwbrowser-proxy (${{ matrix.target }})
     runs-on: ${{ matrix.platform }}
     strategy:
       # One target failing must not leave the others unpublished and the set
@@ -69,18 +69,18 @@ jobs:
           # macOS arm64 remote host.
           - platform: macos-latest
             target: aarch64-apple-darwin
-            artifact: donut-proxy-aarch64-apple-darwin
+            artifact: bwbrowser-proxy-aarch64-apple-darwin
           # Windows x86_64 remote host.
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: donut-proxy-x86_64-pc-windows-msvc.exe
+            artifact: bwbrowser-proxy-x86_64-pc-windows-msvc.exe
           # Linux x86_64 remote host. Pinned to 22.04, not -latest: the
           # deployment target is glibc 2.35, and a binary linked on 24.04
           # (glibc 2.39) refuses to load there. The stage step proves the pin
           # held.
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            artifact: donut-proxy-x86_64-unknown-linux-gnu
+            artifact: bwbrowser-proxy-x86_64-unknown-linux-gnu
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -97,7 +97,7 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.target }}
 
-      # The proxy bin links donutbrowser_lib, which pulls in Tauri and therefore
+      # The proxy bin links bwbrowser_lib, which pulls in Tauri and therefore
       # GTK and WebKit at link time even though the proxy never opens a window.
       # Same package list as release.yml, so the two cannot drift apart.
       - name: Install Linux build dependencies
@@ -106,12 +106,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev pkg-config unzip xdg-utils
 
-      - name: Build donut-proxy
+      - name: Build bwbrowser-proxy
         shell: bash
         working-directory: ./src-tauri
         env:
           GITHUB_REF_NAME: ${{ github.ref_name }}
-        run: cargo build --bin donut-proxy --target ${{ matrix.target }} --release
+        run: cargo build --bin bwbrowser-proxy --target ${{ matrix.target }} --release
 
       - name: Stage the binary and record its digest
         id: stage
@@ -120,7 +120,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/sidecars"
-          src="target/${{ matrix.target }}/release/donut-proxy"
+          src="target/${{ matrix.target }}/release/bwbrowser-proxy"
           [ -f "$src.exe" ] && src="$src.exe"
           if [ ! -f "$src" ]; then
             echo "::error::cargo reported success but $src does not exist"
@@ -136,7 +136,7 @@ jobs:
           # later and less clearly.
           version="$("$dest" --version)"
           case "$version" in
-            "donut-proxy "*) ;;
+            "bwbrowser-proxy "*) ;;
             *) echo "::error::unexpected --version output: $version"; exit 1 ;;
           esac
 

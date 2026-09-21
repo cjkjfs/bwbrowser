@@ -61,7 +61,7 @@ const DEFAULT_FORM: ProxyFormData = {
  * does on the wire rather than presented as one flat menu.
  *
  * A flat list rendered `HTTPS` next to `HTTP` and let it read as "the encrypted
- * one", which is not what Donut dials: `https` is a provider label on a
+ * one", which is not what Bwbrowser dials: `https` is a provider label on a
  * plaintext CONNECT endpoint. The stored value is untouched, it is the URL
  * scheme the Rust worker matches on, only the grouping and the label change.
  *
@@ -72,7 +72,11 @@ const DEFAULT_FORM: ProxyFormData = {
  * heading that says the cipher decides is the true one, and it stays true for
  * the `none` cipher that the encrypted heading never covered either.
  */
-const ALWAYS_ENCRYPTED_FIRST_HOP_TYPES = ["httpstls", "vless"] as const;
+const ALWAYS_ENCRYPTED_FIRST_HOP_TYPES = [
+  "httpstls",
+  "vless",
+  "trojan",
+] as const;
 const CIPHER_DEPENDENT_FIRST_HOP_TYPES = ["ss"] as const;
 const PLAINTEXT_FIRST_HOP_TYPES = [
   "http",
@@ -106,7 +110,7 @@ function parseVlessEndpoint(uri: string): VlessEndpoint | null {
     const parsed = new URL(uri.trim());
     const port = Number.parseInt(parsed.port, 10);
     if (
-      parsed.protocol !== "vless:" ||
+      (parsed.protocol !== "vless:" && parsed.protocol !== "trojan:") ||
       !parsed.hostname ||
       !Number.isInteger(port) ||
       port < 1 ||
@@ -133,7 +137,7 @@ export function ProxyFormDialog({
   const { t } = useTranslation();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState<ProxyFormData>(DEFAULT_FORM);
-  // The local parse only covers scheme/host/port. Whether Donut can actually
+  // The local parse only covers scheme/host/port. Whether Bwbrowser can actually
   // use the server — REALITY, XTLS Vision, plain TCP — is decided by the Rust
   // parser, so ask it (below) and show the specific reason while the user is
   // still editing rather than after they save. Declared here because
@@ -172,25 +176,25 @@ export function ProxyFormDialog({
     }
 
     const canonicalType = canonicalProxyType(form.proxy_type);
-    const isVless = canonicalType === "vless";
-    const vlessEndpoint = isVless ? parseVlessEndpoint(form.vless_uri) : null;
+    const isUriType = canonicalType === "vless" || canonicalType === "trojan";
+    const vlessEndpoint = isUriType ? parseVlessEndpoint(form.vless_uri) : null;
 
-    if (isVless && !form.vless_uri.trim()) {
+    if (isUriType && !form.vless_uri.trim()) {
       toast.error(t("proxies.form.vlessUriRequired"));
       return;
     }
 
-    if (isVless && !vlessEndpoint) {
+    if (isUriType && !vlessEndpoint) {
       toast.error(t("proxies.form.vlessUriInvalid"));
       return;
     }
 
-    if (isVless && vlessUnsupported) {
+    if (isUriType && vlessUnsupported) {
       toast.error(vlessUnsupported);
       return;
     }
 
-    if (!isVless && (!form.host.trim() || !form.port)) {
+    if (!isUriType && (!form.host.trim() || !form.port)) {
       toast.error(t("proxies.form.hostPortRequired"));
       return;
     }
@@ -211,9 +215,9 @@ export function ProxyFormDialog({
           proxy_type: form.proxy_type,
           host: vlessEndpoint?.host ?? form.host.trim(),
           port: vlessEndpoint?.port ?? form.port,
-          username: isVless ? undefined : form.username.trim() || undefined,
-          password: isVless ? undefined : form.password.trim() || undefined,
-          vless_uri: isVless ? form.vless_uri.trim() : undefined,
+          username: isUriType ? undefined : form.username.trim() || undefined,
+          password: isUriType ? undefined : form.password.trim() || undefined,
+          vless_uri: isUriType ? form.vless_uri.trim() : undefined,
         },
       };
 
@@ -293,9 +297,9 @@ export function ProxyFormDialog({
   // through the REST API arrives as `shadowsocks`, and every branch that asked
   // `=== "ss"` skipped it. Derive the type once and compare against that.
   const canonicalType = canonicalProxyType(form.proxy_type);
-  const isVless = canonicalType === "vless";
+  const isUriType = canonicalType === "vless" || canonicalType === "trojan";
   const isShadowsocks = canonicalType === "ss";
-  const vlessEndpoint = isVless ? parseVlessEndpoint(form.vless_uri) : null;
+  const vlessEndpoint = isUriType ? parseVlessEndpoint(form.vless_uri) : null;
   // The cipher decides for Shadowsocks, and this form keeps it in `username`.
   // Asked with `canonicalType`, not the raw stored spelling, so the answer
   // cannot disagree with the field labels two lines below: a REST-stored
@@ -315,7 +319,7 @@ export function ProxyFormDialog({
   // the cipher, it is the destination and the payload. Same condition, two
   // different truths, so the panel below picks its sentence from the type.
   const showPlaintextExposure =
-    !isVless && !firstHopEncrypted && form.username.trim().length > 0;
+    !isUriType && !firstHopEncrypted && form.username.trim().length > 0;
   // Radix matches an item by its value, so the item standing for this proxy
   // carries the proxy's own spelling. Without it a stored `shadowsocks` left
   // the trigger on its placeholder, and picking the visible Shadowsocks entry
@@ -325,7 +329,7 @@ export function ProxyFormDialog({
 
   const trimmedVlessUri = form.vless_uri.trim();
   useEffect(() => {
-    if (!isVless || trimmedVlessUri.length === 0) {
+    if (!isUriType || trimmedVlessUri.length === 0) {
       setVlessUnsupported(null);
       return;
     }
@@ -343,15 +347,16 @@ export function ProxyFormDialog({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [isVless, trimmedVlessUri, t]);
+  }, [isUriType, trimmedVlessUri, t]);
 
   const hasInvalidVlessUri =
-    isVless &&
+    isUriType &&
     trimmedVlessUri.length > 0 &&
     (!vlessEndpoint || vlessUnsupported !== null);
-  const isFormValid =
+
+  const canSubmit =
     form.name.trim() &&
-    (isVless
+    (isUriType
       ? vlessEndpoint !== null && vlessUnsupported === null
       : form.host.trim() &&
         form.port > 0 &&
@@ -438,7 +443,7 @@ export function ProxyFormDialog({
             )}
           </div>
 
-          {isVless ? (
+          {isUriType ? (
             <div className="grid gap-2">
               <Label htmlFor="proxy-vless-uri">
                 {t("proxies.form.vlessUri")}
@@ -579,7 +584,7 @@ export function ProxyFormDialog({
           <LoadingButton
             isLoading={isSubmitting}
             onClick={handleSubmit}
-            disabled={!isFormValid}
+            disabled={!canSubmit}
           >
             {editingProxy ? t("proxies.edit") : t("proxies.add")}
           </LoadingButton>

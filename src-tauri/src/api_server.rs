@@ -445,7 +445,7 @@ struct ImportCookiesResponse {
 
 /// Add an extension from exactly one source: an uploaded payload
 /// (`file_name` together with `file_data_base64`), or `source_path` on the
-/// machine running Donut. Supplying both, or neither, is a 400.
+/// machine running Bwbrowser. Supplying both, or neither, is a 400.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateExtensionRequest {
   /// Display name. Optional — the manifest's own name wins when it has one,
@@ -583,7 +583,7 @@ struct ImportProfilesRequest {
 #[derive(Debug, Deserialize, ToSchema)]
 struct ImportProxiesRequest {
   /// "txt" — one proxy per line (`host:port`, `host:port:user:pass`, or URL
-  /// forms like `http://user:pass@host:port`). "json" — a Donut proxy export.
+  /// forms like `http://user:pass@host:port`). "json" — a Bwbrowser proxy export.
   format: String,
   /// Raw proxy list / export content.
   content: String,
@@ -1479,7 +1479,7 @@ async fn create_profile(
           return Err((
             StatusCode::BAD_REQUEST,
             format!(
-              "No downloaded version of \"{}\" is available. Download the browser in Donut Browser first — this endpoint does not download browsers.",
+              "No downloaded version of \"{}\" is available. Download the browser in BW Browser first — this endpoint does not download browsers.",
               request.browser
             ),
           ));
@@ -2092,7 +2092,7 @@ async fn create_proxy(
   }
 }
 
-// API Handler - Bulk-import proxies from a txt list or a Donut JSON export.
+// API Handler - Bulk-import proxies from a txt list or a Bwbrowser JSON export.
 // Mirrors the MCP `import_proxies` tool.
 #[utoipa::path(
   post,
@@ -2573,7 +2573,7 @@ async fn get_extensions(
 /// The body names exactly one source:
 /// - `file_name` plus `file_data_base64` uploads a `.crx`/`.zip`.
 /// - `source_path` reads a `.crx`/`.zip`, or packs an unpacked extension
-///   directory, from the machine running Donut. `link: true` loads that
+///   directory, from the machine running Bwbrowser. `link: true` loads that
 ///   directory in place instead, so edits apply on the next browser start;
 ///   a linked extension is machine-local and never syncs.
 ///
@@ -2999,7 +2999,7 @@ async fn run_profile_remote(
     .ok_or((StatusCode::NOT_FOUND, "profile not found".to_string()))?;
 
   // The profile must exist in cloud storage before a remote host can open it —
-  // the VM pulls it from donut-sync, and a profile that has never synced would
+  // the VM pulls it from bwbrowser-sync, and a profile that has never synced would
   // launch an empty browser and then push that emptiness back over the real one.
   if let Err(reason) = remote_launch_precondition(profile).await {
     return Err((StatusCode::BAD_REQUEST, reason));
@@ -3332,7 +3332,7 @@ fn status_for_code(code: &str) -> StatusCode {
 //
 // This is what makes `run-remote` usable. Without it the endpoint hands back a
 // session id that nothing outside this app can do anything with: the fleet's
-// relay only accepts the user's Donut cloud credential, an automation client
+// relay only accepts the user's Bwbrowser cloud credential, an automation client
 // does not have one, and it must not be given one — an API token is scoped to
 // "drive my browsers", not "act as my account".
 //
@@ -3414,7 +3414,7 @@ fn cdp_error_response(err: crate::cdp_target::CdpError) -> (StatusCode, String) 
 ///
 /// Verbatim in both directions. This proxy deliberately understands nothing
 /// about CDP: a client that speaks a newer protocol, or a target type this
-/// build has never heard of, must keep working without a Donut release.
+/// build has never heard of, must keep working without a Bwbrowser release.
 async fn pump_cdp(session_id: String, client: WebSocket, upstream: crate::cdp_target::RelaySocket) {
   use futures_util::{SinkExt, StreamExt};
   use tokio_tungstenite::tungstenite::Message as RelayMessage;
@@ -3488,8 +3488,8 @@ async fn pump_cdp(session_id: String, client: WebSocket, upstream: crate::cdp_ta
     (status = 200, description = "Sessions owned by the signed-in account", body = ApiRemoteSessionsResponse),
     (status = 401, description = "Unauthorized"),
     (status = 402, description = "Active paid plan with browser automation required"),
-    (status = 403, description = "This desktop is not signed in to Donut cloud"),
-    (status = 503, description = "Donut cloud could not be reached"),
+    (status = 403, description = "This desktop is not signed in to Bwbrowser cloud"),
+    (status = 503, description = "Bwbrowser cloud could not be reached"),
     (status = 500, description = "Internal server error")
   ),
   security(
@@ -3516,9 +3516,9 @@ async fn list_remote_sessions_api() -> Result<Json<ApiRemoteSessionsResponse>, (
     (status = 200, description = "Current session state", body = crate::remote_session::RemoteSessionState),
     (status = 401, description = "Unauthorized"),
     (status = 402, description = "Active paid plan with browser automation required"),
-    (status = 403, description = "This desktop is not signed in to Donut cloud"),
+    (status = 403, description = "This desktop is not signed in to Bwbrowser cloud"),
     (status = 404, description = "No such remote session"),
-    (status = 503, description = "Donut cloud could not be reached"),
+    (status = 503, description = "Bwbrowser cloud could not be reached"),
     (status = 500, description = "Internal server error")
   ),
   security(
@@ -3545,8 +3545,8 @@ async fn get_remote_session_api(
   responses(
     (status = 200, description = "Pooled remote-hour budget and its breakdown", body = crate::cookie_bot::RemoteHoursQuota),
     (status = 401, description = "Unauthorized"),
-    (status = 403, description = "This desktop is not signed in to Donut cloud"),
-    (status = 503, description = "Donut cloud could not be reached"),
+    (status = 403, description = "This desktop is not signed in to Bwbrowser cloud"),
+    (status = 503, description = "Bwbrowser cloud could not be reached"),
     (status = 500, description = "Internal server error")
   ),
   security(
@@ -3566,7 +3566,7 @@ async fn get_remote_hours(
 
 // --- Cookie bot -------------------------------------------------------------
 //
-// Thin proxies onto Donut cloud, which owns the schedule, the calendar
+// Thin proxies onto Bwbrowser cloud, which owns the schedule, the calendar
 // arithmetic, the browsing model and the pooled hour budget. Nothing here
 // decides when a run happens or what it does. What this file DOES decide is
 // which profiles may be offered to it at all.
@@ -3612,7 +3612,7 @@ fn cookie_bot_eligible_profile(
     (status = 401, description = "Unauthorized"),
     (status = 402, description = "Plan does not include the cookie bot"),
     (status = 403, description = "Not signed in, or scope=team from a non-member"),
-    (status = 503, description = "Donut cloud could not be reached"),
+    (status = 503, description = "Bwbrowser cloud could not be reached"),
     (status = 500, description = "Internal server error")
   ),
   security(
@@ -3639,9 +3639,9 @@ async fn list_cookie_bot_schedules(
   responses(
     (status = 200, description = "The profile's enrolment", body = crate::cookie_bot::CookieBotSchedule),
     (status = 401, description = "Unauthorized"),
-    (status = 403, description = "This desktop is not signed in to Donut cloud"),
+    (status = 403, description = "This desktop is not signed in to Bwbrowser cloud"),
     (status = 404, description = "This profile is not enrolled"),
-    (status = 503, description = "Donut cloud could not be reached"),
+    (status = 503, description = "Bwbrowser cloud could not be reached"),
     (status = 500, description = "Internal server error")
   ),
   security(
@@ -3680,10 +3680,10 @@ async fn get_cookie_bot_schedule(
     (status = 400, description = "Invalid schedule, or a profile the bot cannot run"),
     (status = 401, description = "Unauthorized"),
     (status = 402, description = "Plan does not include the cookie bot"),
-    (status = 403, description = "This desktop is not signed in to Donut cloud"),
+    (status = 403, description = "This desktop is not signed in to Bwbrowser cloud"),
     (status = 404, description = "Profile not found"),
     (status = 409, description = "A teammate already enrols this profile; retry with acknowledge_conflict"),
-    (status = 503, description = "Donut cloud could not be reached"),
+    (status = 503, description = "Bwbrowser cloud could not be reached"),
     (status = 500, description = "Internal server error")
   ),
   security(
@@ -3754,8 +3754,8 @@ async fn set_cookie_bot_schedule(
   responses(
     (status = 200, description = "Enrolment removed, or there was none", body = crate::cookie_bot::CookieBotScheduleDeleted),
     (status = 401, description = "Unauthorized"),
-    (status = 403, description = "This desktop is not signed in to Donut cloud"),
-    (status = 503, description = "Donut cloud could not be reached"),
+    (status = 403, description = "This desktop is not signed in to Bwbrowser cloud"),
+    (status = 503, description = "Bwbrowser cloud could not be reached"),
     (status = 500, description = "Internal server error")
   ),
   security(
@@ -3789,8 +3789,8 @@ async fn delete_cookie_bot_schedule(
     (status = 200, description = "Teammates enrolling the same profile", body = crate::cookie_bot::CookieBotConflictCheck),
     (status = 400, description = "profile_id missing"),
     (status = 401, description = "Unauthorized"),
-    (status = 403, description = "This desktop is not signed in to Donut cloud"),
-    (status = 503, description = "Donut cloud could not be reached"),
+    (status = 403, description = "This desktop is not signed in to Bwbrowser cloud"),
+    (status = 503, description = "Bwbrowser cloud could not be reached"),
     (status = 500, description = "Internal server error")
   ),
   security(
@@ -3830,7 +3830,7 @@ async fn get_cookie_bot_conflicts(
     (status = 400, description = "limit out of range or malformed cursor"),
     (status = 401, description = "Unauthorized"),
     (status = 403, description = "Not signed in, or scope=team from a non-member"),
-    (status = 503, description = "Donut cloud could not be reached"),
+    (status = 503, description = "Bwbrowser cloud could not be reached"),
     (status = 500, description = "Internal server error")
   ),
   security(
@@ -3862,7 +3862,7 @@ async fn list_cookie_bot_runs(
     (status = 400, description = "A profile the bot cannot run"),
     (status = 401, description = "Unauthorized"),
     (status = 402, description = "Plan does not include the cookie bot, or the pooled hours are spent"),
-    (status = 403, description = "This desktop is not signed in to Donut cloud"),
+    (status = 403, description = "This desktop is not signed in to Bwbrowser cloud"),
     (status = 404, description = "Profile not found, or not enrolled"),
     (status = 409, description = "A run or remote session already holds this profile"),
     (status = 429, description = "Automation request rate limit exceeded"),
@@ -3902,7 +3902,7 @@ async fn start_cookie_bot_run(
   responses(
     (status = 200, description = "The run, cancelled (or unchanged if it had already finished)", body = crate::cookie_bot::CookieBotRun),
     (status = 401, description = "Unauthorized"),
-    (status = 403, description = "This desktop is not signed in to Donut cloud"),
+    (status = 403, description = "This desktop is not signed in to Bwbrowser cloud"),
     (status = 404, description = "No such run for this account"),
     (status = 429, description = "Automation request rate limit exceeded"),
     (status = 503, description = "The fleet could not be reached; the run is still live"),
@@ -3931,8 +3931,8 @@ async fn cancel_cookie_bot_run(
   responses(
     (status = 200, description = "Selectable presets", body = crate::cookie_bot::CookieBotPresetList),
     (status = 401, description = "Unauthorized"),
-    (status = 403, description = "This desktop is not signed in to Donut cloud"),
-    (status = 503, description = "Donut cloud could not be reached"),
+    (status = 403, description = "This desktop is not signed in to Bwbrowser cloud"),
+    (status = 503, description = "Bwbrowser cloud could not be reached"),
     (status = 500, description = "Internal server error")
   ),
   security(
@@ -3962,7 +3962,7 @@ async fn list_cookie_bot_presets(
     (status = 400, description = "Malformed period"),
     (status = 401, description = "Unauthorized"),
     (status = 403, description = "Not signed in, or not a member of that team"),
-    (status = 503, description = "Donut cloud could not be reached"),
+    (status = 503, description = "Bwbrowser cloud could not be reached"),
     (status = 500, description = "Internal server error")
   ),
   security(
@@ -4975,7 +4975,7 @@ mod tests {
   // decide whether the profile exists in cloud storage at all.
   // /run-remote exists precisely so a profile can run on a host of ITS OWN OS
   // when this machine is the wrong one. The gate is cloud sync: a remote host
-  // obtains the profile from donut-sync, so a profile that has never synced
+  // obtains the profile from bwbrowser-sync, so a profile that has never synced
   // would launch an empty browser and push that emptiness over the real one.
   #[test]
   fn remote_launch_requires_cloud_sync() {

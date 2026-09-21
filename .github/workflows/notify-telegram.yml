@@ -27,7 +27,7 @@ permissions:
 jobs:
   notify:
     if: >
-      github.repository == 'zhom/donutbrowser' &&
+      github.repository == 'zhom/bwbrowser' &&
       (github.event_name == 'workflow_dispatch' ||
        github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
@@ -197,13 +197,13 @@ jobs:
               parse_mode: "HTML",
               disable_web_page_preview: true,
               text: (
-                "<b>Donut Browser " + $version + " released</b>\n\n" +
+                "<b>BW Browser " + $version + " released</b>\n\n" +
                 $changes + "\n" +
                 "<b>Download</b>\n" +
-                "<a href=\"" + $dl + "/Donut_" + $vnum + "_aarch64.dmg\">macOS (Apple Silicon)</a> · " +
-                "<a href=\"" + $dl + "/Donut_" + $vnum + "_x64.dmg\">macOS (Intel)</a>\n" +
-                "<a href=\"" + $dl + "/Donut_" + $vnum + "_x64-setup.exe\">Windows x64</a> · " +
-                "<a href=\"" + $dl + "/Donut_" + $vnum + "_amd64.AppImage\">Linux x64</a>\n\n" +
+                "<a href=\"" + $dl + "/Bwbrowser_" + $vnum + "_aarch64.dmg\">macOS (Apple Silicon)</a> · " +
+                "<a href=\"" + $dl + "/Bwbrowser_" + $vnum + "_x64.dmg\">macOS (Intel)</a>\n" +
+                "<a href=\"" + $dl + "/Bwbrowser_" + $vnum + "_x64-setup.exe\">Windows x64</a> · " +
+                "<a href=\"" + $dl + "/Bwbrowser_" + $vnum + "_amd64.AppImage\">Linux x64</a>\n\n" +
                 "<a href=\"" + $release_url + "\">Full release notes</a>"
               )
             }')

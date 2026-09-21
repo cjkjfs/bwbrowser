@@ -35,7 +35,7 @@ export interface SetupError {
 const DEFAULT_EXTRACT_MS = 2 * 60 * 1000;
 const MAX_SAMPLES = 5; // the 2-min seed + up to 4 most recent real durations
 
-const storageKey = (browser: string) => `donut.extractDurations.${browser}`;
+const storageKey = (browser: string) => `bwbrowser.extractDurations.${browser}`;
 
 function readDurations(browser: string): number[] {
   try {

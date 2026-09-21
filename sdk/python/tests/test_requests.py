@@ -4,7 +4,7 @@ The table below is the whole public surface. Each row names a method, the
 arguments to call it with, and the request that must appear on the wire: the
 verb, the concrete path, the query string and the JSON body. ``operation`` is
 the path template the app publishes, which ties this file to
-``donutbrowser.coverage.OPERATIONS`` and, through it, to ``sdk/api-paths.json``.
+``bwbrowser.coverage.OPERATIONS`` and, through it, to ``sdk/api-paths.json``.
 """
 
 from __future__ import annotations
@@ -13,10 +13,10 @@ import json
 from typing import Any, Dict, List, Optional, Tuple
 
 import pytest
-from fake_donut import FakeDonut
+from fake_bwbrowser import FakeBwbrowser
 
-from donutbrowser import DonutClient
-from donutbrowser.coverage import OPERATIONS
+from bwbrowser import BwbrowserClient
+from bwbrowser.coverage import OPERATIONS
 
 Case = Tuple[
     str,  # client method
@@ -650,7 +650,7 @@ CASES: List[Case] = [
     "case", CASES, ids=[f"{case[0]}[{index}]" for index, case in enumerate(CASES)]
 )
 def test_method_sends_the_documented_request(
-    client: DonutClient, fake: FakeDonut, case: Case
+    client: BwbrowserClient, fake: FakeBwbrowser, case: Case
 ) -> None:
     name, args, kwargs, verb, path, body, query, operation = case
 
@@ -671,7 +671,7 @@ def test_every_client_method_is_exercised_here() -> None:
     assert not missing, f"these wrapped operations have no request test: {missing}"
 
 
-def test_the_token_travels_as_a_bearer_header(client: DonutClient, fake: FakeDonut) -> None:
+def test_the_token_travels_as_a_bearer_header(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     client.list_profiles()
     sent = fake.last
     assert sent.header("Authorization") == "Bearer test-token-abc123"
@@ -679,36 +679,36 @@ def test_the_token_travels_as_a_bearer_header(client: DonutClient, fake: FakeDon
     assert sent.header("Content-Type") is None, "a GET must not claim to carry JSON"
 
 
-def test_a_body_is_sent_as_json(client: DonutClient, fake: FakeDonut) -> None:
+def test_a_body_is_sent_as_json(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     client.create_group(name="Retail")
     sent = fake.last
     assert sent.header("Content-Type") == "application/json"
     assert json.loads(sent.body.decode()) == {"name": "Retail"}
 
 
-def test_path_ids_are_escaped(client: DonutClient, fake: FakeDonut) -> None:
+def test_path_ids_are_escaped(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     """An id can never break out of its own path segment."""
     client.get_profile("a/b c?d")
     assert fake.last.path == "/v1/profiles/a%2Fb%20c%3Fd"
 
 
-def test_none_arguments_are_left_out_of_the_body(client: DonutClient, fake: FakeDonut) -> None:
+def test_none_arguments_are_left_out_of_the_body(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     client.update_profile("p1", name="Only this")
     assert fake.last.json == {"name": "Only this"}
 
 
-def test_an_empty_string_still_reaches_the_app(client: DonutClient, fake: FakeDonut) -> None:
+def test_an_empty_string_still_reaches_the_app(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     """`proxy_id=""` is how the app is told to detach a proxy, so it must survive."""
     client.update_profile("p1", proxy_id="")
     assert fake.last.json == {"proxy_id": ""}
 
 
-def test_a_no_content_answer_becomes_none(client: DonutClient, fake: FakeDonut) -> None:
+def test_a_no_content_answer_becomes_none(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     fake.enqueue_empty(204)
     assert client.delete_profile("p1") is None
 
 
-def test_a_json_answer_is_returned_as_sent(client: DonutClient, fake: FakeDonut) -> None:
+def test_a_json_answer_is_returned_as_sent(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     fake.enqueue_json({"profiles": [{"id": "p1", "name": "Shopper"}], "total": 1})
     assert client.list_profiles() == {
         "profiles": [{"id": "p1", "name": "Shopper"}],
@@ -716,6 +716,6 @@ def test_a_json_answer_is_returned_as_sent(client: DonutClient, fake: FakeDonut)
     }
 
 
-def test_a_bare_boolean_answer_is_returned(client: DonutClient, fake: FakeDonut) -> None:
+def test_a_bare_boolean_answer_is_returned(client: BwbrowserClient, fake: FakeBwbrowser) -> None:
     fake.enqueue_json(True)
     assert client.is_browser_downloaded("wayfern", "152.0.1") is True

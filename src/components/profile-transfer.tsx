@@ -11,8 +11,8 @@ import { translateBackendError } from "@/lib/backend-errors";
 import { showToast } from "@/lib/toast-utils";
 import type { BrowserProfile } from "@/types";
 
-/** The file extension a Donut profile archive carries. */
-export const PROFILE_ARCHIVE_EXTENSION = "donutprofile";
+/** The file extension a Bwbrowser profile archive carries. */
+export const PROFILE_ARCHIVE_EXTENSION = "bwbrowserprofile";
 
 interface PortableManifest {
   format_version: number;
@@ -121,7 +121,7 @@ export function ExportProfileSection({ profile }: { profile: BrowserProfile }) {
 }
 
 /**
- * Read a Donut archive back as a new profile.
+ * Read a Bwbrowser archive back as a new profile.
  *
  * The archive is inspected before anything is created, so the user sees what
  * they are about to add: its name, its browser version, and whether it carries

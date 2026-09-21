@@ -1,6 +1,6 @@
 //! Launching a profile on a remote VM.
 //!
-//! The desktop app never leases a remote host itself. It asks the Donut cloud
+//! The desktop app never leases a remote host itself. It asks the Bwbrowser cloud
 //! API, which is the only party holding credentials that can do so. That
 //! indirection is the point: a desktop client able to lease directly would need
 //! credentials capable of launching sessions for anyone.
@@ -583,13 +583,13 @@ pub async fn cdp_endpoint(session_id: &str) -> Result<CdpEndpoint, RemoteSession
 fn unsupported_descriptor(endpoint: &CdpEndpoint) -> Option<String> {
   if !endpoint.auth.is_empty() && endpoint.auth != AUTH_BEARER {
     return Some(format!(
-      "this version cannot attach to a remote browser using {:?} authentication; update Donut Browser",
+      "this version cannot attach to a remote browser using {:?} authentication; update BW Browser",
       endpoint.auth
     ));
   }
   if !endpoint.protocol.is_empty() && endpoint.protocol != PROTOCOL_CDP_RELAY_1 {
     return Some(format!(
-      "this version does not speak {:?}; update Donut Browser",
+      "this version does not speak {:?}; update BW Browser",
       endpoint.protocol
     ));
   }
@@ -615,7 +615,7 @@ fn forget_endpoint(session_id: &str) {
 pub fn access_token_for_cdp() -> Result<String, String> {
   crate::cloud_auth::CloudAuthManager::load_access_token()?
     .filter(|token| !token.is_empty())
-    .ok_or_else(|| "not signed in to Donut cloud".to_string())
+    .ok_or_else(|| "not signed in to Bwbrowser cloud".to_string())
 }
 
 /// Sessions that can be driven right now, keyed by the profile they hold.
@@ -1860,7 +1860,7 @@ mod tests {
     // decode step, and the desktop reports a live session as undrivable.
     let endpoint: CdpEndpoint = serde_json::from_str(
       r#"{"session_id":"sess-1",
-          "ws_url":"wss://api.donutbrowser.com/api/remote-sessions/cdp?session_id=sess-1",
+          "ws_url":"wss://api.bwbrowser.com/api/remote-sessions/cdp?session_id=sess-1",
           "protocol":"cdp-relay/1","auth":"bearer"}"#,
     )
     .expect("the backend's CDP descriptor must deserialize");
@@ -1883,7 +1883,7 @@ mod tests {
     };
     assert!(unsupported_descriptor(&ticketed)
       .expect("an unknown auth scheme must be refused")
-      .contains("update Donut Browser"));
+      .contains("update BW Browser"));
 
     let future_protocol = CdpEndpoint {
       auth: AUTH_BEARER.to_string(),

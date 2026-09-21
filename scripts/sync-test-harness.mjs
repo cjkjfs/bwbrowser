@@ -4,22 +4,22 @@
  *
  * This script:
  * 1. Downloads and starts MinIO (S3-compatible storage)
- * 2. Builds and starts donut-sync server
+ * 2. Builds and starts bwbrowser-sync server
  * 3. Runs the Rust sync e2e tests
  * 4. Cleans up all processes
  *
  * Usage: node scripts/sync-test-harness.mjs
  */
 
-import { spawn, execSync } from "child_process";
-import { createWriteStream, existsSync, mkdirSync, chmodSync } from "fs";
-import { mkdir, rm, writeFile } from "fs/promises";
-import http from "http";
-import https from "https";
-import os from "os";
-import path from "path";
-import { pipeline } from "stream/promises";
-import { fileURLToPath } from "url";
+import { execSync, spawn } from "node:child_process";
+import { chmodSync, createWriteStream, existsSync, mkdirSync } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
+import http from "node:http";
+import https from "node:https";
+import os from "node:os";
+import path from "node:path";
+import { pipeline } from "node:stream/promises";
+import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
@@ -136,7 +136,14 @@ async function startMinio(minioBin) {
 
   const proc = spawn(
     minioBin,
-    ["server", dataDir, "--address", `:${MINIO_PORT}`, "--console-address", `:${MINIO_CONSOLE_PORT}`],
+    [
+      "server",
+      dataDir,
+      "--address",
+      `:${MINIO_PORT}`,
+      "--console-address",
+      `:${MINIO_CONSOLE_PORT}`,
+    ],
     {
       env: {
         ...process.env,
@@ -144,7 +151,7 @@ async function startMinio(minioBin) {
         MINIO_ROOT_PASSWORD: "minioadmin",
       },
       stdio: ["ignore", "pipe", "pipe"],
-    }
+    },
   );
 
   processes.push(proc);
@@ -165,18 +172,21 @@ async function startMinio(minioBin) {
     error(`MinIO error: ${err.message}`);
   });
 
-  await waitForHealth(`http://localhost:${MINIO_PORT}/minio/health/live`, 30000);
+  await waitForHealth(
+    `http://localhost:${MINIO_PORT}/minio/health/live`,
+    30000,
+  );
   log("MinIO is ready");
 
   return proc;
 }
 
-async function buildDonutSync() {
-  log("Building donut-sync...");
+async function buildBwbrowserSync() {
+  log("Building bwbrowser-sync...");
   // `nest build` runs incremental tsc, which silently skips emit when
   // tsconfig.build.tsbuildinfo says nothing changed — even if dist/ was
   // wiped. Drop the cache so we always produce a fresh dist.
-  const syncDir = path.join(ROOT_DIR, "donut-sync");
+  const syncDir = path.join(ROOT_DIR, "bwbrowser-sync");
   await rm(path.join(syncDir, "tsconfig.build.tsbuildinfo"), {
     force: true,
   });
@@ -186,16 +196,16 @@ async function buildDonutSync() {
     stdio: process.env.VERBOSE ? "inherit" : "ignore",
   });
   if (!existsSync(path.join(syncDir, "dist", "main.js"))) {
-    throw new Error("donut-sync build did not produce dist/main.js");
+    throw new Error("bwbrowser-sync build did not produce dist/main.js");
   }
-  log("donut-sync built");
+  log("bwbrowser-sync built");
 }
 
-async function startDonutSync() {
-  log(`Starting donut-sync on port ${SYNC_PORT}...`);
+async function startBwbrowserSync() {
+  log(`Starting bwbrowser-sync on port ${SYNC_PORT}...`);
 
   const proc = spawn("node", ["dist/main.js"], {
-    cwd: path.join(ROOT_DIR, "donut-sync"),
+    cwd: path.join(ROOT_DIR, "bwbrowser-sync"),
     env: {
       ...process.env,
       PORT: String(SYNC_PORT),
@@ -203,7 +213,7 @@ async function startDonutSync() {
       S3_ENDPOINT: `http://localhost:${MINIO_PORT}`,
       S3_ACCESS_KEY_ID: "minioadmin",
       S3_SECRET_ACCESS_KEY: "minioadmin",
-      S3_BUCKET: "donut-sync-test",
+      S3_BUCKET: "bwbrowser-sync-test",
       S3_FORCE_PATH_STYLE: "true",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -213,22 +223,22 @@ async function startDonutSync() {
 
   proc.stdout.on("data", (data) => {
     if (process.env.VERBOSE) {
-      console.log(`[donut-sync] ${data.toString().trim()}`);
+      console.log(`[bwbrowser-sync] ${data.toString().trim()}`);
     }
   });
 
   proc.stderr.on("data", (data) => {
     if (process.env.VERBOSE) {
-      console.error(`[donut-sync] ${data.toString().trim()}`);
+      console.error(`[bwbrowser-sync] ${data.toString().trim()}`);
     }
   });
 
   proc.on("error", (err) => {
-    error(`donut-sync error: ${err.message}`);
+    error(`bwbrowser-sync error: ${err.message}`);
   });
 
   await waitForHealth(`http://localhost:${SYNC_PORT}/health`, 30000);
-  log("donut-sync is ready");
+  log("bwbrowser-sync is ready");
 
   return proc;
 }
@@ -262,15 +272,19 @@ async function runTests() {
   log("Running Rust sync e2e tests...");
 
   return new Promise((resolve) => {
-    const proc = spawn("cargo", ["test", "--test", "sync_e2e", "--", "--test-threads=1"], {
-      cwd: path.join(ROOT_DIR, "src-tauri"),
-      env: {
-        ...process.env,
-        SYNC_SERVER_URL: `http://localhost:${SYNC_PORT}`,
-        SYNC_TOKEN,
+    const proc = spawn(
+      "cargo",
+      ["test", "--test", "sync_e2e", "--", "--test-threads=1"],
+      {
+        cwd: path.join(ROOT_DIR, "src-tauri"),
+        env: {
+          ...process.env,
+          SYNC_SERVER_URL: `http://localhost:${SYNC_PORT}`,
+          SYNC_TOKEN,
+        },
+        stdio: "inherit",
       },
-      stdio: "inherit",
-    });
+    );
 
     proc.on("close", (code) => {
       resolve(code || 0);
@@ -313,8 +327,8 @@ async function main() {
   try {
     const minioBin = await ensureMinioBinary();
     await startMinio(minioBin);
-    await buildDonutSync();
-    await startDonutSync();
+    await buildBwbrowserSync();
+    await startBwbrowserSync();
 
     const exitCode = await runTests();
 
@@ -328,4 +342,3 @@ async function main() {
 }
 
 main();
-

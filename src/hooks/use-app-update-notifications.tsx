@@ -42,8 +42,14 @@ export function useAppUpdateNotifications() {
       }
     } catch (error) {
       console.error("Failed to check for app updates:", error);
+      showToast({
+        type: "error",
+        title: t("appUpdate.toast.checkFailed"),
+        description: translateBackendError(t, error),
+        duration: 6000,
+      });
     }
-  }, [isClient, dismissedVersion]);
+  }, [isClient, dismissedVersion, t]);
 
   const checkForAppUpdatesManual = useCallback(async () => {
     if (!isClient) return;
@@ -60,8 +66,14 @@ export function useAppUpdateNotifications() {
       setUpdateInfo(update);
     } catch (error) {
       console.error("Failed to manually check for app updates:", error);
+      showToast({
+        type: "error",
+        title: t("appUpdate.toast.checkFailed"),
+        description: translateBackendError(t, error),
+        duration: 6000,
+      });
     }
-  }, [isClient]);
+  }, [isClient, t]);
 
   const handleAppUpdate = useCallback(
     async (appUpdateInfo: AppUpdateInfo) => {

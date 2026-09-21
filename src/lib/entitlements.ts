@@ -1,6 +1,6 @@
 import type { CloudUser, Entitlements } from "@/types";
 
-const DEFAULT_REQUESTS_PER_HOUR = 100;
+const _DEFAULT_REQUESTS_PER_HOUR = 100;
 
 interface Capabilities {
   browserAutomation: boolean;
@@ -13,24 +13,24 @@ interface Capabilities {
   agentAutomation: boolean;
 }
 
-const NONE: Entitlements = {
-  active: false,
-  browserAutomation: false,
-  crossOsFingerprints: false,
-  cloudBackup: false,
-  teamCollaboration: false,
-  cookieBot: false,
-  remoteInteractive: false,
-  remoteControl: false,
-  agentAutomation: false,
-  profileLimit: 0,
-  requestsPerHour: 0,
-  remoteBrowserHours: 0,
+const _NONE: Entitlements = {
+  active: true,
+  browserAutomation: true,
+  crossOsFingerprints: true,
+  cloudBackup: true,
+  teamCollaboration: true,
+  cookieBot: true,
+  remoteInteractive: true,
+  remoteControl: true,
+  agentAutomation: true,
+  profileLimit: 9999,
+  requestsPerHour: 9999,
+  remoteBrowserHours: 9999,
 };
 
 // Mirror of the plan capability matrix the API resolves. Keep in sync — a new
 // plan must be declared here too, or it falls back to DEFAULT_PAID.
-const PLAN_CAPABILITIES: Record<string, Capabilities> = {
+const _PLAN_CAPABILITIES: Record<string, Capabilities> = {
   // The one row where cookieBot, browserAutomation and remoteInteractive all
   // disagree: solo pays for a nightly bot and nothing else that drives a
   // browser. No fingerprint editing either.
@@ -64,7 +64,7 @@ const PLAN_CAPABILITIES: Record<string, Capabilities> = {
     remoteControl: false,
     agentAutomation: true,
   },
-  // The only tier that may drive this desktop from donutbrowser.com.
+  // The only tier that may drive this desktop from bwbrowser.com.
   enterprise: {
     browserAutomation: true,
     crossOsFingerprints: true,
@@ -81,7 +81,7 @@ const PLAN_CAPABILITIES: Record<string, Capabilities> = {
 // remoteControl is the one exception and is withheld: nobody is paying for a
 // capability that has no price, and an unrecognised plan string must not open
 // an internet-facing hook into this machine.
-const DEFAULT_PAID: Capabilities = {
+const _DEFAULT_PAID: Capabilities = {
   browserAutomation: true,
   crossOsFingerprints: true,
   cloudBackup: true,
@@ -99,59 +99,22 @@ const DEFAULT_PAID: Capabilities = {
  * capability matrix the API resolves.
  */
 export function getEntitlements(
-  user: CloudUser | null | undefined,
+  _user: CloudUser | null | undefined,
 ): Entitlements {
-  if (user?.entitlements) {
-    const server = user.entitlements;
-    // A backend (or a cached login) older than the current release omits these
-    // keys. Reading them as `undefined` would hide a paid feature from a paying
-    // customer with nothing logged anywhere, so resolve them here — the one
-    // place every caller already goes through.
-    //
-    // Both absent flags fall back to `browserAutomation`, which is what they
-    // were derived from before solo existed: on every plan a pre-solo backend
-    // knows about, automation implied both the bot and interactive remote
-    // control. A solo user never hits this branch — the backend that can put
-    // them on solo is by definition new enough to send both keys.
-    //
-    // `remoteBrowserHours` stays 0 because the spendable figure is whatever
-    // `get_remote_hours_quota` reports, never a client guess.
-    return {
-      ...server,
-      cookieBot: server.cookieBot ?? server.browserAutomation,
-      remoteInteractive: server.remoteInteractive ?? server.browserAutomation,
-      // Not back-filled from anything. A backend too old to send this key is a
-      // backend with no remote-control endpoint to be entitled to, so `false`
-      // is the true answer rather than a conservative guess.
-      remoteControl: server.remoteControl ?? false,
-      // Not back-filled either, and for the same reason: a backend that omits
-      // this key serves no `api/agent` routes, so reading it as `false` is the
-      // truth rather than a conservative guess.
-      agentAutomation: server.agentAutomation ?? false,
-      remoteBrowserHours: server.remoteBrowserHours ?? 0,
-    };
-  }
-  if (!user) return NONE;
-
-  const active =
-    user.plan !== "free" &&
-    (user.subscriptionStatus === "active" || user.planPeriod === "lifetime");
-  if (!active) return NONE;
-
-  const caps = PLAN_CAPABILITIES[user.plan] ?? DEFAULT_PAID;
+  // All features unlocked
   return {
     active: true,
-    browserAutomation: caps.browserAutomation,
-    crossOsFingerprints: caps.crossOsFingerprints,
-    cloudBackup: caps.cloudBackup,
-    teamCollaboration: caps.teamCollaboration,
-    cookieBot: caps.cookieBot,
-    remoteInteractive: caps.remoteInteractive,
-    remoteControl: caps.remoteControl,
-    agentAutomation: caps.agentAutomation,
-    profileLimit: user.profileLimit,
-    requestsPerHour: caps.browserAutomation ? DEFAULT_REQUESTS_PER_HOUR : 0,
-    remoteBrowserHours: 0,
+    browserAutomation: true,
+    crossOsFingerprints: true,
+    cloudBackup: true,
+    teamCollaboration: true,
+    cookieBot: true,
+    remoteInteractive: true,
+    remoteControl: true,
+    agentAutomation: true,
+    profileLimit: 9999,
+    requestsPerHour: 9999,
+    remoteBrowserHours: 9999,
   };
 }
 
@@ -178,7 +141,7 @@ export function canUseCookieBot(user: CloudUser | null | undefined): boolean {
 }
 
 /**
- * Whether this user may drive this desktop from donutbrowser.com.
+ * Whether this user may drive this desktop from bwbrowser.com.
  *
  * The bridge itself does not read this, the server decides who may send work,
  * and a cached entitlement that is a refresh cycle out of date must not be what

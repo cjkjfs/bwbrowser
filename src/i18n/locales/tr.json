@@ -134,16 +134,16 @@
       "title": "Varsayılan Tarayıcı",
       "setAsDefault": "Varsayılan Tarayıcı Olarak Ayarla",
       "alreadyDefault": "Zaten Varsayılan Tarayıcı",
-      "description": "Varsayılan olarak ayarlandığında, Donut Browser web bağlantılarını yönetir ve hangi profilin kullanılacağını seçmenize olanak tanır.",
-      "setSuccess": "Donut Browser artık varsayılan tarayıcınız",
+      "description": "Varsayılan olarak ayarlandığında, BW Browser web bağlantılarını yönetir ve hangi profilin kullanılacağını seçmenize olanak tanır.",
+      "setSuccess": "BW Browser artık varsayılan tarayıcınız",
       "setFailed": "Varsayılan tarayıcı ayarlanamadı",
       "finishInSystemSettings": "Windows Ayarları'nda tamamlayın",
-      "finishInSystemSettingsDescription": "Donut Browser kaydedildi. Windows Ayarları açıldı: tamamlamak için Web tarayıcısı bölümünden Donut Browser'ı seçin."
+      "finishInSystemSettingsDescription": "BW Browser kaydedildi. Windows Ayarları açıldı: tamamlamak için Web tarayıcısı bölümünden BW Browser'ı seçin."
     },
     "permissions": {
       "title": "Sistem İzinleri",
       "loading": "İzinler yükleniyor...",
-      "description": "Bu izinler, Donut Browser'dan başlatılan tarayıcıların sistem kaynaklarına erişmesine olanak tanır. Her web sitesi yine de sizden ayrı ayrı izin isteyecektir.",
+      "description": "Bu izinler, BW Browser'dan başlatılan tarayıcıların sistem kaynaklarına erişmesine olanak tanır. Her web sitesi yine de sizden ayrı ayrı izin isteyecektir.",
       "microphone": "Mikrofon",
       "microphoneDescription": "Tarayıcı uygulamaları için mikrofon erişimi",
       "camera": "Kamera",
@@ -187,7 +187,7 @@
       "trialExpired": "Deneme süresi doldu",
       "trialExpiredDescription": "Kişisel kullanım ücretsiz kalır. Ticari kullanım lisans gerektirir.",
       "subscriptionActive": "Abone — {{plan}} planı",
-      "subscriptionActiveDescription": "Donut Browser aboneliğiniz etkin. Ticari kullanım, planınızın süresi boyunca lisanslıdır."
+      "subscriptionActiveDescription": "BW Browser aboneliğiniz etkin. Ticari kullanım, planınızın süresi boyunca lisanslıdır."
     },
     "advanced": {
       "title": "Gelişmiş",
@@ -200,7 +200,7 @@
       "copyLogsDescription": "Son günlüklerin hassas verileri ayıklanmış bir paketini kopyalar (en fazla 5 MB). Ayıklama her tür kişisel veriyi belirleyemeyeceğinden paylaşmadan önce inceleyin."
     },
     "disableAutoUpdates": "Uygulama Otomatik Güncellemelerini Devre Dışı Bırak",
-    "disableAutoUpdatesDescription": "Uygulamanın Donut Browser güncellemelerini otomatik olarak denetlemesini ve yüklemesini engelleyin. Tarayıcı güncellemeleri bundan etkilenmez.",
+    "disableAutoUpdatesDescription": "Uygulamanın BW Browser güncellemelerini otomatik olarak denetlemesini ve yüklemesini engelleyin. Tarayıcı güncellemeleri bundan etkilenmez.",
     "keepDecryptedProfilesInRam": "Şifresi Çözülmüş Profilleri RAM'de Tut",
     "keepDecryptedProfilesInRamDescription": "Daha hızlı başlatma için parola korumalı profillerin şifresi çözülmüş RAM kopyasını başlatmalar arasında koruyun. Diskteki kopya her durumda şifreli kalır.",
     "privacy": {
@@ -225,10 +225,10 @@
       "chooseTitle": "Veri dizini için bir klasör seçin",
       "move": "Taşı",
       "willMoveTo": "Her şey buraya taşınır",
-      "moved": "Veri dizini taşındı. Kullanmak için Donut Browser'ı yeniden başlatın.",
+      "moved": "Veri dizini taşındı. Kullanmak için BW Browser'ı yeniden başlatın.",
       "reading": "Veri dizini okunuyor…",
-      "restartRequired": "Yeni konumu kullanmak için Donut Browser'ı yeniden başlatın. O zamana kadar eski konumdan çalışır.",
-      "environmentOverride": "DONUTBROWSER_DATA_DIR tanımlı; burada ne seçilirse seçilsin uygulama o konumu kullanır.",
+      "restartRequired": "Yeni konumu kullanmak için BW Browser'ı yeniden başlatın. O zamana kadar eski konumdan çalışır.",
+      "environmentOverride": "BWBROWSER_DATA_DIR tanımlı; burada ne seçilirse seçilsin uygulama o konumu kullanır.",
       "missing": "Seçilen veri dizini yok. Çıkarılabilir bir sürücüdeyse tekrar takıp yeniden başlatın.",
       "useDefault": "Yeniden varsayılan konumu kullan",
       "usingDefault": "Bir sonraki açılışta varsayılan konum kullanılacak.",
@@ -257,7 +257,7 @@
       "extensions": "Uzantılar"
     },
     "newProfile": "Yeni",
-    "donutLogo": "Donut Browser logosu",
+    "bwbrowserLogo": "BW Browser logosu",
     "scrollGroupsLeft": "Grupları sola kaydır",
     "scrollGroupsRight": "Grupları sağa kaydır"
   },
@@ -592,7 +592,8 @@
       "socks5": "SOCKS5",
       "ss": "Shadowsocks",
       "httpstls": "HTTP over TLS",
-      "vless": "VLESS (REALITY)"
+      "vless": "VLESS (REALITY)",
+      "trojan": "Trojan"
     },
     "tabs": {
       "regular": "Normal",
@@ -867,8 +868,8 @@
     "tabRemote": "Uzak MCP",
     "remote": {
       "enableLabel": "Uzaktan kontrol",
-      "enableDescription": "Donut bulutunun bu tarayıcıyı sürmesine izin verir, böylece donutbrowser.com üzerindeki bir aracı onu kontrol edebilir. Gelen bağlantıları dinleyen hiçbir şey yok: bu uygulama dışarı bağlanır ve istediği an kapatabilir.",
-      "signInRequired": "Uzaktan kontrolü kullanmak için Donut hesabınıza giriş yapın.",
+      "enableDescription": "Bwbrowser bulutunun bu tarayıcıyı sürmesine izin verir, böylece bwbrowser.com üzerindeki bir aracı onu kontrol edebilir. Gelen bağlantıları dinleyen hiçbir şey yok: bu uygulama dışarı bağlanır ve istediği an kapatabilir.",
+      "signInRequired": "Uzaktan kontrolü kullanmak için Bwbrowser hesabınıza giriş yapın.",
       "connected": "Bağlandı:",
       "connecting": "Bağlanıyor:",
       "notConnected": "Bağlı değil",
@@ -892,7 +893,7 @@
       "credentialClientsFailed": "Kimlik bilgisi kaydedildi ancak şu istemciler güncellenemedi: {{clients}}. Yeniden denemek için tekrar döndürün.",
       "switchToRemote": "Geçiş yap",
       "switchedClient": "{{name}} artık Uzak MCP kullanıyor",
-      "fxHint": "fx kimlik bilgisini DONUT_MCP_TOKEN'dan okur. fx'i başlatan kabukta dışa aktarın.",
+      "fxHint": "fx kimlik bilgisini BWBROWSER_MCP_TOKEN'dan okur. fx'i başlatan kabukta dışa aktarın.",
       "fxExportCopied": "Dışa aktarma satırı kopyalandı"
     }
   },
@@ -1405,7 +1406,7 @@
     "launchHook": {
       "title": "Başlatma Kancası URL'si",
       "label": "Başlatma Kancası URL'si",
-      "description": "Donut Browser, profil her başlatıldığında bu URL'ye bir GET isteği gönderir.",
+      "description": "BW Browser, profil her başlatıldığında bu URL'ye bir GET isteği gönderir.",
       "placeholder": "https://example.com/hooks/profile-launch",
       "invalidUrlHint": "Geçerli bir http:// veya https:// URL'si girin."
     },
@@ -1479,7 +1480,7 @@
   },
   "profileTransfer": {
     "exportTitle": "Profili dışa aktar",
-    "archiveFilter": "Donut profil arşivi",
+    "archiveFilter": "Bwbrowser profil arşivi",
     "exportDescription": "Bu profili başka bir makinenin okuyabileceği bir dosyaya yazar. Arşiv yapılandırmayı taşır; isterseniz tarayıcı verilerini de taşır: çerezler, oturumlar ve uzantı durumu.",
     "includeData": "Tarayıcı verilerini dahil et",
     "protectedNotice": "Bu profil parolayla korunuyor, bu yüzden verileri bu makinede kalır. Arşiv yalnızca yapılandırmayı taşır.",
@@ -1554,8 +1555,8 @@
     "selectedFolder": "Seçilen klasör",
     "selectFolder": "Klasör seç",
     "linkFolder": "Doğrudan bu klasörden yükle",
-    "linkFolderOff": "Klasör Donut'a kopyalanır. Uzantı taşınabilir olur ve diğer cihazlarınızla eşitlenir.",
-    "linkFolderOn": "Donut her başlatmada uzantıyı doğrudan bu klasörden yükler. Değişiklikleriniz tarayıcının bir sonraki açılışında geçerli olur, ancak uzantı yalnızca bu bilgisayarda kalır ve hiçbir zaman eşitlenmez.",
+    "linkFolderOff": "Klasör Bwbrowser'a kopyalanır. Uzantı taşınabilir olur ve diğer cihazlarınızla eşitlenir.",
+    "linkFolderOn": "Bwbrowser her başlatmada uzantıyı doğrudan bu klasörden yükler. Değişiklikleriniz tarayıcının bir sonraki açılışında geçerli olur, ancak uzantı yalnızca bu bilgisayarda kalır ve hiçbir zaman eşitlenmez.",
     "replaceSource": "Kaynağı değiştir",
     "linkedNoSync": "Bağlı uzantılar yalnızca bu bilgisayarda kalır ve eşitlenemez.",
     "uploadFailed": "Uzantı eklenemedi",
@@ -1588,7 +1589,7 @@
     "fromUrl": "Bağlantıdan",
     "fromUrlTooltip": "Chrome Web Mağazası bağlantısından, uzantı kimliğinden veya doğrudan .crx ya da .zip bağlantısından uzantı ekleyin",
     "urlPlaceholder": "Web Mağazası bağlantısı, uzantı kimliği veya .crx bağlantısı",
-    "urlHint": "Donut paketi HTTPS ile indirir ve hiçbir şey kaydedilmeden önce adını ve sürümünü okur.",
+    "urlHint": "Bwbrowser paketi HTTPS ile indirir ve hiçbir şey kaydedilmeden önce adını ve sürümünü okur.",
     "fetchExtension": "İndir",
     "fetching": "İndiriliyor…",
     "fetchedIdentity": "{{name}} · sürüm {{version}}",
@@ -1720,7 +1721,7 @@
     "title": "Tarayıcı Profili İçe Aktar",
     "autoDetect": "Otomatik Algıla",
     "manualImport": "Elle İçe Aktar",
-    "donutArchive": "Donut arşivi",
+    "bwbrowserArchive": "Bwbrowser arşivi",
     "detectedProfilesTitle": "Algılanan Tarayıcı Profilleri",
     "scanning": "Tarayıcı profilleri taranıyor...",
     "noneFound": "Sisteminizde tarayıcı profili bulunamadı.",
@@ -1878,7 +1879,7 @@
   },
   "wayfernTerms": {
     "title": "Wayfern Şartlar ve Koşulları",
-    "description": "Donut Browser'ı kullanmadan önce Wayfern'ün Şartlar ve Koşullarını okuyup kabul etmelisiniz.",
+    "description": "BW Browser'ı kullanmadan önce Wayfern'ün Şartlar ve Koşullarını okuyup kabul etmelisiniz.",
     "reviewLabel": "Lütfen Şartlar ve Koşulları şu adresten inceleyin:",
     "agreeNotice": "\"Kabul Ediyorum\"a tıklayarak bu şartlara bağlı kalmayı kabul edersiniz.",
     "acceptButton": "Kabul Ediyorum",
@@ -1889,7 +1890,7 @@
   "commercialTrial": {
     "title": "Ticari Deneme Süresi Doldu",
     "description": "2 haftalık ticari deneme süreniz sona erdi.",
-    "body": "Donut Browser'ı iş amaçlı kullanıyorsanız devam etmek için ticari lisans satın almanız gerekir. Kişisel kullanım için ücretsiz olarak kullanmaya devam edebilirsiniz.",
+    "body": "BW Browser'ı iş amaçlı kullanıyorsanız devam etmek için ticari lisans satın almanız gerekir. Kişisel kullanım için ücretsiz olarak kullanmaya devam edebilirsiniz.",
     "understandButton": "Anladım",
     "failed": "Onay kaydedilemedi",
     "tryAgain": "Lütfen yeniden deneyin"
@@ -1897,10 +1898,10 @@
   "permissionDialog": {
     "titleMicrophone": "Mikrofon Erişimi Gerekli",
     "titleCamera": "Kamera Erişimi Gerekli",
-    "descMicrophone": "Donut Browser, web tarayıcılarında mikrofon işlevini etkinleştirmek için mikrofonunuza erişmelidir. Mikrofonunuzu kullanmak isteyen her web sitesi yine de sizden ayrıca izin isteyecektir.",
-    "descCamera": "Donut Browser, web tarayıcılarında kamera işlevini etkinleştirmek için kameranıza erişmelidir. Kameranızı kullanmak isteyen her web sitesi yine de sizden ayrıca izin isteyecektir.",
-    "grantedMicrophone": "İzin verildi! Donut Browser'dan başlatılan tarayıcılar artık mikrofonunuza erişebilir.",
-    "grantedCamera": "İzin verildi! Donut Browser'dan başlatılan tarayıcılar artık kameranıza erişebilir.",
+    "descMicrophone": "BW Browser, web tarayıcılarında mikrofon işlevini etkinleştirmek için mikrofonunuza erişmelidir. Mikrofonunuzu kullanmak isteyen her web sitesi yine de sizden ayrıca izin isteyecektir.",
+    "descCamera": "BW Browser, web tarayıcılarında kamera işlevini etkinleştirmek için kameranıza erişmelidir. Kameranızı kullanmak isteyen her web sitesi yine de sizden ayrıca izin isteyecektir.",
+    "grantedMicrophone": "İzin verildi! BW Browser'dan başlatılan tarayıcılar artık mikrofonunuza erişebilir.",
+    "grantedCamera": "İzin verildi! BW Browser'dan başlatılan tarayıcılar artık kameranıza erişebilir.",
     "notGrantedMicrophone": "İzin verilmedi. Mikrofonunuza erişim istemek için aşağıdaki düğmeye tıklayın.",
     "notGrantedCamera": "İzin verilmedi. Kameranıza erişim istemek için aşağıdaki düğmeye tıklayın.",
     "doneButton": "Bitti",
@@ -2020,7 +2021,7 @@
   },
   "appUpdate": {
     "toast": {
-      "updateFailed": "Donut Browser güncellenemedi",
+      "updateFailed": "BW Browser güncellenemedi",
       "restartFailed": "Yeniden başlatılamadı",
       "updateReady": "Güncelleme hazır, uygulamak için yeniden başlatın",
       "manualDownloadRequired": "Elle indirme gerekli",
@@ -2029,7 +2030,8 @@
       "later": "Daha Sonra",
       "uploading": "Yükleniyor",
       "downloading": "İndiriliyor",
-      "startingUpdate": "Güncelleme başlatılıyor..."
+      "startingUpdate": "Güncelleme başlatılıyor...",
+      "checkFailed": "Güncelleme kontrolü başarısız"
     }
   },
   "browserDownload": {
@@ -2114,7 +2116,7 @@
     },
     "warnings": {
       "forgetWarningTitle": "Önemli: bu parola kurtarılamaz",
-      "forgetWarningBody": "Donut Browser bu parolayı sıfırlayamaz, kurtaramaz veya atlayamaz. Unutursanız bu profilin verilerine erişimi kalıcı olarak kaybedersiniz."
+      "forgetWarningBody": "BW Browser bu parolayı sıfırlayamaz, kurtaramaz veya atlayamaz. Unutursanız bu profilin verilerine erişimi kalıcı olarak kaybedersiniz."
     },
     "modes": {
       "set": "Belirle",
@@ -2157,7 +2159,7 @@
     "extensionNotADirectory": "Bu yol bir klasör değil.",
     "extensionManifestMissing": "Bu klasörde manifest.json yok. Uzantının manifest.json dosyasını içeren klasörü seçin.",
     "extensionManifestInvalid": "Bu klasördeki manifest.json okunamadı.",
-    "extensionDirTooLarge": "Bu klasör Donut'a kopyalanamayacak kadar büyük (sınır: 256 MB ve 20.000 dosya). Bunun yerine klasörü bağlayın.",
+    "extensionDirTooLarge": "Bu klasör Bwbrowser'a kopyalanamayacak kadar büyük (sınır: 256 MB ve 20.000 dosya). Bunun yerine klasörü bağlayın.",
     "extensionPathHasComma": "Bu klasörün yolunda virgül var ve Chromium bunu yükleyemez. Klasörü yeniden adlandırın veya taşıyın.",
     "extensionLinkRequiresDirectory": "Yerinde yalnızca bir klasör yüklenebilir. Arşiv eklemek için bağlamayı kapatın.",
     "extensionLinkedCannotSync": "Bu uzantı, bu bilgisayardaki bir klasörden yükleniyor; eşitlenecek bir şey yok.",
@@ -2172,7 +2174,7 @@
     "cookieImportProfileProtected": "Parola korumalı bir profile çerez içe aktarılamaz. Önce parolayı kaldırın.",
     "cookieImportRemoteSession": "Bu profili bir uzak oturum kullanırken çerezler içe aktarılamaz. Eşitlemenin bitmesini bekleyin.",
     "cookieImportNoCookies": "Yapıştırdığınız içerikte çerez bulunamadı.",
-    "selfHostedRequiresLogout": "Kendi sunucunuzu yapılandırmadan önce Donut hesabınızdan çıkış yapın.",
+    "selfHostedRequiresLogout": "Kendi sunucunuzu yapılandırmadan önce Bwbrowser hesabınızdan çıkış yapın.",
     "fingerprintRequiresPro": "Parmak izini görüntülemek veya düzenlemek etkin bir ücretli plan gerektirir. Koruma tüm planlara dahildir.",
     "proxyNotWorking": "Seçilen proxy çalışmıyor, bu nedenle profil oluşturulmadı.",
     "proxyPaymentRequired": "Seçilen proxy ödeme gerektiriyor (402) — aboneliği sona ermiş olabilir — bu nedenle profil oluşturulmadı.",
@@ -2197,9 +2199,9 @@
     "dnsRulesSaveFailed": "DNS kuralları kaydedilemedi.",
     "dnsRulesExportFailed": "DNS kuralları dışa aktarılamadı.",
     "fingerprintMatchFailed": "Parmak izi proxy'ye eşlenemedi.",
-    "proxySidecarVersionMismatch": "Bazı Donut Browser dosyaları farklı sürümlere ait. En son güncellemeyi yeniden yükleyin; profilleriniz güvende kalır.",
+    "proxySidecarVersionMismatch": "Bazı BW Browser dosyaları farklı sürümlere ait. En son güncellemeyi yeniden yükleyin; profilleriniz güvende kalır.",
     "updateProfilesRunning": "Güncellemeyi yüklemeden önce çalışan tüm profilleri durdurun.",
-    "updatePreparationFailed": "Donut Browser arka plandaki bir ağ işlemini güvenli şekilde durduramadı. Bilgisayarınızı yeniden başlatıp güncellemeyi tekrar deneyin.",
+    "updatePreparationFailed": "BW Browser arka plandaki bir ağ işlemini güvenli şekilde durduramadı. Bilgisayarınızı yeniden başlatıp güncellemeyi tekrar deneyin.",
     "wayfernTermsRequired": "MCP sunucusunu başlatmadan önce Wayfern Hüküm ve Koşullarını kabul edin.",
     "apiPortUnavailable": "API sunucusu kullanılabilir bir bağlantı noktası bulamadı.",
     "mcpServerAlreadyRunning": "MCP sunucusu zaten çalışıyor.",
@@ -2207,14 +2209,14 @@
     "mcpPortUnavailable": "MCP sunucusu kullanılabilir bir bağlantı noktası bulamadı.",
     "mcpConfigurationUnavailable": "MCP sunucusu yapılandırması kullanılamıyor. Sunucuyu yeniden başlatıp tekrar deneyin.",
     "mcpAgentUnknown": "Bu MCP istemcisi desteklenmiyor.",
-    "mcpAgentInstallFailed": "Donut Browser MCP istemcisine eklenemedi: {{detail}}",
-    "mcpAgentRemoveFailed": "Donut Browser MCP istemcisinden kaldırılamadı: {{detail}}",
+    "mcpAgentInstallFailed": "BW Browser MCP istemcisine eklenemedi: {{detail}}",
+    "mcpAgentRemoveFailed": "BW Browser MCP istemcisinden kaldırılamadı: {{detail}}",
     "vlessConfigInvalid": "VLESS URI'si geçersiz.",
     "xrayUnavailable": "Xray-core bu sistemde kullanılamıyor.",
     "xrayUnsupportedOs": "VLESS için macOS 12 veya sonraki bir sürüm gerekir.",
     "xrayStartFailed": "Xray-core başlatılamadı.",
-    "cloudNotSignedIn": "Bunu kullanmak için Donut Browser hesabınıza giriş yapın.",
-    "cloudUnreachable": "Donut Browser sunucularına ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",
+    "cloudNotSignedIn": "Bunu kullanmak için BW Browser hesabınıza giriş yapın.",
+    "cloudUnreachable": "BW Browser sunucularına ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",
     "cloudRequestFailed": "İstek başarısız oldu. Birazdan tekrar deneyin.",
     "remoteRateLimited": "Çok fazla istek. Biraz bekleyip tekrar deneyin.",
     "remoteNoCapacity": "Şu anda boş uzak makine yok. Birkaç dakika sonra tekrar deneyin.",
@@ -2256,16 +2258,16 @@
     "vpnWorkerStartFailed": "VPN bağlantısı başlatılamadı: {{detail}}",
     "exitProbeFailed": "Konumunu denetlemek için proxy çıkış düğümüne ulaşılamadı.",
     "vlessUnsupported": {
-      "security": "Bu VLESS sunucusu REALITY kullanmıyor. Donut yalnızca REALITY ile VLESS'i destekler.",
-      "flow": "Bu VLESS sunucusu, Donut'ın gerektirdiği XTLS Vision akışını kullanmıyor.",
-      "transport": "Donut yalnızca düz TCP üzerinden VLESS'i destekler — bu sunucu farklı bir taşıma (WebSocket veya gRPC gibi) kullanıyor.",
-      "encryption": "Bu VLESS sunucusu, Donut'ın desteklemediği bir şifreleme kullanıyor.",
-      "headerType": "Bu VLESS sunucusu, Donut'ın desteklemediği bir başlık gizlemesi kullanıyor.",
-      "fingerprint": "Bu VLESS URI'si, Donut'ın desteklemediği bir TLS parmak izi istiyor.",
+      "security": "Bu VLESS sunucusu REALITY kullanmıyor. Bwbrowser yalnızca REALITY ile VLESS'i destekler.",
+      "flow": "Bu VLESS sunucusu, Bwbrowser'ın gerektirdiği XTLS Vision akışını kullanmıyor.",
+      "transport": "Bwbrowser yalnızca düz TCP üzerinden VLESS'i destekler — bu sunucu farklı bir taşıma (WebSocket veya gRPC gibi) kullanıyor.",
+      "encryption": "Bu VLESS sunucusu, Bwbrowser'ın desteklemediği bir şifreleme kullanıyor.",
+      "headerType": "Bu VLESS sunucusu, Bwbrowser'ın desteklemediği bir başlık gizlemesi kullanıyor.",
+      "fingerprint": "Bu VLESS URI'si, Bwbrowser'ın desteklemediği bir TLS parmak izi istiyor.",
       "sni": "VLESS URI'sinde REALITY için gereken SNI (sni) eksik.",
       "publicKey": "VLESS URI'sinde REALITY genel anahtarı (pbk) eksik.",
       "scheme": "Bu bir VLESS bağlantısı değil. vless:// ile başlamalı.",
-      "parameter": "VLESS URI'si, Donut'ın desteklemediği bir seçenek içeriyor.",
+      "parameter": "VLESS URI'si, Bwbrowser'ın desteklemediği bir seçenek içeriyor.",
       "malformed": "VLESS URI'si geçersiz."
     },
     "camoufoxRemoved": "Camoufox artık desteklenmiyor. Bu profili Wayfern ile yeniden oluşturun.",
@@ -2281,20 +2283,20 @@
     "profileExportFailed": "Bu profil dışa aktarılamadı. {{detail}}",
     "profileExportTooLarge": "Bu profil dışa aktarmak için fazla büyük. Gezinme verilerinin bir kısmını silip yeniden deneyin.",
     "profileImportFailed": "Bu arşiv okunamadı. {{detail}}",
-    "profileImportTooNew": "Bu arşiv Donut Browser'ın daha yeni bir sürümüyle yazıldı. Uygulamayı güncelleyip yeniden deneyin.",
+    "profileImportTooNew": "Bu arşiv BW Browser'ın daha yeni bir sürümüyle yazıldı. Uygulamayı güncelleyip yeniden deneyin.",
     "profileImportUnsafeArchive": "Bu arşiv profil klasörünün dışına yazmaya çalıştığı için reddedildi.",
     "recordingAlreadyRunning": "Zaten bir kayıt sürüyor. Yenisine başlamadan önce durdurun.",
     "profileNotRunning": "Kaydetmeden önce bu profilin tarayıcısını başlatın.",
     "wayfern152Required": "Kayıt için Wayfern 152 veya üzeri gerekir. Bu profilin tarayıcısını güncelleyin.",
     "recordingFailed": "Kayıt başlatılamadı. {{detail}}",
-    "mcpRemoteRequiresSignIn": "Uzaktan kontrolü açmadan önce Donut hesabınıza giriş yapın.",
-    "mcpRemoteUnauthorized": "Donut cloud bu cihazın kimlik bilgilerini reddetti. Çıkış yapıp yeniden giriş yapın.",
-    "mcpRemoteSlotTaken": "Bu hesapta başka bir Donut örneği zaten bağlı. Aynı anda yalnızca biri uzaktan kontrol edilebilir.",
+    "mcpRemoteRequiresSignIn": "Uzaktan kontrolü açmadan önce Bwbrowser hesabınıza giriş yapın.",
+    "mcpRemoteUnauthorized": "Bwbrowser cloud bu cihazın kimlik bilgilerini reddetti. Çıkış yapıp yeniden giriş yapın.",
+    "mcpRemoteSlotTaken": "Bu hesapta başka bir Bwbrowser örneği zaten bağlı. Aynı anda yalnızca biri uzaktan kontrol edilebilir.",
     "mcpRemoteNotEntitled": "Bu plan uzaktan kontrolü içermiyor. Etkinleştirmek için bize ulaşın.",
-    "mcpRemoteUnreachable": "Şu anda Donut cloud'a ulaşılamıyor. Otomatik olarak yeniden bağlanılıyor.",
+    "mcpRemoteUnreachable": "Şu anda Bwbrowser cloud'a ulaşılamıyor. Otomatik olarak yeniden bağlanılıyor.",
     "mcpRemoteKeyMissing": "Bu cihazda henüz uzak MCP kimlik bilgisi yok. Önce bir tane oluşturun, ardından istemciyi yeniden ekleyin.",
     "mcpRemoteKeyLimit": "Bu hesap tutabileceği en fazla MCP kimlik bilgisine zaten sahip. Hesap sayfasından birini iptal edip yeniden deneyin.",
-    "mcpRemoteKeyUnavailable": "Donut cloud şu anda bir MCP kimlik bilgisi veremedi. Kısa süre sonra yeniden deneyin.",
+    "mcpRemoteKeyUnavailable": "Bwbrowser cloud şu anda bir MCP kimlik bilgisi veremedi. Kısa süre sonra yeniden deneyin.",
     "urlSchemeNotAllowed": "Yalnızca http ve https adresleri açılabilir.",
     "toolIsLocalOnly": "Bu işlem bu bilgisayardaki bir dosyayı gerektirir, bu yüzden uzaktan yapılamaz.",
     "typingTooLong": "Bu metnin yazılması yaklaşık {{seconds}} saniye sürer; tek bir istek en fazla {{limit}} saniye sürebilir. Daha küçük parçalar hâlinde gönderin.",
@@ -2308,7 +2310,7 @@
     "remoteSessionNotDrivable": "Bu uzak oturum henüz yönetilmeye hazır değil. Etkin duruma gelmesini bekleyin.",
     "remotePlatformUnsupported": "Uzak oturumlar yalnızca macOS, Windows veya Linux sunucularında çalışır. Bu profilin platformu {{platform}}.",
     "remoteProfileNotSynced": "Bu profil buluta yüklenmeyi henüz tamamlamadı. İlk eşitlemenin bitmesini bekleyip tekrar deneyin.",
-    "mcpLocalRemoved": "Donut'un yerel MCP sunucusu kaldırıldı. Bunun yerine uzak MCP kullanın: Ayarlar > Entegrasyonlar'dan kurun ve her yerden bağlanın.",
+    "mcpLocalRemoved": "Bwbrowser'un yerel MCP sunucusu kaldırıldı. Bunun yerine uzak MCP kullanın: Ayarlar > Entegrasyonlar'dan kurun ve her yerden bağlanın.",
     "trashEntryNotFound": "Bu profil artık çöp kutusunda değil.",
     "trashRestoreConflict": "Aynı kimliğe sahip bir profil zaten var, bu nedenle bu profil geri yüklenemez.",
     "agentNotEntitled": "Planınız ajanı içermiyor.",
@@ -2358,7 +2360,7 @@
       "importProfileHint": "Başka bir araçtan profil getirin",
       "keyboardShortcuts": "Klavye kısayolları",
       "keyboardShortcutsHint": "Tüm kısayolları görüntüle",
-      "about": "Donut Browser Hakkında",
+      "about": "BW Browser Hakkında",
       "aboutHint": "Sürüm ve uygulama bilgileri",
       "trash": "Çöp Kutusu",
       "trashHint": "Silinen profilleri geri yükle",
@@ -2384,7 +2386,8 @@
     "shortcuts": "Klavye kısayolları",
     "cookieBot": "Cookie Bot",
     "trash": "Çöp Kutusu",
-    "agent": "Ajan"
+    "agent": "Ajan",
+    "cloudAccounts": "Bulut Hesaplar"
   },
   "encryption": {
     "required": {
@@ -2434,8 +2437,8 @@
     },
     "selfHosted": {
       "title": "Kendi eşitleme sunucunuz",
-      "description": "Barındırılan bulutu kullanmadan profilleri, proxy'leri, grupları ve uzantıları eşitlemek için Donut'u kendi donut-sync sunucunuza yönlendirin.",
-      "disabledWhileLoggedIn": "Donut hesabınızda oturum açıkken kendi sunucunuzla eşitleme kullanılamaz. Özel bir sunucu kullanmak için çıkış yapın.",
+      "description": "Barındırılan bulutu kullanmadan profilleri, proxy'leri, grupları ve uzantıları eşitlemek için Bwbrowser'u kendi bwbrowser-sync sunucunuza yönlendirin.",
+      "disabledWhileLoggedIn": "Bwbrowser hesabınızda oturum açıkken kendi sunucunuzla eşitleme kullanılamaz. Özel bir sunucu kullanmak için çıkış yapın.",
       "connectionStatus": "Bağlantı:",
       "statusUnknown": "Test edilmedi",
       "testConnection": "Bağlantıyı test et",
@@ -2464,7 +2467,7 @@
       "stopProfile": "{{name}} profilini durdur",
       "profileInfo": "Bilgi — {{name}}",
       "createProfile": "Profil oluştur",
-      "about": "Donut Browser Hakkında"
+      "about": "BW Browser Hakkında"
     }
   },
   "shortcuts": {
@@ -2484,13 +2487,13 @@
     "openTips": "İpuçlarını aç"
   },
   "closeConfirm": {
-    "title": "Donut Browser kapatılsın mı?",
+    "title": "BW Browser kapatılsın mı?",
     "description": "Uygulamayı sistem tepsisine göndermek mi yoksa çıkmak mı istersiniz?",
     "minimize": "Tepsiye Küçült",
     "quit": "Çık"
   },
   "tray": {
-    "show": "Donut Browser'ı Göster",
+    "show": "BW Browser'ı Göster",
     "quit": "Çık"
   },
   "onboarding": {
@@ -2511,13 +2514,13 @@
       "finish": "Bitir"
     },
     "thankYou": {
-      "title": "Donut Browser'ı seçtiğiniz için teşekkürler",
+      "title": "BW Browser'ı seçtiğiniz için teşekkürler",
       "body": "Umarız gezinmenizi daha gizli hale getirmenize yardımcı olur — her kimlik kendine ait kalır ve hiçbir şey makinenizden dışarı çıkmaz. İyi kullanımlar.",
       "cta": "Gezinmeye başla"
     }
   },
   "welcome": {
-    "title": "Donut Browser'a Hoş Geldiniz",
+    "title": "BW Browser'a Hoş Geldiniz",
     "tagline": "Aynı anda birçok kimliği yönetmek için açık kaynaklı bir anti-detect tarayıcı.",
     "skip": "Atla",
     "next": "İleri",
@@ -2561,7 +2564,7 @@
     },
     "license": {
       "title": "Lisanslama",
-      "body": "Donut Browser açık kaynaklıdır ve kullanımı ücretsizdir.",
+      "body": "BW Browser açık kaynaklıdır ve kullanımı ücretsizdir.",
       "agree": "Anladım",
       "personalTitle": "Kişisel kullanım",
       "personalDesc": "Sonsuza dek ücretsiz.",
@@ -2600,7 +2603,7 @@
       "found": "Atıştırmalık çekmecesini buldunuz.",
       "finished": "Sadece kırıntılar. Çerez yok.",
       "takeBite": "Bir ısırık alın",
-      "again": "Bir donut daha"
+      "again": "Bir bwbrowser daha"
     }
   },
   "clearOnClose": {
@@ -2946,16 +2949,16 @@
     "vpnExtensionConfirmed": "Bilinen VPN veya proxy aracı",
     "vpnExtensionLikely": "VPN veya proxy aracı gibi görünüyor",
     "vpnExtensionCapability": "Proxy iznine sahip",
-    "vpnExtensionExplainer": "Bunlardan biri trafiğinizi başka bir yere yönlendirirse, tarayıcının gerçek konumu artık bu profilin oluşturulduğu saat dilimi, dil ve coğrafi konumla eşleşmez ve Donut bunu dışarıdan algılayamaz.",
+    "vpnExtensionExplainer": "Bunlardan biri trafiğinizi başka bir yere yönlendirirse, tarayıcının gerçek konumu artık bu profilin oluşturulduğu saat dilimi, dil ve coğrafi konumla eşleşmez ve Bwbrowser bunu dışarıdan algılayamaz.",
     "proxyCapableHeading": "Proxy'yi değiştirebilen uzantılar",
-    "proxyCapableIntro": "Bunlar VPN'e benzemiyor, ancak Chromium'un proxy iznine sahipler; bu izne indirme yöneticileri ve hata ayıklama araçları da ihtiyaç duyar. Donut, herhangi birinin bunu kullanıp kullanmadığını anlayamaz:",
-    "sourceDonut": "Donut tarafından yönetiliyor",
+    "proxyCapableIntro": "Bunlar VPN'e benzemiyor, ancak Chromium'un proxy iznine sahipler; bu izne indirme yöneticileri ve hata ayıklama araçları da ihtiyaç duyar. Bwbrowser, herhangi birinin bunu kullanıp kullanmadığını anlayamaz:",
+    "sourceBwbrowser": "Bwbrowser tarafından yönetiliyor",
     "sourceBrowser": "Profile yüklenmiş",
     "measurementUnreliable": "Bu profildeki bir uzantı proxy iznine sahip, bu nedenle çıkış kontrolü tarayıcının gerçekte kullandığı rotayı yansıtmayabilir.",
-    "scanIncompleteEncrypted": "Bu profil şifreli olduğundan yalnızca Donut tarafından yönetilen uzantılar denetlenebildi.",
-    "scanIncompleteEphemeral": "Bu profilde henüz veri olmadığından yalnızca Donut tarafından yönetilen uzantılar denetlenebildi.",
+    "scanIncompleteEncrypted": "Bu profil şifreli olduğundan yalnızca Bwbrowser tarafından yönetilen uzantılar denetlenebildi.",
+    "scanIncompleteEphemeral": "Bu profilde henüz veri olmadığından yalnızca Bwbrowser tarafından yönetilen uzantılar denetlenebildi.",
     "scanIncompletePartial": "Uzantı taraması yarıda kesildi, bu nedenle bazıları listelenmemiş olabilir.",
-    "probePending": "Proxy çıkışı henüz ölçülmedi. Donut başlatma sırasında kontrol edecek ve eşleşmezse duracak.",
+    "probePending": "Proxy çıkışı henüz ölçülmedi. Bwbrowser başlatma sırasında kontrol edecek ve eşleşmezse duracak.",
     "launchAnyway": "Yine de başlat",
     "dontBlockAgain": "Bu tam uyuşmazlık için bir daha engelleme",
     "dontWarnExtensions": "Bu uzantılar için bir daha uyarma",
@@ -2963,7 +2966,7 @@
     "cancelledSummary": "{{total}} başlatmadan {{cancelled}} tanesi iptal edildi",
     "vpnExtensionEntry": " {{version}} — {{capability}}, {{source}}",
     "vpnExtensionEntryNoVersion": " — {{capability}}, {{source}}",
-    "scanIncompleteMissing": "Bu profil henüz başlatılmadığından yalnızca Donut tarafından yönetilen uzantılar denetlenebildi.",
+    "scanIncompleteMissing": "Bu profil henüz başlatılmadığından yalnızca Bwbrowser tarafından yönetilen uzantılar denetlenebildi.",
     "exitUnverifiedTimezone": "Bu profilin parmak izinde saat dilimi belirtilmediği için çıkış kontrolü bunu doğrulayamaz. Başlatma engellenmez, ancak hiçbir karşılaştırma da yapılmadı.",
     "exitUnverifiedLanguage": "Bu profilin parmak izi dili çıkış ülkesiyle karşılaştırılamıyor, bu nedenle bu kontrol geçmiş değil doğrulanmamış sayılır."
   },
@@ -3023,7 +3026,7 @@
   },
   "mcpLocalDeprecated": {
     "title": "Yerel MCP kaldırıldı",
-    "description": "Donut artık her yerden bağlanabileceğiniz uzak MCP kullanıyor. Uzak MCP sekmesinden kurun ve yapay zeka istemcilerinizi oraya yönlendirin."
+    "description": "Bwbrowser artık her yerden bağlanabileceğiniz uzak MCP kullanıyor. Uzak MCP sekmesinden kurun ve yapay zeka istemcilerinizi oraya yönlendirin."
   },
   "mcpLocalMigrated": {
     "title": "Uzak MCP'ye taşındı",
@@ -3091,7 +3094,7 @@
   "easterEgg": {
     "konami": {
       "title": "Hile kodu kabul edildi",
-      "description": "30 ekstra donut eklendi. Sadece süs."
+      "description": "30 ekstra bwbrowser eklendi. Sadece süs."
     }
   },
   "trash": {
@@ -3137,11 +3140,11 @@
     },
     "unavailable": {
       "signInTitle": "Ajanı kullanmak için oturum açın",
-      "signInHint": "Ajan çalıştırmaları Donut bulutu üzerinden yapılır. Başlatmak için Hesap sayfasından oturum açın.",
+      "signInHint": "Ajan çalıştırmaları Bwbrowser bulutu üzerinden yapılır. Başlatmak için Hesap sayfasından oturum açın.",
       "planTitle": "Ajan planınıza dahil değil",
       "planHint": "Ajana hedef verebilmek için tarayıcı otomasyonu içeren bir plana geçin.",
       "notConfiguredTitle": "Ajan henüz kullanılamıyor",
-      "notConfiguredHint": "Bu Donut kurulumunda ajan yapılandırılmamış. Hesabınızda bir sorun yok."
+      "notConfiguredHint": "Bu Bwbrowser kurulumunda ajan yapılandırılmamış. Hesabınızda bir sorun yok."
     },
     "form": {
       "profile": "Profil",
@@ -3252,7 +3255,7 @@
       "recording": {
         "record": "Kaydet",
         "recording": "Kaydediliyor",
-        "description": "Görevi profilin tarayıcısında bir kez yapın; Donut adımları not eder. Parolalar asla kaydedilmez.",
+        "description": "Görevi profilin tarayıcısında bir kez yapın; Bwbrowser adımları not eder. Parolalar asla kaydedilmez.",
         "stop": "Kaydı durdur",
         "steps": "{{count}} adım kaydedildi",
         "hint": "Kaydetmek için çalışan bir profil seçin.",
@@ -3327,7 +3330,7 @@
   },
   "groupBookmarks": {
     "title": "{{name}} yer imleri",
-    "description": "Bu gruptaki her profil, bu yer imlerini Donut'ın yönettiği bir klasörde alır. Diğer yer imlerine dokunulmaz.",
+    "description": "Bu gruptaki her profil, bu yer imlerini Bwbrowser'ın yönettiği bir klasörde alır. Diğer yer imlerine dokunulmaz.",
     "editTooltip": "Grup yer imleri ({{n}})",
     "empty": "Bu grubun henüz paylaşılan yer imi yok.",
     "addRow": "Yer imi ekle",
@@ -3350,7 +3353,7 @@
     "previous": "Önceki ipucu",
     "next": "Sonraki ipucu",
     "done": "Bitti",
-    "autoShow": "Donut açılırken bir ipucu göster",
+    "autoShow": "Bwbrowser açılırken bir ipucu göster",
     "items": {
       "dnsBlocklist": {
         "label": "DNS engelleme",
@@ -3379,7 +3382,7 @@
       "fingerprintGate": {
         "label": "Parmak izi denetimi",
         "title": "Parmak izini çıkışla tutarlı tutun",
-        "body": "Başlatmadan önce Donut, proxy çıkışının saat dilimi ve dilini profilin parmak iziyle karşılaştırır ve uyuşmazlığı durdurur. Parmak izini düzeltin ya da ne yaptığınızı biliyorsanız Gelişmiş'ten bu denetimi kapatın.",
+        "body": "Başlatmadan önce Bwbrowser, proxy çıkışının saat dilimi ve dilini profilin parmak iziyle karşılaştırır ve uyuşmazlığı durdurur. Parmak izini düzeltin ya da ne yaptığınızı biliyorsanız Gelişmiş'ten bu denetimi kapatın.",
         "action": "Gelişmiş ayarları aç"
       },
       "profilePassword": {
@@ -3397,7 +3400,7 @@
       "defaultBrowser": {
         "label": "Varsayılan tarayıcı",
         "title": "Her bağlantıyı doğru profilde açın",
-        "body": "Donut'u varsayılan tarayıcınız yapın; başka bir uygulamadan gelen her bağlantı hangi profilde açılacağını sorar.",
+        "body": "Bwbrowser'u varsayılan tarayıcınız yapın; başka bir uygulamadan gelen her bağlantı hangi profilde açılacağını sorar.",
         "action": "Varsayılan tarayıcı ayarlarını aç"
       },
       "extensionGroups": {
@@ -3409,7 +3412,7 @@
       "selfHostedSync": {
         "label": "Kendi eşitlemeniz",
         "title": "Kendi sunucunuza yedekleyin",
-        "body": "Donut'u kendi barındırdığınız bir donut-sync sunucusuna yönlendirin; profiller, proxy'ler ve gruplar oraya yansıtılır. Uçtan uca bir parola ekleyin, sunucu yalnızca şifreli metin görsün.",
+        "body": "Bwbrowser'u kendi barındırdığınız bir bwbrowser-sync sunucusuna yönlendirin; profiller, proxy'ler ve gruplar oraya yansıtılır. Uçtan uca bir parola ekleyin, sunucu yalnızca şifreli metin görsün.",
         "action": "Hesabı aç"
       },
       "trash": {
@@ -3420,14 +3423,14 @@
       },
       "localApi": {
         "label": "API ve MCP",
-        "title": "Donut'u betikler ve ajanlarla otomatikleştirin",
+        "title": "Bwbrowser'u betikler ve ajanlarla otomatikleştirin",
         "body": "Yerel REST API ve MCP sunucusu, betiklerin ve yapay zekâ ajanlarının profilleri listelemesine, oluşturmasına ve yapılandırmasına izin verir. Entegrasyonlar'dan açın ve belirteci kopyalayın.",
         "action": "Entegrasyonları aç"
       },
       "importProfiles": {
         "label": "İçe aktarma",
         "title": "Chrome, Edge veya Brave'den profil getirin",
-        "body": "İçe aktarma, bir Chromium profilinden veya arşivden çerezleri, oturum bilgilerini ve uzantıları başlatmaya hazır yeni bir Donut profiline kopyalar.",
+        "body": "İçe aktarma, bir Chromium profilinden veya arşivden çerezleri, oturum bilgilerini ve uzantıları başlatmaya hazır yeni bir Bwbrowser profiline kopyalar.",
         "action": "İçe aktarmayı aç"
       },
       "cloudBackup": {
@@ -3468,7 +3471,7 @@
       },
       "remoteControl": {
         "label": "Uzaktan denetim",
-        "title": "Bu masaüstünü donutbrowser.com'dan yönetin",
+        "title": "Bu masaüstünü bwbrowser.com'dan yönetin",
         "body": "Uzaktan denetim açıkken web sitesindeki ajanlar bu makinenin profillerine giden yönlü bir köprü üzerinden ulaşır. Entegrasyonlar'dan açın.",
         "action": "Entegrasyonları aç"
       }

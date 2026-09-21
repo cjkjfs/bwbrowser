@@ -1,7 +1,7 @@
 fn main() {
   println!("cargo::rustc-check-cfg=cfg(mobile)");
   let build_target = std::env::var("TARGET").expect("Cargo must provide TARGET");
-  println!("cargo:rustc-env=DONUT_BUILD_TARGET={build_target}");
+  println!("cargo:rustc-env=BWBROWSER_BUILD_TARGET={build_target}");
 
   // Ensure dist folder exists for tauri::generate_context!() macro
   // This allows running cargo test without building the frontend first
@@ -32,9 +32,16 @@ fn main() {
     let short_hash = &commit_hash[0..7.min(commit_hash.len())];
     println!("cargo:rustc-env=BUILD_VERSION=nightly-{short_hash}");
   } else {
-    // Development build fallback
+    // Local build: use PROFILE to distinguish debug vs release
+    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
     let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1.0".to_string());
-    println!("cargo:rustc-env=BUILD_VERSION=dev-{version}");
+    if profile == "release" {
+      // Local release build (tauri build without CI env vars): treat as stable
+      println!("cargo:rustc-env=BUILD_VERSION=v{version}");
+    } else {
+      // Debug build (cargo build / pnpm tauri dev)
+      println!("cargo:rustc-env=BUILD_VERSION=dev-{version}");
+    }
   }
 
   // The sealing password of every build before the per-install vault key.
@@ -42,15 +49,15 @@ fn main() {
   // and re-seal them under the installation's own key (see `src/vault.rs`).
   // It reaches the crate through a file in OUT_DIR rather than a rustc-env
   // line, so the build log never carries it.
-  let legacy_vault_password = std::env::var("DONUT_BROWSER_VAULT_PASSWORD")
-    .unwrap_or_else(|_| "donutbrowser-api-vault-password".to_string());
+  let legacy_vault_password = std::env::var("BW_BROWSER_VAULT_PASSWORD")
+    .unwrap_or_else(|_| "bwbrowser-api-vault-password".to_string());
   let out_dir = std::env::var("OUT_DIR").expect("cargo sets OUT_DIR for build scripts");
   std::fs::write(
     std::path::Path::new(&out_dir).join("legacy_vault_password.txt"),
     legacy_vault_password,
   )
   .expect("write the legacy vault password for include_str!");
-  println!("cargo:rerun-if-env-changed=DONUT_BROWSER_VAULT_PASSWORD");
+  println!("cargo:rerun-if-env-changed=BW_BROWSER_VAULT_PASSWORD");
 
   // Tell Cargo to rebuild if the proxy binary source changes
   println!("cargo:rerun-if-changed=src/bin/proxy_server.rs");
@@ -63,19 +70,30 @@ fn main() {
   println!("cargo:rerun-if-changed=binaries");
 
   // Only run tauri_build if all external binaries exist
-  // This allows building donut-proxy sidecar without the other binaries present
+  // This allows building bwbrowser-proxy sidecar without the other binaries present
   if external_binaries_exist() {
     tauri_build::build();
 
-    // tauri_build embeds the manifest for bin targets only (cargo:rustc-link-arg-bins).
-    // Test binaries (including `cargo test --lib`) also need the comctl32 v6 manifest
-    // or they crash with STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139). We embed the
-    // manifest for all targets, then suppress the duplicate for bins with /MANIFEST:NO
-    // (tauri_build's resource-embedded manifest still takes effect for bins).
+    // tauri_build embeds the manifest for bin targets only (via resource file).
+    // Test binaries (including `cargo test --lib`) and cdylib also need the
+    // comctl32 v6 manifest or they crash with STATUS_ENTRYPOINT_NOT_FOUND
+    // (0xc0000139). Embed manifest via link args for tests and cdylib only.
+    //
+    // We avoid rustc-link-arg (which applies to bins too) because it would
+    // conflict with tauri_build's resource-embedded manifest on lld-link
+    // (lld-link is stricter than MSVC link.exe about /MANIFEST:EMBED +
+    // /MANIFEST:NO arg ordering).
     #[cfg(target_os = "windows")]
     {
-      embed_windows_manifest();
-      println!("cargo:rustc-link-arg-bins=/MANIFEST:NO");
+      let manifest_path = std::path::PathBuf::from("app.manifest");
+      if manifest_path.exists() {
+        let manifest_str = manifest_path.to_str().unwrap().replace('/', "\\");
+        println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg-tests=/MANIFESTINPUT:{manifest_str}");
+        println!("cargo:rustc-cdylib-link-arg=/MANIFEST:EMBED");
+        println!("cargo:rustc-cdylib-link-arg=/MANIFESTINPUT:{manifest_str}");
+        println!("cargo:rerun-if-changed=app.manifest");
+      }
     }
   } else {
     println!("cargo:warning=Skipping tauri_build: external binaries not found. This is expected when building sidecar binaries.");
@@ -102,10 +120,10 @@ fn external_binaries_exist() -> bool {
   let binaries_dir = PathBuf::from(&manifest_dir).join("binaries");
 
   // Check for all required external binaries (must match tauri.conf.json externalBin)
-  let donut_proxy_name = if target.contains("windows") {
-    format!("donut-proxy-{}.exe", target)
+  let bwbrowser_proxy_name = if target.contains("windows") {
+    format!("bwbrowser-proxy-{}.exe", target)
   } else {
-    format!("donut-proxy-{}", target)
+    format!("bwbrowser-proxy-{}", target)
   };
   let xray_name = if target.contains("windows") {
     format!("xray-{}.exe", target)
@@ -113,7 +131,7 @@ fn external_binaries_exist() -> bool {
     format!("xray-{}", target)
   };
 
-  binaries_dir.join(&donut_proxy_name).exists() && binaries_dir.join(&xray_name).exists()
+  binaries_dir.join(&bwbrowser_proxy_name).exists() && binaries_dir.join(&xray_name).exists()
 }
 
 fn ensure_dist_folder_exists() {
@@ -210,20 +228,26 @@ fn generate_tray_icons() {
       .expect("Failed to save tray icon PNG");
   }
 
-  // Generate a full-color icon for Windows tray (no template conversion)
-  {
+  // Windows tray icon: use the hand-provided file as-is (build.rs does not
+  // overwrite it). The SVG render path above is for macOS template icons only;
+  // Windows needs a full-color icon and the SVG render often produces a blank
+  // pixmap on complex SVGs, so we skip generation and keep the committed file.
+  let win_tray = icons_dir.join("tray-icon-win-44.png");
+  let linux_tray = icons_dir.join("tray-icon-linux-44.png");
+  if !win_tray.exists() {
+    // Fallback: generate from SVG if the file is missing
     let size = 44u32;
     let mut pixmap = Pixmap::new(size, size).expect("Failed to create pixmap");
-
     let svg_size = tree.size();
     let scale = size as f32 / svg_size.width().max(svg_size.height());
     let transform = Transform::from_scale(scale, scale);
-
     resvg::render(&tree, transform, &mut pixmap.as_mut());
-
-    let output_path = icons_dir.join("tray-icon-win-44.png");
     pixmap
-      .save_png(&output_path)
+      .save_png(&win_tray)
       .expect("Failed to save Windows tray icon PNG");
+  }
+  if !linux_tray.exists() {
+    // Fallback: copy the Windows icon for Linux
+    let _ = fs::copy(&win_tray, &linux_tray);
   }
 }

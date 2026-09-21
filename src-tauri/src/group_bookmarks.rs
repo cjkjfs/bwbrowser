@@ -2,7 +2,7 @@
 //!
 //! A group owns an ordered list of `title` + `url` (+ optional folder). Before
 //! a launch the list is written into the profile's Chromium `Bookmarks` file
-//! inside ONE folder Donut owns. Everything else in that file — the bookmark
+//! inside ONE folder Bwbrowser owns. Everything else in that file — the bookmark
 //! bar, the other-bookmarks tree, whatever the person browsing saved — is
 //! parsed, left alone, and written back byte for byte.
 //!
@@ -25,17 +25,17 @@ use std::path::{Path, PathBuf};
 
 use crate::profile::types::BrowserProfile;
 
-/// The folder Donut owns inside the bookmark bar. Users see this name.
-pub const MANAGED_FOLDER_NAME: &str = "Donut Group Bookmarks";
+/// The folder Bwbrowser owns inside the bookmark bar. Users see this name.
+pub const MANAGED_FOLDER_NAME: &str = "Bwbrowser Group Bookmarks";
 
 /// Marker written into the folder's `meta_info`, so the folder is still
 /// recognised after someone renames it. Chromium round-trips `meta_info`
 /// verbatim and never includes it in the file checksum.
-const MANAGED_MARKER_KEY: &str = "donut_managed_group_bookmarks";
+const MANAGED_MARKER_KEY: &str = "bwbrowser_managed_group_bookmarks";
 const MANAGED_MARKER_VALUE: &str = "1";
 
 /// The profile subdirectory Chromium reads when no `--profile-directory` is
-/// passed. Donut never passes one.
+/// passed. Bwbrowser never passes one.
 const INITIAL_PROFILE_DIR: &str = "Default";
 
 /// One bookmark shared by every profile in a group.
@@ -180,7 +180,7 @@ struct CarriedOver {
   root: Option<Value>,
 }
 
-/// Index the folder Donut owns so a rewrite can keep every stamp it can.
+/// Index the folder Bwbrowser owns so a rewrite can keep every stamp it can.
 fn carry_over(existing: Option<&Value>) -> CarriedOver {
   let mut carried = CarriedOver {
     root: existing.cloned(),
@@ -491,7 +491,7 @@ fn write_document(
     serde_json::to_string(document).map_err(|e| format!("Could not serialize bookmarks: {e}"))?;
   // Rename over the real file so a crash mid-write cannot leave Chromium a
   // truncated document to discard.
-  let temporary = file.with_extension("donut-tmp");
+  let temporary = file.with_extension("bwbrowser-tmp");
   std::fs::write(&temporary, serialized.as_bytes())
     .map_err(|e| format!("Could not write {temporary:?}: {e}"))?;
   std::fs::rename(&temporary, file).map_err(|e| {
@@ -804,7 +804,7 @@ mod tests {
 
   fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
-      "donut-group-bookmarks-{name}-{}",
+      "bwbrowser-group-bookmarks-{name}-{}",
       uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(dir.join(INITIAL_PROFILE_DIR)).unwrap();
@@ -945,7 +945,7 @@ mod tests {
       document["roots"]["other"]["children"][0]["name"], "Recipes",
       "the other-bookmarks tree must be untouched"
     );
-    // Anything Chromium wrote that Donut does not understand has to come back.
+    // Anything Chromium wrote that Bwbrowser does not understand has to come back.
     assert_eq!(document["sync_metadata"], "AAAA");
     assert_ne!(document["checksum"], "deadbeef");
     std::fs::remove_dir_all(dir).ok();

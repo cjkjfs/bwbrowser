@@ -1,7 +1,7 @@
 {
-  "name": "@donutbrowser/sdk",
+  "name": "@bwbrowser/sdk",
   "version": "0.1.0",
-  "description": "Thin client for the Donut Browser local REST API",
+  "description": "Thin client for the BW Browser local REST API",
   "license": "AGPL-3.0",
   "type": "module",
   "exports": {
@@ -24,15 +24,15 @@
     "prepublishOnly": "npm run build"
   },
   "keywords": [
-    "donut-browser",
+    "bw-browser",
     "browser-automation",
     "anti-detect",
     "cdp"
   ],
-  "homepage": "https://donutbrowser.com",
+  "homepage": "https://bwbrowser.com",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zhom/donutbrowser.git",
+    "url": "git+https://github.com/zhom/bwbrowser.git",
     "directory": "sdk/node"
   },
   "devDependencies": {

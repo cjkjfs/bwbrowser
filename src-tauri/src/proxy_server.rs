@@ -1967,14 +1967,14 @@ async fn handle_connect_from_buffer(
 }
 
 /// How often the self-reaping supervisor re-checks its owner. Overridable via
-/// `DONUT_PROXY_WATCHDOG_INTERVAL_MS` so lifecycle tests can observe a real
+/// `BWBROWSER_PROXY_WATCHDOG_INTERVAL_MS` so lifecycle tests can observe a real
 /// worker reaping itself in seconds instead of a minute; the floor keeps a
 /// mistyped value from turning the supervisor into a spin loop.
 const WATCHDOG_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
 const WATCHDOG_POLL_INTERVAL_FLOOR: std::time::Duration = std::time::Duration::from_millis(100);
 
 fn watchdog_poll_interval() -> std::time::Duration {
-  std::env::var("DONUT_PROXY_WATCHDOG_INTERVAL_MS")
+  std::env::var("BWBROWSER_PROXY_WATCHDOG_INTERVAL_MS")
     .ok()
     .and_then(|raw| raw.trim().parse::<u64>().ok())
     .map(std::time::Duration::from_millis)
@@ -2304,7 +2304,7 @@ pub(crate) async fn connect_to_target_via_upstream(
 
       match scheme {
         // `https` here is NOT TLS to the proxy: it is a label many providers
-        // put on a plaintext CONNECT endpoint, and Donut has always treated it
+        // put on a plaintext CONNECT endpoint, and Bwbrowser has always treated it
         // byte-for-byte like `http`. Changing that would silently break every
         // stored `https` proxy, so the encrypted hop is the separate
         // `httpstls` scheme below.
@@ -3070,7 +3070,7 @@ this line has no colon\r\n\
   async fn first_bytes_sent_to_upstream(scheme: &str) -> Vec<u8> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
-    let upstream = format!("{scheme}://donutuser:hunter2secret@127.0.0.1:{port}");
+    let upstream = format!("{scheme}://bwbrowseruser:hunter2secret@127.0.0.1:{port}");
 
     let dial = tokio::spawn(async move {
       let matcher = BypassMatcher::new(&[]);
@@ -3115,7 +3115,7 @@ this line has no colon\r\n\
       "CONNECT ",
       "Proxy-Authorization",
       "private-target.example.com",
-      "donutuser",
+      "bwbrowseruser",
       "hunter2secret",
     ] {
       assert!(

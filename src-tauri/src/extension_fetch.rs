@@ -272,7 +272,7 @@ async fn download_archive(url: &str) -> Result<Vec<u8>, String> {
 
   let response = client
     .get(url)
-    .header("User-Agent", "Mozilla/5.0 (compatible; donutbrowser)")
+    .header("User-Agent", "Mozilla/5.0 (compatible; bwbrowser)")
     .send()
     .await
     .map_err(|e| {

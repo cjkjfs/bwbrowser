@@ -149,7 +149,7 @@ interface ImportProfileDialogProps {
 }
 
 type Step = "select" | "configure" | "importing";
-type ImportMode = "auto-detect" | "manual" | "donut-archive";
+type ImportMode = "auto-detect" | "manual" | "bwbrowser-archive";
 type DuplicateStrategy = "rename" | "skip";
 
 export function ImportProfileDialog({
@@ -632,10 +632,10 @@ export function ImportProfileDialog({
                     {t("importProfile.manualImport")}
                   </AnimatedTabsTrigger>
                   <AnimatedTabsTrigger
-                    value="donut-archive"
+                    value="bwbrowser-archive"
                     disabled={isLoading}
                   >
-                    {t("importProfile.donutArchive")}
+                    {t("importProfile.bwbrowserArchive")}
                   </AnimatedTabsTrigger>
                 </AnimatedTabsList>
 
@@ -732,7 +732,7 @@ export function ImportProfileDialog({
                   </div>
                 </AnimatedTabsContent>
 
-                <AnimatedTabsContent value="donut-archive">
+                <AnimatedTabsContent value="bwbrowser-archive">
                   <ImportProfileArchive
                     onImported={() => {
                       onClose();

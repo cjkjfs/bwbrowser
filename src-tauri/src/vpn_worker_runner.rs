@@ -53,7 +53,7 @@ pub fn vpn_worker_alive(config: &VpnWorkerConfig) -> bool {
 }
 
 fn worker_log_path(id: &str) -> std::path::PathBuf {
-  std::env::temp_dir().join(format!("donut-vpn-{}.log", id))
+  std::env::temp_dir().join(format!("bwbrowser-vpn-{}.log", id))
 }
 
 fn read_worker_log(id: &str) -> String {
@@ -266,7 +266,7 @@ pub async fn start_vpn_worker_tracked(
 
   // Write decrypted config to a temp file
   let config_file_path = std::env::temp_dir()
-    .join(format!("donut_vpn_{}.conf", vpn_id))
+    .join(format!("bwbrowser_vpn_{}.conf", vpn_id))
     .to_string_lossy()
     .to_string();
 
@@ -297,7 +297,7 @@ pub async fn start_vpn_worker_tracked(
   let config_json_path = vpn_worker_config_path(&id);
 
   // Spawn detached VPN worker process
-  let exe = find_sidecar_executable("donut-proxy")?;
+  let exe = find_sidecar_executable("bwbrowser-proxy")?;
 
   #[cfg(unix)]
   {
@@ -317,7 +317,7 @@ pub async fn start_vpn_worker_tracked(
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::null());
 
-    let log_path = std::env::temp_dir().join(format!("donut-vpn-{}.log", id));
+    let log_path = std::env::temp_dir().join(format!("bwbrowser-vpn-{}.log", id));
     if let Ok(file) = std::fs::File::create(&log_path) {
       log::info!("VPN worker stderr will be logged to: {:?}", log_path);
       cmd.stderr(Stdio::from(file));
@@ -365,7 +365,7 @@ pub async fn start_vpn_worker_tracked(
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::null());
 
-    let log_path = std::env::temp_dir().join(format!("donut-vpn-{}.log", id));
+    let log_path = std::env::temp_dir().join(format!("bwbrowser-vpn-{}.log", id));
     if let Ok(file) = std::fs::File::create(&log_path) {
       log::info!("VPN worker stderr will be logged to: {:?}", log_path);
       cmd.stderr(Stdio::from(file));

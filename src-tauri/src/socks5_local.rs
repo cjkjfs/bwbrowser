@@ -856,7 +856,7 @@ mod tests {
 
   #[test]
   fn udp_relay_context_blocks_like_the_tcp_path() {
-    let dir = std::env::temp_dir().join(format!("donut-udp-blocklist-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("bwbrowser-udp-blocklist-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("block.txt");
     std::fs::write(&path, "ads.example.com\n").unwrap();
@@ -876,7 +876,7 @@ mod tests {
     // Parity check: allowlist mode blocks a bare IP destination over UDP the
     // same way is_blocked does for a CONNECT to an IP literal — otherwise QUIC
     // to a hardcoded IP would walk straight through a strict allowlist.
-    let dir = std::env::temp_dir().join(format!("donut-udp-allowlist-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("bwbrowser-udp-allowlist-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("allow.txt");
     std::fs::write(&path, "trusted.example.com\n").unwrap();
