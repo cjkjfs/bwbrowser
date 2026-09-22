@@ -1592,16 +1592,29 @@ impl BwbrowserAuthManager {
       form_data.push_str(&format!("&company_id={}", cid));
     }
 
-    // 带 fallback 的请求：依次尝试多个服务器地址
+    let bwbrowser_form_data = form_data.replace(
+      "action=list&account_type=tiktok",
+      "action=list_accounts",
+    );
+
+    // 优先用 simprint_accounts.php（有正确的 JOIN 和筛选逻辑），
+    // 全部失败时才回退到 bwbrowser_sync.php
+    let endpoints: [(&str, &str); 4] = [
+      (SIMPRINT_ACCOUNTS_URLS[0], form_data.as_str()),
+      (SIMPRINT_ACCOUNTS_URLS[1], form_data.as_str()),
+      (SIMPRINT_ACCOUNTS_URLS[2], form_data.as_str()),
+      (BWBROWSER_API_URL, bwbrowser_form_data.as_str()),
+    ];
+
     let mut last_err: Option<String> = None;
-    for url in SIMPRINT_ACCOUNTS_URLS {
+    for (url, data) in endpoints {
       log_bwbrowser("list_accounts", &format!("  尝试 URL: {}", url));
 
       let resp = match self
         .client
-        .post(*url)
+        .post(url)
         .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(form_data.clone())
+        .body(data.to_string())
         .send()
         .await
       {
@@ -1908,7 +1921,7 @@ pub struct BwbrowserAccount {
   pub category: Option<String>,
   #[serde(default)]
   pub remark: Option<String>,
-  #[serde(default)]
+  #[serde(default, alias = "user_id")]
   pub owner_id: Option<i64>,
   #[serde(default)]
   pub owner_name: Option<String>,
@@ -3944,6 +3957,11 @@ pub async fn bwbrowser_update_account_info(
 
   let form_data = params.join("&");
 
+  log_bwbrowser(
+    "update_account_info",
+    &format!("→ 发送请求: {}", form_data.replace(&format!("password={}", urlencode(&password)), "password=***")),
+  );
+
   let resp = BWBROWSER_AUTH
     .client
     .post(BWBROWSER_API_URL)
@@ -3957,16 +3975,38 @@ pub async fn bwbrowser_update_account_info(
     .text()
     .await
     .map_err(|e| format!("读取响应失败: {}", e))?;
+
+  log_bwbrowser(
+    "update_account_info",
+    &format!("← 响应: {}", if body.len() > 500 { format!("{}...", &body[..500]) } else { body.clone() }),
+  );
+
   let result: serde_json::Value = parse_body("api", &body)?;
 
   if !result["success"].as_bool().unwrap_or(false) {
     return Err(result["message"].as_str().unwrap_or("更新失败").to_string());
   }
 
-  log_bwbrowser(
-    "update_account_info",
-    &format!("✓ 账号 {} 基本信息已更新", account_id),
-  );
+  if let Some(account) = result.get("account") {
+    log_bwbrowser(
+      "update_account_info",
+      &format!(
+        "✓ 账号 {} 已更新: login_account={:?}, phone_id={:?}, bind_phone={:?}, safe_link={:?}, owner_id={:?}, backup_email={:?}",
+        account_id,
+        account["login_account"].as_str(),
+        account["phone_id"].as_str(),
+        account["bind_phone"].as_str(),
+        account["safe_link"].as_str(),
+        account["owner_id"].as_i64(),
+        account["backup_email"].as_str(),
+      ),
+    );
+  } else {
+    log_bwbrowser(
+      "update_account_info",
+      &format!("✓ 账号 {} 基本信息已更新 (无返回数据)", account_id),
+    );
+  }
   Ok(())
 }
 
