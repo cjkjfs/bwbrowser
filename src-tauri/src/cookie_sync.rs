@@ -1117,7 +1117,12 @@ pub async fn check_login_via_page(
       );
 
       // Fallback: try DOM.getDocument + DOM.querySelector
-      if err_str.contains("paid") || err_str.contains("wasn't found") {
+      // Browser returns "requires a paid ... plan" when automation is gated.
+      let needs_fallback = err_str.contains("paid")
+        || err_str.contains("requires")
+        || err_str.contains("wasn't found")
+        || err_str.contains("-32000");
+      if needs_fallback {
         crate::bwbrowser_cloud::log_bwbrowser("cookie_sync", "check_login: 尝试 DOM 方式检测...");
         let matched = check_login_via_dom(&target, &all_selector_groups).await;
         let logged_in = matched >= config.min_match;

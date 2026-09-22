@@ -1,12 +1,19 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { LuCloud, LuLoader, LuLock, LuUser } from "react-icons/lu";
-import { RxCross2 } from "react-icons/rx";
+import {
+  LuLoader,
+  LuLock,
+  LuMaximize2,
+  LuMinimize,
+  LuMinimize2,
+  LuUser,
+  LuX,
+} from "react-icons/lu";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
@@ -80,6 +87,7 @@ export function BwbrowserLoginDialog({
   const [remember, setRemember] = useState(true);
   const [autoLogin, setAutoLogin] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [isMaximized, setIsMaximized] = useState(false);
   const autoLoginStartedRef = useRef(false);
   const countdownTimerRef = useRef<number | null>(null);
   const isLoggingInRef = useRef(isLoggingIn);
@@ -118,6 +126,11 @@ export function BwbrowserLoginDialog({
         saveAutoLoginSetting(false);
       }
       showSuccessToast("登录成功");
+      try {
+        await getCurrentWindow().maximize();
+      } catch (e) {
+        console.error("Failed to maximize window:", e);
+      }
       onCloseRef.current(true);
     } catch (error) {
       console.error("Bwbrowser login failed:", error);
@@ -149,15 +162,6 @@ export function BwbrowserLoginDialog({
       console.error("Failed to quit app:", e);
     }
   }, []);
-
-  const handleOpenChange = (open: boolean) => {
-    if (!open) {
-      if (hideCloseButton) return;
-      clearCountdown();
-      autoLoginStartedRef.current = false;
-      onClose(false);
-    }
-  };
 
   useEffect(() => {
     if (!isOpen) {
@@ -217,222 +221,256 @@ export function BwbrowserLoginDialog({
     };
   }, [clearCountdown]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const win = getCurrentWindow();
+    win.isMaximized().then(setIsMaximized).catch(() => {});
+    const unlisten = win.onResized(() => {
+      win.isMaximized().then(setIsMaximized).catch(() => {});
+    });
+    return () => {
+      unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, [isOpen]);
+
+  const handleMinimize = useCallback(async () => {
+    try {
+      await getCurrentWindow().minimize();
+    } catch (e) {
+      console.error("Failed to minimize window:", e);
+    }
+  }, []);
+
+  const handleToggleMaximize = useCallback(async () => {
+    try {
+      await getCurrentWindow().toggleMaximize();
+    } catch (e) {
+      console.error("Failed to toggle maximize:", e);
+    }
+  }, []);
+
+  if (!isOpen) return null;
+
   const isAutoLoginMode = countdown !== null && !isLoggingIn;
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent
-        className="max-w-md !p-0 overflow-hidden"
-        hideClose
-        dismissible={false}
+    <div className="fixed inset-0 z-9999 flex flex-col bg-background">
+      <div
+        data-tauri-drag-region
+        onDoubleClick={() => void handleToggleMaximize()}
+        className="h-10 w-full shrink-0 flex items-center justify-end px-3 select-none"
       >
+        <div className="absolute top-3 right-3 flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => void handleMinimize()}
+          className="cursor-pointer rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          title="最小化"
+        >
+          <LuMinimize className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleToggleMaximize()}
+          className="cursor-pointer rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          title={isMaximized ? "还原" : "最大化"}
+        >
+          {isMaximized ? (
+            <LuMinimize2 className="w-4 h-4" />
+          ) : (
+            <LuMaximize2 className="w-4 h-4" />
+          )}
+        </button>
         {!hideCloseButton && (
           <button
             type="button"
             onClick={() => void handleQuitApp()}
-            className="absolute top-4 right-4 z-50 cursor-pointer rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none disabled:pointer-events-none [&_svg]:size-4"
+            className="cursor-pointer rounded-md p-2 text-muted-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors"
             title="退出程序"
           >
-            <RxCross2 />
+            <LuX className="w-4 h-4" />
             <span className="sr-only">退出程序</span>
           </button>
         )}
+        </div>
+      </div>
 
-        {isAutoLoginMode ? (
-          /* 自动登录倒计时界面 */
-          <div className="flex flex-col items-center justify-center px-8 py-16 min-h-[420px]">
-            {/* 云图标 */}
-            <div className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center mb-6 shadow-lg shadow-primary/30">
-              <LuCloud className="w-8 h-8 text-primary-foreground" />
+      <div className="flex-1 flex items-center justify-center overflow-auto">
+      {isAutoLoginMode ? (
+        <div className="flex flex-col items-center justify-center px-8 py-16 min-h-[420px]">
+          <img src="/logo.png" alt="BwBrowser" className="w-16 h-16 rounded-2xl mb-6 shadow-lg" />
+
+          <h1 className="text-2xl font-bold text-foreground mb-2">
+            BwBrowser
+          </h1>
+
+          <p className="text-sm text-muted-foreground mb-8">
+            欢迎回来，{username}
+          </p>
+
+          <div className="flex items-center gap-2 mb-8">
+            <LuLoader className="w-4 h-4 text-primary animate-spin" />
+            <span className="text-sm text-primary font-medium">
+              {countdown} 秒后自动登录
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleCancelAutoLogin}
+            className="px-6 py-2 text-sm text-muted-foreground border border-border rounded-lg hover:bg-muted hover:text-foreground transition-colors"
+          >
+            取消自动登录
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center px-8 pt-12 pb-8 w-full max-w-md">
+          <img src="/logo.png" alt="BwBrowser" className="w-16 h-16 rounded-2xl mb-4 shadow-lg" />
+
+          <h1 className="text-2xl font-bold text-foreground mb-1">
+            BwBrowser
+          </h1>
+
+          <p className="text-xs text-muted-foreground mb-8">
+            云端同步 · 团队协作 · 指纹隔离
+          </p>
+
+          <div className="w-full space-y-4">
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="bwbrowser-username"
+                className="text-xs text-muted-foreground"
+              >
+                用户名
+              </Label>
+              <div className="relative">
+                <LuUser className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  id="bwbrowser-username"
+                  placeholder="请输入用户名"
+                  value={username}
+                  onChange={(e) => {
+                    setUsername(e.target.value);
+                    if (countdown !== null) handleCancelAutoLogin();
+                  }}
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      username.trim() &&
+                      password.trim()
+                    ) {
+                      void handleLogin();
+                    }
+                  }}
+                  autoComplete="username"
+                  autoFocus={!isLoggingIn && countdown === null}
+                  disabled={isLoggingIn}
+                  className="pl-9"
+                />
+              </div>
             </div>
 
-            {/* 品牌名 */}
-            <h1 className="text-2xl font-bold text-foreground mb-2">
-              BwBrowser
-            </h1>
-
-            {/* 欢迎语 */}
-            <p className="text-sm text-muted-foreground mb-8">
-              欢迎回来，{username}
-            </p>
-
-            {/* 倒计时 */}
-            <div className="flex items-center gap-2 mb-8">
-              <LuLoader className="w-4 h-4 text-primary animate-spin" />
-              <span className="text-sm text-primary font-medium">
-                {countdown} 秒后自动登录
-              </span>
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="bwbrowser-password"
+                className="text-xs text-muted-foreground"
+              >
+                密码
+              </Label>
+              <div className="relative">
+                <LuLock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  id="bwbrowser-password"
+                  type="password"
+                  placeholder="请输入密码"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (countdown !== null) handleCancelAutoLogin();
+                  }}
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      username.trim() &&
+                      password.trim()
+                    ) {
+                      void handleLogin();
+                    }
+                  }}
+                  autoComplete="current-password"
+                  disabled={isLoggingIn}
+                  className="pl-9"
+                />
+              </div>
             </div>
 
-            {/* 取消按钮 */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="bwbrowser-remember"
+                  checked={remember}
+                  onCheckedChange={(checked) => {
+                    const val = checked === true;
+                    setRemember(val);
+                    if (!val) setAutoLogin(false);
+                    if (countdown !== null) handleCancelAutoLogin();
+                  }}
+                />
+                <Label
+                  htmlFor="bwbrowser-remember"
+                  className="text-xs cursor-pointer"
+                >
+                  记住密码
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="bwbrowser-auto-login"
+                  checked={autoLogin}
+                  disabled={!remember}
+                  onCheckedChange={(checked) => {
+                    const val = checked === true;
+                    setAutoLogin(val);
+                    if (val && !remember) setRemember(true);
+                    if (countdown !== null) handleCancelAutoLogin();
+                  }}
+                />
+                <Label
+                  htmlFor="bwbrowser-auto-login"
+                  className={cn(
+                    "text-xs cursor-pointer",
+                    !remember && "text-muted-foreground opacity-60",
+                  )}
+                >
+                  自动登录
+                </Label>
+              </div>
+            </div>
+
             <button
               type="button"
-              onClick={handleCancelAutoLogin}
-              className="px-6 py-2 text-sm text-muted-foreground border border-border rounded-lg hover:bg-muted hover:text-foreground transition-colors"
+              onClick={() => void handleLogin()}
+              disabled={isLoggingIn || !username.trim() || !password.trim()}
+              className="w-full h-10 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
             >
-              取消自动登录
+              {isLoggingIn && <LuLoader className="w-4 h-4 animate-spin" />}
+              {isLoggingIn ? "登录中..." : "登录"}
             </button>
-          </div>
-        ) : (
-          /* 登录表单界面 */
-          <div className="flex flex-col items-center px-8 pt-12 pb-8">
-            {/* Logo */}
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center mb-4 shadow-lg">
-              <span className="text-2xl font-bold text-white">B</span>
-            </div>
 
-            {/* 品牌名 */}
-            <h1 className="text-2xl font-bold text-foreground mb-1">
-              BwBrowser
-            </h1>
-
-            {/* 标语 */}
-            <p className="text-xs text-muted-foreground mb-8">
-              云端同步 · 团队协作 · 指纹隔离
-            </p>
-
-            {/* 表单 */}
-            <div className="w-full space-y-4">
-              {/* 用户名 */}
-              <div className="space-y-1.5">
-                <Label
-                  htmlFor="bwbrowser-username"
-                  className="text-xs text-muted-foreground"
-                >
-                  用户名
-                </Label>
-                <div className="relative">
-                  <LuUser className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                  <Input
-                    id="bwbrowser-username"
-                    placeholder="请输入用户名"
-                    value={username}
-                    onChange={(e) => {
-                      setUsername(e.target.value);
-                      if (countdown !== null) handleCancelAutoLogin();
-                    }}
-                    onKeyDown={(e) => {
-                      if (
-                        e.key === "Enter" &&
-                        username.trim() &&
-                        password.trim()
-                      ) {
-                        void handleLogin();
-                      }
-                    }}
-                    autoComplete="username"
-                    autoFocus={!isLoggingIn && countdown === null}
-                    disabled={isLoggingIn}
-                    className="pl-9"
-                  />
-                </div>
-              </div>
-
-              {/* 密码 */}
-              <div className="space-y-1.5">
-                <Label
-                  htmlFor="bwbrowser-password"
-                  className="text-xs text-muted-foreground"
-                >
-                  密码
-                </Label>
-                <div className="relative">
-                  <LuLock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                  <Input
-                    id="bwbrowser-password"
-                    type="password"
-                    placeholder="请输入密码"
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      if (countdown !== null) handleCancelAutoLogin();
-                    }}
-                    onKeyDown={(e) => {
-                      if (
-                        e.key === "Enter" &&
-                        username.trim() &&
-                        password.trim()
-                      ) {
-                        void handleLogin();
-                      }
-                    }}
-                    autoComplete="current-password"
-                    disabled={isLoggingIn}
-                    className="pl-9"
-                  />
-                </div>
-              </div>
-
-              {/* 记住密码 + 自动登录 */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="bwbrowser-remember"
-                    checked={remember}
-                    onCheckedChange={(checked) => {
-                      const val = checked === true;
-                      setRemember(val);
-                      if (!val) setAutoLogin(false);
-                      if (countdown !== null) handleCancelAutoLogin();
-                    }}
-                  />
-                  <Label
-                    htmlFor="bwbrowser-remember"
-                    className="text-xs cursor-pointer"
-                  >
-                    记住密码
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="bwbrowser-auto-login"
-                    checked={autoLogin}
-                    disabled={!remember}
-                    onCheckedChange={(checked) => {
-                      const val = checked === true;
-                      setAutoLogin(val);
-                      if (val && !remember) setRemember(true);
-                      if (countdown !== null) handleCancelAutoLogin();
-                    }}
-                  />
-                  <Label
-                    htmlFor="bwbrowser-auto-login"
-                    className={cn(
-                      "text-xs cursor-pointer",
-                      !remember && "text-muted-foreground opacity-60",
-                    )}
-                  >
-                    自动登录
-                  </Label>
-                </div>
-              </div>
-
-              {/* 登录按钮 */}
+            <p className="text-center text-xs text-muted-foreground">
+              没有账号？
               <button
                 type="button"
-                onClick={() => void handleLogin()}
-                disabled={isLoggingIn || !username.trim() || !password.trim()}
-                className="w-full h-10 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
+                onClick={() => void openUrl("https://yacm.xin/")}
+                className="text-primary hover:underline ml-1"
               >
-                {isLoggingIn && <LuLoader className="w-4 h-4 animate-spin" />}
-                {isLoggingIn ? "登录中..." : "登录"}
+                立即注册
               </button>
-
-              {/* 注册链接 */}
-              <p className="text-center text-xs text-muted-foreground">
-                没有账号？
-                <button
-                  type="button"
-                  onClick={() => void openUrl("https://yacm.xin/")}
-                  className="text-primary hover:underline ml-1"
-                >
-                  立即注册
-                </button>
-              </p>
-            </div>
+            </p>
           </div>
-        )}
-      </DialogContent>
-    </Dialog>
+        </div>
+      )}
+      </div>
+    </div>
   );
 }

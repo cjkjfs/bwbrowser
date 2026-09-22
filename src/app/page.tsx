@@ -2309,7 +2309,7 @@ export default function Home() {
       {pendingUrls.length === 0 && (
         <BwbrowserLoginDialog
           isOpen={bwbrowserLoginDialogOpen}
-          hideCloseButton={!isLoading && !isBwbrowserLogin && !cloudUser}
+          hideCloseButton={false}
           onClose={(_loginOccurred) => {
             setBwbrowserLoginDialogOpen(false);
           }}
