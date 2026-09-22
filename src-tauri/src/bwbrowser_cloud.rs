@@ -127,7 +127,7 @@ struct BwbrowserUser {
   real_name: Option<String>,
   #[serde(default)]
   role: Option<String>,
-  #[serde(default, rename = "avatar_url", alias = "avatar")]
+  #[serde(default, rename = "avatar_url", alias = "dingtalk_avatar", alias = "avatar")]
   avatar: Option<String>,
   #[serde(default)]
   company_id: Option<i64>,
@@ -1593,7 +1593,14 @@ impl BwbrowserAuthManager {
     if let Some(k) = keyword {
       form_data.push_str(&format!("&keyword={}", urlencode(&k)));
     }
-    if let Some(oid) = owner_id {
+    // 普通成员只能看到自己名下的账号：用 SQL 侧过滤，
+    // 而不是拉到全部后在前端过滤（否则非自己的账号会显示成 0 条）
+    let effective_owner_id = if !self.is_manager_role() {
+      self.get_user_id()
+    } else {
+      owner_id
+    };
+    if let Some(oid) = effective_owner_id {
       form_data.push_str(&format!("&owner_id={}", oid));
     }
     if let Some(cid) = company_id {
@@ -1601,7 +1608,8 @@ impl BwbrowserAuthManager {
     }
 
     let bwbrowser_form_data =
-      form_data.replace("action=list&account_type=tiktok", "action=list_accounts");
+      form_data.replacen("action=list&", "action=list_accounts&", 1)
+        .replace("&account_type=tiktok", "");
 
     // 优先用 simprint_accounts.php（有正确的 JOIN 和筛选逻辑），
     // 全部失败时才回退到 bwbrowser_sync.php
@@ -1648,7 +1656,8 @@ impl BwbrowserAuthManager {
       );
       log_bwbrowser("list_accounts", &format!("  响应内容: {}", body));
 
-      match serde_json::from_str::<BwbrowserAccountListResponse>(&body) {
+      let body = body.trim_start_matches('\u{feff}');
+      match serde_json::from_str::<BwbrowserAccountListResponse>(body) {
         Ok(result) => {
           if !result.success {
             let msg = result
@@ -1719,7 +1728,13 @@ impl BwbrowserAuthManager {
       urlencode(&username),
       urlencode(&password)
     );
-    if let Some(oid) = owner_id {
+    // 普通成员强制只看自己的汇总
+    let effective_owner_id = if !self.is_manager_role() {
+      self.get_user_id()
+    } else {
+      owner_id
+    };
+    if let Some(oid) = effective_owner_id {
       form_data.push_str(&format!("&owner_id={}", oid));
     }
     if let Some(cid) = company_id {
