@@ -10,7 +10,6 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -2360,7 +2359,7 @@ fn kill_process(pid: u32) {
   #[cfg(windows)]
   {
     use std::os::windows::process::CommandExt;
-    use std::process::Command;
+    use std::process::{Command, Stdio};
     let _ = Command::new("taskkill")
       .args(["/F", "/T", "/PID", &pid.to_string()])
       .stdout(Stdio::null())
