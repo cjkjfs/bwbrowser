@@ -364,7 +364,7 @@ impl BwbrowserAuthManager {
         return Err(msg);
       }
       let preview = if body.len() > 200 {
-        format!("{}...", &body[..200])
+        format!("{}", trunc(&body, 200))
       } else {
         body.to_string()
       };
@@ -588,6 +588,18 @@ pub fn log_bwbrowser(action: &str, msg: &str) {
 
 /// 解析 JSON 响应体，对空响应和非 JSON 内容给出友好错误。
 /// 当服务器输出 PHP 警告/HTML 时，尝试从中提取 JSON。
+/// 安全截断预览文本，避免按字节切 slice 命中多字节 UTF-8 边界导致 panic
+fn trunc(s: &str, max: usize) -> String {
+  if s.len() <= max {
+    return s.to_string();
+  }
+  let mut end = max;
+  while end > 0 && !s.is_char_boundary(end) {
+    end -= 1;
+  }
+  format!("{}...", &s[..end])
+}
+
 fn parse_body<T: serde::de::DeserializeOwned>(action: &str, body: &str) -> Result<T, String> {
   if body.trim().is_empty() {
     let msg = "服务器返回了空响应".to_string();
@@ -595,44 +607,49 @@ fn parse_body<T: serde::de::DeserializeOwned>(action: &str, body: &str) -> Resul
     return Err(msg);
   }
 
-  // 直接解析
-  match serde_json::from_str::<T>(body) {
-    Ok(v) => Ok(v),
-    Err(e) => {
-      // 服务器可能输出了 PHP 警告/HTML，尝试从中提取 JSON
-      // 找到第一个 '{' 或 '[' 的位置
-      let json_start = body.find('{').or_else(|| body.find('['));
-      if let Some(start) = json_start {
-        let json_candidate = &body[start..];
-        match serde_json::from_str::<T>(json_candidate) {
-          Ok(v) => {
-            log_bwbrowser(action, "直接解析失败，但从 HTML/PHP 警告中提取 JSON 成功");
-            return Ok(v);
-          }
-          Err(e2) => {
-            let preview = if body.len() > 200 {
-              format!("{}...", &body[..200])
-            } else {
-              body.to_string()
-            };
-            let err_msg = format!(
-              "解析响应失败: {} (初次) {} (提取后) | body={}",
-              e, e2, preview
-            );
-            log_bwbrowser_error(action, &err_msg);
-            return Err(format!("解析响应失败: {}", e));
-          }
-        }
-      }
-
+  // 先解析为 serde_json::Value（重复键自动取最后一个），再转目标结构体，
+  // 避免服务端偶尔返回重复字段（如 owner_id）触发 serde "duplicate field" 解析失败，
+  // 导致 get_account_detail 等接口在启动关键路径上出错、被迫回落用旧参数。
+  let from_value = |v: serde_json::Value| -> Result<T, String> {
+    serde_json::from_value::<T>(v).map_err(|e| {
       let preview = if body.len() > 200 {
-        format!("{}...", &body[..200])
+        format!("{}", trunc(&body, 200))
       } else {
         body.to_string()
       };
       let err_msg = format!("解析响应失败: {} | body={}", e, preview);
       log_bwbrowser_error(action, &err_msg);
-      Err(format!("解析响应失败: {}", e))
+      format!("解析响应失败: {}", e)
+    })
+  };
+
+  match serde_json::from_str::<serde_json::Value>(body) {
+    Ok(v) => from_value(v),
+    Err(_) => {
+      // 服务器可能输出了 PHP 警告/HTML，尝试从中提取 JSON
+      // 找到第一个 '{' 或 '[' 的位置
+      let json_start = body.find('{').or_else(|| body.find('['));
+      if let Some(start) = json_start {
+        let json_candidate = &body[start..];
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_candidate) {
+          if let Ok(val) = from_value(v) {
+            log_bwbrowser(action, "直接解析失败，但从 HTML/PHP 警告中提取 JSON 成功");
+            return Ok(val);
+          }
+        }
+      }
+
+      let preview = if body.len() > 200 {
+        format!("{}", trunc(&body, 200))
+      } else {
+        body.to_string()
+      };
+      let err_msg = format!(
+        "解析响应失败: 响应不是有效 JSON（可能是 PHP 警告或空响应）| body={}",
+        preview
+      );
+      log_bwbrowser_error(action, &err_msg);
+      Err("解析响应失败: 服务器响应不是有效 JSON".to_string())
     }
   }
 }
@@ -656,7 +673,7 @@ fn parse_api_response<T: serde::de::DeserializeOwned>(
     let preview = if body.is_empty() {
       "(空响应)".to_string()
     } else if body.len() > 200 {
-      format!("{}...", &body[..200])
+      format!("{}", trunc(&body, 200))
     } else {
       body.to_string()
     };
@@ -675,16 +692,29 @@ fn parse_api_response<T: serde::de::DeserializeOwned>(
     return Err("服务器返回了空响应，请检查网络或稍后重试".to_string());
   }
 
-  serde_json::from_str::<T>(body).map_err(|e| {
-    let preview = if body.len() > 200 {
-      format!("{}...", &body[..200])
-    } else {
-      body.to_string()
-    };
-    let err_msg = format!("解析响应失败: {} | body={}", e, preview);
-    log_bwbrowser_error(action, &err_msg);
-    format!("解析响应失败: {}", e)
-  })
+  // 先经 Value 去重再转结构体，规避服务端返回重复字段导致的 "duplicate field" 解析失败
+  match serde_json::from_str::<serde_json::Value>(body) {
+    Ok(v) => serde_json::from_value::<T>(v).map_err(|e| {
+      let preview = if body.len() > 200 {
+        format!("{}", trunc(&body, 200))
+      } else {
+        body.to_string()
+      };
+      let err_msg = format!("解析响应失败: {} | body={}", e, preview);
+      log_bwbrowser_error(action, &err_msg);
+      format!("解析响应失败: {}", e)
+    }),
+    Err(_) => {
+      let preview = if body.len() > 200 {
+        format!("{}", trunc(&body, 200))
+      } else {
+        body.to_string()
+      };
+      let err_msg = format!("解析响应失败: 响应不是有效 JSON | body={}", preview);
+      log_bwbrowser_error(action, &err_msg);
+      Err("解析响应失败: 服务器响应不是有效 JSON".to_string())
+    }
+  }
 }
 
 /// 直接写入日志文件（后备，不依赖 tauri-plugin-log）
@@ -723,7 +753,7 @@ fn mask_password(pwd: &str) -> String {
   if pwd.len() <= 2 {
     return "***".to_string();
   }
-  format!("{}***{}", &pwd[..1], &pwd[pwd.len() - 1..])
+  format!("{}***{}", pwd.chars().next().unwrap_or('#'), pwd.chars().last().unwrap_or('#'))
 }
 
 // ========== Tauri Commands ==========
@@ -1816,10 +1846,10 @@ impl BwbrowserAuthManager {
       .post(BWBROWSER_API_URL)
       .header("Content-Type", "application/x-www-form-urlencoded")
       .body(form_data)
+      .timeout(std::time::Duration::from_secs(10))
       .send()
       .await
       .map_err(|e| format!("网络请求失败: {}", e))?;
-
     let status = resp.status();
     let body = resp
       .text()
@@ -1832,7 +1862,7 @@ impl BwbrowserAuthManager {
         "  响应: HTTP {} body={}",
         status.as_u16(),
         if body.len() > 200 {
-          format!("{}...", &body[..200])
+          format!("{}", trunc(&body, 200))
         } else {
           body.clone()
         }
@@ -1945,7 +1975,9 @@ pub struct BwbrowserAccount {
   pub category: Option<String>,
   #[serde(default)]
   pub remark: Option<String>,
-  #[serde(default, alias = "user_id")]
+  // 不用 alias = "user_id"：接口响应同时包含 owner_id 与 user_id 两列，
+  // alias 会让 serde 把两个键都映射到 owner_id 字段，触发 "duplicate field owner_id" 解析失败。
+  #[serde(default)]
   pub owner_id: Option<i64>,
   #[serde(default)]
   pub owner_name: Option<String>,
@@ -2218,11 +2250,7 @@ pub async fn bwbrowser_update_account_proxy(
       account_id,
       proxy_node,
       proxy_node.len(),
-      if proxy_node.len() > 20 {
-        &proxy_node[..20]
-      } else {
-        &proxy_node
-      }
+      trunc(&proxy_node, 20)
     ),
   );
 
@@ -2921,7 +2949,7 @@ pub fn bwbrowser_to_proxy_settings(sp: &BwbrowserProxy) -> ProxySettings {
             &format!(
               "  ⚠ JSON protocol_config 缺少 key={}: {}",
               key,
-              &pc_trimmed[..pc_trimmed.len().min(200)]
+              trunc(&pc_trimmed, 200)
             ),
           );
         }
@@ -2944,7 +2972,7 @@ pub fn bwbrowser_to_proxy_settings(sp: &BwbrowserProxy) -> ProxySettings {
               &format!(
                 "  ⚠ protocol_config 不以 {} 开头: {}",
                 prefix,
-                &pc_trimmed[..pc_trimmed.len().min(200)]
+                trunc(&pc_trimmed, 200)
               ),
             );
             None
@@ -3102,7 +3130,7 @@ pub async fn bwbrowser_sync_proxies_to_local(
           cp.port,
           cp.protocol_config
             .as_deref()
-            .map(|s| &s[..s.len().min(100)])
+            .map(|s| trunc(s, 100))
         ),
       );
     }
@@ -3654,7 +3682,7 @@ impl BwbrowserAuthManager {
       format!(
         "解析JSON失败: {} - body: {}",
         e,
-        &body[..body.len().min(200)]
+        trunc(&body, 200)
       )
     })?;
 
@@ -4011,7 +4039,7 @@ pub async fn bwbrowser_update_account_info(
     &format!(
       "← 响应: {}",
       if body.len() > 500 {
-        format!("{}...", &body[..500])
+        format!("{}", trunc(&body, 500))
       } else {
         body.clone()
       }
@@ -4814,7 +4842,7 @@ async fn process_proxy_node_legacy(
     let proxy_name = format!(
       "云_{}_{}",
       proxy_type,
-      &vless_uri[..vless_uri.len().min(40)]
+      trunc(&vless_uri, 40)
     );
     let settings = crate::browser::ProxySettings {
       proxy_type: proxy_type.to_string(),
@@ -5830,6 +5858,24 @@ pub async fn bwbrowser_launch_account(
   proxy_node: Option<String>,
   platform: Option<String>,
 ) -> Result<String, String> {
+  // 整体启动超时兜底：防止某个联网/启动步骤永久挂起，导致进度卡在 95%
+  tokio::time::timeout(
+    std::time::Duration::from_secs(70),
+    launch_account_impl(app_handle, account_id, account_name, env_uuid, proxy_node, platform),
+  )
+  .await
+  .map_err(|_| "账号启动超时：启动流程超过 70 秒未完成，请重试".to_string())
+  .and_then(|r| r)
+}
+
+async fn launch_account_impl(
+  app_handle: tauri::AppHandle,
+  account_id: i64,
+  account_name: String,
+  env_uuid: Option<String>,
+  proxy_node: Option<String>,
+  platform: Option<String>,
+) -> Result<String, String> {
   log_bwbrowser(
     "launch_account",
     &format!(
@@ -6712,7 +6758,7 @@ async fn fetch_platform_url(platform: &str) -> Option<String> {
 
   // 调试：打印原始响应（截断前 500 字符）
   let debug_body = if body.len() > 500 {
-    format!("{}...(共 {} 字节)", &body[..500], body.len())
+    format!("{}(共 {} 字节)", trunc(&body, 500), body.len())
   } else {
     body.clone()
   };
@@ -6937,7 +6983,7 @@ async fn inject_cloud_cookies_after_launch(
   );
   if !body.is_empty() {
     let preview = if body.len() > 200 {
-      format!("{}...", &body[..200])
+      format!("{}", trunc(&body, 200))
     } else {
       body.clone()
     };
