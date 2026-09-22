@@ -241,9 +241,9 @@ jobs:
           GITHUB_REF_NAME: "nightly-${{ steps.timestamp.outputs.timestamp }}"
           GITHUB_SHA: ${{ github.sha }}
           APPLE_SIGNING_IDENTITY: ${{ steps.import-cert.outputs.has_cert == 'true' && secrets.APPLE_SIGNING_IDENTITY || '-' }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ steps.import-cert.outputs.has_cert == 'true' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ steps.import-cert.outputs.has_cert == 'true' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ steps.import-cert.outputs.has_cert == 'true' && secrets.APPLE_TEAM_ID || '' }}
           TARGET: ${{ matrix.target }}
           # tauri-action's inner `pnpm tauri build` re-runs beforeBuildCommand
           # which rebuilds dist/ in a subprocess. The env var must be here too.
