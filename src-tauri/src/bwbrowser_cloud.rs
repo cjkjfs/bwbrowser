@@ -127,7 +127,12 @@ struct BwbrowserUser {
   real_name: Option<String>,
   #[serde(default)]
   role: Option<String>,
-  #[serde(default, rename = "avatar_url", alias = "dingtalk_avatar", alias = "avatar")]
+  #[serde(
+    default,
+    rename = "avatar_url",
+    alias = "dingtalk_avatar",
+    alias = "avatar"
+  )]
   avatar: Option<String>,
   #[serde(default)]
   company_id: Option<i64>,
@@ -1428,9 +1433,7 @@ impl BwbrowserAuthManager {
   }
 
   /// 获取云端代理列表（强制刷新，跳过缓存）
-  pub async fn list_cloud_proxies_force(
-    &self,
-  ) -> Result<Vec<BwbrowserProxy>, String> {
+  pub async fn list_cloud_proxies_force(&self) -> Result<Vec<BwbrowserProxy>, String> {
     self.invalidate_proxy_cache();
     self.list_cloud_proxies(None).await
   }
@@ -1607,9 +1610,9 @@ impl BwbrowserAuthManager {
       form_data.push_str(&format!("&company_id={}", cid));
     }
 
-    let bwbrowser_form_data =
-      form_data.replacen("action=list&", "action=list_accounts&", 1)
-        .replace("&account_type=tiktok", "");
+    let bwbrowser_form_data = form_data
+      .replacen("action=list&", "action=list_accounts&", 1)
+      .replace("&account_type=tiktok", "");
 
     // 优先用 simprint_accounts.php（有正确的 JOIN 和筛选逻辑），
     // 全部失败时才回退到 bwbrowser_sync.php
