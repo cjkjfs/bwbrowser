@@ -85,11 +85,6 @@ jobs:
             arch: "aarch64"
             target: "aarch64-apple-darwin"
             pkg_target: "latest-macos-arm64"
-          - platform: "macos-latest"
-            args: "--target x86_64-apple-darwin --verbose"
-            arch: "x86_64"
-            target: "x86_64-apple-darwin"
-            pkg_target: "latest-macos-x64"
           - platform: "ubuntu-22.04"
             args: "--target x86_64-unknown-linux-gnu --verbose"
             arch: "x86_64"
@@ -245,7 +240,7 @@ jobs:
           BUILD_TAG: "nightly-${{ steps.timestamp.outputs.timestamp }}"
           GITHUB_REF_NAME: "nightly-${{ steps.timestamp.outputs.timestamp }}"
           GITHUB_SHA: ${{ github.sha }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_SIGNING_IDENTITY: ${{ steps.import-cert.outputs.has_cert == 'true' && secrets.APPLE_SIGNING_IDENTITY || '-' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
