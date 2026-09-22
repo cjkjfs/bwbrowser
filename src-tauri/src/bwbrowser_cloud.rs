@@ -1592,10 +1592,8 @@ impl BwbrowserAuthManager {
       form_data.push_str(&format!("&company_id={}", cid));
     }
 
-    let bwbrowser_form_data = form_data.replace(
-      "action=list&account_type=tiktok",
-      "action=list_accounts",
-    );
+    let bwbrowser_form_data =
+      form_data.replace("action=list&account_type=tiktok", "action=list_accounts");
 
     // 优先用 simprint_accounts.php（有正确的 JOIN 和筛选逻辑），
     // 全部失败时才回退到 bwbrowser_sync.php
@@ -3959,7 +3957,13 @@ pub async fn bwbrowser_update_account_info(
 
   log_bwbrowser(
     "update_account_info",
-    &format!("→ 发送请求: {}", form_data.replace(&format!("password={}", urlencode(&password)), "password=***")),
+    &format!(
+      "→ 发送请求: {}",
+      form_data.replace(
+        &format!("password={}", urlencode(&password)),
+        "password=***"
+      )
+    ),
   );
 
   let resp = BWBROWSER_AUTH
@@ -3978,7 +3982,14 @@ pub async fn bwbrowser_update_account_info(
 
   log_bwbrowser(
     "update_account_info",
-    &format!("← 响应: {}", if body.len() > 500 { format!("{}...", &body[..500]) } else { body.clone() }),
+    &format!(
+      "← 响应: {}",
+      if body.len() > 500 {
+        format!("{}...", &body[..500])
+      } else {
+        body.clone()
+      }
+    ),
   );
 
   let result: serde_json::Value = parse_body("api", &body)?;
