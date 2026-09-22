@@ -87,7 +87,7 @@ jobs:
         shell: bash
         working-directory: ./src-tauri
         run: |
-          cargo build --bin bwbrowser-proxy --release
+          cargo build --bin bwbrowser-proxy --release --features sidecar
 
       - name: Copy sidecar binaries to Tauri binaries
         shell: bash
