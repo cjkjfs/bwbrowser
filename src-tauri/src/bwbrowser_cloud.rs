@@ -1427,6 +1427,14 @@ impl BwbrowserAuthManager {
     Ok(proxies)
   }
 
+  /// 获取云端代理列表（强制刷新，跳过缓存）
+  pub async fn list_cloud_proxies_force(
+    &self,
+  ) -> Result<Vec<BwbrowserProxy>, String> {
+    self.invalidate_proxy_cache();
+    self.list_cloud_proxies(None).await
+  }
+
   /// 同步代理到云端（新增或更新）
   #[allow(clippy::too_many_arguments)]
   pub async fn sync_cloud_proxy(
@@ -3056,7 +3064,7 @@ pub async fn bwbrowser_delete_proxy(proxy_id: i64) -> Result<(), String> {
 pub async fn bwbrowser_sync_proxies_to_local(
   app_handle: tauri::AppHandle,
 ) -> Result<SyncResult, String> {
-  let cloud_proxies = BWBROWSER_AUTH.list_cloud_proxies(None).await?;
+  let cloud_proxies = BWBROWSER_AUTH.list_cloud_proxies_force().await?;
   let local_proxies = crate::proxy_manager::PROXY_MANAGER.get_stored_proxies();
 
   let mut created = 0;
