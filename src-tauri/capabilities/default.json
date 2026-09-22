@@ -14,7 +14,11 @@
     "core:window:allow-close",
     "core:window:allow-is-maximized",
     "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unminimize",
     "core:window:allow-toggle-maximize",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:default",
     {
       "identifier": "opener:allow-open-url",
       "allow": [
