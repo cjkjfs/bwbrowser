@@ -942,7 +942,7 @@ export function BwbrowserCloudAccountsDialog({
           tags,
           category: detail.category ?? prev.category,
           nickname: detail.account_nickname ?? detail.nickname ?? prev.nickname,
-          device_id: detail.device_id ?? detail.phone_id ?? prev.device_id,
+          phone_id: detail.phone_id ?? prev.phone_id,
           bind_phone: detail.bind_phone ?? prev.bind_phone,
           safe_link: detail.safe_link ?? prev.safe_link,
           backup_email: detail.backup_email ?? prev.backup_email,

@@ -1116,7 +1116,10 @@ pub async fn check_login_via_page(
       // 走下方 DOM 兜底检测即可；仅打普通日志，不打 ERROR 刷屏。
       crate::bwbrowser_cloud::log_bwbrowser(
         "cookie_sync",
-        &format!("check_login: Runtime.evaluate 受限({}), 尝试 DOM 兜底检测...", err_str),
+        &format!(
+          "check_login: Runtime.evaluate 受限({}), 尝试 DOM 兜底检测...",
+          err_str
+        ),
       );
 
       // Fallback: try DOM.getDocument + DOM.querySelector
