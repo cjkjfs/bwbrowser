@@ -227,7 +227,7 @@
       "willMoveTo": "すべての移動先",
       "moved": "データディレクトリを移動しました。BW Browser を再起動すると使われます。",
       "reading": "データディレクトリを読み込んでいます…",
-      "restartRequired": "新しい場所を使うには BW Browser を再起動してください。それまでは以前の場所で動きます。",
+      "restartRequired": "新しい場所はすぐに有効になります。",
       "environmentOverride": "BWBROWSER_DATA_DIR が設定されているため、ここで何を選んでもアプリはその場所を使います。",
       "missing": "選んだデータディレクトリが見つかりません。取り外し可能なドライブにある場合は、つなぎ直して再起動してください。",
       "useDefault": "既定の場所に戻す",

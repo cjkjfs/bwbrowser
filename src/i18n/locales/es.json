@@ -228,7 +228,7 @@
       "willMoveTo": "Todo se mueve a",
       "moved": "Directorio de datos movido. Reinicia BW Browser para usarlo.",
       "reading": "Leyendo el directorio de datos...",
-      "restartRequired": "Reinicia BW Browser para usar la nueva ubicación. Hasta entonces sigue funcionando desde la anterior.",
+      "restartRequired": "La nueva ubicación ya está activa.",
       "environmentOverride": "BWBROWSER_DATA_DIR está definido, así que la aplicación usa esa ubicación sea cual sea la elegida aquí.",
       "missing": "El directorio de datos elegido no está. Si está en una unidad extraíble, vuelve a conectarla y reinicia.",
       "useDefault": "Volver a la ubicación predeterminada",

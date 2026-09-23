@@ -228,7 +228,7 @@
       "willMoveTo": "Tout est déplacé vers",
       "moved": "Répertoire de données déplacé. Redémarrez BW Browser pour l'utiliser.",
       "reading": "Lecture du répertoire de données...",
-      "restartRequired": "Redémarrez BW Browser pour utiliser le nouvel emplacement. En attendant, il continue de travailler depuis l'ancien.",
+      "restartRequired": "Le nouvel emplacement est actif maintenant.",
       "environmentOverride": "BWBROWSER_DATA_DIR est défini : l'application utilise cet emplacement quel que soit celui choisi ici.",
       "missing": "Le répertoire de données choisi est absent. S'il est sur un disque amovible, rebranchez-le et redémarrez.",
       "useDefault": "Revenir à l'emplacement par défaut",

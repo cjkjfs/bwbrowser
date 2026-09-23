@@ -227,7 +227,7 @@
       "willMoveTo": "Mọi thứ sẽ chuyển đến",
       "moved": "Đã chuyển thư mục dữ liệu. Khởi động lại BW Browser để dùng nó.",
       "reading": "Đang đọc thư mục dữ liệu…",
-      "restartRequired": "Khởi động lại BW Browser để dùng vị trí mới. Đến lúc đó nó vẫn chạy từ vị trí cũ.",
+      "restartRequired": "Vị trí mới đã có hiệu lực ngay.",
       "environmentOverride": "BWBROWSER_DATA_DIR đã được đặt, nên ứng dụng dùng vị trí đó dù bạn chọn gì ở đây.",
       "missing": "Không thấy thư mục dữ liệu đã chọn. Nếu nó nằm trên ổ rời, hãy cắm lại và khởi động lại.",
       "useDefault": "Dùng lại vị trí mặc định",

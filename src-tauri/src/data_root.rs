@@ -619,7 +619,10 @@ fn perform_move(
       serde_json::json!({ "detail": e.to_string() }),
     )
   })?;
-  RESTART_REQUIRED.store(true, Ordering::SeqCst);
+  // Bring the running process onto the new directory immediately: every path
+  // that reads `data_dir()` falls over to it on its next lookup, so the move
+  // takes effect without a restart.
+  crate::app_dirs::set_custom_data_root(Some(destination.clone()));
 
   emit("cleaning", total.files, total.bytes, &total);
   if let Err(e) = std::fs::remove_dir_all(&source) {
@@ -683,7 +686,8 @@ pub async fn clear_data_root_choice() -> Result<DataRootInfo, String> {
       )
     },
   )?;
-  RESTART_REQUIRED.store(true, Ordering::SeqCst);
+  // Back to the platform default immediately, no restart needed.
+  crate::app_dirs::set_custom_data_root(None);
   Ok(info_now())
 }
 

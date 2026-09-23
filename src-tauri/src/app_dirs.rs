@@ -1,6 +1,7 @@
 use directories::BaseDirs;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{OnceLock, RwLock};
 
 static BASE_DIRS: OnceLock<BaseDirs> = OnceLock::new();
 static PORTABLE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -65,7 +66,8 @@ pub const WINDOW_STATE_FILENAME: &str = ".window-state.json";
 /// Settings.
 pub const DATA_ROOT_POINTER_FILENAME: &str = "data-root.json";
 
-static CUSTOM_DATA_ROOT: OnceLock<Option<PathBuf>> = OnceLock::new();
+static CUSTOM_DATA_ROOT_INITED: AtomicBool = AtomicBool::new(false);
+static CUSTOM_DATA_ROOT: RwLock<Option<PathBuf>> = RwLock::new(None);
 
 /// Where the pointer to a user-chosen data directory lives.
 ///
@@ -159,15 +161,34 @@ pub fn clear_data_root_pointer(file: &std::path::Path) -> std::io::Result<()> {
   }
 }
 
-/// The data directory a previous move chose, read once per process.
+/// Lazily read the recorded data directory into memory the first time it is
+/// asked for.
+fn ensure_custom_data_root_inited() {
+  if CUSTOM_DATA_ROOT_INITED.fetch_or(true, Ordering::SeqCst) {
+    return;
+  }
+  let path = read_data_root_pointer(&data_root_pointer_file());
+  *CUSTOM_DATA_ROOT.write().unwrap_or_else(|p| p.into_inner()) = path;
+}
+
+/// The data directory a previous move chose.
 ///
-/// Cached deliberately. Every open handle, cached path and loaded manager in a
-/// running app points at the directory it started on, so a move must take
-/// effect at the NEXT start and never mid-session.
-pub fn custom_data_root() -> Option<&'static PathBuf> {
+/// Returned by value so `set_custom_data_root` can swap it mid-session; every
+/// path derived from `data_dir()` follows on the next lookup.
+pub fn custom_data_root() -> Option<PathBuf> {
+  ensure_custom_data_root_inited();
   CUSTOM_DATA_ROOT
-    .get_or_init(|| read_data_root_pointer(&data_root_pointer_file()))
-    .as_ref()
+    .read()
+    .unwrap_or_else(|p| p.into_inner())
+    .clone()
+}
+
+/// Replace the chosen data directory in memory. Called by a move that already
+/// verified its copy, so the running process starts using the new directory on
+/// the very next path lookup without a restart.
+pub fn set_custom_data_root(root: Option<PathBuf>) {
+  CUSTOM_DATA_ROOT_INITED.store(true, Ordering::SeqCst);
+  *CUSTOM_DATA_ROOT.write().unwrap_or_else(|p| p.into_inner()) = root;
 }
 
 /// True when app state has been moved off the platform default location, by
@@ -256,7 +277,7 @@ pub fn data_dir() -> PathBuf {
     std::env::var_os("BWBROWSER_DATA_DIR")
       .filter(|v| !v.is_empty())
       .map(PathBuf::from),
-    custom_data_root(),
+    custom_data_root().as_ref(),
     data_root(),
     portable_dir(),
     base_dirs().data_local_dir().join(app_name()),

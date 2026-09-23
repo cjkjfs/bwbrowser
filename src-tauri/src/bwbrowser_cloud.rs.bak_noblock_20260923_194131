@@ -737,7 +737,12 @@ fn write_log_file(line: &str) {
 
 /// 获取 bwbrowser 专用日志文件路径
 fn bwbrowser_log_path() -> Option<std::path::PathBuf> {
-  Some(crate::app_dirs::data_dir().join("bwbrowser_debug.log"))
+  let app_name = crate::app_dirs::app_name();
+  let base = std::env::var_os("LOCALAPPDATA")
+    .map(std::path::PathBuf::from)
+    .unwrap_or_else(|| std::path::PathBuf::from("./"));
+  let dir = base.join(app_name);
+  Some(dir.join("bwbrowser_debug.log"))
 }
 
 /// 隐藏密码，用于日志显示
@@ -2214,237 +2219,6 @@ pub async fn bwbrowser_get_account_detail(account_id: i64) -> Result<BwbrowserAc
   BWBROWSER_AUTH.get_account_detail(account_id).await
 }
 
-/// 后台代理有效性检测 + 时区解析 + 回写本地/云端代理。
-/// 由 bwbrowser_update_account_proxy 异步 spawn 调用，不阻塞保存与 UI。
-async fn resolve_and_sync_proxy_geo(
-  app_handle: tauri::AppHandle,
-  account_id: i64,
-  account_name: String,
-  proxy_node: String,
-  host: String,
-  port: i64,
-  proxy_type: String,
-  settings: crate::browser::ProxySettings,
-) {
-  if host.is_empty() {
-    return;
-  }
-  // Cloud-only: directly use the proxy_node settings for validity check.
-  let geo_info: ProxyGeoInfo = async {
-    let check_id = format!("{}{}", crate::cloud_proxy_manager::NODE_PREFIX, proxy_node);
-    log_bwbrowser("update_account_proxy:bg", "  → 直接检测代理出口 IP 时区（cloud-only）");
-    match crate::proxy_manager::PROXY_MANAGER
-      .check_proxy_validity(&check_id, &settings)
-      .await
-    {
-      Ok(result) if result.is_valid && !result.ip.is_empty() => {
-        log_bwbrowser(
-          "update_account_proxy:bg",
-          &format!(
-            "  ✓ 代理可用: IP={}, country={}",
-            result.ip,
-            result.country.as_deref().unwrap_or("")
-          ),
-        );
-        if let Some(exit_geo) = resolve_timezone_online(&result.ip).await {
-          log_bwbrowser(
-            "update_account_proxy:bg",
-            &format!(
-              "  ✓ 代理出口 IP 时区（在线）: exit_ip={}, timezone={}",
-              result.ip, exit_geo.timezone
-            ),
-          );
-          return exit_geo;
-        }
-        if let Some(tz) = result.timezone {
-          log_bwbrowser(
-            "update_account_proxy:bg",
-            &format!(
-              "  ✓ 代理出口 IP 时区（MaxMind）: exit_ip={}, timezone={}",
-              result.ip, tz
-            ),
-          );
-          return ProxyGeoInfo {
-            timezone: tz,
-            language: "en-US".to_string(),
-            latitude: None,
-            longitude: None,
-          };
-        }
-      }
-      Ok(result) => {
-        log_bwbrowser_error(
-          "update_account_proxy:bg",
-          &format!(
-            "  ⚠ 代理检测无效: valid={}, ip={}",
-            result.is_valid, result.ip
-          ),
-        );
-      }
-      Err(e) => {
-        log_bwbrowser_error(
-          "update_account_proxy:bg",
-          &format!("  ⚠ 代理连接检测失败: {}", e),
-        );
-      }
-    }
-    // 方案2：在线 API 查代理服务器 IP
-    if let Some(g) = resolve_timezone_online(&host).await {
-      log_bwbrowser(
-        "update_account_proxy:bg",
-        &format!(
-          "  ✓ 回退: 在线 API 查代理服务器 IP 时区: host={}, timezone={}",
-          host, g.timezone
-        ),
-      );
-      return g;
-    }
-    // 方案3：本地 MaxMind 数据库兜底
-    match crate::geolocation::get_geolocation(&host) {
-      Ok(geo) => ProxyGeoInfo {
-        timezone: geo.timezone.clone(),
-        language: geo.locale.language.clone(),
-        latitude: Some(geo.latitude),
-        longitude: Some(geo.longitude),
-      },
-      Err(e) => {
-        log_bwbrowser_error(
-          "update_account_proxy:bg",
-          &format!("  ✗ 代理时区解析失败: host={}, err={}", host, e),
-        );
-        ProxyGeoInfo {
-          timezone: "America/Los_Angeles".to_string(),
-          language: "en-US".to_string(),
-          latitude: None,
-          longitude: None,
-        }
-      }
-    }
-  }
-  .await;
-  log_bwbrowser(
-    "update_account_proxy:bg",
-    &format!(
-      "  ✓ 代理时区解析: host={}, timezone={}, language={}",
-      host, geo_info.timezone, geo_info.language
-    ),
-  );
-
-  // 更新本地代理的 geo_timezone（启动时 resolve_geo_from_proxy 优先读本地）
-  let all_local = crate::proxy_manager::PROXY_MANAGER.get_stored_proxies();
-  for local_p in &all_local {
-    if local_p.proxy_settings.host == host {
-      crate::proxy_manager::PROXY_MANAGER
-        .update_proxy_geo(&local_p.id, Some(geo_info.timezone.clone()));
-      log_bwbrowser(
-        "update_account_proxy:bg",
-        &format!(
-          "  ✓ 本地代理时区已更新: id={}, timezone={}",
-          local_p.id, geo_info.timezone
-        ),
-      );
-      break;
-    }
-  }
-
-  // 尝试同步到服务器代理表
-  if let Ok(cloud_proxies) = BWBROWSER_AUTH.list_cloud_proxies(None).await {
-    let matching = cloud_proxies.iter().find(|p| p.host == host);
-    if let Some(cp) = matching {
-      log_bwbrowser(
-        "update_account_proxy:bg",
-        &format!(
-          "  → 回传时区到云端代理: cloud_id={}, timezone={}",
-          cp.proxy_id, geo_info.timezone
-        ),
-      );
-      match BWBROWSER_AUTH
-        .sync_cloud_proxy(
-          Some(cp.proxy_id),
-          &cp.proxy_name.clone().unwrap_or_default(),
-          &cp.proxy_type,
-          &cp.host,
-          cp.port,
-          cp.username.as_deref(),
-          cp.password.as_deref(),
-          cp.country.as_deref(),
-          cp.city.as_deref(),
-          Some(&geo_info.timezone),
-          cp.protocol_config.as_deref(),
-        )
-        .await
-      {
-        Ok(_) => {
-          log_bwbrowser(
-            "update_account_proxy:bg",
-            &format!("  ✓ 时区已回传到服务器: timezone={}", geo_info.timezone),
-          );
-        }
-        Err(e) => {
-          log_bwbrowser(
-            "update_account_proxy:bg",
-            &format!("  ⚠ 时区回传失败（不影响本地使用）: {}", e),
-          );
-        }
-      }
-    } else {
-      let proxy_name = format!("云_{}", proxy_node);
-      log_bwbrowser(
-        "update_account_proxy:bg",
-        &format!(
-          "  → 云端无此代理，新建并回传时区: host={}, timezone={}",
-          host, geo_info.timezone
-        ),
-      );
-      match BWBROWSER_AUTH
-        .sync_cloud_proxy(
-          None,
-          &proxy_name,
-          &proxy_type,
-          &host,
-          port,
-          None,
-          None,
-          None,
-          None,
-          Some(&geo_info.timezone),
-          None,
-        )
-        .await
-      {
-        Ok(cloud_id) => {
-          log_bwbrowser(
-            "update_account_proxy:bg",
-            &format!(
-              "  ✓ 代理已创建并回传时区: cloud_id={}, timezone={}",
-              cloud_id, geo_info.timezone
-            ),
-          );
-        }
-        Err(e) => {
-          log_bwbrowser(
-            "update_account_proxy:bg",
-            &format!("  ⚠ 代理创建/时区回传失败（不影响本地使用）: {}", e),
-          );
-        }
-      }
-    }
-  }
-  _ = account_name; // 保留字段，便于日志/后续扩展
-
-  // 后台完成后通知前端刷新
-  let _ = app_handle.emit(
-    "proxy-geo-updated",
-    serde_json::json!({
-      "account_id": account_id,
-      "proxy_node": proxy_node,
-      "timezone": geo_info.timezone,
-      "language": geo_info.language,
-    }),
-  );
-  log_bwbrowser("update_account_proxy:bg", "  ✓ 后台时区解析完成，已通知前端");
-}
-
 #[tauri::command]
 pub async fn bwbrowser_update_account_proxy(
   app_handle: tauri::AppHandle,
@@ -2590,10 +2364,10 @@ pub async fn bwbrowser_update_account_proxy(
     }
 
     if matching_profiles_was_empty {
-      log_bwbrowser(
+      log_bwbrowser_error(
         "update_account_proxy",
         &format!(
-          "  ℹ 未找到匹配的本地 profile: name={}（正常，启动时会从云端拉取代理配置）",
+          "  ⚠ 未找到匹配的本地 profile: name={}（启动时会从云端拉取代理配置）",
           profile_name
         ),
       );
@@ -2674,32 +2448,224 @@ pub async fn bwbrowser_update_account_proxy(
   );
 
   if !host.is_empty() {
-    // 快速保存：云端代理 + 本地 profile 已在上方持久化完成。
-    // 耗时较长的代理有效性检测 + 时区解析放后台执行，避免阻塞 UI，
-    // 用户可立即继续操作下一个账号；完成后通过 proxy-geo-updated 事件通知前端。
-    let app_handle = app_handle.clone();
-    let account_name = account_name.clone();
-    let proxy_node = proxy_node.clone();
-    let host = host.clone();
-    let settings = settings.clone();
-    tauri::async_runtime::spawn(async move {
-      resolve_and_sync_proxy_geo(
-        app_handle,
-        account_id,
-        account_name,
-        proxy_node,
-        host,
-        port,
-        proxy_type,
-        settings,
-      )
-      .await;
-    });
+    // Cloud-only: directly use the proxy_node settings for validity check.
+    // No local proxy lookup needed.
+    let geo_info: ProxyGeoInfo = async {
+      // 方案1：直接用 proxy_node 解析的设置检测代理出口 IP 时区
+      let check_id = format!("{}{}", crate::cloud_proxy_manager::NODE_PREFIX, proxy_node);
+      log_bwbrowser(
+        "update_account_proxy",
+        "  → 直接检测代理出口 IP 时区（cloud-only）",
+      );
+      match crate::proxy_manager::PROXY_MANAGER
+        .check_proxy_validity(&check_id, &settings)
+        .await
+      {
+        Ok(result) if result.is_valid && !result.ip.is_empty() => {
+          log_bwbrowser(
+            "update_account_proxy",
+            &format!(
+              "  ✓ 代理可用: IP={}, country={}",
+              result.ip,
+              result.country.as_deref().unwrap_or("")
+            ),
+          );
+          // 用在线 API 查出口 IP 的时区
+          if let Some(exit_geo) = resolve_timezone_online(&result.ip).await {
+            log_bwbrowser(
+              "update_account_proxy",
+              &format!(
+                "  ✓ 代理出口 IP 时区（在线）: exit_ip={}, timezone={}",
+                result.ip, exit_geo.timezone
+              ),
+            );
+            return exit_geo;
+          }
+          if let Some(tz) = result.timezone {
+            log_bwbrowser(
+              "update_account_proxy",
+              &format!(
+                "  ✓ 代理出口 IP 时区（MaxMind）: exit_ip={}, timezone={}",
+                result.ip, tz
+              ),
+            );
+            return ProxyGeoInfo {
+              timezone: tz,
+              language: "en-US".to_string(),
+              latitude: None,
+              longitude: None,
+            };
+          }
+        }
+        Ok(result) => {
+          log_bwbrowser_error(
+            "update_account_proxy",
+            &format!(
+              "  ⚠ 代理检测无效: valid={}, ip={}",
+              result.is_valid, result.ip
+            ),
+          );
+        }
+        Err(e) => {
+          log_bwbrowser_error(
+            "update_account_proxy",
+            &format!("  ⚠ 代理连接检测失败: {}", e),
+          );
+        }
+      }
+      // 方案2：在线 API 查代理服务器 IP
+      if let Some(g) = resolve_timezone_online(&host).await {
+        log_bwbrowser(
+          "update_account_proxy",
+          &format!(
+            "  ✓ 回退: 在线 API 查代理服务器 IP 时区: host={}, timezone={}",
+            host, g.timezone
+          ),
+        );
+        return g;
+      }
+      // 方案3：本地 MaxMind 数据库兜底
+      match crate::geolocation::get_geolocation(&host) {
+        Ok(geo) => ProxyGeoInfo {
+          timezone: geo.timezone.clone(),
+          language: geo.locale.language.clone(),
+          latitude: Some(geo.latitude),
+          longitude: Some(geo.longitude),
+        },
+        Err(e) => {
+          log_bwbrowser_error(
+            "update_account_proxy",
+            &format!("  ✗ 代理时区解析失败: host={}, err={}", host, e),
+          );
+          ProxyGeoInfo {
+            timezone: "America/Los_Angeles".to_string(),
+            language: "en-US".to_string(),
+            latitude: None,
+            longitude: None,
+          }
+        }
+      }
+    }
+    .await;
+    log_bwbrowser(
+      "update_account_proxy",
+      &format!(
+        "  ✓ 代理时区解析: host={}, timezone={}, language={}",
+        host, geo_info.timezone, geo_info.language
+      ),
+    );
+
+    // 更新本地代理的 geo_timezone（启动时 resolve_geo_from_proxy 优先读本地）
+    let all_local = crate::proxy_manager::PROXY_MANAGER.get_stored_proxies();
+    for local_p in &all_local {
+      if local_p.proxy_settings.host == host {
+        crate::proxy_manager::PROXY_MANAGER
+          .update_proxy_geo(&local_p.id, Some(geo_info.timezone.clone()));
+        log_bwbrowser(
+          "update_account_proxy",
+          &format!(
+            "  ✓ 本地代理时区已更新: id={}, timezone={}",
+            local_p.id, geo_info.timezone
+          ),
+        );
+        break;
+      }
+    }
+
+    {
+      let geo = &geo_info;
+
+      // 尝试同步到服务器代理表
+      if let Ok(cloud_proxies) = BWBROWSER_AUTH.list_cloud_proxies(None).await {
+        let matching = cloud_proxies.iter().find(|p| p.host == host);
+        if let Some(cp) = matching {
+          log_bwbrowser(
+            "update_account_proxy",
+            &format!(
+              "  → 回传时区到云端代理: cloud_id={}, timezone={}",
+              cp.proxy_id, geo.timezone
+            ),
+          );
+          match BWBROWSER_AUTH
+            .sync_cloud_proxy(
+              Some(cp.proxy_id),
+              &cp.proxy_name.clone().unwrap_or_default(),
+              &cp.proxy_type,
+              &cp.host,
+              cp.port,
+              cp.username.as_deref(),
+              cp.password.as_deref(),
+              cp.country.as_deref(),
+              cp.city.as_deref(),
+              Some(&geo.timezone),
+              cp.protocol_config.as_deref(),
+            )
+            .await
+          {
+            Ok(_) => {
+              log_bwbrowser(
+                "update_account_proxy",
+                &format!("  ✓ 时区已回传到服务器: timezone={}", geo.timezone),
+              );
+            }
+            Err(e) => {
+              log_bwbrowser(
+                "update_account_proxy",
+                &format!("  ⚠ 时区回传失败（不影响本地使用）: {}", e),
+              );
+            }
+          }
+        } else {
+          let proxy_name = format!("云_{}", proxy_node);
+          log_bwbrowser(
+            "update_account_proxy",
+            &format!(
+              "  → 云端无此代理，新建并回传时区: host={}, timezone={}",
+              host, geo.timezone
+            ),
+          );
+          match BWBROWSER_AUTH
+            .sync_cloud_proxy(
+              None,
+              &proxy_name,
+              &proxy_type,
+              &host,
+              port,
+              None,
+              None,
+              None,
+              None,
+              Some(&geo.timezone),
+              None,
+            )
+            .await
+          {
+            Ok(cloud_id) => {
+              log_bwbrowser(
+                "update_account_proxy",
+                &format!(
+                  "  ✓ 代理已创建并回传时区: cloud_id={}, timezone={}",
+                  cloud_id, geo.timezone
+                ),
+              );
+            }
+            Err(e) => {
+              log_bwbrowser(
+                "update_account_proxy",
+                &format!("  ⚠ 代理创建/时区回传失败（不影响本地使用）: {}", e),
+              );
+            }
+          }
+        }
+      }
+    }
+
     return Ok(serde_json::json!({
       "success": true,
-      "geo_pending": true,
-      "timezone": null,
-      "language": null,
+      "timezone": geo_info.timezone,
+      "language": geo_info.language,
+      "latitude": geo_info.latitude,
+      "longitude": geo_info.longitude,
     }));
   }
 
@@ -5929,20 +5895,6 @@ async fn launch_account_impl(
     ),
   );
 
-  // 真实启动进度：按步骤向后端前端广播百分比，替代前端的模拟动画
-  let emit_app = app_handle.clone();
-  let emit_progress = |pct: u32, label: &str| {
-    let _ = emit_app.emit(
-      "account-launch-progress",
-      serde_json::json!({
-        "account_id": account_id,
-        "pct": pct,
-        "label": label,
-      }),
-    );
-  };
-  emit_progress(2, "正在拉取账号信息...");
-
   // 0. 通过 account_id 从服务器获取最新的账号详情（确保 env_uuid 是最新的）
   let (server_env_uuid, server_account_name, server_platform, server_proxy_node) =
     match BWBROWSER_AUTH.get_account_detail(account_id).await {
@@ -5980,7 +5932,7 @@ async fn launch_account_impl(
     };
 
   // 0.5 优先使用本地 profile 已有的 proxy_id（由 bwbrowser_update_account_proxy 设置）
-  emit_progress(8, "已获取账号信息");  //     云端 API 可能因服务器同步延迟返回旧值，导致覆盖本地正确配置。
+  //     云端 API 可能因服务器同步延迟返回旧值，导致覆盖本地正确配置。
   //     如果本地 profile 有 node: 前缀的 proxy_id，直接用它，不从云端取。
   let server_proxy_node = {
     let pm = crate::profile::manager::ProfileManager::instance();
@@ -6021,7 +5973,6 @@ async fn launch_account_impl(
   };
 
   // 1. 处理代理
-  emit_progress(15, "正在配置代理...");
   log_bwbrowser(
     "launch_account",
     &format!("  effective_proxy_node={:?}", server_proxy_node),
@@ -6099,7 +6050,7 @@ async fn launch_account_impl(
   };
 
   // 1.5 提前解析代理 geoip（创建环境时需要时区）
-  emit_progress(28, "解析代理地理位置...");  let geo_info = resolve_geo_from_proxy(local_proxy_id.as_deref()).await;
+  let geo_info = resolve_geo_from_proxy(local_proxy_id.as_deref()).await;
   if let Some(ref geo) = geo_info {
     log_bwbrowser(
       "launch_account",
@@ -6113,7 +6064,7 @@ async fn launch_account_impl(
   }
 
   // 2. 构建 WayfernConfig（有环境用环境，无环境自动创建并写入时区）
-  emit_progress(42, "构建指纹配置...");  let (wayfern_config, new_env_uuid) = build_wayfern_config(
+  let (wayfern_config, new_env_uuid) = build_wayfern_config(
     server_env_uuid.as_deref(),
     Some(&server_account_name),
     server_platform.as_deref(),
@@ -6252,7 +6203,7 @@ async fn launch_account_impl(
   };
 
   // 3. 查找已有 profile（用账号名作为 profile 名称）
-  emit_progress(58, "准备本地配置...");  let profile_name = server_account_name.clone();
+  let profile_name = server_account_name.clone();
   log_bwbrowser(
     "launch_account",
     &format!("  profile 名称: {}", profile_name),
@@ -6485,7 +6436,7 @@ async fn launch_account_impl(
   let app_handle_clone = app_handle.clone();
 
   // 3.5 检查本地是否有 Cookie 文件（判断是否全新 profile）
-  emit_progress(66, "检查登录状态...");  //     - 全新 profile（无 Cookie 文件）：可以安全注入云端 Cookie
+  //     - 全新 profile（无 Cookie 文件）：可以安全注入云端 Cookie
   //     - 有 Cookie 文件：用 CDP 导出做对比（避免 SQLite 解密失败的问题）
   let is_fresh_profile = {
     use crate::cookie_manager::CookieManager;
@@ -6523,7 +6474,7 @@ async fn launch_account_impl(
   };
 
   // 4. 启动浏览器（使用 Advisory gate，不阻止指纹不匹配的启动）
-  emit_progress(75, "启动浏览器内核...");  //    云端账号的指纹在启动时通过代理出口 IP 自动解析时区/语言
+  //    云端账号的指纹在启动时通过代理出口 IP 自动解析时区/语言
   //    提前获取平台 URL，作为启动 URL 直接传入（比 CDP 导航更可靠）
   let launch_url = if let Some(ref p) = server_platform {
     fetch_platform_url(p).await
@@ -6780,29 +6731,6 @@ async fn launch_account_impl(
   // 6. Cookie 回传在 inject_cloud_cookies_after_launch 中完成（启动后立即通过 CDP 导出回传）
   //    浏览器关闭时不再回传，避免 SQLite 锁定问题和重复上传
 
-  // 启动完成前校验浏览器进程仍存活：若已退出，视为启动失败并提示
-  {
-    let alive = launched_profile.process_id.is_none_or(|pid| {
-      use sysinfo::{ProcessRefreshKind, RefreshKind, System};
-      let system = System::new_with_specifics(
-        RefreshKind::nothing().with_processes(ProcessRefreshKind::everything()),
-      );
-      system.process(sysinfo::Pid::from_u32(pid)).is_some()
-    });
-    if !alive {
-      log_bwbrowser_error(
-        "launch_account",
-        "  浏览器进程已退出，启动失败",
-      );
-      let _ = emit_app.emit(
-        "account-launch-failed",
-        serde_json::json!({ "account_id": account_id, "reason": "浏览器启动后进程未保持运行" }),
-      );
-      return Err("浏览器启动后进程未保持运行，未能正常打开".to_string());
-    }
-  }
-
-  emit_progress(100, "浏览器已启动");
   log_bwbrowser("launch_account", "✓ 启动成功");
   Ok("ok".to_string())
 }

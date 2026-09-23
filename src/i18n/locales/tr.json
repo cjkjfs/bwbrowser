@@ -227,7 +227,7 @@
       "willMoveTo": "Her şey buraya taşınır",
       "moved": "Veri dizini taşındı. Kullanmak için BW Browser'ı yeniden başlatın.",
       "reading": "Veri dizini okunuyor…",
-      "restartRequired": "Yeni konumu kullanmak için BW Browser'ı yeniden başlatın. O zamana kadar eski konumdan çalışır.",
+      "restartRequired": "Yeni konum artık etkin.",
       "environmentOverride": "BWBROWSER_DATA_DIR tanımlı; burada ne seçilirse seçilsin uygulama o konumu kullanır.",
       "missing": "Seçilen veri dizini yok. Çıkarılabilir bir sürücüdeyse tekrar takıp yeniden başlatın.",
       "useDefault": "Yeniden varsayılan konumu kullan",

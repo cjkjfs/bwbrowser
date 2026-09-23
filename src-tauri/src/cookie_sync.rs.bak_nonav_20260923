@@ -944,28 +944,25 @@ pub async fn inject_cookies_via_cdp(
     cdp_cookies.len()
   );
 
-  // Step 3: Navigate to the platform URL so cookies take effect.
-  // Only navigate when a real target URL is provided; avoid navigating to a blank
-  // page when none is given (the cookie is written and effective on the current tab).
-  if let Some(nav_target) = nav_url {
-    let _ = conn
-      .call(CMD_RELOAD - 1, "Page.enable", serde_json::json!({}))
-      .await;
-    let nav_result = conn
-      .call(
-        CMD_RELOAD,
-        "Page.navigate",
-        serde_json::json!({ "url": nav_target }),
-      )
-      .await;
-    match &nav_result {
-      Ok(_) => crate::bwbrowser_cloud::log_bwbrowser(
-        "cookie_sync",
-        &format!("✓ 导航到 {} 使 Cookie 生效", nav_target),
-      ),
-      Err(e) => {
-        crate::bwbrowser_cloud::log_bwbrowser_error("cookie_sync", &format!("✗ 导航失败: {}", e))
-      }
+  // Step 3: Navigate to the platform URL so cookies take effect
+  let _ = conn
+    .call(CMD_RELOAD - 1, "Page.enable", serde_json::json!({}))
+    .await;
+  let nav_target = nav_url.unwrap_or("about:blank");
+  let nav_result = conn
+    .call(
+      CMD_RELOAD,
+      "Page.navigate",
+      serde_json::json!({ "url": nav_target }),
+    )
+    .await;
+  match &nav_result {
+    Ok(_) => crate::bwbrowser_cloud::log_bwbrowser(
+      "cookie_sync",
+      &format!("✓ 导航到 {} 使 Cookie 生效", nav_target),
+    ),
+    Err(e) => {
+      crate::bwbrowser_cloud::log_bwbrowser_error("cookie_sync", &format!("✗ 导航失败: {}", e))
     }
   }
 

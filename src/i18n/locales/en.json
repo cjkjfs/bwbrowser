@@ -227,7 +227,7 @@
       "willMoveTo": "Everything moves to",
       "moved": "Data directory moved. Restart BW Browser to use it.",
       "reading": "Reading the data directory...",
-      "restartRequired": "Restart BW Browser to use the new location. Until then it keeps working from the old one.",
+      "restartRequired": "The new location is active now.",
       "environmentOverride": "BWBROWSER_DATA_DIR is set, so the app uses that location whatever is chosen here.",
       "missing": "The chosen data directory is not there. If it is on a removable drive, plug it back in and restart.",
       "useDefault": "Use the default location again",

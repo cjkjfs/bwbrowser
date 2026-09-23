@@ -227,7 +227,7 @@
       "willMoveTo": "全部移动到",
       "moved": "数据目录已移动。重启 BW Browser 后生效。",
       "reading": "正在读取数据目录…",
-      "restartRequired": "重启 BW Browser 以使用新位置。在此之前仍从旧位置运行。",
+      "restartRequired": "新位置现已生效。",
       "environmentOverride": "已设置 BWBROWSER_DATA_DIR，因此无论在这里选择哪里，应用都会使用该位置。",
       "missing": "所选的数据目录不存在。如果它在可移动磁盘上，请重新接上并重启。",
       "useDefault": "重新使用默认位置",
