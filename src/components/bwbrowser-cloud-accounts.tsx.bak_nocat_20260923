@@ -164,19 +164,6 @@ const PLATFORM_COLORS: Record<string, string> = {
 
 const _PAGE_SIZE = 20;
 
-// 云端代理列表项（对应 Rust 端 BwbrowserProxyItem）
-interface CloudProxyItem {
-  id: string; // "bwbrowser_{proxy_id}"
-  name: string;
-  proxy_type: string;
-  host: string;
-  port: number;
-  username: string | null;
-  password: string | null;
-  vless_uri: string | null;
-  is_cloud_managed: boolean;
-}
-
 // ==================== 工具函数 ====================
 function getPlatformLabel(platform: string): string {
   return PLATFORM_LABELS[platform] || platform;
@@ -479,7 +466,6 @@ export function BwbrowserCloudAccountsDialog({
   const [isSavingProxy, setIsSavingProxy] = useState(false);
   const [proxySearchQuery, setProxySearchQuery] = useState("");
   const [proxyPage, setProxyPage] = useState(0);
-  const [cloudProxyOptions, setCloudProxyOptions] = useState<StoredProxy[]>([]);
   const PROXY_PAGE_SIZE = 10;
 
   // VPS 登录代理设置
@@ -562,7 +548,7 @@ export function BwbrowserCloudAccountsDialog({
     Record<number, { code: string; loading: boolean; time: number }>
   >({});
 
-  const { storedProxies } = useProxyEvents();
+  const { storedProxies, loadProxies: reloadStoredProxies } = useProxyEvents();
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -997,37 +983,28 @@ export function BwbrowserCloudAccountsDialog({
       setProxyDialogAccount(account);
       setProxySearchQuery("");
       setProxyPage(0);
-      // 先打开弹窗，再直接拉云端代理列表，避免弹窗被远程请求卡住
+      // 先打开弹窗，再异步同步云端代理，避免弹窗被远程同步请求卡住
       setProxyDialogOpen(true);
       setProxyDialogLoading(true);
       try {
-        // 直接拉云端代理列表（数据以云端为准，不读本地缓存、不同步到本地）
-        let proxies: StoredProxy[] = [];
+        // 同步云端代理到本地，确保本地有最新代理列表（失败不阻塞，用已有列表）
         try {
-          const cloud = await invoke<CloudProxyItem[]>(
-            "bwbrowser_list_proxies",
-            { companyId: null },
-          );
-          proxies = (cloud ?? []).map((item) => ({
-            id: item.id,
-            name: item.name,
-            proxy_settings: {
-              proxy_type: item.proxy_type,
-              host: item.host,
-              port: item.port,
-              username: item.username ?? undefined,
-              password: item.password ?? undefined,
-              vless_uri: item.vless_uri ?? undefined,
-            },
-            is_cloud_managed: item.is_cloud_managed,
-          }));
-          setCloudProxyOptions(proxies);
+          await invoke("bwbrowser_sync_proxies_to_local");
+          await reloadStoredProxies();
         } catch (e) {
-          console.warn("拉取云端代理列表失败:", e);
-          setCloudProxyOptions([]);
+          console.warn("同步云端代理到本地失败:", e);
         }
 
-        // 如果账号已有代理，自动选中（基于云端代理列表）
+        // 同步后重新获取最新的 storedProxies
+        let proxies = storedProxies;
+        try {
+          const stored = await invoke<StoredProxy[]>("get_stored_proxies");
+          proxies = stored;
+        } catch {
+          // 用已有列表
+        }
+
+        // 如果账号已有代理，自动选中
         if (account.proxy_node) {
           const pn = account.proxy_node;
           let existing: StoredProxy | undefined;
@@ -1057,7 +1034,7 @@ export function BwbrowserCloudAccountsDialog({
         setProxyDialogLoading(false);
       }
     },
-    [],
+    [storedProxies, reloadStoredProxies],
   );
 
   // 保存账号代理
@@ -1087,7 +1064,7 @@ export function BwbrowserCloudAccountsDialog({
 
     if (!selectedProxyId) return;
 
-    const proxy = cloudProxyOptions.find((p) => p.id === selectedProxyId);
+    const proxy = storedProxies.find((p) => p.id === selectedProxyId);
     if (!proxy) return;
 
     setIsSavingProxy(true);
@@ -1141,19 +1118,19 @@ export function BwbrowserCloudAccountsDialog({
     } finally {
       setIsSavingProxy(false);
     }
-  }, [proxyDialogAccount, selectedProxyId, cloudProxyOptions, refresh]);
+  }, [proxyDialogAccount, selectedProxyId, storedProxies, refresh]);
 
   // 代理弹窗：搜索过滤 + 分页
   const filteredProxies = useMemo(() => {
-    if (!proxySearchQuery.trim()) return cloudProxyOptions;
+    if (!proxySearchQuery.trim()) return storedProxies;
     const q = proxySearchQuery.toLowerCase();
-    return cloudProxyOptions.filter(
+    return storedProxies.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.proxy_settings.host.includes(q) ||
         p.proxy_settings.proxy_type.toLowerCase().includes(q),
     );
-  }, [cloudProxyOptions, proxySearchQuery]);
+  }, [storedProxies, proxySearchQuery]);
 
   // VPS 代理：搜索过滤
   const vpsFilteredProxies = useMemo(() => {
@@ -1240,7 +1217,7 @@ export function BwbrowserCloudAccountsDialog({
     (proxyCurrentPage + 1) * PROXY_PAGE_SIZE,
   );
   const selectedProxy = selectedProxyId
-    ? cloudProxyOptions.find((p) => p.id === selectedProxyId)
+    ? storedProxies.find((p) => p.id === selectedProxyId)
     : null;
 
   // 启动浏览器：有环境用环境，没环境则创建 profile + 设置代理后启动
@@ -2996,7 +2973,24 @@ export function BwbrowserCloudAccountsDialog({
                       className="bg-muted"
                     />
                   </div>
+                  <div className="space-y-1">
+                    <div className="text-xs font-medium">分类</div>
+                    <Input
+                      value={editForm.category}
+                      onChange={(e) =>
+                        setEditForm((p) => ({
+                          ...p,
+                          category: e.target.value,
+                        }))
+                      }
+                      placeholder="账号分类"
+                      disabled={!editPerms.canEditAll}
+                      className={cn(
+                        !editPerms.canEditAll && "bg-muted opacity-70",
+                      )}
+                    />
                   </div>
+                </div>
                 <div className="space-y-1">
                   <div className="text-xs font-medium">登录账号</div>
                   <Input

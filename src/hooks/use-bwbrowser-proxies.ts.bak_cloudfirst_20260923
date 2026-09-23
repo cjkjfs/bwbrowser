@@ -61,7 +61,14 @@ export function useBwbrowserProxies(
     setIsLoading(true);
     setError(null);
     try {
-      // 以云端为优先：直接读取云端代理列表，不做本地校验比对
+      // 先同步云端代理到本地缓存（切换公司时跳过同步）
+      if (companyId == null) {
+        try {
+          await invoke("bwbrowser_sync_proxies_to_local");
+        } catch (e) {
+          console.warn("同步云端代理到本地失败:", e);
+        }
+      }
       const result = await invoke<BwbrowserProxy[]>("bwbrowser_list_proxies", {
         companyId: companyId ?? null,
       });

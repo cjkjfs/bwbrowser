@@ -18,6 +18,7 @@ import {
   LuKeyboard,
   LuLightbulb,
   LuNetwork,
+  LuPlug,
   LuPuzzle,
   LuSearch,
   LuTrash2,
@@ -284,10 +285,11 @@ const TOP_ITEMS: RailItem[] = [
   { page: "userManagement", Icon: LuUsers, labelKey: "rail.userManagement" },
   { page: "videoDownload", Icon: LuDownload, labelKey: "rail.videoDownload" },
   { page: "extensions", Icon: LuPuzzle, labelKey: "rail.extensions" },
+  { page: "integrations", Icon: LuPlug, labelKey: "rail.integrations" },
   { page: "account", Icon: LuCloud, labelKey: "rail.account" },
 ];
 
-const ADMIN_ONLY_PAGES: AppPage[] = ["profiles", "proxies"];
+const ADMIN_ONLY_PAGES: AppPage[] = ["profiles", "proxies", "integrations"];
 
 const ADMIN_ROLES = ["manager", "admin", "super_admin"];
 
