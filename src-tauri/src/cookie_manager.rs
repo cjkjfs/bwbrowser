@@ -1231,14 +1231,19 @@ impl CookieManager {
     source_user_data_dir: Option<String>,
   ) -> Result<CookieImportResult, String> {
     let (cookies, keyring_empty) = tokio::task::spawn_blocking(move || {
-      Self::read_chrome_login_cookies(source_profile_dir.as_deref(), source_user_data_dir.as_deref())
+      Self::read_chrome_login_cookies(
+        source_profile_dir.as_deref(),
+        source_user_data_dir.as_deref(),
+      )
     })
     .await
     .map_err(|e| format!("导入登录数据失败: {e}"))??;
 
     if cookies.is_empty() {
       if keyring_empty {
-        return Err("无法解密 Chrome 登录数据：未找到加密密钥（请先完全退出 Chrome 后重试）".to_string());
+        return Err(
+          "无法解密 Chrome 登录数据：未找到加密密钥（请先完全退出 Chrome 后重试）".to_string(),
+        );
       }
       return Err("Chrome 中未发现可导入的登录数据".to_string());
     }
@@ -1251,9 +1256,7 @@ impl CookieManager {
       return Ok(CookieImportResult {
         cookies_imported: result.cookies_imported,
         cookies_replaced: result.cookies_replaced,
-        errors: vec![
-          "部分加密登录数据未能解密（源 Chrome 的加密密钥未找到）".to_string(),
-        ],
+        errors: vec!["部分加密登录数据未能解密（源 Chrome 的加密密钥未找到）".to_string()],
       });
     }
 
@@ -1279,12 +1282,14 @@ impl CookieManager {
 
     let cookie_path = host_cookie_path(&prof_dir);
     if !cookie_path.is_file() {
-      return Err(format!("未找到 Chrome 的 Cookies 数据库: {}", cookie_path.display()));
+      return Err(format!(
+        "未找到 Chrome 的 Cookies 数据库: {}",
+        cookie_path.display()
+      ));
     }
 
     let mut report = ProfileImportReport::default();
-    let keyring =
-      recover_source_keys("chrome", &prof_dir, ud_dir.as_deref(), &mut report);
+    let keyring = recover_source_keys("chrome", &prof_dir, ud_dir.as_deref(), &mut report);
 
     let conn = Connection::open_with_flags(&cookie_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
       .map_err(|e| format!("无法打开 Chrome 的 Cookies 数据库: {e}"))?;
@@ -1374,7 +1379,18 @@ impl CookieManager {
   /// be read.
   #[allow(clippy::type_complexity)]
   fn decode_chrome_cookie_row(
-    (host_key, name, stored, path, expires_utc, is_secure, is_httponly, same_site, creation_utc, last_access_utc): (
+    (
+      host_key,
+      name,
+      stored,
+      path,
+      expires_utc,
+      is_secure,
+      is_httponly,
+      same_site,
+      creation_utc,
+      last_access_utc,
+    ): (
       String,
       String,
       Vec<u8>,
@@ -1419,7 +1435,11 @@ impl CookieManager {
       name,
       value,
       domain: host_key,
-      path: if path.is_empty() { "/".to_string() } else { path },
+      path: if path.is_empty() {
+        "/".to_string()
+      } else {
+        path
+      },
       expires: Self::unix_from_chrome(expires_utc),
       is_secure: is_secure != 0,
       is_http_only: is_httponly != 0,
@@ -1443,7 +1463,10 @@ impl CookieManager {
     #[cfg(windows)]
     {
       let local = std::env::var_os("LOCALAPPDATA")?;
-      let ud = PathBuf::from(local).join("Google").join("Chrome").join("User Data");
+      let ud = PathBuf::from(local)
+        .join("Google")
+        .join("Chrome")
+        .join("User Data");
       if ud.join("Local State").is_file() {
         Some((ud.join("Default"), ud))
       } else {

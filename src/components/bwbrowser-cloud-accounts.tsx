@@ -512,7 +512,7 @@ export function BwbrowserCloudAccountsDialog({
     tagInput: "",
     category: "",
     nickname: "",
-    phone_id: "",
+    device_id: "",
     bind_phone: "",
     safe_link: "",
     backup_email: "",
@@ -873,7 +873,7 @@ export function BwbrowserCloudAccountsDialog({
         tagInput: "",
         category: account.category ?? "",
         nickname: account.nickname ?? "",
-        phone_id: account.phone_id ?? "",
+        device_id: account.device_id ?? account.phone_id ?? "",
         bind_phone: account.bind_phone ?? "",
         safe_link: account.safe_link ?? "",
         backup_email: account.backup_email ?? "",
@@ -2907,11 +2907,11 @@ export function BwbrowserCloudAccountsDialog({
                   <div className="space-y-1">
                     <div className="text-xs font-medium">手机编号</div>
                     <Input
-                      value={editForm.phone_id}
+                      value={editForm.device_id}
                       onChange={(e) =>
                         setEditForm((p) => ({
                           ...p,
-                          phone_id: e.target.value,
+                          device_id: e.target.value,
                         }))
                       }
                       disabled={!editPerms.canEditAll}
@@ -3283,10 +3283,6 @@ export function BwbrowserCloudAccountsDialog({
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">账号类型</span>
-                      <span>{editDetail.account_type || "-"}</span>
-                    </div>
-                    <div className="flex justify-between">
                       <span className="text-muted-foreground">可见性</span>
                       <span>{editDetail.visibility || "-"}</span>
                     </div>
@@ -3301,10 +3297,6 @@ export function BwbrowserCloudAccountsDialog({
                       >
                         {editDetail.verified ? "已认证" : "未认证"}
                       </span>
-                    </div>
-                    <div className="col-span-2 flex justify-between">
-                      <span className="text-muted-foreground">上次登录IP</span>
-                      <span>{editDetail.last_login_ip || "-"}</span>
                     </div>
                     <div className="col-span-2 flex justify-between">
                       <span className="text-muted-foreground">Cookie 更新</span>
@@ -3368,7 +3360,7 @@ export function BwbrowserCloudAccountsDialog({
                   category: editForm.category.trim() || null,
                   nickname: editForm.nickname.trim() || null,
                   phoneId: editPerms.canEditAll
-                    ? editForm.phone_id.trim() || null
+                    ? editForm.device_id.trim() || null
                     : null,
                   bindPhone: editPerms.canEditAll
                     ? editForm.bind_phone.trim() || null

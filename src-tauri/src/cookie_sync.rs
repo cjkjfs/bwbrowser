@@ -1111,13 +1111,15 @@ pub async fn check_login_via_page(
     }
     Err(e) => {
       let err_str = e.to_string();
-      crate::bwbrowser_cloud::log_bwbrowser_error(
+
+      // Runtime.evaluate 被浏览器自动化网关限制（如 "requires a paid plan"）属预期情况，
+      // 走下方 DOM 兜底检测即可；仅打普通日志，不打 ERROR 刷屏。
+      crate::bwbrowser_cloud::log_bwbrowser(
         "cookie_sync",
-        &format!("check_login: Runtime.evaluate failed: {}", err_str),
+        &format!("check_login: Runtime.evaluate 受限({}), 尝试 DOM 兜底检测...", err_str),
       );
 
       // Fallback: try DOM.getDocument + DOM.querySelector
-      // Browser returns "requires a paid ... plan" when automation is gated.
       let needs_fallback = err_str.contains("paid")
         || err_str.contains("requires")
         || err_str.contains("wasn't found")

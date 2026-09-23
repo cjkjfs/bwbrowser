@@ -219,7 +219,7 @@ impl AppAutoUpdater {
   ) -> Result<Option<AppUpdateInfo>, Box<dyn std::error::Error + Send + Sync>> {
     let os = std::env::consts::OS; // "windows" | "macos" | "linux"
     let arch = std::env::consts::ARCH; // "x86_64" | "aarch64" | ...
-    // VPS returns the installer matching the requesting platform
+                                       // VPS returns the installer matching the requesting platform
     let url = format!(
       "https://www.yacm.xin/tk/bwbrowser_updates.php?action=check&version={}&os={}&arch={}",
       current_version, os, arch
