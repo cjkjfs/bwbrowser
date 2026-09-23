@@ -753,7 +753,11 @@ fn mask_password(pwd: &str) -> String {
   if pwd.len() <= 2 {
     return "***".to_string();
   }
-  format!("{}***{}", pwd.chars().next().unwrap_or('#'), pwd.chars().last().unwrap_or('#'))
+  format!(
+    "{}***{}",
+    pwd.chars().next().unwrap_or('#'),
+    pwd.chars().last().unwrap_or('#')
+  )
 }
 
 // ========== Tauri Commands ==========
@@ -3128,9 +3132,7 @@ pub async fn bwbrowser_sync_proxies_to_local(
           cp.proxy_type,
           cp.host,
           cp.port,
-          cp.protocol_config
-            .as_deref()
-            .map(|s| trunc(s, 100))
+          cp.protocol_config.as_deref().map(|s| trunc(s, 100))
         ),
       );
     }
@@ -3168,6 +3170,38 @@ pub async fn bwbrowser_sync_proxies_to_local(
       })
     };
     if !exists {
+      // 本机 xray 无法解析的高级协议节点（如 VLESS security=tls 等非 reality）:
+      // 仍按原始配置存入本地“仅显示”代理，保证它出现在设置代理下拉框，也不刷错误日志。
+      if cp.proxy_type == "vless" || cp.proxy_type == "trojan" {
+        let unparseable = match &cp_uri_extracted {
+          Some(uri) => match cp.proxy_type.as_str() {
+            "trojan" => crate::xray::parse_trojan_uri(uri).is_err(),
+            _ => crate::xray::parse_vless_uri(uri).is_err(),
+          },
+          None => true,
+        };
+        if unparseable {
+          match crate::proxy_manager::PROXY_MANAGER.insert_lenient_cloud_proxy(name, settings) {
+            Ok(stored) => {
+              log_bwbrowser(
+                "sync_proxies",
+                &format!(
+                  "  ✓ 以原始配置存入本机不支持的{}节点(仅显示): {}:{} -> {}",
+                  cp.proxy_type, cp.host, cp.port, stored.id
+                ),
+              );
+              created += 1;
+            }
+            Err(e) => {
+              log_bwbrowser_error(
+                "sync_proxies",
+                &format!("  ✗ 存入失败: {}:{} - {}", cp.host, cp.port, e),
+              );
+            }
+          }
+          continue;
+        }
+      }
       match crate::proxy_manager::PROXY_MANAGER.create_stored_proxy(&app_handle, name, settings) {
         Ok(mut stored) => {
           // 如果云端代理有时区信息，直接写入本地，省去重复解析
@@ -3678,13 +3712,8 @@ impl BwbrowserAuthManager {
       return Err(format!("服务器返回错误: {} - {}", status, body));
     }
 
-    let parsed: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
-      format!(
-        "解析JSON失败: {} - body: {}",
-        e,
-        trunc(&body, 200)
-      )
-    })?;
+    let parsed: serde_json::Value = serde_json::from_str(&body)
+      .map_err(|e| format!("解析JSON失败: {} - body: {}", e, trunc(&body, 200)))?;
 
     if !parsed
       .get("success")
@@ -4839,11 +4868,7 @@ async fn process_proxy_node_legacy(
     }
 
     // 新建 VLESS/Trojan 代理
-    let proxy_name = format!(
-      "云_{}_{}",
-      proxy_type,
-      trunc(&vless_uri, 40)
-    );
+    let proxy_name = format!("云_{}_{}", proxy_type, trunc(&vless_uri, 40));
     let settings = crate::browser::ProxySettings {
       proxy_type: proxy_type.to_string(),
       host: String::new(),
@@ -5861,7 +5886,14 @@ pub async fn bwbrowser_launch_account(
   // 整体启动超时兜底：防止某个联网/启动步骤永久挂起，导致进度卡在 95%
   tokio::time::timeout(
     std::time::Duration::from_secs(70),
-    launch_account_impl(app_handle, account_id, account_name, env_uuid, proxy_node, platform),
+    launch_account_impl(
+      app_handle,
+      account_id,
+      account_name,
+      env_uuid,
+      proxy_node,
+      platform,
+    ),
   )
   .await
   .map_err(|_| "账号启动超时：启动流程超过 70 秒未完成，请重试".to_string())

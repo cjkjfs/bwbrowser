@@ -1,8 +1,12 @@
 use crate::profile::manager::ProfileManager;
 use crate::profile::BrowserProfile;
+use crate::profile_import::os_crypt::{Decrypted, SourceKeyring};
+use crate::profile_import::report::ProfileImportReport;
+use crate::profile_import::{keyring::recover_source_keys, layout::host_cookie_path};
 use rusqlite::{params, Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
@@ -1209,6 +1213,247 @@ impl CookieManager {
         })
         .collect(),
     })
+  }
+
+  /// Import the login cookies (session tokens) from a local Chrome/Chromium
+  /// profile into the target account's cookie store, merging with whatever the
+  /// account already has (nothing is deleted). Used by the "import login data
+  /// into this account" entry point.
+  ///
+  /// `source_profile_dir` is the Chromium profile that holds `Network/Cookies`
+  /// (e.g. `.../Chrome/User Data/Default`). `source_user_data_dir` is the
+  /// directory holding `Local State` (the parent), from which the Chrome
+  /// DPAPI-wrapped encryption key is recovered on Windows.
+  pub async fn import_chrome_login_cookies(
+    app_handle: &AppHandle,
+    profile_id: &str,
+    source_profile_dir: Option<String>,
+    source_user_data_dir: Option<String>,
+  ) -> Result<CookieImportResult, String> {
+    let (cookies, keyring_empty) = tokio::task::spawn_blocking(move || {
+      Self::read_chrome_login_cookies(source_profile_dir.as_deref(), source_user_data_dir.as_deref())
+    })
+    .await
+    .map_err(|e| format!("导入登录数据失败: {e}"))??;
+
+    if cookies.is_empty() {
+      if keyring_empty {
+        return Err("无法解密 Chrome 登录数据：未找到加密密钥（请先完全退出 Chrome 后重试）".to_string());
+      }
+      return Err("Chrome 中未发现可导入的登录数据".to_string());
+    }
+
+    // ---- Merge into the target account via the existing Netscape pipeline ----
+    let text = Self::format_netscape_cookies(&cookies);
+    let result = Self::import_cookies(app_handle, profile_id, &text).await?;
+
+    if keyring_empty {
+      return Ok(CookieImportResult {
+        cookies_imported: result.cookies_imported,
+        cookies_replaced: result.cookies_replaced,
+        errors: vec![
+          "部分加密登录数据未能解密（源 Chrome 的加密密钥未找到）".to_string(),
+        ],
+      });
+    }
+
+    Ok(result)
+  }
+
+  /// Synchronous helper: read + decrypt the source Chrome cookie store.
+  fn read_chrome_login_cookies(
+    source_profile_dir: Option<&str>,
+    source_user_data_dir: Option<&str>,
+  ) -> Result<(Vec<UnifiedCookie>, bool), String> {
+    // Resolve the source Chrome profile + User Data dirs, defaulting to the
+    // machine's standard Chrome install when the caller passes nothing.
+    let (prof_dir, ud_dir) = match source_profile_dir {
+      Some(p) => (PathBuf::from(p), source_user_data_dir.map(PathBuf::from)),
+      None => match Self::default_chrome_dirs() {
+        Some((p, ud)) => (p, Some(ud)),
+        None => {
+          return Err("未找到本机 Chrome（可在调用时提供 Chrome 的用户数据目录）".to_string())
+        }
+      },
+    };
+
+    let cookie_path = host_cookie_path(&prof_dir);
+    if !cookie_path.is_file() {
+      return Err(format!("未找到 Chrome 的 Cookies 数据库: {}", cookie_path.display()));
+    }
+
+    let mut report = ProfileImportReport::default();
+    let keyring =
+      recover_source_keys("chrome", &prof_dir, ud_dir.as_deref(), &mut report);
+
+    let conn = Connection::open_with_flags(&cookie_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+      .map_err(|e| format!("无法打开 Chrome 的 Cookies 数据库: {e}"))?;
+
+    let has_cookies = conn
+      .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cookies'")
+      .ok()
+      .and_then(|mut s| s.exists([]).ok())
+      .unwrap_or(false);
+    if !has_cookies {
+      return Err("Chrome 的 Cookies 数据库中没有 cookies 表".to_string());
+    }
+
+    let source_version: i64 = conn
+      .query_row("SELECT value FROM meta WHERE key='version'", [], |r| {
+        r.get::<_, String>(0)
+      })
+      .ok()
+      .and_then(|v| v.parse().ok())
+      .unwrap_or(24);
+
+    let mut cookies: Vec<UnifiedCookie> = Vec::new();
+
+    let full = conn.prepare(
+      "SELECT host_key, name, encrypted_value, path, expires_utc, is_secure, is_httponly, \
+       samesite, creation_utc, last_access_utc FROM cookies",
+    );
+    if let Ok(mut stmt) = full {
+      let rows = stmt.query_map([], |row| {
+        Ok((
+          row.get::<_, String>(0)?,
+          row.get::<_, String>(1)?,
+          row.get::<_, Vec<u8>>(2).unwrap_or_default(),
+          row.get::<_, String>(3).unwrap_or_default(),
+          row.get::<_, i64>(4).unwrap_or(0),
+          row.get::<_, i64>(5).unwrap_or(0),
+          row.get::<_, i64>(6).unwrap_or(0),
+          row.get::<_, i64>(7).unwrap_or(0),
+          row.get::<_, i64>(8).unwrap_or(0),
+          row.get::<_, i64>(9).unwrap_or(0),
+        ))
+      });
+      if let Ok(mapped) = rows {
+        for row in mapped.flatten() {
+          if let Some(uc) = Self::decode_chrome_cookie_row(row, &keyring, source_version) {
+            cookies.push(uc);
+          }
+        }
+      }
+    } else {
+      // Older schema without the samesite/access columns.
+      let mut stmt = conn
+        .prepare("SELECT host_key, name, encrypted_value, path, expires_utc, is_secure, is_httponly, creation_utc FROM cookies")
+        .map_err(|e| format!("读取 cookies 表失败: {e}"))?;
+      let rows = stmt.query_map([], |row| {
+        let d = Self::decode_chrome_cookie_row(
+          (
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Vec<u8>>(2).unwrap_or_default(),
+            row.get::<_, String>(3).unwrap_or_default(),
+            row.get::<_, i64>(4).unwrap_or(0),
+            row.get::<_, i64>(5).unwrap_or(0),
+            row.get::<_, i64>(6).unwrap_or(0),
+            0,
+            0,
+            0,
+          ),
+          &keyring,
+          source_version,
+        );
+        Ok(d.map(|uc| (uc.domain.clone(), uc)))
+      });
+      if let Ok(mapped) = rows {
+        for row in mapped.flatten() {
+          if let Some((_, uc)) = row {
+            cookies.push(uc);
+          }
+        }
+      }
+    }
+
+    Ok((cookies, keyring.is_empty()))
+  }
+
+  /// Turn one decrypted row into an in-memory cookie, skipping rows that cannot
+  /// be read.
+  #[allow(clippy::type_complexity)]
+  fn decode_chrome_cookie_row(
+    (host_key, name, stored, path, expires_utc, is_secure, is_httponly, same_site, creation_utc, last_access_utc): (
+      String,
+      String,
+      Vec<u8>,
+      String,
+      i64,
+      i64,
+      i64,
+      i64,
+      i64,
+      i64,
+    ),
+    keyring: &SourceKeyring,
+    source_version: i64,
+  ) -> Option<UnifiedCookie> {
+    if name.is_empty() || host_key.is_empty() {
+      return None;
+    }
+
+    let value = if stored.is_empty() {
+      return None; // No plaintext column was read; nothing to carry.
+    } else {
+      match keyring.decrypt(&stored) {
+        Decrypted::Value(mut v) => {
+          if source_version >= 24 {
+            let expected: [u8; 32] = Sha256::digest(host_key.as_bytes()).into();
+            if v.len() >= 32 {
+              if v[..32] == expected {
+                v.drain(..32);
+              } else {
+                return None; // corrupt / belongs to another host
+              }
+            }
+          }
+          String::from_utf8_lossy(&v).into_owned()
+        }
+        Decrypted::NotEncrypted => String::from_utf8_lossy(&stored).into_owned(),
+        Decrypted::Unrecoverable => return None,
+      }
+    };
+
+    Some(UnifiedCookie {
+      name,
+      value,
+      domain: host_key,
+      path: if path.is_empty() { "/".to_string() } else { path },
+      expires: Self::unix_from_chrome(expires_utc),
+      is_secure: is_secure != 0,
+      is_http_only: is_httponly != 0,
+      same_site: same_site as i32,
+      creation_time: Self::unix_from_chrome(creation_utc),
+      last_accessed: Self::unix_from_chrome(last_access_utc),
+    })
+  }
+
+  /// Convert Chromium's micro-since-1601 timestamp to a unix timestamp seconds.
+  fn unix_from_chrome(t: i64) -> i64 {
+    if t <= 0 {
+      0
+    } else {
+      t / 1_000_000 - 11644473600
+    }
+  }
+
+  /// Locate the standard Chrome install's profile + User Data directories.
+  fn default_chrome_dirs() -> Option<(PathBuf, PathBuf)> {
+    #[cfg(windows)]
+    {
+      let local = std::env::var_os("LOCALAPPDATA")?;
+      let ud = PathBuf::from(local).join("Google").join("Chrome").join("User Data");
+      if ud.join("Local State").is_file() {
+        Some((ud.join("Default"), ud))
+      } else {
+        None
+      }
+    }
+    #[cfg(not(windows))]
+    {
+      None
+    }
   }
 
   /// Public API: Export cookies from a profile in the specified format

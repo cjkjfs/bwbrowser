@@ -252,6 +252,8 @@ interface RailNavProps {
    * see from where you are standing may as well not be observable at all.
    */
   cookieBotRunning?: boolean;
+  /** Import the local Chrome login data into the currently logged-in account. */
+  onImportChromeLogin?: () => void;
 }
 
 /** Shared-element indicator that slides between the active rail items. */
@@ -407,6 +409,7 @@ export function RailNav({
   onOpenAbout,
   onOpenTips,
   cookieBotRunning = false,
+  onImportChromeLogin,
 }: RailNavProps) {
   const { t } = useTranslation();
   const { user } = useBwbrowserAuth();
@@ -917,6 +920,18 @@ export function RailNav({
             onContextMenu={(e) => e.preventDefault()}
             onMouseDown={(e) => e.stopPropagation()}
           >
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
+              onClick={() => {
+                setVpsContextMenuOpen(false);
+                onImportChromeLogin?.();
+              }}
+            >
+              <LuDownload className="h-3.5 w-3.5 text-muted-foreground" />
+              导入登录数据
+            </button>
+            <div className="my-1 h-px bg-border" />
             <button
               type="button"
               className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"

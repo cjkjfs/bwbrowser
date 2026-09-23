@@ -595,6 +595,30 @@ async fn export_profile_cookies(profile_id: String, format: String) -> Result<St
   cookie_manager::CookieManager::export_cookies(&profile_id, &format)
 }
 
+/// Import the login cookies from a local Chrome profile into the current
+/// account's cookie store (merged, nothing deleted), then push the change up
+/// to the cloud so the login persists across devices.
+#[tauri::command]
+async fn import_chrome_login_cookies(
+  app_handle: tauri::AppHandle,
+  profile_id: String,
+  source_profile_dir: Option<String>,
+  source_user_data_dir: Option<String>,
+) -> Result<cookie_manager::CookieImportResult, String> {
+  let result = cookie_manager::CookieManager::import_chrome_login_cookies(
+    &app_handle,
+    &profile_id,
+    source_profile_dir,
+    source_user_data_dir,
+  )
+  .await?;
+
+  // Push the merged login data to the user's VPS account store.
+  queue_profile_cookie_sync(&profile_id);
+
+  Ok(result)
+}
+
 #[tauri::command]
 fn check_wayfern_terms_accepted() -> bool {
   wayfern_terms::WayfernTermsManager::instance().is_terms_accepted()
@@ -3651,6 +3675,7 @@ pub fn run_with_builder(
       analyze_pasted_cookies,
       import_pasted_cookies,
       export_profile_cookies,
+      import_chrome_login_cookies,
       check_wayfern_terms_accepted,
       check_wayfern_downloaded,
       accept_wayfern_terms,

@@ -8,6 +8,12 @@ import { useOnborda } from "onborda";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AboutDialog } from "@/components/about-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { AccountPage } from "@/components/account-page";
 import { AgentPage, type AgentTab } from "@/components/agent-page";
 import { BwbrowserCloudAccountsDialog } from "@/components/bwbrowser-cloud-accounts";
@@ -582,6 +588,43 @@ export default function Home() {
     setSelectedGroupId(groupId);
     setSelectedProfiles([]);
   }, []);
+
+  const [importChromePickOpen, setImportChromePickOpen] = useState(false);
+
+  const doImportChrome = useCallback(async (profileId: string) => {
+    try {
+      const res = await invoke<{
+        cookies_imported?: number;
+        errors?: string[];
+      }>("import_chrome_login_cookies", { profileId });
+      showSuccessToast(
+        `登录数据已导入 ${res?.cookies_imported ?? 0} 条并同步到云端`,
+        {
+          description:
+            res?.errors?.length && res.errors[0]
+              ? res.errors[0]
+              : undefined,
+        },
+      );
+    } catch (err) {
+      showErrorToast(
+        `导入登录数据失败: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }, []);
+
+  const handleImportChromeLogin = useCallback(async () => {
+    if (profiles.length === 0) {
+      showErrorToast("未加载到指纹环境，请先登录你的 VPS 账号");
+      return;
+    }
+    if (profiles.length === 1) {
+      await doImportChrome(profiles[0].id);
+      return;
+    }
+    // Multiple environments: let the user choose which account to import into.
+    setImportChromePickOpen(true);
+  }, [profiles, doImportChrome]);
 
   const handleRailNavigate = useCallback(
     (page: AppPage) => {
@@ -2343,6 +2386,7 @@ export default function Home() {
                 }}
                 onOpenTips={() => openTips()}
                 cookieBotRunning={Object.keys(cookieBotLiveSessions).length > 0}
+                onImportChromeLogin={handleImportChromeLogin}
               />
               <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
                 {currentPage === "profiles" && !isBwbrowserLogin && (
@@ -2685,6 +2729,40 @@ export default function Home() {
                 setAboutDialogOpen(false);
               }}
             />
+
+            <Dialog
+              open={importChromePickOpen}
+              onOpenChange={setImportChromePickOpen}
+            >
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>选择要导入登录数据的账号环境</DialogTitle>
+                </DialogHeader>
+                <div className="flex flex-col gap-2">
+                  {profiles.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent"
+                      onClick={() => {
+                        setImportChromePickOpen(false);
+                        void doImportChrome(p.id);
+                      }}
+                    >
+                      <span className="truncate">{p.name}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        导入此账号
+                      </span>
+                    </button>
+                  ))}
+                  {profiles.length === 0 && (
+                    <p className="px-2 text-sm text-muted-foreground">
+                      没有可用的环境，请先登录 VPS 账号。
+                    </p>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
 
             <PreLaunchGateDialog
               isOpen={gateState !== null}

@@ -693,6 +693,42 @@ impl ProxyManager {
     Ok(stored_proxy)
   }
 
+  /// 插入一个不校验 URI 的“仅显示”代理。
+  /// 云端存在本机 xray 无法解析的高级协议节点（如 VLESS security=tls 等非 reality）时，
+  /// 仍希望它出现在代理列表里，因此按原始配置直接存入，不做 reality 校验。
+  pub fn insert_lenient_cloud_proxy(
+    &self,
+    name: String,
+    proxy_settings: ProxySettings,
+  ) -> Result<StoredProxy, String> {
+    if name.trim().is_empty() {
+      return Err(serde_json::json!({ "code": "NAME_CANNOT_BE_EMPTY" }).to_string());
+    }
+
+    let stored = StoredProxy {
+      is_cloud_derived: true,
+      ..StoredProxy::new(name, proxy_settings)
+    };
+
+    {
+      let mut stored_proxies = self.stored_proxies.lock().unwrap();
+      for existing in stored_proxies.values() {
+        if existing.name == stored.name {
+          return Ok(existing.clone());
+        }
+      }
+      stored_proxies.insert(stored.id.clone(), stored.clone());
+    }
+
+    if let Err(e) = self.save_proxy(&stored) {
+      log::warn!("Failed to save lenient proxy: {e}");
+    }
+    if let Err(e) = events::emit_empty("proxies-changed") {
+      log::error!("Failed to emit proxies-changed event: {e}");
+    }
+    Ok(stored)
+  }
+
   // Check if a cloud-managed proxy exists
   pub fn has_cloud_proxy(&self) -> bool {
     let stored_proxies = self.stored_proxies.lock().unwrap();

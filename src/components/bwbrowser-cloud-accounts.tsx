@@ -459,6 +459,7 @@ export function BwbrowserCloudAccountsDialog({
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [copiedPasswordId, setCopiedPasswordId] = useState<number | null>(null);
   const [proxyDialogOpen, setProxyDialogOpen] = useState(false);
+  const [proxyDialogLoading, setProxyDialogLoading] = useState(false);
   const [proxyDialogAccount, setProxyDialogAccount] =
     useState<BwbrowserAccount | null>(null);
   const [selectedProxyId, setSelectedProxyId] = useState<string | null>(null);
@@ -982,51 +983,56 @@ export function BwbrowserCloudAccountsDialog({
       setProxyDialogAccount(account);
       setProxySearchQuery("");
       setProxyPage(0);
-
-      // 先同步云端代理到本地，确保本地有最新代理列表
-      try {
-        await invoke("bwbrowser_sync_proxies_to_local");
-        await reloadStoredProxies();
-      } catch (e) {
-        console.warn("同步云端代理到本地失败:", e);
-      }
-
-      // 同步后重新获取最新的 storedProxies
-      let proxies = storedProxies;
-      try {
-        const stored = await invoke<StoredProxy[]>("get_stored_proxies");
-        proxies = stored;
-      } catch {
-        // 用已有列表
-      }
-
-      // 如果账号已有代理，自动选中
-      if (account.proxy_node) {
-        const pn = account.proxy_node;
-        let existing: StoredProxy | undefined;
-        // VLESS/Trojan: 按 URI 匹配
-        if (pn.startsWith("vless://") || pn.startsWith("trojan://")) {
-          existing = proxies.find((p) => p.proxy_settings.vless_uri === pn);
-        } else {
-          // HTTP/SOCKS5: 按 host:port 匹配（支持 type:host:port 和旧格式 host:port）
-          const parts = pn.split(":");
-          const hostIdx = ["http", "socks5"].includes(parts[0].toLowerCase())
-            ? 1
-            : 0;
-          const host = parts[hostIdx];
-          const port =
-            parts.length >= hostIdx + 2 ? parseInt(parts[hostIdx + 1], 10) : 0;
-          existing = proxies.find(
-            (p) =>
-              p.proxy_settings.host === host && p.proxy_settings.port === port,
-          );
-        }
-        setSelectedProxyId(existing ? existing.id : null);
-      } else {
-        // 没有设置代理时，默认选中直连
-        setSelectedProxyId("__direct__");
-      }
+      // 先打开弹窗，再异步同步云端代理，避免弹窗被远程同步请求卡住
       setProxyDialogOpen(true);
+      setProxyDialogLoading(true);
+      try {
+        // 同步云端代理到本地，确保本地有最新代理列表（失败不阻塞，用已有列表）
+        try {
+          await invoke("bwbrowser_sync_proxies_to_local");
+          await reloadStoredProxies();
+        } catch (e) {
+          console.warn("同步云端代理到本地失败:", e);
+        }
+
+        // 同步后重新获取最新的 storedProxies
+        let proxies = storedProxies;
+        try {
+          const stored = await invoke<StoredProxy[]>("get_stored_proxies");
+          proxies = stored;
+        } catch {
+          // 用已有列表
+        }
+
+        // 如果账号已有代理，自动选中
+        if (account.proxy_node) {
+          const pn = account.proxy_node;
+          let existing: StoredProxy | undefined;
+          // VLESS/Trojan: 按 URI 匹配
+          if (pn.startsWith("vless://") || pn.startsWith("trojan://")) {
+            existing = proxies.find((p) => p.proxy_settings.vless_uri === pn);
+          } else {
+            // HTTP/SOCKS5: 按 host:port 匹配（支持 type:host:port 和旧格式 host:port）
+            const parts = pn.split(":");
+            const hostIdx = ["http", "socks5"].includes(parts[0].toLowerCase())
+              ? 1
+              : 0;
+            const host = parts[hostIdx];
+            const port =
+              parts.length >= hostIdx + 2 ? parseInt(parts[hostIdx + 1], 10) : 0;
+            existing = proxies.find(
+              (p) =>
+                p.proxy_settings.host === host && p.proxy_settings.port === port,
+            );
+          }
+          setSelectedProxyId(existing ? existing.id : null);
+        } else {
+          // 没有设置代理时，默认选中直连
+          setSelectedProxyId("__direct__");
+        }
+      } finally {
+        setProxyDialogLoading(false);
+      }
     },
     [storedProxies, reloadStoredProxies],
   );
@@ -2412,6 +2418,14 @@ export function BwbrowserCloudAccountsDialog({
             <LuX className="h-4 w-4" />
           </Button>
         </div>
+
+        {/* 同步云端代理提示 */}
+        {proxyDialogLoading && (
+          <div className="flex items-center justify-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
+            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
+            正在同步云端代理列表...
+          </div>
+        )}
 
         {/* 搜索栏 */}
         <div className="flex items-center gap-2 border-b px-4 py-2">
