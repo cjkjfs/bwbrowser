@@ -1290,6 +1290,11 @@ export function BwbrowserCloudAccountsDialog({
 
   // 正在进行后台时区解析的账号 id 集合（不阻塞 UI）
   const [geoPendingIds, setGeoPendingIds] = useState<Set<number>>(new Set());
+// 正在 VPS 登录浏览器中打开账号详情的账号 id 及进度（显示在昵称上方）
+  const [vpsLaunchingIds, setVpsLaunchingIds] = useState<Set<number>>(new Set());
+  const [vpsLaunchProgress, setVpsLaunchProgress] = useState<
+    Record<number, { pct: number; label: string }>
+  >({});
 
   const handleLaunchAccount = useCallback(
     async (account: BwbrowserAccount) => {
@@ -1357,6 +1362,97 @@ export function BwbrowserCloudAccountsDialog({
       }
     },
     [t],
+  );
+
+  // 平台级批量打开：打开当前筛选平台下的所有账号（复用账号级打开逻辑）
+  const openAllForPlatform = () => {
+    const targets = accounts.filter(
+      (a) => platformFilter === "all" || (a.platform ?? "") === platformFilter,
+    );
+    if (targets.length === 0) return;
+    const run = async () => {
+      for (const acc of targets) {
+        await handleOpenAccountInVps(acc);
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    };
+    void run();
+  };
+
+  // 在 VPS 登录浏览器中打开该账号的爆文库详情页
+const handleOpenAccountInVps = useCallback(
+    async (account: BwbrowserAccount) => {
+      const accountName = account.account_name || account.nickname || "";
+      if (!accountName) {
+        showErrorToast("该账号没有可用名称，无法打开爆文库详情");
+        return;
+      }
+      const accountId = account.id;
+      const platform = account.platform || null;
+
+      setVpsLaunchingIds((prev) => new Set(prev).add(accountId));
+      setVpsLaunchProgress((prev) => ({
+        ...prev,
+        [accountId]: { pct: 0, label: "正在启动爆文库..." },
+      }));
+
+      let unlistenProgress: (() => void) | undefined;
+      import("@tauri-apps/api/event")
+        .then(({ listen }) =>
+          listen<{ pct: number; label: string }>(
+            "vps-launch-progress",
+            (event) => {
+              const pct = Math.min(100, Math.max(0, event.payload.pct));
+              setVpsLaunchProgress((prev) => ({
+                ...prev,
+                [accountId]: {
+                  pct,
+                  label: event.payload.label || "正在启动爆文库...",
+                },
+              }));
+            },
+          ),
+        )
+        .then((fn) => {
+          unlistenProgress = fn;
+        })
+        .catch((e) => {
+          console.warn("failed to listen vps launch progress", e);
+        });
+
+      try {
+        const result = await invoke<string>(
+          "bwbrowser_open_account_detail_in_vps",
+          { accountName, platform },
+        );
+        setVpsLaunchProgress((prev) => ({
+          ...prev,
+          [accountId]: { pct: 100, label: "已打开" },
+        }));
+        if (result === "started_browser") {
+          showSuccessToast("已打开 VPS 登录浏览器，正在跳转账号详情...");
+        }
+        await handleRefresh();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        showErrorToast(`打开账号详情失败: ${translateBackendError(t, msg)}`);
+      } finally {
+        unlistenProgress?.();
+        setVpsLaunchingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(accountId);
+          return next;
+        });
+        setTimeout(() => {
+          setVpsLaunchProgress((prev) => {
+            const next = { ...prev };
+            delete next[accountId];
+            return next;
+          });
+        }, 1200);
+      }
+    },
+    [invoke, t, handleRefresh],
   );
 
   // 平台统计：始终用 summary 数据（来自 API 的全量统计，不依赖当前页）
@@ -1533,12 +1629,29 @@ export function BwbrowserCloudAccountsDialog({
             <LuChevronsUpDown className="h-3 w-3 opacity-50" />
           </button>
         ),
-        cell: ({ row }) => {
+cell: ({ row }) => {
           const account = row.original;
+          const vp = vpsLaunchProgress[account.id];
+          const vpsBusy = vpsLaunchingIds.has(account.id) || (vp && vp.pct < 100);
           return (
-            <span className="text-xs font-medium">
-              {account.account_name || account.nickname || "-"}
-            </span>
+            <div className="flex max-w-[180px] flex-col gap-1">
+              {vpsBusy && (
+                <div className="flex items-center gap-1 text-[10px] leading-none text-emerald-600">
+                  <LuLoaderCircle className="h-3 w-3 shrink-0 animate-spin" />
+                  <span className="truncate">
+                    {vp ? `${vp.label} ${Math.floor(vp.pct)}%` : "启动中..."}
+                  </span>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleOpenAccountInVps(account)}
+                title="在 VPS 登录浏览器中打开该账号的爆文库详情"
+                className="truncate text-left text-xs font-medium transition-colors hover:text-primary hover:underline"
+              >
+                {account.account_name || account.nickname || "-"}
+              </button>
+            </div>
           );
         },
         size: 160,
@@ -1849,10 +1962,21 @@ export function BwbrowserCloudAccountsDialog({
         size: 180,
       },
       {
-        accessorKey: "last_login_ip",
-        header: "上次登录IP",
-        cell: () => <span className="text-xs text-muted-foreground">-</span>,
-        size: 100,
+        accessorKey: "timezone",
+        header: "时区",
+        cell: ({ row }) => {
+          const account = row.original;
+          const tz = account.timezone ?? account.proxy_timezone ?? "";
+          return (
+            <span
+              className="text-xs text-muted-foreground truncate"
+              title={tz || undefined}
+            >
+              {tz || "-"}
+            </span>
+          );
+        },
+        size: 140,
       },
       {
         accessorKey: "cookie_updated_at",
@@ -2069,6 +2193,8 @@ export function BwbrowserCloudAccountsDialog({
     launchingIds,
     launchProgress,
     geoPendingIds,
+    vpsLaunchingIds,
+    vpsLaunchProgress,
     handleOpenProxyDialog,
     smsCodes,
     handleOpenEnvDialog,
@@ -2368,6 +2494,19 @@ export function BwbrowserCloudAccountsDialog({
             </span>
           </button>
         ))}
+        <div className="ml-auto flex shrink-0 items-center gap-1 pl-2 border-l border-border/40">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 text-xs"
+            onClick={() => void openAllForPlatform()}
+            title={"打开当前平台（" + getPlatformLabel(platformFilter) + "）下的全部账号"}
+          >
+            {platformFilter === "all"
+              ? "打开全部账号"
+              : "打开全部 " + getPlatformLabel(platformFilter)}
+          </Button>
+        </div>
       </div>
 
       {/* ========== 搜索栏 ========== */}

@@ -3828,6 +3828,7 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_delete_local_cookies,
       bwbrowser_cloud::bwbrowser_get_permissions,
       bwbrowser_cloud::bwbrowser_launch_account,
+        bwbrowser_cloud::bwbrowser_open_account_detail_in_vps,
       bwbrowser_cloud::bwbrowser_get_current_management_user,
       bwbrowser_cloud::bwbrowser_get_bwbrowser_cookies,
       bwbrowser_cloud::bwbrowser_update_bwbrowser_cookies,

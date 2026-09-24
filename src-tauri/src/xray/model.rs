@@ -513,7 +513,10 @@ mod tests {
     });
     let config: VlessRealityConfig = serde_json::from_value(value).unwrap();
     assert_eq!(config.flow, Some(VlessFlow::Vision));
-    assert_eq!(config.reality.as_ref().unwrap().fingerprint, RealityFingerprint::Chrome);
+    assert_eq!(
+      config.reality.as_ref().unwrap().fingerprint,
+      RealityFingerprint::Chrome
+    );
     assert_eq!(config.reality.as_ref().unwrap().short_id, "");
     assert_eq!(config.reality.as_ref().unwrap().spider_x, "/");
   }

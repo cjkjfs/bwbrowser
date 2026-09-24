@@ -37,6 +37,8 @@ export interface BwbrowserAccount {
   proxy_node?: string;
   proxy_country?: string;
   proxy_city?: string;
+  timezone?: string;
+  proxy_timezone?: string;
   proxy_id?: number | null;
   fingerprint_updated_at?: string | null;
   bind_person_id?: number;
@@ -46,7 +48,7 @@ export interface BwbrowserAccount {
   env_uuid?: string;
   phone_id?: string;
   account_nickname?: string;
-  last_login_ip?: string;
+
   backup_email?: string;
 }
 

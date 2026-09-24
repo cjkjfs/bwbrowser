@@ -208,7 +208,10 @@ pub fn export_vless_uri(config: &VlessRealityConfig, name: Option<&str>) -> Xray
     }
     match config.security {
       VlessSecurity::Reality => {
-        let reality = config.reality.as_ref().ok_or(XrayError::MissingField("reality"))?;
+        let reality = config
+          .reality
+          .as_ref()
+          .ok_or(XrayError::MissingField("reality"))?;
         query.append_pair("security", "reality");
         query.append_pair("sni", &reality.server_name);
         query.append_pair("fp", reality.fingerprint.as_str());
@@ -316,8 +319,6 @@ fn required_parameter<'a>(
     .map(String::as_str)
     .ok_or(XrayError::MissingField(name))
 }
-
-
 
 fn optional_value(
   parameters: &HashMap<String, String>,
@@ -500,7 +501,10 @@ mod tests {
       .replace("#Primary", "#Home%20server");
     let parsed = parse_vless_uri(&input).unwrap();
     assert_eq!(parsed.config.address, "2001:db8::1");
-    assert_eq!(parsed.config.reality.as_ref().unwrap().spider_x, "/search?q=hello world");
+    assert_eq!(
+      parsed.config.reality.as_ref().unwrap().spider_x,
+      "/search?q=hello world"
+    );
     assert_eq!(parsed.name.as_deref(), Some("Home server"));
   }
 

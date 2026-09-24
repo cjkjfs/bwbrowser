@@ -33,7 +33,10 @@ pub fn build_client_config(
 
   let stream_settings = match config.security {
     VlessSecurity::Reality => {
-      let reality = config.reality.as_ref().ok_or(XrayError::MissingField("reality"))?;
+      let reality = config
+        .reality
+        .as_ref()
+        .ok_or(XrayError::MissingField("reality"))?;
       json!({
         "network": "tcp",
         "security": "reality",
@@ -341,6 +344,8 @@ mod tests {
       error,
       XrayError::InvalidField { field: "pbk", .. }
     ));
-    assert!(!error.to_string().contains(&config.reality.as_ref().unwrap().public_key));
+    assert!(!error
+      .to_string()
+      .contains(&config.reality.as_ref().unwrap().public_key));
   }
 }

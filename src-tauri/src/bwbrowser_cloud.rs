@@ -600,6 +600,32 @@ fn trunc(s: &str, max: usize) -> String {
   format!("{}...", &s[..end])
 }
 
+/// 从账号 proxy_node 提取代理主机，用于列表补充时区。
+/// 兼容 node: 前缀、vless:// trojan:// URI、以及 socks5:host:port 等 type:host 形式。
+fn extract_proxy_host_from_node(node: &str) -> Option<String> {
+  if node.is_empty() {
+    return None;
+  }
+  let n = node
+    .strip_prefix(crate::cloud_proxy_manager::NODE_PREFIX)
+    .unwrap_or(node);
+  if n.starts_with("trojan://") {
+    return crate::xray::parse_trojan_uri(n)
+      .ok()
+      .map(|p| p.config.address.clone())
+      .filter(|a| !a.is_empty());
+  }
+  if n.starts_with("vless://") {
+    return crate::xray::parse_vless_uri(n)
+      .ok()
+      .map(|p| p.config.address.clone())
+      .filter(|a| !a.is_empty());
+  }
+  crate::cloud_proxy_manager::parse_proxy_node(n)
+    .map(|settings| settings.host)
+    .filter(|h| !h.is_empty())
+}
+
 fn parse_body<T: serde::de::DeserializeOwned>(action: &str, body: &str) -> Result<T, String> {
   if body.trim().is_empty() {
     let msg = "服务器返回了空响应".to_string();
@@ -782,7 +808,74 @@ pub fn bwbrowser_refresh_profile() -> Result<CloudUser, String> {
   BWBROWSER_AUTH.refresh_profile_sync()
 }
 
-/// 打开 VPS 自动登录 URL（使用当前云端账号凭证）
+/// 在 VPS 登录浏览器中打开爆文库账号详情页（已运行则新建标签，未运行则拉起 VPS 登录并跳转详情）
+#[tauri::command]
+pub async fn bwbrowser_open_account_detail_in_vps(
+  app_handle: tauri::AppHandle,
+  account_name: String,
+  platform: Option<String>,
+) -> Result<String, String> {
+  let plat = platform.as_deref().unwrap_or("tiktok");
+  let detail_url = build_baowenku_account_detail_url(&account_name, plat);
+  log_bwbrowser(
+    "open_account_in_vps",
+    &format!("  账号详情 URL: {}", &detail_url),
+  );
+
+  let profiles = crate::profile::manager::ProfileManager::instance()
+    .list_profiles()
+    .map_err(|e| format!("获取本地 profile 列表失败: {}", e))?;
+  let vps_profile = profiles
+    .into_iter()
+    .find(|p| p.name.to_lowercase() == "vps登录");
+
+  let runner = crate::browser_runner::BrowserRunner::instance();
+  match vps_profile {
+    Some(profile) => {
+      let is_running = runner
+        .check_browser_status(app_handle.clone(), &profile)
+        .await
+        .map_err(|e| format!("检查 VPS 浏览器状态失败: {}", e))?;
+      if is_running {
+        runner
+          .open_url_in_existing_browser(app_handle.clone(), &profile, &detail_url, None)
+          .await
+          .map_err(|e| format!("在 VPS 浏览器中打开账号详情失败: {}", e))?;
+        log_bwbrowser(
+          "open_account_in_vps",
+          "  ✓ 已在 VPS 浏览器中新建标签打开账号详情",
+        );
+        return Ok("opened_tab".to_string());
+      }
+      bwbrowser_open_vps_login(app_handle, Some(detail_url.clone()))
+        .await
+        .map_err(|e| format!("启动 VPS 登录浏览器失败: {}", e))?;
+      log_bwbrowser(
+        "open_account_in_vps",
+        "  ✓ 已拉起 VPS 登录浏览器并跳转账号详情",
+      );
+      Ok("started_browser".to_string())
+    }
+    None => {
+      bwbrowser_open_vps_login(app_handle, Some(detail_url.clone()))
+        .await
+        .map_err(|e| format!("启动 VPS 登录浏览器失败: {}", e))?;
+      Ok("started_browser".to_string())
+    }
+  }
+}
+
+/// 构造爆文库账号详情页 URL
+fn build_baowenku_account_detail_url(account_name: &str, platform: &str) -> String {
+  // 过滤昵称中的 @，避免被 urlencode 成 %40 导致搜索失败
+  let clean_name = account_name.replace('@', "");
+  format!(
+    "https://yacm.xin/tk/baowenku.php?tab=account&video_sort=play_desc&visibility=all&platform={}&owner_id=0&search={}",
+    urlencode(&platform.to_lowercase()),
+    urlencode(&clean_name),
+  )
+}
+
 #[tauri::command]
 pub async fn bwbrowser_open_vps_login(
   app_handle: tauri::AppHandle,
@@ -1865,7 +1958,7 @@ impl BwbrowserAuthManager {
 
       let body = body.trim_start_matches('\u{feff}');
       match serde_json::from_str::<BwbrowserAccountListResponse>(body) {
-        Ok(result) => {
+        Ok(mut result) => {
           if !result.success {
             let msg = result
               .message
@@ -1899,6 +1992,50 @@ impl BwbrowserAuthManager {
                   first.id, first.phone_id, first.owner_id, first.safe_link, first.bind_phone
                 ),
               );
+            }
+          }
+
+          // 补充账号时区：账号列表本身若无 timezone，从关联代理(proxy_id)读取刚解析的时区
+          if let Some(accts) = result.accounts.as_mut() {
+            if let Ok(cloud_proxies) = self.list_cloud_proxies(None).await {
+              let mut tz_by_id: std::collections::HashMap<i64, String> =
+                std::collections::HashMap::new();
+              let mut tz_by_host: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+              for p in cloud_proxies {
+                if let Some(tz) = p.timezone.as_deref() {
+                  if !tz.trim().is_empty() {
+                    tz_by_id.insert(p.proxy_id, tz.trim().to_string());
+                    tz_by_host
+                      .entry(p.host.clone())
+                      .or_insert_with(|| tz.trim().to_string());
+                  }
+                }
+              }
+              for acc in accts.iter_mut() {
+                if acc
+                  .timezone
+                  .as_deref()
+                  .map(|tt| !tt.trim().is_empty())
+                  .unwrap_or(false)
+                {
+                  continue;
+                }
+                let tz = acc
+                  .proxy_id
+                  .and_then(|pid| tz_by_id.get(&pid).cloned())
+                  .or_else(|| {
+                    acc
+                      .proxy_node
+                      .as_deref()
+                      .and_then(extract_proxy_host_from_node)
+                      .and_then(|h| tz_by_host.get(&h).cloned())
+                  })
+                  .or_else(|| acc.proxy_timezone.clone());
+                if let Some(tz) = tz {
+                  acc.timezone = Some(tz);
+                }
+              }
             }
           }
 
@@ -2181,6 +2318,10 @@ pub struct BwbrowserAccount {
   pub proxy_country: Option<String>,
   #[serde(default)]
   pub proxy_city: Option<String>,
+  #[serde(default)]
+  pub timezone: Option<String>,
+  #[serde(default)]
+  pub proxy_timezone: Option<String>,
   #[serde(default)]
   pub proxy_id: Option<i64>,
   #[serde(default)]
