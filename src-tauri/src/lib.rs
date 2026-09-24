@@ -3804,6 +3804,7 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_update_account_proxy,
       bwbrowser_cloud::bwbrowser_list_proxies,
       bwbrowser_cloud::bwbrowser_sync_proxy,
+      bwbrowser_cloud::bwbrowser_sync_proxy_geo,
       bwbrowser_cloud::bwbrowser_delete_proxy,
       bwbrowser_cloud::bwbrowser_sync_proxies_to_local,
       bwbrowser_cloud::bwbrowser_pull_proxy_to_local,

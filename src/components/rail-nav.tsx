@@ -583,38 +583,30 @@ export function RailNav({
       // 触发 logo 彩蛋动画
       handleClick();
 
-      let pct = 0;
-      let animationTimer: number | null = null;
+      let unlistenProgress: (() => void) | undefined;
 
-      const animateProgress = () => {
-        // 模拟启动进度：快速到 90%，然后慢慢接近 95% 等待实际完成
-        if (pct < 60) {
-          pct += 4 + Math.random() * 3;
-        } else if (pct < 85) {
-          pct += 1.5 + Math.random() * 1.5;
-        } else if (pct < 95) {
-          pct += 0.3 + Math.random() * 0.4;
-        }
-        if (pct > 95) pct = 95;
-
-        setVpsLaunchProgress(pct);
-
-        if (pct < 95) {
-          animationTimer = window.setTimeout(animateProgress, 120);
-        }
-      };
-
-      // 显示启动进度
       setVpsLaunchProgress(0);
-      animationTimer = window.setTimeout(animateProgress, 100);
+
+      // 监听后端真实启动进度，替代模拟动画
+      import("@tauri-apps/api/event")
+        .then(({ listen }) =>
+          listen<{ pct: number; label: string }>(
+            "vps-launch-progress",
+            (event) => {
+              const pct = Math.min(100, Math.max(0, event.payload.pct));
+              setVpsLaunchProgress(pct);
+            },
+          ),
+        )
+        .then((fn) => {
+          unlistenProgress = fn;
+        })
+        .catch((e) => {
+          console.warn("failed to listen vps launch progress", e);
+        });
 
       invoke("bwbrowser_open_vps_login")
         .then(() => {
-          // 启动成功，快速填满进度
-          if (animationTimer) {
-            clearTimeout(animationTimer);
-            animationTimer = null;
-          }
           setVpsLaunchProgress(100);
           setTimeout(() => {
             setVpsLaunchProgress(null);
@@ -622,13 +614,12 @@ export function RailNav({
           }, 500);
         })
         .catch((err: unknown) => {
-          if (animationTimer) {
-            clearTimeout(animationTimer);
-            animationTimer = null;
-          }
           setVpsLaunchProgress(null);
           const msg = err instanceof Error ? err.message : String(err);
           showErrorToast(`启动失败: ${msg}`);
+        })
+        .finally(() => {
+          unlistenProgress?.();
         });
     },
     [handleClick],

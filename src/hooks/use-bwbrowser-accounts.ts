@@ -35,6 +35,8 @@ export interface BwbrowserAccount {
   cookie_updated_at?: string | null;
   last_logged_in_at?: string | null;
   proxy_node?: string;
+  proxy_country?: string;
+  proxy_city?: string;
   proxy_id?: number | null;
   fingerprint_updated_at?: string | null;
   bind_person_id?: number;
@@ -65,6 +67,7 @@ export interface CloudUser {
   username?: string;
   real_name?: string;
   company_name?: string;
+  sector?: string; // 视频解说赛道，逗号分隔多值
   leave_status?: string; // normal / on_leave / pending / missed / rest / unknown
 }
 

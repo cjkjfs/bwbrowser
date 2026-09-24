@@ -30,7 +30,6 @@ import {
   LuPlay,
   LuRefreshCw,
   LuSearch,
-  LuTag,
   LuTrash2,
   LuUnplug,
   LuUserPlus,
@@ -176,6 +175,8 @@ interface CloudProxyItem {
   password: string | null;
   vless_uri: string | null;
   is_cloud_managed: boolean;
+  country?: string | null;
+  city?: string | null;
 }
 
 // ==================== 工具函数 ====================
@@ -420,6 +421,7 @@ export function BwbrowserCloudAccountsDialog({
   const [sorting, setSorting] = useState<SortingState>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [activeTab, setActiveTab] = useState("accounts");
+  const [sectorFilter, setSectorFilter] = useState<string | null>(null);
 
   const { isLoggedIn: isBwbrowserLoggedIn } = useBwbrowserAuth();
   const { isSuperAdmin: isSuperAdminPerm } = useBwbrowserPermissions();
@@ -480,7 +482,9 @@ export function BwbrowserCloudAccountsDialog({
   const [isSavingProxy, setIsSavingProxy] = useState(false);
   const [proxySearchQuery, setProxySearchQuery] = useState("");
   const [proxyPage, setProxyPage] = useState(0);
-  const [cloudProxyOptions, setCloudProxyOptions] = useState<StoredProxy[]>([]);
+  const [cloudProxyOptions, setCloudProxyOptions] = useState<
+    (StoredProxy & { country?: string | null; city?: string | null })[]
+  >([]);
   const PROXY_PAGE_SIZE = 10;
 
   // VPS 登录代理设置
@@ -1021,6 +1025,8 @@ export function BwbrowserCloudAccountsDialog({
               vless_uri: item.vless_uri ?? undefined,
             },
             is_cloud_managed: item.is_cloud_managed,
+            country: item.country ?? undefined,
+            city: item.city ?? undefined,
           }));
           setCloudProxyOptions(proxies);
         } catch (e) {
@@ -1410,6 +1416,7 @@ export function BwbrowserCloudAccountsDialog({
             count: o.count,
             leave_status: "unknown",
             statusStyle: s,
+            sectors: [],
           };
         })
         .sort((a, b) => b.count - a.count);
@@ -1437,12 +1444,31 @@ export function BwbrowserCloudAccountsDialog({
         count,
         leave_status: status,
         statusStyle: s,
+        sectors: (u.sector ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
       };
     });
 
     // 按账号数降序排列
     return result.sort((a, b) => b.count - a.count);
   }, [summary, users]);
+
+  // 所有赛道（去重，用于赛道筛选栏）
+  const allSectors = useMemo(() => {
+    const set = new Set<string>();
+    for (const o of ownerStats) {
+      for (const s of o.sectors) set.add(s);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "zh"));
+  }, [ownerStats]);
+
+  // 当前赛道筛选下可见的人员（含其账号数）
+  const visibleOwners = useMemo(() => {
+    if (!sectorFilter) return ownerStats;
+    return ownerStats.filter((o) => o.sectors.includes(sectorFilter));
+  }, [ownerStats, sectorFilter]);
 
   // 表格列定义
   const columns = useMemo<ColumnDef<BwbrowserAccount>[]>(() => {
@@ -1786,9 +1812,14 @@ export function BwbrowserCloudAccountsDialog({
             <button
               type="button"
               onClick={() => handleOpenProxyDialog(account)}
-              className="text-left"
+              className="flex min-w-0 items-center gap-1 text-left"
               title={proxy ? `${proxy}（点击更换）` : "点击设置代理"}
             >
+              {account.proxy_country && (
+                <span className="shrink-0 rounded bg-muted px-1 py-px text-[10px] font-medium text-muted-foreground truncate max-w-[70px]">
+                  {account.proxy_country}
+                </span>
+              )}
               {display ? (
                 <span className="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[110px] block">
                   {display}
@@ -1801,7 +1832,7 @@ export function BwbrowserCloudAccountsDialog({
             </button>
           );
         },
-        size: 110,
+        size: 180,
       },
       {
         accessorKey: "last_login_ip",
@@ -2057,40 +2088,35 @@ export function BwbrowserCloudAccountsDialog({
             className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-accent/50"
             onClick={() => {
               const toastId = "vps-launch-progress-cloud";
-              let pct = 0;
-              let animationTimer: number | null = null;
-
-              const animateProgress = () => {
-                if (pct < 60) {
-                  pct += 4 + Math.random() * 3;
-                } else if (pct < 85) {
-                  pct += 1.5 + Math.random() * 1.5;
-                } else if (pct < 95) {
-                  pct += 0.3 + Math.random() * 0.4;
-                }
-                if (pct > 95) pct = 95;
-
-                updateLaunchProgressToast(
-                  toastId,
-                  "正在启动爆文库...",
-                  pct,
-                  `${Math.floor(pct)}%`,
-                );
-
-                if (pct < 95) {
-                  animationTimer = window.setTimeout(animateProgress, 120);
-                }
-              };
+              let unlistenToast: (() => void) | undefined;
 
               showLaunchProgressToast(toastId, "正在启动爆文库...", 0, "0%");
-              animationTimer = window.setTimeout(animateProgress, 100);
+
+              // 监听后端真实启动进度，替代模拟动画
+              import("@tauri-apps/api/event")
+                .then(({ listen }) =>
+                  listen<{ pct: number; label: string }>(
+                    "vps-launch-progress",
+                    (event) => {
+                      const pct = Math.min(100, Math.max(0, event.payload.pct));
+                      updateLaunchProgressToast(
+                        toastId,
+                        event.payload.label || "正在启动爆文库...",
+                        pct,
+                        `${Math.floor(pct)}%`,
+                      );
+                    },
+                  ),
+                )
+                .then((fn) => {
+                  unlistenToast = fn;
+                })
+                .catch((e) => {
+                  console.warn("failed to listen vps launch progress", e);
+                });
 
               invoke("bwbrowser_open_vps_login")
                 .then(() => {
-                  if (animationTimer) {
-                    clearTimeout(animationTimer);
-                    animationTimer = null;
-                  }
                   updateLaunchProgressToast(
                     toastId,
                     "正在启动爆文库...",
@@ -2102,13 +2128,12 @@ export function BwbrowserCloudAccountsDialog({
                   }, 300);
                 })
                 .catch((err: unknown) => {
-                  if (animationTimer) {
-                    clearTimeout(animationTimer);
-                    animationTimer = null;
-                  }
                   dismissToast(toastId);
                   const msg = err instanceof Error ? err.message : String(err);
                   showErrorToast(`启动失败: ${msg}`);
+                })
+                .finally(() => {
+                  unlistenToast?.();
                 });
             }}
             onContextMenu={handleVpsLogoContextMenu}
@@ -2179,19 +2204,6 @@ export function BwbrowserCloudAccountsDialog({
           <LuUsers className="h-3.5 w-3.5" />
           全部账号
         </button>
-        <button
-          type="button"
-          onClick={() => showErrorToast("分组功能开发中")}
-          className={cn(
-            "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-            activeTab === "groups"
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground",
-          )}
-        >
-          <LuTag className="h-3.5 w-3.5" />
-          账号分组
-        </button>
       </div>
 
       {/* ========== 公司切换栏（仅超级管理员可见） ========== */}
@@ -2221,12 +2233,49 @@ export function BwbrowserCloudAccountsDialog({
         </div>
       )}
 
+      {/* ========== 赛道筛选栏（仅管理及以上角色可见） ========== */}
+      {(isManager || isSuperAdmin) && (
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-background/50 px-4 py-1.5 overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setSectorFilter(null)}
+            className={cn(
+              "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors border",
+              sectorFilter === null
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background text-muted-foreground hover:bg-muted border-border",
+            )}
+          >
+            全部赛道
+          </button>
+          {allSectors.map((s) => (
+            <button
+              type="button"
+              key={s}
+              onClick={() =>
+                setSectorFilter(sectorFilter === s ? null : s)
+              }
+              className={cn(
+                "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors border",
+                sectorFilter === s
+                  ? "bg-indigo-600 text-white border-indigo-600"
+                  : "bg-background text-muted-foreground hover:bg-muted border-border",
+              )}
+            >
+              {s}
+            </button>
+          ))}
+          {allSectors.length === 0 && (
+            <span className="shrink-0 text-xs text-muted-foreground/60">
+              暂无赛道
+            </span>
+          )}
+        </div>
+      )}
+
       {/* ========== 人员过滤栏（仅管理及以上角色可见） ========== */}
       {(isManager || isSuperAdmin) && (
         <div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-background/50 px-4 py-1.5 overflow-x-auto">
-          <span className="shrink-0 text-xs font-medium text-muted-foreground">
-            账号管理
-          </span>
           <button
             type="button"
             onClick={() => handleOwnerChange(null)}
@@ -2237,9 +2286,9 @@ export function BwbrowserCloudAccountsDialog({
                 : "bg-background text-muted-foreground hover:bg-muted border-border",
             )}
           >
-            全部账号
+            全部人员
           </button>
-          {ownerStats.map((owner) => (
+          {visibleOwners.map((owner) => (
             <button
               type="button"
               key={owner.owner_id}
@@ -2255,7 +2304,7 @@ export function BwbrowserCloudAccountsDialog({
               {owner.owner_name}
             </button>
           ))}
-          {usersLoading && ownerStats.length === 0 && (
+          {usersLoading && visibleOwners.length === 0 && (
             <span className="shrink-0 text-xs text-muted-foreground/60">
               加载中...
             </span>
@@ -2609,9 +2658,16 @@ export function BwbrowserCloudAccountsDialog({
                       </td>
                       <td className="px-2 py-2">
                         <div className="flex flex-col">
-                          <span className="text-xs font-medium">
-                            {proxy.name}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            {proxy.country && (
+                              <span className="inline-flex shrink-0 rounded bg-muted px-1 py-px text-[10px] font-medium text-muted-foreground">
+                                {proxy.country}
+                              </span>
+                            )}
+                            <span className="text-xs font-medium">
+                              {proxy.name}
+                            </span>
+                          </div>
                           <span className="font-mono text-[11px] text-muted-foreground">
                             {proxy.proxy_settings.host}:
                             {proxy.proxy_settings.port}

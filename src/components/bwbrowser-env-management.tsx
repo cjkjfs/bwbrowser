@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   ColumnDef,
@@ -111,7 +111,7 @@ const BROWSER_TYPES = [
   { value: "firefox", label: "Firefox" },
 ];
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 26;
 
 // ============================================================
 // 工具函数
@@ -1945,7 +1945,7 @@ export function BwbrowserEnvManagementDialog({
         ) : filteredEnvironments.length === 0 ? (
           <EmptyState viewType={viewType} searchQuery={searchQuery} />
         ) : (
-          <ScrollArea className="h-full max-h-[calc(90vh-180px)]">
+          <ScrollArea className="h-full max-h-[calc(96vh-120px)]">
             <Table>
               <TableHeader>
                 {table.getHeaderGroups().map((headerGroup) => (

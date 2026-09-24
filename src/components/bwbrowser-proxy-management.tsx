@@ -240,19 +240,47 @@ function StatusCell({ proxy }: { proxy: BwbrowserProxy }) {
 
 // ==================== 测试按钮 ====================
 
-function TestButton({ proxy }: { proxy: BwbrowserProxy }) {
+function TestButton({
+  proxy,
+  onTested,
+}: {
+  proxy: BwbrowserProxy;
+  onTested?: () => void;
+}) {
   const { t } = useTranslation();
   const stored = toStoredProxyFormat(proxy);
   const { checking } = useProxyCheck(stored);
 
   const handleTest = useCallback(async () => {
     try {
-      await runProxyCheck(stored, (error) => translateBackendError(t, error));
+      const result = await runProxyCheck(
+        stored,
+        (error) => translateBackendError(t, error),
+      );
+      // 云端代理测试成功且探测到国家时，自动回传国家/城市/时区到云端，
+      // 这样云端账号的国家就会自动显示（无需手动填写）
+      if (result?.is_valid && result.country && stored.is_cloud_managed) {
+        const numId = extractBwbrowserProxyId(stored.id);
+        if (numId !== null) {
+            // 等待回传完成后再刷新列表，确保该节点国家立即更新显示
+            try {
+              await invoke("bwbrowser_sync_proxy_geo", {
+                proxyId: numId,
+                country: result.country,
+                city: result.city ?? undefined,
+                timezone: result.timezone ?? undefined,
+              });
+              onTested?.();
+            } catch (e) {
+              console.error("回传国家到云端失败:", e);
+            }
+        }
+      }
     } catch (error) {
       // runProxyCheck 内部已经处理了 toast
       console.error("Proxy check failed:", error);
     }
-  }, [stored, t]);
+  }, [stored, t, onTested]);
 
   return (
     <button
@@ -499,6 +527,7 @@ export function BwbrowserProxyManagementDialog({
   onClose,
   embedded = false,
 }: BwbrowserProxyManagementDialogProps) {
+  const { t } = useTranslation();
   const { isLoggedIn: isBwbrowserLoggedIn } = useBwbrowserAuth();
   const { isSuperAdmin: isSuperAdminPerm } = useBwbrowserPermissions();
   const { companies, selectedCompanyId, setSelectedCompanyId } =
@@ -676,10 +705,88 @@ export function BwbrowserProxyManagementDialog({
     showErrorToast("功能开发中", { description: "导出功能即将上线，敬请期待" });
   };
 
-  const handleTestSelected = () => {
-    showErrorToast("功能开发中", {
-      description: "批量测试功能即将上线，敬请期待",
-    });
+  const handleTestSelected = async () => {
+    if (selectedIds.size === 0) return;
+    const targets = filteredProxies.filter((p) => selectedIds.has(p.id));
+    if (targets.length === 0) {
+      showErrorToast("没有可测试的代理", { description: "选中的代理已不存在" });
+      return;
+    }
+
+    let pass = 0;
+    let fail = 0;
+    let synced = 0;
+    let skipped = 0;
+
+    // 并发测试：同时最多 CONCURRENCY 个代理并行探测，可用且探测到国家的自动回传到云端
+    const CONCURRENCY = 5;
+    const total = targets.length;
+    let cursor = 0;
+
+    async function testOne(proxy: (typeof targets)[number]) {
+      const stored = toStoredProxyFormat(proxy);
+      try {
+        const result = await runProxyCheck(stored, (error) =>
+          translateBackendError(t, error),
+        );
+        if (result?.is_valid) {
+          pass += 1;
+          if (result.country && stored.is_cloud_managed) {
+            const numId = extractBwbrowserProxyId(stored.id);
+            if (numId !== null) {
+              try {
+                await invoke("bwbrowser_sync_proxy_geo", {
+                  proxyId: numId,
+                  country: result.country,
+                  city: result.city ?? undefined,
+                  timezone: result.timezone ?? undefined,
+                });
+                synced += 1;
+              } catch {
+                // 回传失败不阻断整体汇总，仅计数
+              }
+            }
+          }
+        } else {
+          fail += 1;
+        }
+      } catch {
+        fail += 1;
+      }
+    }
+
+    async function worker() {
+      while (cursor < total) {
+        const next = cursor++;
+        if (next >= total) break;
+        await testOne(targets[next]);
+      }
+    }
+
+    // 启动 CONCURRENCY 个 worker 并行消费任务队列
+    await Promise.allSettled(
+      Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker()),
+    );
+    skipped = total - pass - fail;
+
+    // 批量检测完成，刷新列表以更新各国国家显示
+    void refresh();
+
+    if (pass > 0) {
+      showSuccessToast(
+        `批量测试完成：可用 ${pass} / ${targets.length}`,
+        {
+          description:
+            synced > 0
+              ? `已回传 ${synced} 个代理国家到云端；可用 ${pass} 个，失败 ${fail} 个${skipped ? `，跳过 ${skipped} 个` : ""}`
+              : `可用 ${pass} 个，失败 ${fail} 个${skipped ? `，跳过 ${skipped} 个` : ""}`,
+        },
+      );
+    } else {
+      showErrorToast(`批量测试完成：全部不可用`, {
+        description: `失败 ${fail} 个${skipped ? `，跳过 ${skipped} 个` : ""}`,
+      });
+    }
   };
 
   // === 表格列定义 ===
@@ -816,7 +923,7 @@ export function BwbrowserProxyManagementDialog({
           const p = row.original;
           return (
             <div className="flex items-center gap-0.5">
-              <TestButton proxy={p} />
+              <TestButton proxy={p} onTested={() => void refresh()} />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -857,7 +964,7 @@ export function BwbrowserProxyManagementDialog({
         enableSorting: false,
       },
     ],
-    [proxyTypeFilter, handleEdit, handleDeleteClick, handlePullToLocal],
+    [proxyTypeFilter, handleEdit, handleDeleteClick, handlePullToLocal, refresh],
   );
 
   const table = useReactTable({
