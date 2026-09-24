@@ -1134,6 +1134,7 @@ export function BwbrowserCloudAccountsDialog({
       const tz = result?.timezone;
       const lang = result?.language;
       if (result?.geo_pending) {
+        setGeoPendingIds((prev) => new Set(prev).add(proxyDialogAccount.id));
         showSuccessToast("代理设置成功（时区后台解析中，稍后自动更新）");
       } else if (tz) {
         showSuccessToast(
@@ -1158,7 +1159,17 @@ export function BwbrowserCloudAccountsDialog({
     let unlisten: (() => void) | undefined;
     import("@tauri-apps/api/event").then(({ listen }) => {
       if (disposed) return;
-      void listen("proxy-geo-updated", () => {
+      void listen("proxy-geo-updated", (event) => {
+        const payload = event.payload as
+          | { account_id?: number }
+          | undefined;
+        if (payload && typeof payload.account_id === "number") {
+          setGeoPendingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(payload.account_id as number);
+            return next;
+          });
+        }
         void refresh();
       }).then((fn) => {
         unlisten = fn;
@@ -1276,6 +1287,9 @@ export function BwbrowserCloudAccountsDialog({
   const [launchProgress, setLaunchProgress] = useState<
     Record<number, { pct: number; label: string }>
   >({});
+
+  // 正在进行后台时区解析的账号 id 集合（不阻塞 UI）
+  const [geoPendingIds, setGeoPendingIds] = useState<Set<number>>(new Set());
 
   const handleLaunchAccount = useCallback(
     async (account: BwbrowserAccount) => {
@@ -2004,6 +2018,7 @@ export function BwbrowserCloudAccountsDialog({
         cell: ({ row }) => {
           const account = row.original;
           const isLaunching = launchingIds.has(account.id);
+          const geoPending = geoPendingIds.has(account.id);
           const progress = launchProgress[account.id];
           const pct = progress ? Math.floor(progress.pct) : 0;
           return (
@@ -2012,10 +2027,17 @@ export function BwbrowserCloudAccountsDialog({
               size="sm"
               className="h-6 max-w-[180px] px-2"
               onClick={() => void handleLaunchAccount(account)}
-              disabled={isLaunching}
-              title="启动浏览器"
+              disabled={isLaunching || geoPending}
+              title={geoPending ? "正在获取时区信息" : "启动浏览器"}
             >
-              {isLaunching ? (
+              {geoPending ? (
+                <>
+                  <LuLoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-500" />
+                  <span className="ml-1 truncate text-xs text-amber-600">
+                    正在获取时区信息
+                  </span>
+                </>
+              ) : isLaunching ? (
                 progress && progress.pct >= 100 ? (
                   <LuCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
                 ) : (
@@ -2024,15 +2046,16 @@ export function BwbrowserCloudAccountsDialog({
               ) : (
                 <LuPlay className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
               )}
-              {isLaunching && progress && progress.pct < 100 ? (
-                <span className="ml-1 truncate text-xs tabular-nums text-emerald-600">
-                  {progress.label} {pct}%
-                </span>
-              ) : (
-                <span className="ml-1 text-xs">
-                  {isLaunching ? (progress ? "已启动" : "启动中") : "启动浏览器"}
-                </span>
-              )}
+              {!geoPending &&
+                (isLaunching && progress && progress.pct < 100 ? (
+                  <span className="ml-1 truncate text-xs tabular-nums text-emerald-600">
+                    {progress.label} {pct}%
+                  </span>
+                ) : (
+                  <span className="ml-1 text-xs">
+                    {isLaunching ? (progress ? "已启动" : "启动中") : "启动浏览器"}
+                  </span>
+                ))}
             </Button>
           );
         },
@@ -2045,6 +2068,7 @@ export function BwbrowserCloudAccountsDialog({
     handleLaunchAccount,
     launchingIds,
     launchProgress,
+    geoPendingIds,
     handleOpenProxyDialog,
     smsCodes,
     handleOpenEnvDialog,

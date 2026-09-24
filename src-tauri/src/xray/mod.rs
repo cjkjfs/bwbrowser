@@ -10,6 +10,6 @@ pub use client::{
 pub use error::{XrayError, XrayResult};
 pub use model::{
   ParsedTrojanUri, ParsedVlessUri, RealityFingerprint, RealitySettings, TrojanConfig, VlessFlow,
-  VlessRealityConfig,
+  VlessRealityConfig, VlessSecurity, VlessTlsSettings,
 };
 pub use uri::{export_vless_uri, parse_trojan_uri, parse_vless_uri};

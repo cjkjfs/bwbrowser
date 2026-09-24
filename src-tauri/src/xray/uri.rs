@@ -7,7 +7,8 @@ use uuid::Uuid;
 
 use super::{
   model::validate_display_name, ParsedTrojanUri, ParsedVlessUri, RealityFingerprint,
-  RealitySettings, TrojanConfig, VlessFlow, VlessRealityConfig, XrayError, XrayResult,
+  RealitySettings, TrojanConfig, VlessFlow, VlessRealityConfig, VlessSecurity, VlessTlsSettings,
+  XrayError, XrayResult,
 };
 
 const SUPPORTED_PARAMETERS: &[&str] = &[
@@ -83,8 +84,18 @@ pub fn parse_vless_uri(input: &str) -> XrayResult<ParsedVlessUri> {
       });
     }
   }
-  require_value(&parameters, "security", "reality")?;
-  // flow is optional: some VLESS REALITY configs don't use flow control
+  let security = match parameters.get("security").map(String::as_str) {
+    Some("reality") => VlessSecurity::Reality,
+    Some("tls") => VlessSecurity::Tls,
+    None => VlessSecurity::Reality,
+    Some(_) => {
+      return Err(XrayError::UnsupportedValue {
+        field: "security",
+        expected: "reality or tls",
+      });
+    }
+  };
+  // flow is optional: some VLESS configs don't use flow control
   optional_value(&parameters, "flow", VlessFlow::Vision.as_str())?;
   optional_value(&parameters, "encryption", "none")?;
   optional_value(&parameters, "headerType", "none")?;
@@ -95,18 +106,40 @@ pub fn parse_vless_uri(input: &str) -> XrayResult<ParsedVlessUri> {
     return Err(XrayError::UnsupportedParameter(name));
   }
 
-  let server_name = required_parameter(&parameters, "sni")?.to_string();
-  let public_key = required_parameter(&parameters, "pbk")?.to_string();
-  let short_id = parameters.get("sid").cloned().unwrap_or_default();
-  let spider_x = parameters
-    .get("spx")
-    .cloned()
-    .unwrap_or_else(|| "/".to_string());
   let fingerprint = parameters
     .get("fp")
     .map(|value| RealityFingerprint::parse(value))
     .transpose()?
     .unwrap_or_default();
+
+  let server_name = required_parameter(&parameters, "sni")?.to_string();
+  let (reality, tls) = match security {
+    VlessSecurity::Reality => {
+      let public_key = required_parameter(&parameters, "pbk")?.to_string();
+      let short_id = parameters.get("sid").cloned().unwrap_or_default();
+      let spider_x = parameters
+        .get("spx")
+        .cloned()
+        .unwrap_or_else(|| "/".to_string());
+      (
+        Some(RealitySettings {
+          server_name,
+          public_key,
+          short_id,
+          fingerprint,
+          spider_x,
+        }),
+        None,
+      )
+    }
+    VlessSecurity::Tls => (
+      None,
+      Some(VlessTlsSettings {
+        server_name,
+        fingerprint,
+      }),
+    ),
+  };
 
   let name = url
     .fragment()
@@ -131,13 +164,9 @@ pub fn parse_vless_uri(input: &str) -> XrayResult<ParsedVlessUri> {
         .get("flow")
         .filter(|v| !v.is_empty())
         .map(|_| VlessFlow::Vision),
-      reality: RealitySettings {
-        server_name,
-        public_key,
-        short_id,
-        fingerprint,
-        spider_x,
-      },
+      security,
+      tls,
+      reality,
     },
   };
   parsed.validate()?;
@@ -177,12 +206,23 @@ pub fn export_vless_uri(config: &VlessRealityConfig, name: Option<&str>) -> Xray
     if let Some(flow) = config.flow {
       query.append_pair("flow", flow.as_str());
     }
-    query.append_pair("security", "reality");
-    query.append_pair("sni", &config.reality.server_name);
-    query.append_pair("fp", config.reality.fingerprint.as_str());
-    query.append_pair("pbk", &config.reality.public_key);
-    query.append_pair("sid", &config.reality.short_id);
-    query.append_pair("spx", &config.reality.spider_x);
+    match config.security {
+      VlessSecurity::Reality => {
+        let reality = config.reality.as_ref().ok_or(XrayError::MissingField("reality"))?;
+        query.append_pair("security", "reality");
+        query.append_pair("sni", &reality.server_name);
+        query.append_pair("fp", reality.fingerprint.as_str());
+        query.append_pair("pbk", &reality.public_key);
+        query.append_pair("sid", &reality.short_id);
+        query.append_pair("spx", &reality.spider_x);
+      }
+      VlessSecurity::Tls => {
+        let tls = config.tls.as_ref().ok_or(XrayError::MissingField("tls"))?;
+        query.append_pair("security", "tls");
+        query.append_pair("sni", &tls.server_name);
+        query.append_pair("fp", tls.fingerprint.as_str());
+      }
+    }
     query.append_pair("type", "tcp");
     query.append_pair("headerType", "none");
   }
@@ -277,20 +317,7 @@ fn required_parameter<'a>(
     .ok_or(XrayError::MissingField(name))
 }
 
-fn require_value(
-  parameters: &HashMap<String, String>,
-  name: &'static str,
-  expected: &'static str,
-) -> XrayResult<()> {
-  let value = required_parameter(parameters, name)?;
-  if value != expected {
-    return Err(XrayError::UnsupportedValue {
-      field: name,
-      expected,
-    });
-  }
-  Ok(())
-}
+
 
 fn optional_value(
   parameters: &HashMap<String, String>,
@@ -333,10 +360,7 @@ mod tests {
     let reason = |uri: &str| parse_vless_uri(uri).unwrap_err().reason_code();
 
     // Plain TLS instead of REALITY — the most common real-world setup.
-    assert_eq!(
-      reason(&good.replace("security=reality", "security=tls")),
-      "security"
-    );
+    assert!(parse_vless_uri(&good.replace("security=reality", "security=tls")).is_ok());
     assert_eq!(
       reason(&good.replace("flow=xtls-rprx-vision", "flow=none")),
       "flow"
@@ -461,14 +485,12 @@ mod tests {
     assert_eq!(parsed.config.port, 443);
     assert_eq!(parsed.config.id, ID);
     assert_eq!(parsed.config.flow, Some(VlessFlow::Vision));
-    assert_eq!(parsed.config.reality.server_name, "www.example.com");
-    assert_eq!(parsed.config.reality.public_key, public_key());
-    assert_eq!(parsed.config.reality.short_id, "0123456789abcdef");
-    assert_eq!(
-      parsed.config.reality.fingerprint,
-      RealityFingerprint::Chrome
-    );
-    assert_eq!(parsed.config.reality.spider_x, "/");
+    let reality = parsed.config.reality.as_ref().expect("reality");
+    assert_eq!(reality.server_name, "www.example.com");
+    assert_eq!(reality.public_key, public_key());
+    assert_eq!(reality.short_id, "0123456789abcdef");
+    assert_eq!(reality.fingerprint, RealityFingerprint::Chrome);
+    assert_eq!(reality.spider_x, "/");
   }
 
   #[test]
@@ -478,7 +500,7 @@ mod tests {
       .replace("#Primary", "#Home%20server");
     let parsed = parse_vless_uri(&input).unwrap();
     assert_eq!(parsed.config.address, "2001:db8::1");
-    assert_eq!(parsed.config.reality.spider_x, "/search?q=hello world");
+    assert_eq!(parsed.config.reality.as_ref().unwrap().spider_x, "/search?q=hello world");
     assert_eq!(parsed.name.as_deref(), Some("Home server"));
   }
 
@@ -515,12 +537,10 @@ mod tests {
       "vless://{ID}@vpn.example.com:443?flow=xtls-rprx-vision&security=reality&sni=www.example.com&pbk={key}"
     );
     let parsed = parse_vless_uri(&input).unwrap();
-    assert_eq!(
-      parsed.config.reality.fingerprint,
-      RealityFingerprint::Chrome
-    );
-    assert_eq!(parsed.config.reality.short_id, "");
-    assert_eq!(parsed.config.reality.spider_x, "/");
+    let reality = parsed.config.reality.as_ref().expect("reality");
+    assert_eq!(reality.fingerprint, RealityFingerprint::Chrome);
+    assert_eq!(reality.short_id, "");
+    assert_eq!(reality.spider_x, "/");
   }
 
   #[test]
@@ -559,7 +579,7 @@ mod tests {
   #[test]
   fn rejects_unsupported_security_transport_flow_and_encryption() {
     for (name, value) in [
-      ("security", "tls"),
+      ("security", "none"),
       ("type", "ws"),
       ("flow", ""),
       ("encryption", "auto"),

@@ -86,6 +86,29 @@ impl RealitySettings {
   }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VlessSecurity {
+  #[default]
+  Reality,
+
+  Tls,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VlessTlsSettings {
+  pub server_name: String,
+  #[serde(default)]
+  pub fingerprint: RealityFingerprint,
+}
+
+impl VlessTlsSettings {
+  pub fn validate(&self) -> XrayResult<()> {
+    validate_server_name(&self.server_name)
+  }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VlessRealityConfig {
@@ -94,7 +117,11 @@ pub struct VlessRealityConfig {
   pub id: String,
   #[serde(default)]
   pub flow: Option<VlessFlow>,
-  pub reality: RealitySettings,
+  #[serde(default)]
+  pub security: VlessSecurity,
+  #[serde(default)]
+  pub tls: Option<VlessTlsSettings>,
+  pub reality: Option<RealitySettings>,
 }
 
 impl VlessRealityConfig {
@@ -110,7 +137,16 @@ impl VlessRealityConfig {
       field: "id",
       reason: "must be a UUID",
     })?;
-    self.reality.validate()
+    match self.security {
+      VlessSecurity::Reality => match &self.reality {
+        Some(reality) => reality.validate(),
+        None => Err(XrayError::MissingField("reality")),
+      },
+      VlessSecurity::Tls => match &self.tls {
+        Some(tls) => tls.validate(),
+        None => Err(XrayError::MissingField("tls")),
+      },
+    }
   }
 }
 
@@ -311,13 +347,15 @@ mod tests {
       port: 443,
       id: "6d6e21a1-4829-4d2b-bc7f-1b25707b61e4".to_string(),
       flow: Some(VlessFlow::Vision),
-      reality: RealitySettings {
+      security: VlessSecurity::Reality,
+      tls: None,
+      reality: Some(RealitySettings {
         server_name: "www.example.com".to_string(),
         public_key: public_key(),
         short_id: "0123456789abcdef".to_string(),
         fingerprint: RealityFingerprint::Chrome,
         spider_x: "/".to_string(),
-      },
+      }),
     }
   }
 
@@ -402,7 +440,7 @@ mod tests {
   fn server_name_must_be_dns_name() {
     for server_name in ["", "203.0.113.5", "bad server"] {
       let mut config = valid_config();
-      config.reality.server_name = server_name.to_string();
+      config.reality.as_mut().unwrap().server_name = server_name.to_string();
       assert!(matches!(
         config.validate(),
         Err(XrayError::InvalidField { field: "sni", .. })
@@ -419,7 +457,7 @@ mod tests {
       "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
     ] {
       let mut config = valid_config();
-      config.reality.public_key = public_key.to_string();
+      config.reality.as_mut().unwrap().public_key = public_key.to_string();
       let error = config.validate().unwrap_err();
       assert!(matches!(
         error,
@@ -433,7 +471,7 @@ mod tests {
   fn short_id_accepts_empty_or_even_hex_up_to_sixteen_chars() {
     for short_id in ["", "ab", "0123456789abcdef", "ABCDEF"] {
       let mut config = valid_config();
-      config.reality.short_id = short_id.to_string();
+      config.reality.as_mut().unwrap().short_id = short_id.to_string();
       assert_eq!(config.validate(), Ok(()), "{short_id}");
     }
   }
@@ -442,7 +480,7 @@ mod tests {
   fn short_id_rejects_odd_non_hex_and_overlong_values() {
     for short_id in ["a", "xz", "0123456789abcdef00"] {
       let mut config = valid_config();
-      config.reality.short_id = short_id.to_string();
+      config.reality.as_mut().unwrap().short_id = short_id.to_string();
       assert!(matches!(
         config.validate(),
         Err(XrayError::InvalidField { field: "sid", .. })
@@ -454,7 +492,7 @@ mod tests {
   fn spider_x_must_be_safe_relative_path() {
     for spider_x in ["relative", "/line\nbreak"] {
       let mut config = valid_config();
-      config.reality.spider_x = spider_x.to_string();
+      config.reality.as_mut().unwrap().spider_x = spider_x.to_string();
       assert!(matches!(
         config.validate(),
         Err(XrayError::InvalidField { field: "spx", .. })
@@ -475,9 +513,9 @@ mod tests {
     });
     let config: VlessRealityConfig = serde_json::from_value(value).unwrap();
     assert_eq!(config.flow, Some(VlessFlow::Vision));
-    assert_eq!(config.reality.fingerprint, RealityFingerprint::Chrome);
-    assert_eq!(config.reality.short_id, "");
-    assert_eq!(config.reality.spider_x, "/");
+    assert_eq!(config.reality.as_ref().unwrap().fingerprint, RealityFingerprint::Chrome);
+    assert_eq!(config.reality.as_ref().unwrap().short_id, "");
+    assert_eq!(config.reality.as_ref().unwrap().spider_x, "/");
   }
 
   #[test]

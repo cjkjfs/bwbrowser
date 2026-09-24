@@ -1401,10 +1401,7 @@ pub async fn bwbrowser_set_vps_proxy(
       }
     }
   } else {
-    log_bwbrowser(
-      "set_vps_proxy",
-      "  已清除代理，启动时使用本机真实时区",
-    );
+    log_bwbrowser("set_vps_proxy", "  已清除代理，启动时使用本机真实时区");
   }
   Ok(())
 }
@@ -1757,7 +1754,9 @@ impl BwbrowserAuthManager {
 
     let result: BwbrowserProxySyncResponse = parse_body("api", &body)?;
     if !result.success {
-      let msg = result.message.unwrap_or_else(|| "同步代理地理信息失败".to_string());
+      let msg = result
+        .message
+        .unwrap_or_else(|| "同步代理地理信息失败".to_string());
       log_bwbrowser("sync_proxy_geo", &format!("  ✗ 回传失败: {}", msg));
       return Err(msg);
     }

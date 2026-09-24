@@ -479,6 +479,13 @@ export function useVideoDownload() {
         },
       );
 
+
+      // 任务元数据更新（解析到缩略图/标题/清晰度时，实时刷新列表，让预览图及时出现）
+      const unlistenTaskUpdated = await listen("video-download:task-updated", () => {
+        if (cancelled) return;
+        loadTasks();
+      });
+
       unlistenRef.current = [
         unlistenStarted,
         unlistenProgress,
@@ -488,6 +495,7 @@ export function useVideoDownload() {
         unlistenAdded,
         unlistenCookieRefreshed,
         unlistenTaskDeleted,
+        unlistenTaskUpdated,
       ];
     };
 

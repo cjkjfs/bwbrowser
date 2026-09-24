@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::{TrojanConfig, VlessRealityConfig, XrayError, XrayResult};
+use super::{TrojanConfig, VlessRealityConfig, VlessSecurity, XrayError, XrayResult};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -30,6 +30,44 @@ pub fn build_client_config(
 ) -> XrayResult<Value> {
   config.validate()?;
   runtime.validate()?;
+
+  let stream_settings = match config.security {
+    VlessSecurity::Reality => {
+      let reality = config.reality.as_ref().ok_or(XrayError::MissingField("reality"))?;
+      json!({
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "fingerprint": reality.fingerprint.as_str(),
+          "serverName": reality.server_name,
+          "publicKey": reality.public_key,
+          "shortId": reality.short_id,
+          "spiderX": reality.spider_x
+        },
+        "sockopt": {
+          "tcpKeepAliveIdle": 30,
+          "tcpKeepAliveInterval": 15
+        }
+      })
+    }
+    VlessSecurity::Tls => {
+      let tls = config.tls.as_ref().ok_or(XrayError::MissingField("tls"))?;
+      json!({
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": tls.server_name,
+          "fingerprint": tls.fingerprint.as_str(),
+          "allowInsecure": false
+        },
+        "sockopt": {
+          "tcpKeepAliveIdle": 30,
+          "tcpKeepAliveInterval": 15
+        }
+      })
+    }
+  };
 
   Ok(json!({
     "log": {
@@ -64,22 +102,7 @@ pub fn build_client_config(
           }]
         }]
       },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "fingerprint": config.reality.fingerprint.as_str(),
-          "serverName": config.reality.server_name,
-          "publicKey": config.reality.public_key,
-          "shortId": config.reality.short_id,
-          "spiderX": config.reality.spider_x
-        },
-        "sockopt": {
-          "tcpKeepAliveIdle": 30,
-          "tcpKeepAliveInterval": 15
-        }
-      }
+      "streamSettings": stream_settings
     }]
   }))
 }
@@ -182,7 +205,7 @@ fn validate_socks_credential(field: &'static str, value: &str) -> XrayResult<()>
 mod tests {
   use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 
-  use super::super::{RealityFingerprint, RealitySettings, VlessFlow};
+  use super::super::{RealityFingerprint, RealitySettings, VlessFlow, VlessSecurity};
   use super::*;
 
   fn valid_config() -> VlessRealityConfig {
@@ -191,13 +214,15 @@ mod tests {
       port: 443,
       id: "6d6e21a1-4829-4d2b-bc7f-1b25707b61e4".to_string(),
       flow: Some(VlessFlow::Vision),
-      reality: RealitySettings {
+      security: VlessSecurity::Reality,
+      tls: None,
+      reality: Some(RealitySettings {
         server_name: "www.example.com".to_string(),
         public_key: URL_SAFE_NO_PAD.encode([7_u8; 32]),
         short_id: "0123456789abcdef".to_string(),
         fingerprint: RealityFingerprint::Chrome,
         spider_x: "/".to_string(),
-      },
+      }),
     }
   }
 
@@ -310,12 +335,12 @@ mod tests {
   #[test]
   fn invalid_model_is_rejected_before_generation() {
     let mut config = valid_config();
-    config.reality.public_key = "secret-invalid-key".to_string();
+    config.reality.as_mut().unwrap().public_key = "secret-invalid-key".to_string();
     let error = build_client_config(&config, &runtime()).unwrap_err();
     assert!(matches!(
       error,
       XrayError::InvalidField { field: "pbk", .. }
     ));
-    assert!(!error.to_string().contains(&config.reality.public_key));
+    assert!(!error.to_string().contains(&config.reality.as_ref().unwrap().public_key));
   }
 }
