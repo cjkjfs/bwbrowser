@@ -240,6 +240,19 @@
         "cleaning": "以前のディレクトリを削除しています",
         "done": "完了"
       }
+    },
+    "misc": {
+      "title": "その他",
+      "import": "プロファイルをインポート",
+      "importDescription": "別のツールから取り込む",
+      "shortcuts": "キーボードショートカット",
+      "shortcutsDescription": "すべてのショートカットを表示",
+      "trash": "ゴミ箱",
+      "trashDescription": "削除したプロファイルを復元",
+      "tips": "ヒント",
+      "tipsDescription": "機能の使い方",
+      "about": "BW Browser について",
+      "aboutDescription": "バージョンとアプリ情報"
     }
   },
   "header": {
@@ -2353,20 +2366,6 @@
     "extensions": "拡張機能",
     "groups": "グループ",
     "settings": "設定",
-    "more": {
-      "label": "その他",
-      "closeAriaLabel": "メニューを閉じる",
-      "importProfile": "プロファイルをインポート",
-      "importProfileHint": "別のツールから取り込む",
-      "keyboardShortcuts": "キーボードショートカット",
-      "keyboardShortcutsHint": "すべてのショートカットを表示",
-      "about": "BW Browser について",
-      "aboutHint": "バージョンとアプリ情報",
-      "trash": "ゴミ箱",
-      "trashHint": "削除したプロファイルを復元",
-      "tips": "ヒント",
-      "tipsHint": "機能の使い方"
-    },
     "network": "ネットワーク",
     "integrations": "連携",
     "account": "アカウント",

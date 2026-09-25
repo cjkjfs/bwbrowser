@@ -624,6 +624,12 @@ fn perform_move(
   // takes effect without a restart.
   crate::app_dirs::set_custom_data_root(Some(destination.clone()));
 
+  // The copy carried the cache along at the root of the destination, because on
+  // an install that had never been relocated that is where the cache lived.
+  // `cache_dir()` now points one level down, so fold it in while both copies
+  // still exist rather than leaving the destination root holding a stale one.
+  fold_cache_entries_into_cache_dir(&destination);
+
   emit("cleaning", total.files, total.bytes, &total);
   if let Err(e) = std::fs::remove_dir_all(&source) {
     // The move already succeeded: the pointer is written and the copy is
@@ -643,6 +649,114 @@ fn perform_move(
     total.bytes
   );
   Ok(info_now())
+}
+
+/// Cache entries that sit directly under `app_dirs::cache_dir()`.
+///
+/// The migration below moves these and only these, so it can never pick up a
+/// profile, a browser binary or a stray file that happens to share the
+/// directory. A feature that starts writing to `cache_dir()` has to add its
+/// entry here, or a relocated install leaves that one behind on the old disk.
+const CACHE_ENTRY_NAMES: &[&str] = &[
+  "GeoLite2-ASN.mmdb",
+  "GeoLite2-City.mmdb",
+  "dns_blocklists",
+  "geoip_last_download",
+  "proxy_checks",
+  "proxy_workers",
+  "traffic_stats",
+  "version_cache",
+  "wayfern-entitlements",
+];
+
+/// Move the cache entries in `from` into `target`, leaving everything else
+/// where it is. Returns how many entries moved.
+///
+/// Best-effort by design: a cache is reconstructible, so a failure is logged
+/// and the app starts anyway rather than refusing to run over a GeoIP database.
+fn move_cache_entries(from: &Path, target: &Path) -> usize {
+  let Ok(entries) = std::fs::read_dir(from) else {
+    return 0;
+  };
+  let mut moved = 0;
+  for entry in entries.flatten() {
+    let path = entry.path();
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+      continue;
+    };
+    if !CACHE_ENTRY_NAMES.contains(&name) {
+      continue;
+    }
+    let destination = target.join(name);
+    if destination.exists() {
+      // The app has been writing to the new directory since the move, so what
+      // is already there is the live copy and this one is stale.
+      continue;
+    }
+    if let Err(e) = crate::profile::trash::move_dir(&path, &destination) {
+      log::warn!(
+        "Could not move the cache entry {} to {}: {e}",
+        path.display(),
+        destination.display()
+      );
+      continue;
+    }
+    moved += 1;
+  }
+  moved
+}
+
+/// Fold a cache left on the old disk into the directory the data now lives in.
+///
+/// `cache_dir` only learned to follow the directory chosen in Settings after
+/// moves had already shipped without it, so an install that moved its data
+/// still has GeoIP databases, traffic stats, proxy workers and the version
+/// cache sitting where the platform default used to be, tens of megabytes the
+/// move promised to relocate and never did. Runs at startup. With nothing
+/// chosen in Settings both paths are the same directory and it does nothing.
+pub fn migrate_legacy_cache_dir() {
+  if crate::app_dirs::custom_data_root().is_none() {
+    return;
+  }
+  let legacy = crate::app_dirs::default_cache_dir();
+  let target = crate::app_dirs::cache_dir();
+  if legacy == target || !legacy.is_dir() {
+    return;
+  }
+  let moved = move_cache_entries(&legacy, &target);
+  if moved == 0 {
+    return;
+  }
+  log::info!(
+    "Moved {moved} cache entries left at {} into {}",
+    legacy.display(),
+    target.display()
+  );
+  // Only removes the shell. Anything the move could not account for is not
+  // this function's to delete.
+  let _ = std::fs::remove_dir(&legacy);
+}
+
+/// Fold cache entries a move carried along at the root of the data directory
+/// into its `cache` subdirectory.
+///
+/// A move copies the data directory as it stands. On an install that had never
+/// been relocated the cache lived at that root, because the platform default
+/// doubled as the data directory, so the copy lands those entries beside the
+/// profiles while the running app now looks for them under `cache`.
+pub fn fold_cache_entries_into_cache_dir(data_dir: &Path) {
+  let target = crate::app_dirs::cache_dir();
+  if target == data_dir || !target.starts_with(data_dir) {
+    return;
+  }
+  let moved = move_cache_entries(data_dir, &target);
+  if moved > 0 {
+    log::info!(
+      "Moved {moved} cache entries out of {} into {}",
+      data_dir.display(),
+      target.display()
+    );
+  }
 }
 
 // --- Tauri commands ---
@@ -1036,5 +1150,44 @@ mod tests {
     if let Some(free) = available_space(temp.path()) {
       assert!(free > 0);
     }
+  }
+
+  #[test]
+  fn a_cache_migration_moves_cache_entries_and_nothing_else() {
+    let temp = tempfile::tempdir().unwrap();
+    let from = temp.path().join("old");
+    let to = temp.path().join("new");
+    std::fs::create_dir_all(from.join("traffic_stats")).unwrap();
+    std::fs::create_dir_all(from.join("proxy_workers")).unwrap();
+    write(&from.join("GeoLite2-City.mmdb"), b"db");
+    std::fs::create_dir_all(&to).unwrap();
+
+    // App state and stray files that share the directory must not be swept into
+    // a cache directory.
+    std::fs::create_dir_all(from.join("profiles").join("p1")).unwrap();
+    std::fs::create_dir_all(from.join("binaries")).unwrap();
+    write(&from.join("bwbrowser_debug.log"), b"log");
+
+    assert_eq!(move_cache_entries(&from, &to), 3);
+    assert!(to.join("traffic_stats").is_dir());
+    assert!(to.join("proxy_workers").is_dir());
+    assert!(to.join("GeoLite2-City.mmdb").is_file());
+    assert!(from.join("profiles").join("p1").is_dir());
+    assert!(from.join("binaries").is_dir());
+    assert!(from.join("bwbrowser_debug.log").is_file());
+    assert!(!from.join("traffic_stats").exists());
+  }
+
+  #[test]
+  fn a_cache_migration_leaves_the_live_copy_alone() {
+    let temp = tempfile::tempdir().unwrap();
+    let from = temp.path().join("old");
+    let to = temp.path().join("new");
+    write(&from.join("version_cache").join("stale.json"), b"stale");
+    write(&to.join("version_cache").join("live.json"), b"live");
+
+    assert_eq!(move_cache_entries(&from, &to), 0);
+    assert!(to.join("version_cache").join("live.json").is_file());
+    assert!(!to.join("version_cache").join("stale.json").exists());
   }
 }

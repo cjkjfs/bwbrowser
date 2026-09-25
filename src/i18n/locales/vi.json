@@ -240,6 +240,19 @@
         "cleaning": "Đang xoá thư mục cũ",
         "done": "Xong"
       }
+    },
+    "misc": {
+      "title": "Thêm",
+      "import": "Nhập profile",
+      "importDescription": "Đưa profile từ công cụ khác",
+      "shortcuts": "Phím tắt",
+      "shortcutsDescription": "Xem tất cả phím tắt",
+      "trash": "Thùng rác",
+      "trashDescription": "Khôi phục hồ sơ đã xóa",
+      "tips": "Mẹo",
+      "tipsDescription": "Hướng dẫn tính năng",
+      "about": "Giới thiệu về BW Browser",
+      "aboutDescription": "Phiên bản và thông tin ứng dụng"
     }
   },
   "header": {
@@ -2353,20 +2366,6 @@
     "extensions": "Tiện ích",
     "groups": "Nhóm",
     "settings": "Cài đặt",
-    "more": {
-      "label": "Thêm",
-      "closeAriaLabel": "Đóng menu",
-      "importProfile": "Nhập profile",
-      "importProfileHint": "Đưa profile từ công cụ khác",
-      "keyboardShortcuts": "Phím tắt",
-      "keyboardShortcutsHint": "Xem tất cả phím tắt",
-      "about": "Giới thiệu về BW Browser",
-      "aboutHint": "Phiên bản và thông tin ứng dụng",
-      "trash": "Thùng rác",
-      "trashHint": "Khôi phục hồ sơ đã xóa",
-      "tips": "Mẹo",
-      "tipsHint": "Hướng dẫn tính năng"
-    },
     "network": "Mạng",
     "integrations": "Tích hợp",
     "account": "Tài khoản",

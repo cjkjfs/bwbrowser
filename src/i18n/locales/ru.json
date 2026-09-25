@@ -242,6 +242,19 @@
         "cleaning": "Удаляем прежний каталог",
         "done": "Готово"
       }
+    },
+    "misc": {
+      "title": "Ещё",
+      "import": "Импорт профиля",
+      "importDescription": "Перенести профили из другого инструмента",
+      "shortcuts": "Сочетания клавиш",
+      "shortcutsDescription": "Показать все сочетания",
+      "trash": "Корзина",
+      "trashDescription": "Восстановить удалённые профили",
+      "tips": "Подсказки",
+      "tipsDescription": "Обзор возможностей",
+      "about": "О BW Browser",
+      "aboutDescription": "Версия и сведения о приложении"
     }
   },
   "header": {
@@ -2373,20 +2386,6 @@
     "extensions": "Расширения",
     "groups": "Группы",
     "settings": "Настройки",
-    "more": {
-      "label": "Ещё",
-      "closeAriaLabel": "Закрыть меню",
-      "importProfile": "Импорт профиля",
-      "importProfileHint": "Перенести профили из другого инструмента",
-      "keyboardShortcuts": "Сочетания клавиш",
-      "keyboardShortcutsHint": "Показать все сочетания",
-      "about": "О BW Browser",
-      "aboutHint": "Версия и сведения о приложении",
-      "trash": "Корзина",
-      "trashHint": "Восстановить удалённые профили",
-      "tips": "Подсказки",
-      "tipsHint": "Обзор возможностей"
-    },
     "network": "Сеть",
     "integrations": "Интеграции",
     "account": "Аккаунт",

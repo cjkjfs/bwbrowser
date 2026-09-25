@@ -2610,6 +2610,11 @@ pub fn run_with_builder(
     );
 
   builder.setup(|app| {
+      // Fold a cache left on the old disk into the directory the data now lives
+      // in. Runs before anything reads `cache_dir()`, so a relocated install
+      // stops writing to the system drive from its very next lookup.
+      data_root::migrate_legacy_cache_dir();
+
       // Recover ephemeral dir mappings from RAM-backed storage (tmpfs/ramdisk)
       ephemeral_dirs::recover_ephemeral_dirs();
 
@@ -2653,18 +2658,26 @@ pub fn run_with_builder(
         .focused(!headless)
         .visible(!headless);
 
+      // Where the webview engine keeps its own storage — cookies, localStorage,
+      // the HTTP cache. Tauri defaults it to `app_local_data_dir()/{identifier}`,
+      // which no data directory move touches; naming it here puts that state
+      // under the data directory, so a move leaves nothing behind.
+      //
+      // The e2e harness overrides it so a run stays self-contained, and pairs it
+      // with incognito: WKWebView ignores data_directory on macOS, so a
+      // non-persistent data store is the only way to keep engine storage off the
+      // host there, and it also stops WebView2/WebKitGTK caches from escaping
+      // the session on the other platforms. Durable app state is still exercised
+      // via DONUTBROWSER_DATA_ROOT.
       #[cfg(feature = "e2e")]
       let win_builder = match e2e_automation_profile_dir() {
           Some(profile_dir) => win_builder
             .data_directory(profile_dir.join("webview"))
-            // WKWebView ignores data_directory on macOS. Incognito gives every
-            // launched app process a non-persistent data store there, and also
-            // prevents WebView2/WebKitGTK caches from escaping the session on
-            // the other platforms. Durable app state is still exercised via
-            // DONUTBROWSER_DATA_ROOT; only browser-engine storage is ephemeral.
             .incognito(true),
-          None => win_builder,
+          None => win_builder.data_directory(app_dirs::webview_data_dir()),
       };
+      #[cfg(not(feature = "e2e"))]
+      let win_builder = win_builder.data_directory(app_dirs::webview_data_dir());
 
       // The app draws its own titlebar. macOS keeps the native one and makes
       // it transparent (below); Windows and Linux drop decorations entirely and

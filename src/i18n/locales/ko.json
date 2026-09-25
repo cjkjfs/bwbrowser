@@ -240,6 +240,19 @@
         "cleaning": "이전 디렉터리를 지우는 중",
         "done": "완료"
       }
+    },
+    "misc": {
+      "title": "더 보기",
+      "import": "프로필 가져오기",
+      "importDescription": "다른 도구에서 프로필 가져오기",
+      "shortcuts": "키보드 단축키",
+      "shortcutsDescription": "모든 단축키 보기",
+      "trash": "휴지통",
+      "trashDescription": "삭제한 프로필 복원",
+      "tips": "팁",
+      "tipsDescription": "기능 안내",
+      "about": "BW Browser 정보",
+      "aboutDescription": "버전 및 앱 정보"
     }
   },
   "header": {
@@ -2353,20 +2366,6 @@
     "extensions": "확장 프로그램",
     "groups": "그룹",
     "settings": "설정",
-    "more": {
-      "label": "더 보기",
-      "closeAriaLabel": "메뉴 닫기",
-      "importProfile": "프로필 가져오기",
-      "importProfileHint": "다른 도구에서 프로필 가져오기",
-      "keyboardShortcuts": "키보드 단축키",
-      "keyboardShortcutsHint": "모든 단축키 보기",
-      "about": "BW Browser 정보",
-      "aboutHint": "버전 및 앱 정보",
-      "trash": "휴지통",
-      "trashHint": "삭제한 프로필 복원",
-      "tips": "팁",
-      "tipsHint": "기능 안내"
-    },
     "network": "네트워크",
     "integrations": "통합",
     "account": "계정",

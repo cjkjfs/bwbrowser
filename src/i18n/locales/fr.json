@@ -241,6 +241,19 @@
         "cleaning": "Suppression de l'ancien répertoire",
         "done": "Terminé"
       }
+    },
+    "misc": {
+      "title": "Plus",
+      "import": "Importer un profil",
+      "importDescription": "Importer depuis un autre outil",
+      "shortcuts": "Raccourcis clavier",
+      "shortcutsDescription": "Voir tous les raccourcis",
+      "trash": "Corbeille",
+      "trashDescription": "Restaurer des profils supprimés",
+      "tips": "Astuces",
+      "tipsDescription": "Découverte des fonctions",
+      "about": "À propos de BW Browser",
+      "aboutDescription": "Version et informations sur l'application"
     }
   },
   "header": {
@@ -2363,20 +2376,6 @@
     "extensions": "Extensions",
     "groups": "Groupes",
     "settings": "Paramètres",
-    "more": {
-      "label": "Plus",
-      "closeAriaLabel": "Fermer le menu",
-      "importProfile": "Importer un profil",
-      "importProfileHint": "Importer depuis un autre outil",
-      "keyboardShortcuts": "Raccourcis clavier",
-      "keyboardShortcutsHint": "Voir tous les raccourcis",
-      "about": "À propos de BW Browser",
-      "aboutHint": "Version et informations sur l'application",
-      "trash": "Corbeille",
-      "trashHint": "Restaurer des profils supprimés",
-      "tips": "Astuces",
-      "tipsHint": "Découverte des fonctions"
-    },
     "network": "Réseau",
     "integrations": "Intégrations",
     "account": "Compte",

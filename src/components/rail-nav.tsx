@@ -1,13 +1,12 @@
-﻿"use client";
+"use client";
 
 import { invoke } from "@tauri-apps/api/core";
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { FaDownload } from "react-icons/fa";
 import { FiWifi } from "react-icons/fi";
-import { GoGear, GoKebabHorizontal } from "react-icons/go";
+import { GoGear } from "react-icons/go";
 import {
   LuChevronRight,
   LuCloud,
@@ -15,8 +14,6 @@ import {
   LuDownload,
   LuGlobe,
   LuInfo,
-  LuKeyboard,
-  LuLightbulb,
   LuNetwork,
   LuPuzzle,
   LuSearch,
@@ -242,9 +239,6 @@ function useLogoEasterEgg({
 interface RailNavProps {
   currentPage: AppPage;
   onNavigate: (page: AppPage) => void;
-  onOpenAbout: () => void;
-  /** Opens the feature tips catalog. */
-  onOpenTips: () => void;
   /**
    * A remote session is running right now. The Cookie Bot item carries a dot so
    * the state is legible from every other page — an overnight job you cannot
@@ -290,34 +284,6 @@ const TOP_ITEMS: RailItem[] = [
 const ADMIN_ONLY_PAGES: AppPage[] = ["profiles", "proxies"];
 
 const ADMIN_ROLES = ["manager", "admin", "super_admin"];
-
-interface MoreMenuItem {
-  page: AppPage;
-  Icon: React.ComponentType<{ className?: string }>;
-  labelKey: string;
-  hintKey: string;
-}
-
-const MORE_ITEMS: MoreMenuItem[] = [
-  {
-    page: "import",
-    Icon: FaDownload,
-    labelKey: "rail.more.importProfile",
-    hintKey: "rail.more.importProfileHint",
-  },
-  {
-    page: "shortcuts",
-    Icon: LuKeyboard,
-    labelKey: "rail.more.keyboardShortcuts",
-    hintKey: "rail.more.keyboardShortcutsHint",
-  },
-  {
-    page: "trash",
-    Icon: LuTrash2,
-    labelKey: "rail.more.trash",
-    hintKey: "rail.more.trashHint",
-  },
-];
 
 /** 底部用户信息卡片：显示头像、姓名、公司、套餐等 */
 export function UserInfoCard() {
@@ -404,8 +370,6 @@ export function UserInfoCard() {
 export function RailNav({
   currentPage,
   onNavigate,
-  onOpenAbout,
-  onOpenTips,
   cookieBotRunning = false,
   onImportChromeLogin,
 }: RailNavProps) {
@@ -419,7 +383,6 @@ export function RailNav({
     if (item.page === "videoDownload" && !canDownloadVideos) return false;
     return true;
   });
-  const [moreOpen, setMoreOpen] = useState(false);
   const {
     logoRef,
     isPressed,
@@ -432,17 +395,6 @@ export function RailNav({
     handleClick,
     playfulMotion,
   } = useLogoEasterEgg({ currentPage, onNavigate });
-
-  useEffect(() => {
-    if (!moreOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setMoreOpen(false);
-      }
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [moreOpen]);
 
   // ===== VPS 登录相关 =====
   const { storedProxies } = useProxyEvents();
@@ -770,31 +722,8 @@ export function RailNav({
           })}
         </div>
 
-        {/* 底部区域：更多 + 设置 */}
+        {/* 底部区域：设置 */}
         <div className="flex flex-col gap-1 px-2">
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => {
-                  setMoreOpen((v) => !v);
-                }}
-                aria-label={t("rail.more.label")}
-                aria-expanded={moreOpen}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-md px-2 py-2 transition-colors duration-100",
-                  moreOpen
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                )}
-              >
-                <GoKebabHorizontal className="size-4 shrink-0" />
-                <span className="truncate text-sm font-medium">更多功能</span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("rail.more.label")}</TooltipContent>
-          </Tooltip>
-
           <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
               <button
@@ -819,83 +748,6 @@ export function RailNav({
             <TooltipContent side="right">{t("rail.settings")}</TooltipContent>
           </Tooltip>
         </div>
-
-        {moreOpen && (
-          <>
-            <button
-              type="button"
-              aria-label={t("rail.more.closeAriaLabel")}
-              className="fixed inset-0 z-30 cursor-default bg-transparent"
-              onClick={() => {
-                setMoreOpen(false);
-              }}
-            />
-            <div
-              role="menu"
-              aria-label={t("rail.more.label")}
-              className="absolute bottom-28 left-3 z-40 w-56 rounded-lg bg-card p-1 text-card-foreground shadow-sm"
-            >
-              {MORE_ITEMS.map(({ page, Icon }) => (
-                <button
-                  key={page}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setMoreOpen(false);
-                    onNavigate(page);
-                  }}
-                  className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-100 hover:bg-accent hover:text-accent-foreground"
-                >
-                  <span className="grid size-5 shrink-0 place-items-center text-muted-foreground">
-                    <Icon className="size-3" />
-                  </span>
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate text-xs font-medium text-foreground">
-                      {RAIL_LABELS_ZH[page]}
-                    </span>
-                  </span>
-                </button>
-              ))}
-              <button
-                type="button"
-                role="menuitem"
-                data-slot="rail-open-tips"
-                onClick={() => {
-                  setMoreOpen(false);
-                  onOpenTips();
-                }}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-100 hover:bg-accent hover:text-accent-foreground"
-              >
-                <span className="grid size-5 shrink-0 place-items-center text-muted-foreground">
-                  <LuLightbulb className="size-3" />
-                </span>
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-xs font-medium text-foreground">
-                    使用技巧
-                  </span>
-                </span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMoreOpen(false);
-                  onOpenAbout();
-                }}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-100 hover:bg-accent hover:text-accent-foreground"
-              >
-                <span className="grid size-5 shrink-0 place-items-center text-muted-foreground">
-                  <LuInfo className="size-3" />
-                </span>
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-xs font-medium text-foreground">
-                    关于爆文
-                  </span>
-                </span>
-              </button>
-            </div>
-          </>
-        )}
       </nav>
 
       {/* VPS 右键菜单 - Portal 到 body，避免父级 transform 影响 fixed 定位 */}
@@ -934,6 +786,7 @@ export function RailNav({
             </button>
             <div className="my-1 h-px bg-border" />
             <div
+              role="group"
               className="relative"
               ref={cookieSubmenuRef}
               onMouseEnter={() => setCookieSubmenuOpen(true)}

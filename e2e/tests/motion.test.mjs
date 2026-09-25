@@ -257,13 +257,18 @@ test("first-run profile cutaway is interactive, isolated, and readable at both w
   );
 });
 
+/**
+ * About used to sit behind the rail's "More" menu. It is an entry in the
+ * Settings page now, so reaching it means opening Settings first.
+ */
+async function openAboutFromSettings(app) {
+  await app.clickSelector(`[aria-label="${en.rail.settings}"]`);
+  await app.clickSelector(slot("settings-misc-about"));
+  await waitForSelector(app, slot("about-logo"));
+}
+
 async function openReplay(app) {
-  await app.clickSelector(`[aria-label="${en.rail.more.label}"]`);
-  await waitForSelector(app, '[role="menu"]');
-  await app.clickText(en.rail.more.about, {
-    exact: false,
-    roles: ["menuitem"],
-  });
+  await openAboutFromSettings(app);
   await app.clickSelector(slot("isolation-demo-replay"));
   await waitForSelector(app, slot("profile-isolation-demo"));
 }
@@ -377,13 +382,7 @@ test("paused CSS animations cannot retain dismissed selects or dropdowns", async
         });
         await waitForSelector(app, slot("dropdown-menu-content"), false);
 
-        await app.clickSelector(`[aria-label="${en.rail.more.label}"]`);
-        await assertPopupReadable(app, '[role="menu"]');
-        await app.clickText(en.rail.more.about, {
-          exact: false,
-          roles: ["menuitem"],
-        });
-        await waitForSelector(app, '[role="menu"]', false);
+        await openAboutFromSettings(app);
         await app.clickSelector(slot("isolation-demo-replay"));
         await waitForSelector(app, slot("profile-isolation-demo"));
         await app.capture("paused-css-about-replay");
@@ -1756,15 +1755,7 @@ test("partial import receipts survive retry without duplicating successful profi
 test("About hides a snack drawer that responds to bites and resets on close", async () => {
   await withApp("motion-bwbrowser-snack", async (app) => {
     await resize(app, 760, 620);
-    const openAbout = async () => {
-      await app.clickSelector(`[aria-label="${en.rail.more.label}"]`);
-      await app.clickText(en.rail.more.about, {
-        roles: ["menuitem"],
-        exact: false,
-      });
-      await waitForSelector(app, slot("about-logo"));
-    };
-    await openAbout();
+    await openAboutFromSettings(app);
     await app.clickSelector(slot("about-logo"));
     await waitForSelector(app, slot("bwbrowser-snack"), false);
     await app.execute(
@@ -1805,7 +1796,7 @@ test("About hides a snack drawer that responds to bites and resets on close", as
     );
     await app.pressShortcut({ key: "Escape" });
     await waitForSelector(app, slot("bwbrowser-snack"), false);
-    await openAbout();
+    await openAboutFromSettings(app);
     await waitForSelector(app, slot("bwbrowser-snack"), false);
   });
 });

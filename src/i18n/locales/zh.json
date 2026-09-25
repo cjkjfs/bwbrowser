@@ -240,6 +240,19 @@
         "cleaning": "正在删除旧目录",
         "done": "完成"
       }
+    },
+    "misc": {
+      "title": "更多",
+      "import": "导入配置文件",
+      "importDescription": "从其他工具导入",
+      "shortcuts": "键盘快捷键",
+      "shortcutsDescription": "查看所有快捷键",
+      "trash": "回收站",
+      "trashDescription": "恢复已删除的配置文件",
+      "tips": "小贴士",
+      "tipsDescription": "功能演示",
+      "about": "关于 BW Browser",
+      "aboutDescription": "版本和应用信息"
     }
   },
   "header": {
@@ -2353,20 +2366,6 @@
     "extensions": "扩展",
     "groups": "分组",
     "settings": "设置",
-    "more": {
-      "label": "更多",
-      "closeAriaLabel": "关闭菜单",
-      "importProfile": "导入配置文件",
-      "importProfileHint": "从其他工具导入",
-      "keyboardShortcuts": "键盘快捷键",
-      "keyboardShortcutsHint": "查看所有快捷键",
-      "about": "关于 BW Browser",
-      "aboutHint": "版本和应用信息",
-      "trash": "回收站",
-      "trashHint": "恢复已删除的配置文件",
-      "tips": "小贴士",
-      "tipsHint": "功能演示"
-    },
     "network": "网络",
     "integrations": "集成",
     "account": "账号",

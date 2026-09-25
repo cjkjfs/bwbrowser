@@ -2827,10 +2827,10 @@ pub async fn bwbrowser_update_account_proxy(
   );
 
   {
-    let profile_name = &account_name;
+    let profile_name = account_profile_name(&account_name, account_id);
     log_bwbrowser(
       "update_account_proxy",
-      &format!("  account_name={}", profile_name),
+      &format!("  account_name+id={}", profile_name),
     );
 
     let pm = crate::profile::manager::ProfileManager::instance();
@@ -4846,7 +4846,10 @@ pub async fn bwbrowser_delete_cloud_cookies(account_id: i64) -> Result<(), Strin
 
 /// 删除本地 Cookie（清除指定账号的所有 Cookie 和浏览数据）
 #[tauri::command]
-pub async fn bwbrowser_delete_local_cookies(account_name: String) -> Result<(), String> {
+pub async fn bwbrowser_delete_local_cookies(
+  account_name: String,
+  account_id: Option<i64>,
+) -> Result<(), String> {
   use crate::profile::manager::ProfileManager;
 
   let pm = ProfileManager::instance();
@@ -4855,9 +4858,15 @@ pub async fn bwbrowser_delete_local_cookies(account_name: String) -> Result<(), 
     .list_profiles()
     .map_err(|e| format!("Failed to list profiles: {e}"))?;
 
+  // 有 account_id 时按「账号名+id」的唯一派生名匹配，同名不同账号互不干扰；
+  // 兼容旧调用：没有 id 时退回纯账号名匹配。
+  let lookup_name = match account_id {
+    Some(id) => account_profile_name(&account_name, id),
+    None => account_name.clone(),
+  };
   let matching: Vec<_> = profiles
     .into_iter()
-    .filter(|p| p.name.to_lowercase() == account_name.to_lowercase())
+    .filter(|p| p.name.to_lowercase() == lookup_name.to_lowercase())
     .collect();
 
   if matching.is_empty() {
@@ -6277,6 +6286,18 @@ async fn build_wayfern_config(
   }
 }
 
+/// 由「账号名 + 数据库唯一 id」派生本地 profile 名。
+/// 不同账号即使账号名相同（例如不同平台登记同一手机号）也各自独立，
+/// 不会命中同一个浏览器环境。账号名为空时退回纯 id 派生名。
+fn account_profile_name(account_name: &str, account_id: i64) -> String {
+  let name = account_name.trim();
+  if name.is_empty() {
+    format!("account_{}", account_id)
+  } else {
+    format!("{}_{}", name, account_id)
+  }
+}
+
 /// 启动云端账号浏览器：自动查找/创建 profile、设置代理、绑定环境
 #[tauri::command]
 pub async fn bwbrowser_launch_account(
@@ -6376,9 +6397,10 @@ async fn launch_account_impl(
   let server_proxy_node = {
     let pm = crate::profile::manager::ProfileManager::instance();
     let profiles = pm.list_profiles().unwrap_or_default();
+    let lookup_name = account_profile_name(&server_account_name, account_id);
     let existing = profiles
       .into_iter()
-      .find(|p| p.name.to_lowercase() == server_account_name.to_lowercase());
+      .find(|p| p.name.to_lowercase() == lookup_name.to_lowercase());
     if let Some(ref profile) = existing {
       if let Some(ref pid) = profile.proxy_id {
         if let Some(node) = pid.strip_prefix(crate::cloud_proxy_manager::NODE_PREFIX) {
@@ -6646,18 +6668,61 @@ async fn launch_account_impl(
 
   // 3. 查找已有 profile（用账号名作为 profile 名称）
   emit_progress(58, "准备本地配置...");
-  let profile_name = server_account_name.clone();
+  // 用「账号名 + account_id」派生唯一 profile 名：同名但不同账号（如不同平台同一
+  // 手机号）各自拥有独立浏览器，不再共用同一个本地环境。
+  let profile_name = account_profile_name(&server_account_name, account_id);
   log_bwbrowser(
     "launch_account",
-    &format!("  profile 名称: {}", profile_name),
+    &format!("  profile 名称（含账号 id）: {}", profile_name),
   );
   let existing = crate::profile::manager::ProfileManager::instance()
     .list_profiles()
     .map_err(|e| format!("获取本地 profile 列表失败: {}", e))?;
 
+  // 优先按派生名精确匹配。
   let existing_profile = existing
-    .into_iter()
-    .find(|p| p.name.to_lowercase() == profile_name.to_lowercase());
+    .iter()
+    .find(|p| p.name.to_lowercase() == profile_name.to_lowercase())
+    .cloned();
+
+  // 兜底：旧版本以纯账号名命名。若该账号全局唯一，则原地重命名为派生名以保留
+  // 已有浏览器指纹与登录态；若同名冲突（正是要修复的场景）则不迁移，走新建独立环境。
+  let existing_profile = match existing_profile {
+    Some(p) => Some(p),
+    None => {
+      let legacy: Vec<_> = existing
+        .iter()
+        .filter(|p| p.name.to_lowercase() == server_account_name.to_lowercase())
+        .collect();
+      if legacy.len() == 1 {
+        match crate::profile::manager::ProfileManager::instance().rename_profile(
+          &app_handle,
+          &legacy[0].id.to_string(),
+          &profile_name,
+        ) {
+          Ok(renamed) => {
+            log_bwbrowser(
+              "launch_account",
+              &format!(
+                "  迁移旧 profile: 重命名为 {}（保留浏览器环境）",
+                profile_name
+              ),
+            );
+            Some(renamed)
+          }
+          Err(e) => {
+            log_bwbrowser(
+              "launch_account",
+              &format!("  旧 profile 重命名失败，走新建独立环境: {}", e),
+            );
+            None
+          }
+        }
+      } else {
+        None
+      }
+    }
+  };
 
   let profile = match existing_profile {
     Some(mut p) => {

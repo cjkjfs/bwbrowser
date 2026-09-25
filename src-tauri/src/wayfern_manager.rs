@@ -2558,6 +2558,7 @@ impl WayfernManager {
       log::info!("Sizing Wayfern window to fingerprint dimensions: {w}x{h}");
       args.push(format!("--window-size={w},{h}"));
       args.push("--window-position=0,0".to_string());
+      args.push("--force-device-scale-factor=1".to_string());
     }
 
     #[cfg(target_os = "linux")]

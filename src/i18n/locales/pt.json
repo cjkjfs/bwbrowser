@@ -241,6 +241,19 @@
         "cleaning": "A remover o diretório anterior",
         "done": "Concluído"
       }
+    },
+    "misc": {
+      "title": "Mais",
+      "import": "Importar perfil",
+      "importDescription": "Trazer perfis de outra ferramenta",
+      "shortcuts": "Atalhos de teclado",
+      "shortcutsDescription": "Ver todos os atalhos",
+      "trash": "Lixeira",
+      "trashDescription": "Restaurar perfis excluídos",
+      "tips": "Dicas",
+      "tipsDescription": "Passo a passo dos recursos",
+      "about": "Sobre o BW Browser",
+      "aboutDescription": "Versão e informações do aplicativo"
     }
   },
   "header": {
@@ -2363,20 +2376,6 @@
     "extensions": "Extensões",
     "groups": "Grupos",
     "settings": "Configurações",
-    "more": {
-      "label": "Mais",
-      "closeAriaLabel": "Fechar menu",
-      "importProfile": "Importar perfil",
-      "importProfileHint": "Trazer perfis de outra ferramenta",
-      "keyboardShortcuts": "Atalhos de teclado",
-      "keyboardShortcutsHint": "Ver todos os atalhos",
-      "about": "Sobre o BW Browser",
-      "aboutHint": "Versão e informações do aplicativo",
-      "trash": "Lixeira",
-      "trashHint": "Restaurar perfis excluídos",
-      "tips": "Dicas",
-      "tipsHint": "Passo a passo dos recursos"
-    },
     "network": "Rede",
     "integrations": "Integrações",
     "account": "Conta",

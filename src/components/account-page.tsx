@@ -51,11 +51,8 @@ export function AccountPage({
     logout,
     refreshProfile,
   } = useCloudAuth();
-  const {
-    user: bwbrowserUser,
-    logout: bwbrowserLogout,
-    refreshProfile: bwbrowserRefresh,
-  } = useBwbrowserAuth();
+  const { user: bwbrowserUser, refreshProfile: bwbrowserRefresh } =
+    useBwbrowserAuth();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 

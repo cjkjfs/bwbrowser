@@ -39,20 +39,30 @@ fn data_root() -> Option<PathBuf> {
 }
 
 /// Where logs go when something other than the platform default applies:
-/// `<root>/logs` for `BWBROWSER_DATA_ROOT`, else `<exe dir>/logs` in
-/// portable mode. `None` means the platform default app log dir.
+/// `<root>/logs` for the directory chosen in Settings or
+/// `BWBROWSER_DATA_ROOT`, else `<exe dir>/logs` in portable mode. `None` means
+/// the platform default app log dir.
 ///
 /// Portable belongs here for the same reason `data_dir` and `cache_dir` honour
 /// it: a portable install is expected to keep its state beside the executable.
 /// Logs were the one thing still written to the host machine, which quietly
-/// defeated that.
+/// defeated that. The directory chosen in Settings belongs here for the same
+/// reason: a move that relocates every other byte of state and leaves the logs
+/// on the old disk has not really moved the install.
 pub fn log_dir_override() -> Option<PathBuf> {
-  log_dir_for(data_root(), portable_dir())
+  log_dir_for(custom_data_root(), data_root(), portable_dir())
 }
 
 /// Split out from `log_dir_override` so the precedence is testable without a
 /// real `.portable` marker sitting next to the test binary.
-fn log_dir_for(root: Option<PathBuf>, portable: Option<&PathBuf>) -> Option<PathBuf> {
+fn log_dir_for(
+  custom_root: Option<PathBuf>,
+  root: Option<PathBuf>,
+  portable: Option<&PathBuf>,
+) -> Option<PathBuf> {
+  if let Some(dir) = custom_root {
+    return Some(dir.join("logs"));
+  }
   if let Some(root) = root {
     return Some(root.join("logs"));
   }
@@ -343,19 +353,65 @@ pub fn cache_dir() -> PathBuf {
     }
   }
 
-  if let Ok(dir) = std::env::var("BWBROWSER_CACHE_DIR") {
-    return PathBuf::from(dir);
-  }
+  cache_dir_for(
+    cache_dir_env_override(),
+    custom_data_root().as_ref(),
+    data_root(),
+    portable_dir(),
+    base_dirs().cache_dir().join(app_name()),
+  )
+}
 
-  if let Some(root) = data_root() {
-    return root.join("cache");
+/// The cache directory resolution order, split out so it can be tested without
+/// mutating process-wide environment variables.
+///
+/// Mirrors `data_dir_for`, and for the same reason: the directory the user
+/// picked in Settings outranks the defaults for where state *would* live. It
+/// has to, or a move relocates profiles, binaries and settings while the GeoIP
+/// databases, traffic stats, proxy workers and version cache stay behind on the
+/// disk the user moved away from.
+fn cache_dir_for(
+  env_cache_dir: Option<PathBuf>,
+  custom_root: Option<&PathBuf>,
+  env_data_root: Option<PathBuf>,
+  portable: Option<&PathBuf>,
+  platform_default: PathBuf,
+) -> PathBuf {
+  if let Some(dir) = env_cache_dir {
+    return dir;
   }
-
-  if let Some(dir) = portable_dir() {
+  if let Some(dir) = custom_root {
     return dir.join("cache");
   }
+  if let Some(root) = env_data_root {
+    return root.join("cache");
+  }
+  if let Some(dir) = portable {
+    return dir.join("cache");
+  }
+  platform_default
+}
 
-  base_dirs().cache_dir().join(app_name())
+/// `BWBROWSER_CACHE_DIR`, when it names something. An empty value is treated as
+/// unset rather than as "the current working directory", matching how
+/// `data_dir_for` reads `BWBROWSER_DATA_DIR`.
+fn cache_dir_env_override() -> Option<PathBuf> {
+  std::env::var_os("BWBROWSER_CACHE_DIR")
+    .filter(|v| !v.is_empty())
+    .map(PathBuf::from)
+}
+
+/// Where the cache would resolve with no user choice recorded, mirroring
+/// `default_data_dir`. The migration that folds a pre-move cache into the
+/// directory now in use reads this to find what was left behind.
+pub fn default_cache_dir() -> PathBuf {
+  cache_dir_for(
+    cache_dir_env_override(),
+    None,
+    data_root(),
+    portable_dir(),
+    base_dirs().cache_dir().join(app_name()),
+  )
 }
 
 pub fn profiles_dir() -> PathBuf {
@@ -392,6 +448,20 @@ pub fn extensions_dir() -> PathBuf {
 
 pub fn dns_blocklist_dir() -> PathBuf {
   cache_dir().join("dns_blocklists")
+}
+
+/// Where the webview engine keeps its own storage — cookies, localStorage and
+/// the HTTP cache.
+///
+/// Tauri defaults this to `app_local_data_dir()/{bundle identifier}`, a
+/// directory no data directory move touches, so a relocated install leaves a
+/// second copy of app state on the disk the user moved away from. Naming it
+/// here puts that state under the data directory, where a move relocates it.
+///
+/// WKWebView ignores the path on macOS, so this only takes effect on Windows
+/// and Linux; naming it on every platform keeps the call site free of `cfg`.
+pub fn webview_data_dir() -> PathBuf {
+  data_dir().join("webview")
 }
 
 /// Resolve the directory that tauri-plugin-log writes to. Mirrors the
@@ -552,24 +622,32 @@ mod tests {
   fn log_dir_follows_portable_mode_and_data_root() {
     let root = PathBuf::from("/tmp/bwbrowser-root");
     let portable = PathBuf::from("/tmp/bwbrowser-portable");
+    let chosen = PathBuf::from("/Volumes/Big/BwBrowser");
 
     // Neither: the platform default app log dir is used.
-    assert_eq!(log_dir_for(None, None), None);
+    assert_eq!(log_dir_for(None, None, None), None);
 
     // Portable alone keeps logs beside the executable rather than on the host.
     assert_eq!(
-      log_dir_for(None, Some(&portable)),
+      log_dir_for(None, None, Some(&portable)),
       Some(portable.join("logs"))
     );
 
     // BWBROWSER_DATA_ROOT wins over portable, matching data_dir/cache_dir.
     assert_eq!(
-      log_dir_for(Some(root.clone()), Some(&portable)),
+      log_dir_for(None, Some(root.clone()), Some(&portable)),
       Some(root.join("logs"))
     );
     assert_eq!(
-      log_dir_for(Some(root.clone()), None),
+      log_dir_for(None, Some(root.clone()), None),
       Some(root.join("logs"))
+    );
+
+    // The directory chosen in Settings outranks both, so a moved install stops
+    // writing logs to the disk it moved away from.
+    assert_eq!(
+      log_dir_for(Some(chosen.clone()), Some(root), Some(&portable)),
+      Some(chosen.join("logs"))
     );
   }
 
@@ -632,7 +710,7 @@ mod tests {
     // a portable install leaves nothing behind on the host.
     let portable = PathBuf::from("/tmp/bwbrowser-portable");
     assert_eq!(
-      log_dir_for(None, Some(&portable)),
+      log_dir_for(None, None, Some(&portable)),
       Some(portable.join("logs"))
     );
     assert!(portable.join("data").starts_with(&portable));
@@ -688,6 +766,60 @@ mod tests {
     );
     assert_eq!(
       data_dir_for(None, None, None, None, default.clone()),
+      default
+    );
+  }
+
+  #[test]
+  fn cache_dir_resolution_order_follows_the_chosen_directory() {
+    let env_dir = PathBuf::from("/env/exact-cache");
+    let chosen = PathBuf::from("/Volumes/Big/BwBrowser");
+    let env_root = PathBuf::from("/env/root");
+    let portable = PathBuf::from("/stick");
+    let default = PathBuf::from("/home/user/.cache/BwBrowser");
+
+    // BWBROWSER_CACHE_DIR names an exact directory and outranks everything.
+    assert_eq!(
+      cache_dir_for(
+        Some(env_dir.clone()),
+        Some(&chosen),
+        Some(env_root.clone()),
+        Some(&portable),
+        default.clone(),
+      ),
+      env_dir
+    );
+
+    // The chosen directory keeps the cache inside itself, so it travels with a
+    // move instead of staying on the disk the user moved away from.
+    assert_eq!(
+      cache_dir_for(
+        None,
+        Some(&chosen),
+        Some(env_root.clone()),
+        Some(&portable),
+        default.clone(),
+      ),
+      chosen.join("cache")
+    );
+
+    // With nothing chosen the existing order is untouched.
+    assert_eq!(
+      cache_dir_for(
+        None,
+        None,
+        Some(env_root.clone()),
+        Some(&portable),
+        default.clone(),
+      ),
+      env_root.join("cache")
+    );
+    assert_eq!(
+      cache_dir_for(None, None, None, Some(&portable), default.clone()),
+      portable.join("cache")
+    );
+    assert_eq!(
+      cache_dir_for(None, None, None, None, default.clone()),
       default
     );
   }
@@ -755,6 +887,7 @@ mod tests {
     assert!(vpn_dir().ends_with("vpn"));
     assert!(extensions_dir().ends_with("extensions"));
     assert!(dns_blocklist_dir().ends_with("dns_blocklists"));
+    assert!(webview_data_dir().ends_with("webview"));
   }
 
   #[test]

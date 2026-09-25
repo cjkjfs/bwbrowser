@@ -1049,10 +1049,13 @@ export function BwbrowserCloudAccountsDialog({
               : 0;
             const host = parts[hostIdx];
             const port =
-              parts.length >= hostIdx + 2 ? parseInt(parts[hostIdx + 1], 10) : 0;
+              parts.length >= hostIdx + 2
+                ? parseInt(parts[hostIdx + 1], 10)
+                : 0;
             existing = proxies.find(
               (p) =>
-                p.proxy_settings.host === host && p.proxy_settings.port === port,
+                p.proxy_settings.host === host &&
+                p.proxy_settings.port === port,
             );
           }
           setSelectedProxyId(existing ? existing.id : null);
@@ -1160,9 +1163,7 @@ export function BwbrowserCloudAccountsDialog({
     import("@tauri-apps/api/event").then(({ listen }) => {
       if (disposed) return;
       void listen("proxy-geo-updated", (event) => {
-        const payload = event.payload as
-          | { account_id?: number }
-          | undefined;
+        const payload = event.payload as { account_id?: number } | undefined;
         if (payload && typeof payload.account_id === "number") {
           setGeoPendingIds((prev) => {
             const next = new Set(prev);
@@ -1290,8 +1291,10 @@ export function BwbrowserCloudAccountsDialog({
 
   // 正在进行后台时区解析的账号 id 集合（不阻塞 UI）
   const [geoPendingIds, setGeoPendingIds] = useState<Set<number>>(new Set());
-// 正在 VPS 登录浏览器中打开账号详情的账号 id 及进度（显示在昵称上方）
-  const [vpsLaunchingIds, setVpsLaunchingIds] = useState<Set<number>>(new Set());
+  // 正在 VPS 登录浏览器中打开账号详情的账号 id 及进度（显示在昵称上方）
+  const [vpsLaunchingIds, setVpsLaunchingIds] = useState<Set<number>>(
+    new Set(),
+  );
   const [vpsLaunchProgress, setVpsLaunchProgress] = useState<
     Record<number, { pct: number; label: string }>
   >({});
@@ -1380,7 +1383,7 @@ export function BwbrowserCloudAccountsDialog({
   };
 
   // 在 VPS 登录浏览器中打开该账号的爆文库详情页
-const handleOpenAccountInVps = useCallback(
+  const handleOpenAccountInVps = useCallback(
     async (account: BwbrowserAccount) => {
       const accountName = account.account_name || account.nickname || "";
       if (!accountName) {
@@ -1452,7 +1455,7 @@ const handleOpenAccountInVps = useCallback(
         }, 1200);
       }
     },
-    [invoke, t, handleRefresh],
+    [t, handleRefresh],
   );
 
   // 平台统计：始终用 summary 数据（来自 API 的全量统计，不依赖当前页）
@@ -1629,10 +1632,11 @@ const handleOpenAccountInVps = useCallback(
             <LuChevronsUpDown className="h-3 w-3 opacity-50" />
           </button>
         ),
-cell: ({ row }) => {
+        cell: ({ row }) => {
           const account = row.original;
           const vp = vpsLaunchProgress[account.id];
-          const vpsBusy = vpsLaunchingIds.has(account.id) || (vp && vp.pct < 100);
+          const vpsBusy =
+            vpsLaunchingIds.has(account.id) || (vp && vp.pct < 100);
           return (
             <div className="flex max-w-[180px] flex-col gap-1">
               {vpsBusy && (
@@ -1948,7 +1952,7 @@ cell: ({ row }) => {
                 </span>
               )}
               {display ? (
-                <span className="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[110px] block">
+                <span className="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[220px] block">
                   {display}
                 </span>
               ) : (
@@ -1959,7 +1963,7 @@ cell: ({ row }) => {
             </button>
           );
         },
-        size: 180,
+        size: 260,
       },
       {
         accessorKey: "timezone",
@@ -2043,6 +2047,7 @@ cell: ({ row }) => {
                     try {
                       await invoke("bwbrowser_delete_local_cookies", {
                         accountName: account.account_name || String(account.id),
+                        accountId: account.id,
                       });
                       showSuccessToast("本地 Cookie 已清除");
                     } catch (err) {
@@ -2177,7 +2182,11 @@ cell: ({ row }) => {
                   </span>
                 ) : (
                   <span className="ml-1 text-xs">
-                    {isLaunching ? (progress ? "已启动" : "启动中") : "启动浏览器"}
+                    {isLaunching
+                      ? progress
+                        ? "已启动"
+                        : "启动中"
+                      : "启动浏览器"}
                   </span>
                 ))}
             </Button>
@@ -2208,6 +2217,7 @@ cell: ({ row }) => {
     copiedPasswordId,
     onNavigateToEnvManagement,
     handleOpenEdit,
+    handleOpenAccountInVps,
   ]);
 
   const table = useReactTable({
@@ -2363,7 +2373,9 @@ cell: ({ row }) => {
             切换公司
           </span>
           <Select
-            value={selectedCompanyId !== null ? String(selectedCompanyId) : "my"}
+            value={
+              selectedCompanyId !== null ? String(selectedCompanyId) : "my"
+            }
             onValueChange={(val) =>
               setSelectedCompanyId(val === "my" ? null : Number(val))
             }
@@ -2402,9 +2414,7 @@ cell: ({ row }) => {
             <button
               type="button"
               key={s}
-              onClick={() =>
-                setSectorFilter(sectorFilter === s ? null : s)
-              }
+              onClick={() => setSectorFilter(sectorFilter === s ? null : s)}
               className={cn(
                 "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors border",
                 sectorFilter === s
@@ -2500,11 +2510,15 @@ cell: ({ row }) => {
             variant="outline"
             className="h-7 gap-1 text-xs"
             onClick={() => void openAllForPlatform()}
-            title={"打开当前平台（" + getPlatformLabel(platformFilter) + "）下的全部账号"}
+            title={
+              "打开当前平台（" +
+              getPlatformLabel(platformFilter) +
+              "）下的全部账号"
+            }
           >
             {platformFilter === "all"
               ? "打开全部账号"
-              : "打开全部 " + getPlatformLabel(platformFilter)}
+              : `打开全部 ${getPlatformLabel(platformFilter)}`}
           </Button>
         </div>
       </div>
@@ -3261,7 +3275,7 @@ cell: ({ row }) => {
                       className="bg-muted"
                     />
                   </div>
-                  </div>
+                </div>
                 <div className="space-y-1">
                   <div className="text-xs font-medium">登录账号</div>
                   <Input

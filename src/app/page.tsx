@@ -8,12 +8,6 @@ import { useOnborda } from "onborda";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AboutDialog } from "@/components/about-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { AccountPage } from "@/components/account-page";
 import { AgentPage, type AgentTab } from "@/components/agent-page";
 import { BwbrowserCloudAccountsDialog } from "@/components/bwbrowser-cloud-accounts";
@@ -64,6 +58,12 @@ import { SynchronizerPanel } from "@/components/synchronizer-panel";
 import { ThankYouDialog } from "@/components/thank-you-dialog";
 import { TipsDialog } from "@/components/tips-dialog";
 import { TrashPage } from "@/components/trash-page";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { UserManagementPage } from "@/components/user-management-page";
 import { VideoDownloadPage } from "@/components/video-download-page";
 import { WayfernConfigDialog } from "@/components/wayfern-config-dialog";
@@ -601,9 +601,7 @@ export default function Home() {
         `登录数据已导入 ${res?.cookies_imported ?? 0} 条并同步到云端`,
         {
           description:
-            res?.errors?.length && res.errors[0]
-              ? res.errors[0]
-              : undefined,
+            res?.errors?.length && res.errors[0] ? res.errors[0] : undefined,
         },
       );
     } catch (err) {
@@ -2381,10 +2379,6 @@ export default function Home() {
               <RailNav
                 currentPage={currentPage}
                 onNavigate={handleRailNavigate}
-                onOpenAbout={() => {
-                  setAboutDialogOpen(true);
-                }}
-                onOpenTips={() => openTips()}
                 cookieBotRunning={Object.keys(cookieBotLiveSessions).length > 0}
                 onImportChromeLogin={handleImportChromeLogin}
               />
@@ -2525,6 +2519,19 @@ export default function Home() {
                       setSettingsDialogOpen(false);
                       setIntegrationsDialogOpen(true);
                       setCurrentPage("integrations");
+                    }}
+                    onOpenMore={(target) => {
+                      // tips and about are overlays rather than pages, so they
+                      // open over Settings instead of navigating away from it.
+                      if (target === "tips") {
+                        openTips();
+                        return;
+                      }
+                      if (target === "about") {
+                        setAboutDialogOpen(true);
+                        return;
+                      }
+                      handleRailNavigate(target);
                     }}
                     subPage={currentPage === "settings"}
                     initialSection={settingsInitialSection}

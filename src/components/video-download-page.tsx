@@ -64,7 +64,6 @@ export function VideoDownloadPage({
     settings,
     toolStatus,
     lastCookieTime,
-    isLoading,
     isRefreshingCookie,
     addDownload,
     addBatchDownload,
@@ -89,9 +88,7 @@ export function VideoDownloadPage({
     refreshCookie,
     openDir,
     openFile,
-    openTaskLog,
     proxyList,
-    loadProxies,
   } = useVideoDownload();
 
   const [urlInput, setUrlInput] = useState("");
@@ -693,6 +690,7 @@ export function VideoDownloadPage({
                 {urlCount} 个链接
               </span>
               <button
+                type="button"
                 role="switch"
                 aria-checked={settings.auto_paste_download}
                 onClick={toggleAutoPaste}
@@ -887,7 +885,6 @@ export function VideoDownloadPage({
                   <TaskRow
                     key={task.id}
                     task={task}
-                    downloadDir={settings.download_dir}
                     onPause={() => pauseTask(task.id)}
                     onResume={() => resumeTask(task.id)}
                     onRetry={() => retryTask(task.id)}
@@ -1023,6 +1020,7 @@ export function VideoDownloadPage({
                 </p>
               </div>
               <button
+                type="button"
                 role="switch"
                 aria-checked={settings.cookie_from_browser}
                 onClick={toggleCookieFromBrowser}
@@ -1329,7 +1327,6 @@ function formatCookieTime(timestamp: number): string {
 
 function TaskRow({
   task,
-  downloadDir,
   onPause,
   onResume,
   onRetry,
@@ -1340,7 +1337,6 @@ function TaskRow({
   toolDownloadInfo,
 }: {
   task: DownloadTask;
-  downloadDir: string;
   onPause: () => void;
   onResume: () => void;
   onRetry: () => void;
@@ -1562,6 +1558,7 @@ function TaskRow({
                 <>
                   <span className="flex-1" />
                   <button
+                    type="button"
                     className="text-primary hover:underline flex items-center gap-1"
                     onClick={() => {
                       if (task.filename) onOpenFile(task.filename);
@@ -1570,6 +1567,7 @@ function TaskRow({
                     打开视频
                   </button>
                   <button
+                    type="button"
                     className="text-primary hover:underline flex items-center gap-1"
                     onClick={() => {
                       if (task.filename) onOpenDir(task.filename);

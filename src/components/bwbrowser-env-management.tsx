@@ -1899,7 +1899,9 @@ export function BwbrowserEnvManagementDialog({
             切换公司
           </span>
           <Select
-            value={selectedCompanyId !== null ? String(selectedCompanyId) : "my"}
+            value={
+              selectedCompanyId !== null ? String(selectedCompanyId) : "my"
+            }
             onValueChange={(val) =>
               setSelectedCompanyId(val === "my" ? null : Number(val))
             }

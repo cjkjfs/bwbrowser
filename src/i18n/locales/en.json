@@ -240,6 +240,19 @@
         "cleaning": "Removing the old directory",
         "done": "Done"
       }
+    },
+    "misc": {
+      "title": "More",
+      "import": "Import profile",
+      "importDescription": "Bring profiles from another tool",
+      "shortcuts": "Keyboard shortcuts",
+      "shortcutsDescription": "View all shortcuts",
+      "trash": "Trash",
+      "trashDescription": "Restore deleted profiles",
+      "tips": "Tips",
+      "tipsDescription": "Feature walkthroughs",
+      "about": "About BW Browser",
+      "aboutDescription": "Version and app information"
     }
   },
   "header": {
@@ -2353,20 +2366,6 @@
     "extensions": "Extensions",
     "groups": "Groups",
     "settings": "Settings",
-    "more": {
-      "label": "More",
-      "closeAriaLabel": "Close menu",
-      "importProfile": "Import profile",
-      "importProfileHint": "Bring profiles from another tool",
-      "keyboardShortcuts": "Keyboard shortcuts",
-      "keyboardShortcutsHint": "View all shortcuts",
-      "about": "About BW Browser",
-      "aboutHint": "Version and app information",
-      "trash": "Trash",
-      "trashHint": "Restore deleted profiles",
-      "tips": "Tips",
-      "tipsHint": "Feature walkthroughs"
-    },
     "network": "Network",
     "integrations": "Integrations",
     "account": "Account",

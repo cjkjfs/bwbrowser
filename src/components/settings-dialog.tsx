@@ -5,9 +5,22 @@ import { writeText as writeClipboardText } from "@tauri-apps/plugin-clipboard-ma
 import { openUrl } from "@tauri-apps/plugin-opener";
 import Color from "color";
 import { motion, useReducedMotion } from "motion/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ComponentType,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { BsCamera, BsMic } from "react-icons/bs";
+import {
+  LuImport,
+  LuInfo,
+  LuKeyboard,
+  LuLightbulb,
+  LuTrash2,
+} from "react-icons/lu";
 import { DataRootSetting } from "@/components/data-root-setting";
 import { DnsBlocklistDialog } from "@/components/dns-blocklist-dialog";
 import { LoadingButton } from "@/components/loading-button";
@@ -96,6 +109,59 @@ function trashRetentionOptions(current: number): number[] {
   return [...TRASH_RETENTION_OPTIONS, current].sort((a, b) => a - b);
 }
 
+/** Where each entry of the `misc` section sends the reader. */
+export type SettingsMoreTarget =
+  | "import"
+  | "shortcuts"
+  | "trash"
+  | "tips"
+  | "about";
+
+interface MiscItem {
+  target: SettingsMoreTarget;
+  Icon: ComponentType<{ className?: string }>;
+  labelKey: string;
+  descriptionKey: string;
+}
+
+/**
+ * The entries that used to sit behind the rail's "更多功能" menu. The rail
+ * carries only the settings gear now, so the section below is what keeps them
+ * reachable without knowing the keyboard shortcut.
+ */
+const MISC_ITEMS: MiscItem[] = [
+  {
+    target: "import",
+    Icon: LuImport,
+    labelKey: "settings.misc.import",
+    descriptionKey: "settings.misc.importDescription",
+  },
+  {
+    target: "shortcuts",
+    Icon: LuKeyboard,
+    labelKey: "settings.misc.shortcuts",
+    descriptionKey: "settings.misc.shortcutsDescription",
+  },
+  {
+    target: "trash",
+    Icon: LuTrash2,
+    labelKey: "settings.misc.trash",
+    descriptionKey: "settings.misc.trashDescription",
+  },
+  {
+    target: "tips",
+    Icon: LuLightbulb,
+    labelKey: "settings.misc.tips",
+    descriptionKey: "settings.misc.tipsDescription",
+  },
+  {
+    target: "about",
+    Icon: LuInfo,
+    labelKey: "settings.misc.about",
+    descriptionKey: "settings.misc.aboutDescription",
+  },
+];
+
 interface CustomThemeState {
   selectedThemeId: string | null;
   colors: Record<string, string>;
@@ -113,6 +179,8 @@ interface SettingsDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onIntegrationsOpen?: () => void;
+  /** Opens one of the entries listed in the `misc` section. */
+  onOpenMore?: (target: SettingsMoreTarget) => void;
   subPage?: boolean;
   /** A section to scroll to and focus as soon as the page opens. */
   initialSection?: string | null;
@@ -122,6 +190,7 @@ export function SettingsDialog({
   isOpen,
   onClose,
   onIntegrationsOpen,
+  onOpenMore,
   subPage,
   initialSection = null,
 }: SettingsDialogProps) {
@@ -890,6 +959,7 @@ export function SettingsDialog({
         "settings.privacy",
       ],
     ],
+    ["misc", "settings.misc.title", ["settings.misc"]],
   ] as Array<[string, string, string[]]>;
   const needle = search.trim().toLocaleLowerCase();
   const matchingSections = sections.filter(([, , keys]) => {
@@ -956,6 +1026,14 @@ export function SettingsDialog({
     setActiveSection(jumpTo);
     setJumpTo(null);
   }, [jumpTo]);
+
+  // `initialSection` seeds `jumpTo` on mount, which used to be enough: every
+  // caller opened Settings from a closed state. The rail's "More" entries live
+  // in Settings now, so a tip can deep-link into a section while Settings is
+  // already open — a mount-only seed silently drops that navigation.
+  useEffect(() => {
+    if (initialSection) setJumpTo(initialSection);
+  }, [initialSection]);
 
   return (
     <>
@@ -1878,6 +1956,44 @@ export function SettingsDialog({
                   <p className="mt-2 text-xs text-muted-foreground">
                     {t("settings.privacy.clearTrafficDescription")}
                   </p>
+                </div>
+              </div>
+
+              {/* More Section — where the entries of the rail's former
+                  "更多功能" menu live now. */}
+              <div
+                data-settings-section="misc"
+                tabIndex={-1}
+                hidden={!sectionVisible("misc")}
+                className="scroll-mt-2 space-y-4 focus:outline-none"
+              >
+                <Label className="text-base font-medium">
+                  {t("settings.misc.title")}
+                </Label>
+
+                <div className="grid gap-2">
+                  {MISC_ITEMS.map(
+                    ({ target, Icon, labelKey, descriptionKey }) => (
+                      <button
+                        key={target}
+                        type="button"
+                        data-slot={`settings-misc-${target}`}
+                        disabled={!onOpenMore}
+                        onClick={() => onOpenMore?.(target)}
+                        className="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors duration-100 hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                      >
+                        <Icon className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate text-sm font-medium">
+                            {t(labelKey)}
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {t(descriptionKey)}
+                          </span>
+                        </span>
+                      </button>
+                    ),
+                  )}
                 </div>
               </div>
 

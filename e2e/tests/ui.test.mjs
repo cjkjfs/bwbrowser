@@ -2498,14 +2498,10 @@ test("the synchroniser panel lists a live session and its controls act on the re
 
 const TIPS_DIALOG = '[data-slot="tips-dialog"]';
 
-async function openTipsFromRail(app) {
-  await app.clickSelector('[aria-label="More"]');
-  await app.waitFor(
-    () =>
-      app.execute(`return Boolean(document.querySelector("[role='menu']"));`),
-    { description: "More menu" },
-  );
-  await app.clickSelector('[data-slot="rail-open-tips"]');
+/** Tips used to sit behind the rail's "More" menu, and is a Settings entry now. */
+async function openTipsFromSettings(app) {
+  await app.clickSelector(`[aria-label="${en.rail.settings}"]`);
+  await app.clickSelector('[data-slot="settings-misc-tips"]');
   await app.waitFor(
     () =>
       app.execute(
@@ -2516,9 +2512,9 @@ async function openTipsFromRail(app) {
   );
 }
 
-test("tips open from the rail, walk the catalog, and deep-link into the feature", async () => {
+test("tips open from Settings, walk the catalog, and deep-link into the feature", async () => {
   await withApp("ui-tips-browse", async (app) => {
-    await openTipsFromRail(app);
+    await openTipsFromSettings(app);
     assert.ok(await app.visibleTextIncludes(en.tips.items.dnsBlocklist.title));
 
     // Every essential is listed; a plan tip needs a plan, and there is none.

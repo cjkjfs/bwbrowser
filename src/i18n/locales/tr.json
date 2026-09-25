@@ -240,6 +240,19 @@
         "cleaning": "Eski dizin siliniyor",
         "done": "Bitti"
       }
+    },
+    "misc": {
+      "title": "Diğer",
+      "import": "Profil içe aktar",
+      "importDescription": "Başka bir araçtan profil getirin",
+      "shortcuts": "Klavye kısayolları",
+      "shortcutsDescription": "Tüm kısayolları görüntüle",
+      "trash": "Çöp Kutusu",
+      "trashDescription": "Silinen profilleri geri yükle",
+      "tips": "İpuçları",
+      "tipsDescription": "Özellik turları",
+      "about": "BW Browser Hakkında",
+      "aboutDescription": "Sürüm ve uygulama bilgileri"
     }
   },
   "header": {
@@ -2353,20 +2366,6 @@
     "extensions": "Uzantılar",
     "groups": "Gruplar",
     "settings": "Ayarlar",
-    "more": {
-      "label": "Diğer",
-      "closeAriaLabel": "Menüyü kapat",
-      "importProfile": "Profil içe aktar",
-      "importProfileHint": "Başka bir araçtan profil getirin",
-      "keyboardShortcuts": "Klavye kısayolları",
-      "keyboardShortcutsHint": "Tüm kısayolları görüntüle",
-      "about": "BW Browser Hakkında",
-      "aboutHint": "Sürüm ve uygulama bilgileri",
-      "trash": "Çöp Kutusu",
-      "trashHint": "Silinen profilleri geri yükle",
-      "tips": "İpuçları",
-      "tipsHint": "Özellik turları"
-    },
     "network": "Ağ",
     "integrations": "Entegrasyonlar",
     "account": "Hesap",

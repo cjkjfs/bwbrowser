@@ -241,6 +241,19 @@
         "cleaning": "Eliminando el directorio anterior",
         "done": "Listo"
       }
+    },
+    "misc": {
+      "title": "Más",
+      "import": "Importar perfil",
+      "importDescription": "Trae perfiles de otra herramienta",
+      "shortcuts": "Atajos de teclado",
+      "shortcutsDescription": "Ver todos los atajos",
+      "trash": "Papelera",
+      "trashDescription": "Restaurar perfiles eliminados",
+      "tips": "Consejos",
+      "tipsDescription": "Recorridos por las funciones",
+      "about": "Acerca de BW Browser",
+      "aboutDescription": "Versión e información de la aplicación"
     }
   },
   "header": {
@@ -2363,20 +2376,6 @@
     "extensions": "Extensiones",
     "groups": "Grupos",
     "settings": "Ajustes",
-    "more": {
-      "label": "Más",
-      "closeAriaLabel": "Cerrar menú",
-      "importProfile": "Importar perfil",
-      "importProfileHint": "Trae perfiles de otra herramienta",
-      "keyboardShortcuts": "Atajos de teclado",
-      "keyboardShortcutsHint": "Ver todos los atajos",
-      "about": "Acerca de BW Browser",
-      "aboutHint": "Versión e información de la aplicación",
-      "trash": "Papelera",
-      "trashHint": "Restaurar perfiles eliminados",
-      "tips": "Consejos",
-      "tipsHint": "Recorridos por las funciones"
-    },
     "network": "Red",
     "integrations": "Integraciones",
     "account": "Cuenta",
