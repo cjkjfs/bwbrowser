@@ -1033,6 +1033,27 @@ impl WayfernManager {
       .or_else(|| pair("screenWidth", "screenHeight"))
   }
 
+  /// Whether this launch hands the browser the host device rather than an
+  /// injected identity: no `identity_id` and no device payload. The VPS-login
+  /// profile is the one launch storing that shape (`fingerprint` is `{}`), and
+  /// it is the only launch whose GPU switches may be touched — see the
+  /// argument list in `launch_wayfern`.
+  fn is_host_device_launch(config: &WayfernConfig) -> bool {
+    if config.identity_id.is_some() {
+      return false;
+    }
+    match config.fingerprint.as_deref() {
+      // No payload at all: the browser keeps whatever the host reports.
+      None => true,
+      // `{}` is the host-device marker. A payload carrying fields is a stored
+      // legacy device, and one that does not parse is treated the same way —
+      // both keep the plain launch arguments rather than gaining GPU switches.
+      Some(fp) => Self::fingerprint_object(fp)
+        .map(|obj| obj.is_empty())
+        .unwrap_or(false),
+    }
+  }
+
   /// The fingerprint value a stored `WayfernConfig::fingerprint` string holds:
   /// the object itself, or the one nested in the legacy
   /// `{ "fingerprint": {...} }` wrapper some old profiles carry.
@@ -2559,6 +2580,28 @@ impl WayfernManager {
       args.push(format!("--window-size={w},{h}"));
       args.push("--window-position=0,0".to_string());
       args.push("--force-device-scale-factor=1".to_string());
+    } else if Self::is_host_device_launch(config) {
+      // A host-device launch (the VPS-login profile stores an empty object)
+      // carries no window dimensions, so the window keeps the Chromium
+      // default and there is nothing to size against. The scale factor still
+      // has to be pinned to 1:1: with the OS at 125%/150% the page renders in
+      // DIP while the native select popup is positioned in physical pixels,
+      // which pushes the option list left and clips its text. The fingerprint
+      // branch above pins the same value for the same reason.
+      args.push("--force-device-scale-factor=1".to_string());
+    }
+
+    // GPU switches are only safe on a host-device launch. A profile with an
+    // identity reports the WebGL renderer and parameters Wayfern injects, and
+    // the rasterization path is part of what a fingerprint check reads back,
+    // so the cloud accounts keep exactly the arguments they had. A host-device
+    // launch reports the real machine GPU anyway, and the blocklist is the one
+    // thing that can silently drop a capable VM GPU to SwiftShader software
+    // rendering.
+    if Self::is_host_device_launch(config) {
+      args.push("--ignore-gpu-blocklist".to_string());
+      args.push("--enable-gpu-rasterization".to_string());
+      args.push("--enable-zero-copy".to_string());
     }
 
     #[cfg(target_os = "linux")]

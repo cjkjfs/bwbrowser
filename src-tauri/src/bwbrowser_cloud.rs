@@ -923,6 +923,10 @@ pub async fn bwbrowser_open_vps_login(
   // 不设置 identity_id → 不创建 identity，不消耗指纹配额
   let mut wayfern_config = default_wayfern_config_for_host();
   wayfern_config.fingerprint = Some("{}".to_string());
+  // browser_runner reads "no identity + non-empty fingerprint" as a legacy device
+  // to migrate, and would then mint a fresh identity at launch: the quota is spent
+  // and the host fingerprint is replaced. Some(false) marks the payload as final.
+  wayfern_config.randomize_fingerprint_on_launch = Some(false);
 
   let profile = match existing_profile {
     Some(mut p) => {
@@ -1429,6 +1433,10 @@ pub async fn bwbrowser_set_vps_proxy(
       // 设置 fingerprint = "{}" → 跳过指纹生成，用本机真实设备指纹，不消耗配额
       let mut wayfern_config = default_wayfern_config_for_host();
       wayfern_config.fingerprint = Some("{}".to_string());
+      // browser_runner reads "no identity + non-empty fingerprint" as a legacy device
+      // to migrate, and would then mint a fresh identity at launch: the quota is spent
+      // and the host fingerprint is replaced. Some(false) marks the payload as final.
+      wayfern_config.randomize_fingerprint_on_launch = Some(false);
 
       let registry = crate::downloaded_browsers_registry::DownloadedBrowsersRegistry::instance();
       let mut versions = registry.get_downloaded_versions("wayfern");
