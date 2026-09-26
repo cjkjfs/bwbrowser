@@ -913,7 +913,70 @@ pub async fn inject_cookies_via_cdp(
     .call(1u64, "Network.enable", serde_json::json!({}))
     .await;
 
-  // Step 1: Batch set all cookies（仅添加/更新同名 Cookie，保留其他 Cookie）
+  // Step 0.5: 先删除待注入平台域名下的旧 cookie，再 set（避免"合并错配"）。
+  // 注入是 merge 模式（不清空），会把云端会话族叠加到本地残留会话族之上，
+  // 抖音等平台校验的是 sessionid/sid_guard/uid 这一整套，混在一起会判定不自洽
+  // 而强制掉登录。这里先把涉及域名下已有的 cookie 全删，确保之后注入的是
+  // 一个纯净、自洽的会话。
+  let target_domains: std::collections::HashSet<String> = cdp_cookies
+    .iter()
+    .filter_map(|c| {
+      c.get("domain")
+        .or_else(|| c.get("url"))
+        .and_then(|v| v.as_str())
+        .map(|s| {
+          // url 形式时取 host
+          if s.starts_with("http") {
+            s.split('/').nth(2).unwrap_or("").to_string()
+          } else {
+            s.trim_start_matches('.').to_lowercase()
+          }
+        })
+    })
+    .collect();
+  if !target_domains.is_empty() {
+    let all_resp = conn
+      .call(10u64, "Network.getAllCookies", serde_json::json!({}))
+      .await;
+    if let Ok(resp) = all_resp {
+      if let Some(cookies) = resp.get("cookies").and_then(|v| v.as_array()) {
+        let mut cmd_id = 11u64;
+        for c in cookies {
+          let name = c.get("name").and_then(|v| v.as_str()).unwrap_or("");
+          let domain = c
+            .get("domain")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim_start_matches('.')
+            .to_lowercase();
+          if domain.is_empty() || name.is_empty() {
+            continue;
+          }
+          let matches = target_domains.iter().any(|d| {
+            domain == *d || domain.ends_with(&format!(".{}", d))
+          });
+          if !matches {
+            continue;
+          }
+          let path = c.get("path").and_then(|v| v.as_str()).unwrap_or("/");
+          let _ = conn
+            .call(
+              cmd_id,
+              "Network.deleteCookies",
+              serde_json::json!({ "name": name, "domain": domain, "path": path }),
+            )
+            .await;
+          cmd_id += 1;
+        }
+        crate::bwbrowser_cloud::log_bwbrowser(
+          "cookie_sync",
+          "已清理平台域名下的旧 cookie，注入纯净云端会话（先删后 set）",
+        );
+      }
+    }
+  }
+
+  // Step 1: Batch set all cookies（先删后 set，注入纯净会话）
   let batch_result = conn
     .call(
       CMD_BATCH_SET,
@@ -1147,6 +1210,93 @@ pub async fn check_login_via_page(
       }
     }
   }
+}
+
+/// Determine whether the browser is still on the bwbrowser login page.
+///
+/// Returns:
+/// - `Ok(Some(true))`  => still on `login.php` (NOT logged in), keep waiting
+/// - `Ok(Some(false))` => on a real `yacm.xin` page that is NOT `login.php` (logged in)
+/// - `Ok(None)`        => cannot tell yet (about:blank / page not ready / external page),
+///                        conservatively treated as NOT logged in
+pub async fn current_page_is_login(profile: &BrowserProfile) -> Result<Option<bool>, CdpError> {
+  let target = cdp_target::resolve(profile)
+    .await
+    .map_err(|e| CdpError::Unreachable(e.to_string()))?;
+
+  // 1) Prefer Runtime.evaluate; falls back to DOM.getDocument when gated.
+  let eval = cdp_target::run_command(
+    &target,
+    "Runtime.evaluate",
+    serde_json::json!({
+      "expression": "location.href",
+      "returnByValue": true,
+    }),
+  )
+  .await;
+
+  let mut href: String = match &eval {
+    Ok(r) => {
+      if r.get("exceptionDetails").is_some() {
+        String::new()
+      } else {
+        r.get("result")
+          .and_then(|x| x.get("value"))
+          .and_then(|v| v.as_str())
+          .unwrap_or("")
+          .to_string()
+      }
+    }
+    Err(e) => {
+      let es = e.to_string();
+      let needs_fallback = es.contains("paid")
+        || es.contains("requires")
+        || es.contains("wasn't found")
+        || es.contains("-32000");
+      if !needs_fallback {
+        return Err(CdpError::Protocol(es));
+      }
+      String::new()
+    }
+  };
+
+  if href.is_empty() {
+    // 2) DOM fallback: read documentURL on the same connection.
+    let target = cdp_target::resolve(profile)
+      .await
+      .map_err(|e| CdpError::Unreachable(e.to_string()))?;
+    let mut conn = match target.connect().await {
+      Ok(c) => c,
+      Err(e) => {
+        crate::bwbrowser_cloud::log_bwbrowser_error(
+          "cookie_sync",
+          &format!("current_page_is_login: connect failed: {}", e),
+        );
+        return Ok(None);
+      }
+    };
+    let doc = conn
+      .call(940u64, "DOM.getDocument", serde_json::json!({ "depth": -1 }))
+      .await;
+    href = match &doc {
+      Ok(r) => r
+        .get("root")
+        .and_then(|x| x.get("documentURL"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string(),
+      Err(_) => String::new(),
+    };
+    conn.close().await;
+  }
+
+  let h = href.trim();
+  if h.is_empty() || h.starts_with("about:") || !h.contains("yacm.xin") {
+    // 页面未就绪或已离开爆文库站内，无法确认登录，保守视为"未登录"
+    return Ok(None);
+  }
+  // 已在 yacm.xin 站内且不再是登录页，即为已确认登录
+  Ok(Some(!h.contains("login.php")))
 }
 
 /// Build JS expression that counts matching selector groups.

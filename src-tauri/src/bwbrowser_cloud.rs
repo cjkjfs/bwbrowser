@@ -1262,102 +1262,28 @@ pub async fn bwbrowser_open_vps_login(
       false
     };
 
-    // ---- 阶段 1.5: 主动上传本地 cookie 到云端（以本地为准）----
-    // 浏览器刚启动时 CDP 可能还没就绪，重试多次直到连上
-    let mut upload_tried = false;
-    for attempt in 1..=15 {
-      tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-      match crate::cookie_sync::export_cookies_via_cdp(&profile).await {
-        Ok(cookie_str) if !cookie_str.is_empty() && cookie_str != "[]" => {
-          log_bwbrowser(
-            "vps_cookie_sync",
-            &format!(
-              "第{}次尝试成功，上传本地 cookie: {} 字节",
-              attempt,
-              cookie_str.len()
-            ),
-          );
-          match BWBROWSER_AUTH.update_bwbrowser_cookies(&cookie_str).await {
-            Ok(_) => {
-              log_bwbrowser("vps_cookie_sync", "✓ cookie 已同步到云端");
-            }
-            Err(e) => {
-              log_bwbrowser_error("vps_cookie_sync", &format!("上传 cookie 失败: {}", e));
-            }
-          }
-          upload_tried = true;
-          break;
-        }
-        Ok(_) => {
-          // 浏览器起来了但 cookie 为空（可能还在加载），继续等
-          log_bwbrowser(
-            "vps_cookie_sync",
-            &format!("第{}次: 浏览器已就绪但 cookie 为空，继续等待...", attempt),
-          );
-        }
-        Err(e) => {
-          // CDP 还没连上，继续重试
-          log_bwbrowser(
-            "vps_cookie_sync",
-            &format!("第{}次: CDP 未就绪 ({})，继续等待...", attempt, e),
-          );
-        }
-      }
-    }
-    if !upload_tried {
-      log_bwbrowser(
-        "vps_cookie_sync",
-        "多次尝试后仍无法获取本地 cookie，跳过上传",
-      );
-    }
+    // ---- 阶段 1.5: 等待并确认登录，确认登录后才回传 cookie ----
+    // 取消"关闭浏览器即回传"。未确认登录前一律不回传，避免本机未登录的
+    // cookie 覆盖云端完好的会话。每 3 秒探测一次登录状态：
+    // 确认已登录 → 上传并停止；未登录 → 持续探测，最多 300 秒；
+    // 浏览器关闭或超时 → 停止（不回传 cookie，仅按需补传书签）。
+    const LOGIN_WAIT_SECONDS: u64 = 300;
+    let deadline =
+      std::time::Instant::now() + std::time::Duration::from_secs(LOGIN_WAIT_SECONDS);
 
-    // ---- 阶段 2: 等待浏览器关闭，回传 cookie ----
-    // 每 3 秒检查一次浏览器状态，退出时导出并上传
     loop {
       tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+      // 浏览器已关闭：不回传 cookie，仅补传书签后停止
       let pm = crate::profile::manager::ProfileManager::instance();
       let is_running = pm
         .check_browser_status(app_handle.clone(), &profile)
         .await
         .unwrap_or(false);
       if !is_running {
-        log_bwbrowser("vps_cookie_sync", "浏览器已关闭，准备回传 cookie");
-        // 浏览器已关闭，CDP 不可用，仅用 SQLite 直读（不再尝试 CDP，避免无意义报错）
-        let cookie_str = match crate::cookie_manager::CookieManager::export_cookies(
-          &profile.id.to_string(),
-          "json",
-        ) {
-          Ok(s) if !s.is_empty() && s != "[]" => {
-            log_bwbrowser(
-              "vps_cookie_sync",
-              &format!("SQLite 导出 cookie: {} 字节", s.len()),
-            );
-            s
-          }
-          Ok(_) => {
-            log_bwbrowser("vps_cookie_sync", "SQLite cookie 为空，跳过回传");
-            String::new()
-          }
-          Err(e) => {
-            log_bwbrowser(
-              "vps_cookie_sync",
-              &format!("SQLite 导出失败 ({}), 跳过回传", e),
-            );
-            String::new()
-          }
-        };
-        if !cookie_str.is_empty() {
-          match BWBROWSER_AUTH.update_bwbrowser_cookies(&cookie_str).await {
-            Ok(_) => {
-              log_bwbrowser("vps_cookie_sync", "✓ cookie 已同步到云端");
-            }
-            Err(e) => {
-              log_bwbrowser_error("vps_cookie_sync", &format!("上传 cookie 失败: {}", e));
-            }
-          }
-        }
+        log_bwbrowser("vps_cookie_sync", "浏览器已关闭，按规则不回传 cookie");
 
-        // ---- 上传书签到云端 ----
+        // ---- 上传书签到云端（与 cookie 无关，保留）----
         log_bwbrowser("vps_bookmark_sync", "浏览器已关闭，准备上传书签");
         match BwbrowserAuthManager::read_local_bookmarks(&profile.id.to_string()) {
           Ok(Some(bookmarks)) if !bookmarks.is_empty() => {
@@ -1383,6 +1309,63 @@ pub async fn bwbrowser_open_vps_login(
         }
 
         break;
+      }
+
+      // 持续等待超时：未确认登录，停止（不回传 cookie）
+      if std::time::Instant::now() >= deadline {
+        log_bwbrowser(
+          "vps_cookie_sync",
+          &format!("等待登录超时 ({} 秒)，未确认登录，跳过回传", LOGIN_WAIT_SECONDS),
+        );
+        break;
+      }
+
+      // 探测登录状态
+      match crate::cookie_sync::current_page_is_login(&profile).await {
+        Ok(Some(true)) => {
+          log_bwbrowser("vps_cookie_sync", "仍在登录页，尚未确认登录，继续等待...");
+        }
+        Ok(Some(false)) => {
+          log_bwbrowser("vps_cookie_sync", "已确认登录，开始回传 cookie");
+
+          let cookie_str = match crate::cookie_sync::export_cookies_via_cdp(&profile).await {
+            Ok(s) if !s.is_empty() && s != "[]" => {
+              log_bwbrowser(
+                "vps_cookie_sync",
+                &format!("CDP 导出 cookie: {} 字节", s.len()),
+              );
+              s
+            }
+            Ok(_) => {
+              log_bwbrowser("vps_cookie_sync", "本地 cookie 为空，跳过上传");
+              String::new()
+            }
+            Err(e) => {
+              log_bwbrowser_error("vps_cookie_sync", &format!("CDP 导出失败: {}", e));
+              String::new()
+            }
+          };
+          if !cookie_str.is_empty() {
+            match BWBROWSER_AUTH.update_bwbrowser_cookies(&cookie_str).await {
+              Ok(_) => {
+                log_bwbrowser("vps_cookie_sync", "✓ cookie 已同步到云端");
+              }
+              Err(e) => {
+                log_bwbrowser_error("vps_cookie_sync", &format!("上传 cookie 失败: {}", e));
+              }
+            }
+          }
+          break;
+        }
+        Ok(None) => {
+          log_bwbrowser(
+            "vps_cookie_sync",
+            "登录状态暂时无法判定（页面未就绪或已离开爆文库站内），继续等待...",
+          );
+        }
+        Err(e) => {
+          log_bwbrowser_error("vps_cookie_sync", &format!("登录状态检测失败: {}", e));
+        }
       }
     }
   });
@@ -7693,7 +7676,7 @@ async fn inject_cloud_cookies_after_launch(
     .map(|s| !s.is_empty() && s != "[]")
     .unwrap_or(false);
 
-  let should_inject = if is_fresh_profile && has_cloud {
+  let mut should_inject = if is_fresh_profile && has_cloud {
     log_bwbrowser("inject_cookies", "首次创建 profile，注入云端 Cookie");
     true
   } else if !has_cloud {
@@ -7724,6 +7707,13 @@ async fn inject_cloud_cookies_after_launch(
     }
   };
 
+  // 本地已确定登录：绝不注入。防止云端旧 cookie 合并进本地，造成
+  // sessionid/sid_guard 等会话族错配导致掉登录（merge 注入的缺陷）。
+  if local_score.definite_logged_in {
+    should_inject = false;
+    log_bwbrowser("inject_cookies", "本地已确定登录，跳过注入（保留本地自洽会话）");
+  }
+
   if should_inject {
     if let Some(ref cloud_text) = cloud_cookie_text {
       let cloud_val = serde_json::from_str::<serde_json::Value>(cloud_text)
@@ -7752,85 +7742,89 @@ async fn inject_cloud_cookies_after_launch(
     }
   }
 
-  // 7. 通过页面 DOM 检测真实登录状态（替代 cookie 判断）
-  let mut page_logged_in = false;
-  if let Some(url) = launch_url {
-    if let Some(lc_config) = crate::cookie_sync::fetch_login_check_config(&default_platform).await {
+  // 8. 确认登录后才回传 Cookie（最多等待 300 秒）
+  // 页面 DOM 检测（login_check 选择器）在未登录的落地页也会误报"已登录"
+  // （例如抖音创作者页未登录时同样渲染作品管理/发布/头像），所以这里不再用它
+  // 判登录，而是以 cookie 评分的"确定登录"为准。未确认登录就每 3 秒探测一次，
+  // 最多 300 秒；浏览器关闭或超时则停止，保留云端完好的会话。
+  const LOGIN_WAIT_SECONDS: u64 = 300;
+  let deadline =
+    std::time::Instant::now() + std::time::Duration::from_secs(LOGIN_WAIT_SECONDS);
+
+  loop {
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    // 浏览器已关闭：停止，不回传 cookie
+    let pm = crate::profile::manager::ProfileManager::instance();
+    let is_running = pm
+      .check_browser_status(app_handle.clone(), profile)
+      .await
+      .unwrap_or(false);
+    if !is_running {
+      log_bwbrowser("inject_cookies", "浏览器已关闭，按规则不回传 cookie");
+      break;
+    }
+
+    // 超时：未确认登录，停止
+    if std::time::Instant::now() >= deadline {
       log_bwbrowser(
         "inject_cookies",
-        &format!(
-          "开始页面登录检测: platform={}, url={}",
-          default_platform, url
-        ),
+        &format!("等待登录超时 ({} 秒)，未确认登录，跳过回传", LOGIN_WAIT_SECONDS),
       );
-      match crate::cookie_sync::check_login_via_page(profile, url, &lc_config).await {
-        Ok(logged_in) => {
-          page_logged_in = logged_in;
-          if logged_in {
-            log_bwbrowser("inject_cookies", "✓ 页面登录检测: 已登录");
-          } else {
-            log_bwbrowser(
-              "inject_cookies",
-              "✗ 页面登录检测: 未登录，可能 Cookie 无效或已过期",
-            );
-          }
-        }
-        Err(e) => {
-          log_bwbrowser_error("inject_cookies", &format!("页面登录检测失败: {}", e));
+      break;
+    }
+
+    // 导出并评分本地 cookie，确认"确定登录"后才回传
+    let cookie_json = match crate::cookie_sync::export_cookies_via_cdp(profile).await {
+      Ok(s) => s,
+      Err(e) => {
+        log_bwbrowser_error("inject_cookies", &format!("CDP 导出失败: {}", e));
+        String::new()
+      }
+    };
+    if cookie_json.is_empty() || cookie_json == "[]" {
+      log_bwbrowser("inject_cookies", "本地 cookie 为空或未就绪，继续等待...");
+      continue;
+    }
+    let local_val = serde_json::from_str::<serde_json::Value>(&cookie_json)
+      .unwrap_or(serde_json::Value::Array(vec![]));
+    let local_cookies =
+      crate::cookie_sync::prepare_cookies_for_injection(&local_val, &cloud_platform);
+    let score = crate::cookie_sync::score_cookies(&local_cookies, &cloud_platform);
+    log_bwbrowser(
+      "inject_cookies",
+      &format!(
+        "本地 cookie 评分: {} 分 (确定登录={})",
+        score.total, score.definite_logged_in
+      ),
+    );
+    if !score.definite_logged_in {
+      log_bwbrowser("inject_cookies", "尚未确认登录，继续等待...");
+      continue;
+    }
+
+    // 已确认登录：回传云端并停止
+    log_bwbrowser("inject_cookies", "已确认登录，回传 Cookie 到云端");
+    match sync_cookies_to_cloud(app_handle, account_id, &cookie_json, &cloud_platform).await {
+      Ok((uploaded, local_total, cloud_total)) => {
+        if uploaded {
+          log_bwbrowser("inject_cookies", "✓ Cookie 已回传云端");
+        } else {
+          log_bwbrowser(
+            "inject_cookies",
+            &format!(
+              "Cookie 未回传 (本地={}分, 云端={}分)",
+              local_total,
+              cloud_total.unwrap_or(0)
+            ),
+          );
         }
       }
-    } else {
-      log_bwbrowser(
-        "inject_cookies",
-        &format!(
-          "平台 {} 无 login_check 配置，跳过页面检测",
-          default_platform
-        ),
-      );
-    }
-  }
-
-  // 8. 只有页面检测确认登录，才回传 Cookie 到云端
-  if !page_logged_in {
-    log_bwbrowser("inject_cookies", "页面检测未登录，跳过回传云端");
-    return Ok(());
-  }
-
-  log_bwbrowser("inject_cookies", "页面检测已登录，回传 Cookie 到云端...");
-  let final_cookie_json = match crate::cookie_sync::export_cookies_via_cdp(profile).await {
-    Ok(s) => s,
-    Err(e) => {
-      log_bwbrowser_error(
-        "inject_cookies",
-        &format!("CDP 导出回传 Cookie 失败: {}", e),
-      );
-      return Err(format!("CDP 导出回传 Cookie 失败: {}", e));
-    }
-  };
-
-  log_bwbrowser(
-    "inject_cookies",
-    &format!("CDP 导出 Cookie: {} 字节", final_cookie_json.len()),
-  );
-
-  match sync_cookies_to_cloud(app_handle, account_id, &final_cookie_json, &cloud_platform).await {
-    Ok((uploaded, local_total, cloud_total)) => {
-      if uploaded {
-        log_bwbrowser("inject_cookies", "✓ Cookie 已立即回传云端");
-      } else {
-        log_bwbrowser(
-          "inject_cookies",
-          &format!(
-            "Cookie 未回传 (本地={}分, 云端={}分)",
-            local_total,
-            cloud_total.unwrap_or(0)
-          ),
-        );
+      Err(e) => {
+        log_bwbrowser_error("inject_cookies", &format!("Cookie 回传失败: {}", e));
       }
     }
-    Err(e) => {
-      log_bwbrowser_error("inject_cookies", &format!("Cookie 回传失败: {}", e));
-    }
+    break;
   }
 
   Ok(())
@@ -7951,10 +7945,20 @@ async fn sync_cookies_to_cloud(
     ),
   );
 
-  // 始终上传（页面检测已确认登录状态，cookie 评分不再控制流程）
+  // 权威闸门：只有本地 cookie 具备"确定登录"证据时才上传，否则保留云端。
+  // 页面 DOM 检测（login_check 选择器）在未登录的落地页也会误报"已登录"
+  // （例如抖音创作者页在未登录时同样渲染作品管理/发布/头像），所以这里以
+  // cookie 评分为准，避免把本机未登录的弱 cookie 上传覆盖云端完好的会话。
+  if !local_score.definite_logged_in {
+    log_bwbrowser(
+      "cookie_sync",
+      "  本地 cookie 未确定登录，跳过回传，保留云端完好会话",
+    );
+    return Ok((false, local_score.total, cloud_score.as_ref().map(|s| s.total)));
+  }
   log_bwbrowser(
     "cookie_sync",
-    "  始终上传本地 Cookie 到云端（页面检测为准）",
+    &format!("  ✓ 本地 cookie 已确定登录，回传云端"),
   );
 
   // 上传到服务器
