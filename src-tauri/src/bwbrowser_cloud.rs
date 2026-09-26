@@ -898,7 +898,7 @@ pub async fn bwbrowser_open_vps_login(
   };
   emit_progress(5, "正在准备 VPS 登录...");
 
-  let redirect = redirect.unwrap_or_else(|| "bao_wen_ku.php".to_string());
+  let redirect = redirect.unwrap_or_else(|| "baowenku.php".to_string());
   let url = format!(
     "http://yacm.xin/tk/login.php?auto_login=1&username={}&password={}&redirect={}",
     urlencode(&username),
