@@ -1675,7 +1675,14 @@ pub async fn launch_browser_profile_impl(
   emit_launch_stage(&profile, "queued", None);
   let result = launch_browser_profile_tracked(app_handle, profile.clone(), url, options).await;
   match &result {
-    Ok(_) => emit_launch_stage(&profile, "running", None),
+    Ok(_) => {
+      emit_launch_stage(&profile, "running", None);
+      // Fire cookie health checks in background — never block the launch.
+      let profile_id = profile.id.to_string();
+      tauri::async_runtime::spawn(async move {
+        let _ = crate::cookie_health::check_profile_health(&profile_id).await;
+      });
+    }
     Err(error) => emit_launch_stage(
       &profile,
       "failed",

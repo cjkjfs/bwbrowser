@@ -117,6 +117,7 @@ mod cloud_errors;
 pub mod cloud_proxy_manager;
 mod commercial_license;
 mod cookie_bot;
+pub mod cookie_health;
 mod cookie_manager;
 mod cookie_paste;
 mod cookie_sync;
@@ -499,6 +500,12 @@ async fn get_profile_cookie_stats(
   tokio::task::spawn_blocking(move || cookie_manager::CookieManager::read_stats(&profile_id))
     .await
     .map_err(|e| format!("Failed to read profile cookie stats: {e}"))?
+}
+
+#[tauri::command]
+#[allow(dead_code)]
+async fn check_cookie_validity(profile_id: String) -> Vec<cookie_health::CookieHealthResult> {
+  cookie_health::check_profile_health(&profile_id).await
 }
 
 #[tauri::command]

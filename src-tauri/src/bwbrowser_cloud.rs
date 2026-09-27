@@ -7714,6 +7714,50 @@ async fn inject_cloud_cookies_after_launch(
     log_bwbrowser("inject_cookies", "本地已确定登录，跳过注入（保留本地自洽会话）");
   }
 
+  // HTTP 交叉验证（注入前）：对云端 cookie 做一次真实请求探测。
+  // 评分只看 cookie 存在性，会话可能早已过期 —— 若探测到已失效，拒绝把
+  // 失效会话注入浏览器（避免写坏本地状态），改为保留本地。
+  if should_inject {
+    if let Some(ref cloud_text) = cloud_cookie_text {
+      let cloud_val = serde_json::from_str::<serde_json::Value>(cloud_text)
+        .unwrap_or(serde_json::Value::Array(vec![]));
+      if let Some(arr) = cloud_val.as_array() {
+        match tokio::time::timeout(
+          std::time::Duration::from_secs(10),
+          crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr),
+        )
+        .await
+        {
+          Ok(Some((crate::cookie_health::HealthStatus::Expired, msg))) => {
+            log_bwbrowser(
+              "inject_cookies",
+              &format!(
+                "⚠ 云端 Cookie HTTP 探测已失效（{}），跳过注入，会话需重新登录",
+                msg
+              ),
+            );
+            should_inject = false;
+          }
+          Ok(Some((verdict, msg))) => {
+            log_bwbrowser(
+              "inject_cookies",
+              &format!("云端 Cookie HTTP 探测: {:?} — {}", verdict, msg),
+            );
+          }
+          Ok(None) => {
+            log_bwbrowser("inject_cookies", "该平台无探测规则，按评分逻辑继续");
+          }
+          Err(_) => {
+            log_bwbrowser(
+              "inject_cookies",
+              "云端 Cookie HTTP 探测超时，按评分逻辑继续",
+            );
+          }
+        }
+      }
+    }
+  }
+
   if should_inject {
     if let Some(ref cloud_text) = cloud_cookie_text {
       let cloud_val = serde_json::from_str::<serde_json::Value>(cloud_text)
@@ -7750,6 +7794,10 @@ async fn inject_cloud_cookies_after_launch(
   const LOGIN_WAIT_SECONDS: u64 = 300;
   let deadline =
     std::time::Instant::now() + std::time::Duration::from_secs(LOGIN_WAIT_SECONDS);
+  // 探测连续确认失效达到该次数后停止等待（会话不会自己复活，继续空转只会
+  // 白白占用任务 300 秒；留给用户手动登录，下次启动再回传）。
+  const MAX_DEAD_PROBES: u32 = 3;
+  let mut dead_probe_count: u32 = 0;
 
   loop {
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -7801,6 +7849,51 @@ async fn inject_cloud_cookies_after_launch(
     if !score.definite_logged_in {
       log_bwbrowser("inject_cookies", "尚未确认登录，继续等待...");
       continue;
+    }
+
+    // HTTP 交叉验证（回传前）：评分判定"确定登录"后，再用真实请求确认会话
+    // 有效。评分只看 cookie 存在性 —— 会话可能已过期但 cookie 还在（这正是
+    // "未登录却判定已登录"的来源）。探测到已失效就不回传，继续等待。
+    if let Some(arr) = local_val.as_array() {
+      match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr),
+      )
+      .await
+      {
+        Ok(Some((crate::cookie_health::HealthStatus::Expired, msg))) => {
+          dead_probe_count += 1;
+          log_bwbrowser(
+            "inject_cookies",
+            &format!(
+              "⚠ 评分判定登录，但 HTTP 探测确认会话已失效（{}），第 {} 次，{}",
+              msg,
+              dead_probe_count,
+              if dead_probe_count >= MAX_DEAD_PROBES {
+                "停止等待，不回传失效会话"
+              } else {
+                "继续等待"
+              }
+            ),
+          );
+          if dead_probe_count >= MAX_DEAD_PROBES {
+            break;
+          }
+          continue;
+        }
+        Ok(Some((verdict, msg))) => {
+          log_bwbrowser(
+            "inject_cookies",
+            &format!("HTTP 探测确认登录: {:?} — {}", verdict, msg),
+          );
+        }
+        Ok(None) => {
+          log_bwbrowser("inject_cookies", "该平台无探测规则，按评分结果回传");
+        }
+        Err(_) => {
+          log_bwbrowser("inject_cookies", "HTTP 探测超时，按评分结果回传");
+        }
+      }
     }
 
     // 已确认登录：回传云端并停止
