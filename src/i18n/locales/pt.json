@@ -2369,7 +2369,8 @@
     "syncDisplayUnavailable": "Não foi possível ler o tamanho do ecrã, por isso as janelas não podem ser organizadas.",
     "syncDisplayTooSmall": "O ecrã é demasiado pequeno para {{windows}} janelas nessa disposição.",
     "syncArrangeFailed": "Não foi possível mover nenhuma janela.",
-    "extensionPathInvalid": "Esse caminho não é permitido: contém '..'."
+    "extensionPathInvalid": "Esse caminho não é permitido: contém '..'.",
+    "loginCredentialsIncomplete": "Informe um e-mail e uma senha."
   },
   "rail": {
     "profiles": "Perfis",
@@ -3514,5 +3515,16 @@
     "body": "Seu plano acabou de desbloquear isto. Cada dica mostra um recurso em ação.",
     "cta": "Mostre-me",
     "later": "Mais tarde"
+  },
+  "loginCredentials": {
+    "label": "Login Google / YouTube",
+    "description": "Preenche automaticamente seu e-mail e senha nas páginas de login do Google e YouTube. Você ainda pressiona Avançar / Entrar.",
+    "emailLabel": "E-mail da conta",
+    "emailPlaceholder": "voce@exemplo.com",
+    "passwordLabel": "Senha",
+    "passwordPlaceholder": "Senha",
+    "passwordPlaceholderStored": "Deixe em branco para manter a senha salva",
+    "saved": "Credenciais de login salvas",
+    "cleared": "Credenciais de login removidas"
   }
 }

@@ -1663,6 +1663,16 @@ impl WayfernManager {
           let response: serde_json::Value = serde_json::from_str(text.as_str())?;
           if response.get("id") == Some(&json!(1)) {
             if let Some(error) = response.get("error") {
+              let error_msg = error.get("message").and_then(|v| v.as_str()).unwrap_or("");
+              // A single fingerprint property the browser cannot apply (e.g.
+              // audioOutputLatency from a stored device whose value type no
+              // longer matches) must not abort the launch: the browser keeps
+              // every other property and the session stays usable. Log it and
+              // report success for this command.
+              if error_msg.contains("Fingerprint property was not applied") {
+                log::warn!("CDP apply skipped one fingerprint property: {error_msg}");
+                return Ok(json!({}));
+              }
               return Err(format!("CDP error: {}", error).into());
             }
             return Ok(response.get("result").cloned().unwrap_or(json!({})));
@@ -2061,7 +2071,14 @@ impl WayfernManager {
     _app_handle: &AppHandle,
     profile: &BrowserProfile,
     config: &WayfernConfig,
+    on_progress: Option<&(dyn Fn(&str) + Sync)>,
   ) -> Result<GeneratedFingerprint, Box<dyn std::error::Error + Send + Sync>> {
+    let stage = |label: &str| {
+      if let Some(cb) = on_progress {
+        cb(label);
+      }
+    };
+
     let executable_path = BrowserRunner::instance()
       .get_browser_executable_path(profile)
       .map_err(|e| format!("Failed to get Wayfern executable path: {e}"))?;
@@ -2130,13 +2147,42 @@ impl WayfernManager {
         {
           use std::os::windows::process::CommandExt;
           const CREATE_NO_WINDOW: u32 = 0x08000000;
+          // /T kills the whole tree. A bare /PID kill leaves the headless
+          // browser's helper processes (gpu, network service, crashpad) alive
+          // for a moment, and a surviving helper keeps files in the temp dir
+          // locked, which is exactly what leaves a wayfern_fingerprint_* dir
+          // behind.
           let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &id.to_string(), "/F"])
+            .args(["/PID", &id.to_string(), "/T", "/F"])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
         }
       }
-      let _ = std::fs::remove_dir_all(&temp_profile_dir);
+      // Helpers can outlive the kill by a beat on Windows; retry the removal
+      // instead of swallowing a lock error and leaking the dir into %TEMP%.
+      for attempt in 0..5 {
+        if !temp_profile_dir.exists() {
+          break;
+        }
+        match std::fs::remove_dir_all(&temp_profile_dir) {
+          Ok(_) => break,
+          Err(e) if attempt < 4 => {
+            if attempt == 0 {
+              log::warn!(
+                "Fingerprint temp dir removal failed (retrying): {}: {e}",
+                temp_profile_dir.display()
+              );
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+          }
+          Err(e) => {
+            log::warn!(
+              "Could not remove fingerprint temp dir after retries ({}): {e}",
+              temp_profile_dir.display()
+            );
+          }
+        }
+      }
     };
 
     if let Err(e) = self.wait_for_cdp_ready(port).await {
@@ -2208,6 +2254,8 @@ impl WayfernManager {
 
     let use_identity_api = supports_identity_api(&profile.version);
     let mut fell_back_to_legacy = false;
+
+    stage("正在生成设备指纹...");
 
     // No geolocation override is passed here. Donut resolves the exit's
     // location itself, below, through the profile's own proxy, because the
@@ -2343,6 +2391,7 @@ impl WayfernManager {
         // timezone, latitude/longitude and language were written into the
         // fingerprint as authoritative.
         let routes_traffic = config.proxy.is_some() || profile.vpn_id.is_some();
+        stage("正在探测代理出口地理位置...");
         let geolocation_applied = if Self::must_skip_probe(
           routes_traffic,
           probe_leaves_this_machine,
@@ -2377,6 +2426,7 @@ impl WayfernManager {
     };
 
     cleanup().await;
+    stage("指纹生成完成，正在启动浏览器...");
 
     let fingerprint_json = serde_json::to_string(&fingerprint)
       .map_err(|e| format!("Failed to serialize fingerprint: {e}"))?;

@@ -2359,7 +2359,8 @@
     "syncDisplayUnavailable": "화면 크기를 읽지 못해 창을 정렬할 수 없습니다.",
     "syncDisplayTooSmall": "그 배치로 창 {{windows}}개를 놓기에는 화면이 너무 작습니다.",
     "syncArrangeFailed": "옮겨진 창이 없습니다.",
-    "extensionPathInvalid": "그 경로는 사용할 수 없습니다. '..'이 포함되어 있습니다."
+    "extensionPathInvalid": "그 경로는 사용할 수 없습니다. '..'이 포함되어 있습니다.",
+    "loginCredentialsIncomplete": "이메일과 비밀번호를 모두 입력하세요."
   },
   "rail": {
     "profiles": "프로필",
@@ -3481,5 +3482,16 @@
     "body": "플랜으로 다음 기능이 열렸습니다. 각 팁에서 실제 동작을 볼 수 있습니다.",
     "cta": "보여주기",
     "later": "나중에"
+  },
+  "loginCredentials": {
+    "label": "Google / YouTube 로그인",
+    "description": "Google 및 YouTube 로그인 페이지에 이메일과 비밀번호를 자동으로 입력합니다. 다음/로그인 버튼은 직접 누르셔야 합니다.",
+    "emailLabel": "계정 이메일",
+    "emailPlaceholder": "you@example.com",
+    "passwordLabel": "비밀번호",
+    "passwordPlaceholder": "비밀번호",
+    "passwordPlaceholderStored": "비워 두면 저장된 비밀번호가 유지됩니다",
+    "saved": "로그인 정보가 저장되었습니다",
+    "cleared": "로그인 정보가 삭제되었습니다"
   }
 }

@@ -2359,7 +2359,8 @@
     "syncDisplayUnavailable": "Ekran boyutu okunamadı, bu yüzden pencereler yerleştirilemiyor.",
     "syncDisplayTooSmall": "Ekran, o düzende {{windows}} pencere için fazla küçük.",
     "syncArrangeFailed": "Hiçbir pencere taşınamadı.",
-    "extensionPathInvalid": "Bu yol kullanılamaz: '..' içeriyor."
+    "extensionPathInvalid": "Bu yol kullanılamaz: '..' içeriyor.",
+    "loginCredentialsIncomplete": "E-posta ve şifre girin."
   },
   "rail": {
     "profiles": "Profiller",
@@ -3481,5 +3482,16 @@
     "body": "Planınız bunların kilidini açtı. Her ipucu birini çalışırken gösterir.",
     "cta": "Göster",
     "later": "Sonra"
+  },
+  "loginCredentials": {
+    "label": "Google / YouTube oturum açma",
+    "description": "Google ve YouTube giriş sayfalarına e-posta ve şifrenizi otomatik doldurur. İleri / Oturum aç düğmesine yine kendiniz basarsınız.",
+    "emailLabel": "Hesap e-postası",
+    "emailPlaceholder": "you@example.com",
+    "passwordLabel": "Şifre",
+    "passwordPlaceholder": "Şifre",
+    "passwordPlaceholderStored": "Kayıtlı şifreyi korumak için boş bırakın",
+    "saved": "Giriş bilgileri kaydedildi",
+    "cleared": "Giriş bilgileri silindi"
   }
 }

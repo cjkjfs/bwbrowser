@@ -42,7 +42,7 @@ fn main() {
     let raw = std::fs::read_to_string(file).expect("failed to read cookie json file");
     let cookies: Vec<serde_json::Value> =
       serde_json::from_str(&raw).expect("cookie json must be an array of CDP cookies");
-    match rt.block_on(cookie_health::probe_cdp_cookies(platform, &cookies)) {
+    match rt.block_on(cookie_health::probe_cdp_cookies(platform, &cookies, None)) {
       Some((status, message)) => {
         println!(
           "[{:<8}] {} — {}",
@@ -63,7 +63,7 @@ fn main() {
     std::process::exit(2);
   });
 
-  let results = rt.block_on(cookie_health::check_profile_health(profile_id));
+  let results = rt.block_on(cookie_health::check_profile_health(profile_id, true));
 
   if results.is_empty() {
     println!("No results for {profile_id} (cooldown active, no cookies, or profile missing)");

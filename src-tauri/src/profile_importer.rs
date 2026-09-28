@@ -993,11 +993,12 @@ impl ProfileImporter {
           clear_on_close: false,
           created_at: None,
           updated_at: None,
+          login_credentials: None,
         };
 
         match self
           .wayfern_manager
-          .generate_fingerprint_config(app_handle, &temp_profile, &config)
+          .generate_fingerprint_config(app_handle, &temp_profile, &config, None)
           .await
         {
           // geo_proxy_signature is intentionally left unset here: the first
@@ -1079,6 +1080,7 @@ impl ProfileImporter {
           .unwrap_or(0),
       ),
       updated_at: Some(crate::proxy_manager::now_secs()),
+      login_credentials: None,
     };
 
     self.profile_manager.save_profile(&profile)?;

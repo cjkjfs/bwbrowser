@@ -737,6 +737,7 @@ mod tests {
       clear_on_close: false,
       created_at: None,
       updated_at: None,
+      login_credentials: None,
     };
 
     let path = profile.get_profile_data_path(&profiles_dir);

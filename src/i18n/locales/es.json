@@ -2369,7 +2369,8 @@
     "syncDisplayUnavailable": "No se pudo leer el tamaño de la pantalla, así que las ventanas no se pueden ordenar.",
     "syncDisplayTooSmall": "La pantalla es demasiado pequeña para {{windows}} ventanas en esa disposición.",
     "syncArrangeFailed": "No se pudo mover ninguna ventana.",
-    "extensionPathInvalid": "Esa ruta no está permitida: contiene '..'."
+    "extensionPathInvalid": "Esa ruta no está permitida: contiene '..'.",
+    "loginCredentialsIncomplete": "Introduce un correo y una contraseña."
   },
   "rail": {
     "profiles": "Perfiles",
@@ -3514,5 +3515,16 @@
     "body": "Tu plan acaba de desbloquear esto. Cada consejo muestra una función en acción.",
     "cta": "Enséñame",
     "later": "Más tarde"
+  },
+  "loginCredentials": {
+    "label": "Inicio de sesión en Google / YouTube",
+    "description": "Rellena automáticamente tu correo y contraseña en las páginas de inicio de sesión de Google y YouTube. Tú sigues pulsando Siguiente / Iniciar sesión.",
+    "emailLabel": "Correo de la cuenta",
+    "emailPlaceholder": "tu@ejemplo.com",
+    "passwordLabel": "Contraseña",
+    "passwordPlaceholder": "Contraseña",
+    "passwordPlaceholderStored": "Déjalo vacío para conservar la contraseña guardada",
+    "saved": "Credenciales de inicio de sesión guardadas",
+    "cleared": "Credenciales de inicio de sesión eliminadas"
   }
 }

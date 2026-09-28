@@ -2,7 +2,7 @@ use crate::browser::{create_browser, BrowserType};
 use crate::cloud_auth::CLOUD_AUTH;
 use crate::downloaded_browsers_registry::DownloadedBrowsersRegistry;
 use crate::events;
-use crate::profile::types::{get_host_os, is_host_os, BrowserProfile, SyncMode};
+use crate::profile::types::{get_host_os, is_host_os, BrowserProfile, LoginCredentials, SyncMode};
 use crate::proxy_manager::PROXY_MANAGER;
 use crate::wayfern_manager::WayfernConfig;
 use std::fs::{self, create_dir_all};
@@ -256,11 +256,12 @@ impl ProfileManager {
           clear_on_close: false,
           created_at: None,
           updated_at: None,
+          login_credentials: None,
         };
 
         match self
           .wayfern_manager
-          .generate_fingerprint_config(app_handle, &temp_profile, &config)
+          .generate_fingerprint_config(app_handle, &temp_profile, &config, None)
           .await
         {
           Ok(generated) => {
@@ -379,6 +380,7 @@ impl ProfileManager {
           .unwrap_or(0),
       ),
       updated_at: Some(crate::proxy_manager::now_secs()),
+      login_credentials: None,
     };
 
     // Save profile info
@@ -1136,6 +1138,36 @@ impl ProfileManager {
     Ok(profile)
   }
 
+  /// Set or clear the sign-in credentials the autofill feature fills into
+  /// supported login pages. `None` turns the feature off for the profile.
+  pub fn update_profile_login_credentials(
+    &self,
+    _app_handle: &tauri::AppHandle,
+    profile_id: &str,
+    credentials: Option<LoginCredentials>,
+  ) -> Result<BrowserProfile, Box<dyn std::error::Error>> {
+    let profile_uuid =
+      uuid::Uuid::parse_str(profile_id).map_err(|_| format!("Invalid profile ID: {profile_id}"))?;
+    let profiles = self.list_profiles()?;
+    let mut profile = profiles
+      .into_iter()
+      .find(|p| p.id == profile_uuid)
+      .ok_or_else(|| format!("Profile with ID '{profile_id}' not found"))?;
+
+    profile.login_credentials = credentials;
+    profile.updated_at = Some(crate::proxy_manager::now_secs());
+
+    self.save_profile(&profile)?;
+
+    crate::sync::queue_profile_sync_if_eligible(&profile);
+
+    if let Err(e) = events::emit_empty("profiles-changed") {
+      log::warn!("Warning: Failed to emit profiles-changed event: {e}");
+    }
+
+    Ok(profile)
+  }
+
   pub fn update_profile_window_color(
     &self,
     _app_handle: &tauri::AppHandle,
@@ -1369,6 +1401,7 @@ impl ProfileManager {
           .unwrap_or(0),
       ),
       updated_at: Some(crate::proxy_manager::now_secs()),
+      login_credentials: None,
     };
 
     // A clone must NOT be linkable to its source. The source
@@ -2219,6 +2252,110 @@ pub fn update_profile_note(
   profile_manager
     .update_profile_note(&app_handle, &profile_id, note)
     .map_err(|e| format!("Failed to update profile note: {e}"))
+}
+
+/// Set the sign-in credentials the autofill feature fills into supported
+/// login pages. The email is required; an empty password keeps the stored one,
+/// so the edit form never has to re-type the secret. Clear the credentials to
+/// turn the feature off.
+#[tauri::command]
+pub fn update_profile_login_credentials(
+  app_handle: tauri::AppHandle,
+  profile_id: String,
+  email: String,
+  password: String,
+) -> Result<BrowserProfile, String> {
+  let email = email.trim().to_string();
+  if email.is_empty() {
+    return Err(serde_json::json!({ "code": "LOGIN_CREDENTIALS_INCOMPLETE" }).to_string());
+  }
+
+  let current_password = {
+    let profile_uuid = uuid::Uuid::parse_str(&profile_id)
+      .map_err(|_| serde_json::json!({ "code": "PROFILE_NOT_FOUND" }).to_string())?;
+    ProfileManager::instance()
+      .list_profiles()
+      .map_err(crate::profile_importer::error_to_code_string)?
+      .into_iter()
+      .find(|p| p.id == profile_uuid)
+      .and_then(|p| p.login_credentials)
+      .map(|c| c.password)
+      .unwrap_or_default()
+  };
+  let password = if password.is_empty() {
+    current_password
+  } else {
+    password
+  };
+  if password.is_empty() {
+    return Err(serde_json::json!({ "code": "LOGIN_CREDENTIALS_INCOMPLETE" }).to_string());
+  }
+
+  let updated = ProfileManager::instance()
+    .update_profile_login_credentials(
+      &app_handle,
+      &profile_id,
+      Some(LoginCredentials { email, password }),
+    )
+    .map_err(crate::profile_importer::error_to_code_string)?;
+
+  // Credentials saved while the browser is already running: the launch-time
+  // watcher may not exist, so start one. The per-profile guard inside
+  // `watch_profile` collapses this with an already-running watcher.
+  if updated
+    .process_id
+    .is_some_and(crate::proxy_storage::is_process_running)
+  {
+    let pid = profile_id.clone();
+    tauri::async_runtime::spawn(async move {
+      crate::login_autofill::watch_profile(&pid).await;
+    });
+  }
+
+  Ok(updated)
+}
+
+/// Forget the profile's sign-in credentials, turning the autofill feature off.
+#[tauri::command]
+pub fn clear_profile_login_credentials(
+  app_handle: tauri::AppHandle,
+  profile_id: String,
+) -> Result<BrowserProfile, String> {
+  ProfileManager::instance()
+    .update_profile_login_credentials(&app_handle, &profile_id, None)
+    .map_err(crate::profile_importer::error_to_code_string)
+}
+
+/// The email stored for autofill and whether a password exists. The password
+/// itself never leaves the backend: the page only needs to say "set or not".
+#[tauri::command]
+pub fn get_profile_login_credentials(
+  _app_handle: tauri::AppHandle,
+  profile_id: String,
+) -> Result<ProfileLoginCredentialsView, String> {
+  let profile_uuid = uuid::Uuid::parse_str(&profile_id)
+    .map_err(|_| serde_json::json!({ "code": "PROFILE_NOT_FOUND" }).to_string())?;
+  let profiles = ProfileManager::instance()
+    .list_profiles()
+    .map_err(crate::profile_importer::error_to_code_string)?;
+  let profile = profiles
+    .into_iter()
+    .find(|p| p.id == profile_uuid)
+    .ok_or_else(|| serde_json::json!({ "code": "PROFILE_NOT_FOUND" }).to_string())?;
+  let credentials = profile.login_credentials;
+  Ok(ProfileLoginCredentialsView {
+    email: credentials.as_ref().map(|c| c.email.clone()),
+    has_password: credentials.as_ref().is_some_and(|c| !c.password.is_empty()),
+  })
+}
+
+/// What the frontend may see about a profile's autofill credentials: the
+/// email (needed to prefill the edit form) and whether a password is stored.
+/// The password is never serialized into this view.
+#[derive(Debug, serde::Serialize)]
+pub struct ProfileLoginCredentialsView {
+  pub email: Option<String>,
+  pub has_password: bool,
 }
 
 #[tauri::command]

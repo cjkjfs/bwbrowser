@@ -1364,10 +1364,8 @@ impl CookieManager {
         Ok(d.map(|uc| (uc.domain.clone(), uc)))
       });
       if let Ok(mapped) = rows {
-        for row in mapped.flatten() {
-          if let Some((_, uc)) = row {
-            cookies.push(uc);
-          }
+        for (_, uc) in mapped.flatten().flatten() {
+          cookies.push(uc);
         }
       }
     }

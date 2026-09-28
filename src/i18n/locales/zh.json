@@ -2359,7 +2359,8 @@
     "syncDisplayUnavailable": "无法读取显示器尺寸，因此不能排列窗口。",
     "syncDisplayTooSmall": "显示器太小，无法以该布局排列 {{windows}} 个窗口。",
     "syncArrangeFailed": "没有窗口被移动。",
-    "extensionPathInvalid": "该路径不允许使用：它包含“..”。"
+    "extensionPathInvalid": "该路径不允许使用：它包含“..”。",
+    "loginCredentialsIncomplete": "请同时输入邮箱和密码。"
   },
   "rail": {
     "profiles": "配置文件",
@@ -3481,5 +3482,16 @@
     "body": "您的套餐刚刚解锁了这些功能。每条小贴士都会演示其中一项。",
     "cta": "带我看看",
     "later": "稍后"
+  },
+  "loginCredentials": {
+    "label": "Google / YouTube 登录",
+    "description": "自动将邮箱和密码填入 Google 与 YouTube 登录页面。您仍需要自己点击“下一步”/“登录”。",
+    "emailLabel": "账号邮箱",
+    "emailPlaceholder": "you@example.com",
+    "passwordLabel": "密码",
+    "passwordPlaceholder": "密码",
+    "passwordPlaceholderStored": "留空则保留已保存的密码",
+    "saved": "登录凭据已保存",
+    "cleared": "登录凭据已清除"
   }
 }

@@ -2369,7 +2369,8 @@
     "syncDisplayUnavailable": "La taille de l'écran n'a pas pu être lue, les fenêtres ne peuvent donc pas être rangées.",
     "syncDisplayTooSmall": "L'écran est trop petit pour {{windows}} fenêtres dans cette disposition.",
     "syncArrangeFailed": "Aucune fenêtre n'a pu être déplacée.",
-    "extensionPathInvalid": "Ce chemin n'est pas autorisé : il contient « .. »."
+    "extensionPathInvalid": "Ce chemin n'est pas autorisé : il contient « .. ».",
+    "loginCredentialsIncomplete": "Saisissez un e-mail et un mot de passe."
   },
   "rail": {
     "profiles": "Profils",
@@ -3514,5 +3515,16 @@
     "body": "Votre offre vient de débloquer ceci. Chaque astuce montre une fonction en action.",
     "cta": "Montrez-moi",
     "later": "Plus tard"
+  },
+  "loginCredentials": {
+    "label": "Connexion Google / YouTube",
+    "description": "Remplit automatiquement votre e-mail et votre mot de passe sur les pages de connexion Google et YouTube. Vous appuyez toujours vous-même sur Suivant / Se connecter.",
+    "emailLabel": "E-mail du compte",
+    "emailPlaceholder": "vous@exemple.com",
+    "passwordLabel": "Mot de passe",
+    "passwordPlaceholder": "Mot de passe",
+    "passwordPlaceholderStored": "Laissez vide pour conserver le mot de passe enregistré",
+    "saved": "Identifiants de connexion enregistrés",
+    "cleared": "Identifiants de connexion supprimés"
   }
 }

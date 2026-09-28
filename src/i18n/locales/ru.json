@@ -2379,7 +2379,8 @@
     "syncDisplayUnavailable": "Не удалось узнать размер экрана, поэтому окна не расставить.",
     "syncDisplayTooSmall": "Экран слишком мал для {{windows}} окон в таком расположении.",
     "syncArrangeFailed": "Ни одно окно не удалось переместить.",
-    "extensionPathInvalid": "Этот путь недопустим: он содержит «..»."
+    "extensionPathInvalid": "Этот путь недопустим: он содержит «..».",
+    "loginCredentialsIncomplete": "Введите email и пароль."
   },
   "rail": {
     "profiles": "Профили",
@@ -3547,5 +3548,16 @@
     "body": "Ваш тариф только что открыл эти возможности. Каждая подсказка показывает одну из них в действии.",
     "cta": "Покажите",
     "later": "Позже"
+  },
+  "loginCredentials": {
+    "label": "Вход Google / YouTube",
+    "description": "Автоматически заполняет email и пароль на страницах входа Google и YouTube. Кнопку «Далее» / «Войти» вы нажимаете сами.",
+    "emailLabel": "Email аккаунта",
+    "emailPlaceholder": "you@example.com",
+    "passwordLabel": "Пароль",
+    "passwordPlaceholder": "Пароль",
+    "passwordPlaceholderStored": "Оставьте пустым, чтобы сохранить текущий пароль",
+    "saved": "Данные для входа сохранены",
+    "cleared": "Данные для входа удалены"
   }
 }

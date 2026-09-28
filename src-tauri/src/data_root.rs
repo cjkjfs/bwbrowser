@@ -14,6 +14,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
@@ -40,6 +41,13 @@ static MOVE_RUNNING: AtomicBool = AtomicBool::new(false);
 /// (every path was resolved at startup), so the page has to say so out loud.
 static RESTART_REQUIRED: AtomicBool = AtomicBool::new(false);
 
+/// Where the data lived before the current root was chosen this session. A move
+/// ("move existing data here") copies out of this directory into the active one
+/// and then deletes it, so choosing a directory and relocating data are now two
+/// separate actions. The first meaningful source sticks, so repeatedly picking
+/// an empty scratch folder never erases the original one.
+static PREVIOUS_DATA_DIR: RwLock<Option<PathBuf>> = RwLock::new(None);
+
 fn code(code: &str) -> String {
   serde_json::json!({ "code": code }).to_string()
 }
@@ -56,6 +64,10 @@ pub struct DataRootInfo {
   pub configured_path: Option<String>,
   /// Where the directory would resolve with nothing chosen.
   pub default_path: String,
+  /// The directory the previous setup kept its data in, when it differs from
+  /// the active one and still holds files. Offered as the source for a data
+  /// migration after a directory is chosen but not yet moved into.
+  pub previous_path: Option<String>,
   /// Bytes under `active_path`.
   pub size_bytes: u64,
   /// Regular files under `active_path`.
@@ -65,9 +77,6 @@ pub struct DataRootInfo {
   pub overridden_by_environment: bool,
   /// True once a move has completed in this process.
   pub restart_required: bool,
-  /// The folder name a destination gets, so the page can show the full path it
-  /// is about to move to before the user commits.
-  pub app_directory_name: String,
   /// The recorded directory is not there right now, which is what an
   /// unplugged external drive looks like.
   ///
@@ -227,22 +236,6 @@ pub(crate) fn probe_writable(destination: &Path) -> Result<(), String> {
       Err(code("DATA_ROOT_DESTINATION_NOT_WRITABLE"))
     }
   }
-}
-
-/// Refuse a destination that already holds files. Merging into somebody's
-/// folder makes the count-and-size verification meaningless and makes the
-/// delete that follows impossible to reason about.
-pub(crate) fn ensure_empty(destination: &Path) -> Result<(), String> {
-  let Ok(entries) = std::fs::read_dir(destination) else {
-    return Ok(());
-  };
-  for entry in entries.flatten() {
-    if entry.file_name() == ".bwbrowser-write-probe" {
-      continue;
-    }
-    return Err(code("DATA_ROOT_DESTINATION_NOT_EMPTY"));
-  }
-  Ok(())
 }
 
 /// Walk a tree, counting regular files, their bytes, directories and symlinks.
@@ -410,9 +403,9 @@ pub(crate) fn verify_copy(
     )
   })?;
 
-  if copied.files != expected.files || copied.bytes != expected.bytes {
+  if copied.files < expected.files || copied.bytes < expected.bytes {
     log::error!(
-      "The copy at {} does not match {}: {} files / {} bytes against {} files / {} bytes",
+      "The copy at {} is missing files from {}: {} files / {} bytes against {} files / {} bytes",
       destination.display(),
       source.display(),
       copied.files,
@@ -477,6 +470,51 @@ async fn sync_in_progress() -> bool {
   }
 }
 
+/// Remember where the data lived before the root changed, unless a more
+/// meaningful source was already recorded this session.
+fn set_previous_dir_if_unset(dir: &Path) {
+  if let Ok(guard) = PREVIOUS_DATA_DIR.read() {
+    if guard.is_some() {
+      return;
+    }
+  }
+  if let Ok(mut guard) = PREVIOUS_DATA_DIR.write() {
+    if guard.is_none() {
+      *guard = Some(dir.to_path_buf());
+    }
+  }
+}
+
+fn read_previous_dir() -> Option<PathBuf> {
+  PREVIOUS_DATA_DIR
+    .read()
+    .unwrap_or_else(|p| p.into_inner())
+    .clone()
+}
+
+fn clear_previous_dir() {
+  if let Ok(mut guard) = PREVIOUS_DATA_DIR.write() {
+    *guard = None;
+  }
+}
+
+/// The directory a data migration should copy out of, if any data is waiting to
+/// be moved. In-session it is the root that was active before `set_data_root`;
+/// a previously chosen directory that is not the platform default points back at
+/// that default, which is where an un-migrated install leaves its data.
+///
+/// Only a directory that is distinct from the active root and still on disk is
+/// offered: a source that equals the active root is the "nothing to move" case,
+/// and the page would otherwise promise to migrate a directory into itself.
+fn previous_data_source() -> Option<PathBuf> {
+  let active = crate::app_dirs::data_dir();
+  let candidate = read_previous_dir().or_else(|| {
+    let fallback = crate::app_dirs::default_data_dir();
+    (fallback != active && fallback.is_dir()).then_some(fallback)
+  })?;
+  (candidate != active && candidate.is_dir()).then_some(candidate)
+}
+
 fn info_now() -> DataRootInfo {
   let active = crate::app_dirs::data_dir();
   let scan = scan_tree(&active).unwrap_or_default();
@@ -495,7 +533,7 @@ fn info_now() -> DataRootInfo {
     file_count: scan.files,
     overridden_by_environment: crate::app_dirs::data_dir_forced_by_environment(),
     restart_required,
-    app_directory_name: crate::app_dirs::app_name().to_string(),
+    previous_path: previous_data_source().map(|path| path.to_string_lossy().to_string()),
   }
 }
 
@@ -510,6 +548,7 @@ impl Drop for MoveGuard {
 
 async fn move_to(
   app_handle: tauri::AppHandle,
+  source: PathBuf,
   destination: PathBuf,
 ) -> Result<DataRootInfo, String> {
   if MOVE_RUNNING.swap(true, Ordering::SeqCst) {
@@ -528,8 +567,10 @@ async fn move_to(
   // Copying a fleet is minutes of blocking IO. Left on a runtime worker it
   // would stall every other task in the app — proxy workers, the sync
   // scheduler, the event loop that carries the progress this very move emits.
-  match tokio::task::spawn_blocking(move || perform_move(app_handle, destination, sync_running))
-    .await
+  match tokio::task::spawn_blocking(move || {
+    perform_move(app_handle, source, destination, sync_running)
+  })
+  .await
   {
     Ok(result) => result,
     Err(e) => {
@@ -545,10 +586,10 @@ async fn move_to(
 /// The move itself, start to finish, on a blocking thread.
 fn perform_move(
   app_handle: tauri::AppHandle,
+  source: PathBuf,
   destination: PathBuf,
   sync_running: bool,
 ) -> Result<DataRootInfo, String> {
-  let source = crate::app_dirs::data_dir();
   let emit = |phase: &str, copied_files: u64, copied_bytes: u64, total: &TreeScan| {
     let _ = app_handle.emit(
       MOVE_PROGRESS_EVENT,
@@ -587,7 +628,6 @@ fn perform_move(
   })?;
 
   probe_writable(&destination)?;
-  ensure_empty(&destination)?;
 
   let mut report = |phase: &str, files: u64, bytes: u64| emit(phase, files, bytes, &total);
 
@@ -775,12 +815,64 @@ pub async fn get_data_root_info() -> Result<DataRootInfo, String> {
   }
 }
 
+/// Point the data directory at `destination` and use it now. Nothing is moved:
+/// an empty scratch folder becomes the active root immediately, and the data
+/// that was living elsewhere stays on disk until `move_data_root` relocates it.
+/// A already-recorded source is kept, so choosing a directory and relocating its
+/// data stay two separate steps.
+#[tauri::command]
+pub async fn set_data_root(destination: String) -> Result<DataRootInfo, String> {
+  let destination = PathBuf::from(destination);
+  if !destination.is_absolute() || destination.as_os_str().is_empty() {
+    return Err(code("DATA_ROOT_DESTINATION_NOT_WRITABLE"));
+  }
+  probe_writable(&destination)?;
+  let current = crate::app_dirs::data_dir();
+  if !paths_equal(&current, &destination) {
+    set_previous_dir_if_unset(&current);
+  }
+  crate::app_dirs::write_data_root_pointer(
+    &crate::app_dirs::data_root_pointer_file(),
+    &destination,
+  )
+  .map_err(|e| {
+    log::error!("Could not record the new data directory: {e}");
+    code_with(
+      "DATA_ROOT_COPY_FAILED",
+      serde_json::json!({ "detail": e.to_string() }),
+    )
+  })?;
+  crate::app_dirs::set_custom_data_root(Some(destination.clone()));
+  log::info!(
+    "Data directory set to {}; it takes effect now",
+    destination.display()
+  );
+  Ok(info_now())
+}
+
+/// Relocate the data that was living elsewhere into the current root directory,
+/// overwriting same-named files. "Move existing data here": the directory is
+/// already active; this copies the previous setup's profiles, binaries and
+/// settings into it. Same-name files are overwritten rather than refusing a
+/// non-empty destination.
 #[tauri::command]
 pub async fn move_data_root(
   app_handle: tauri::AppHandle,
   destination: String,
 ) -> Result<DataRootInfo, String> {
-  move_to(app_handle, PathBuf::from(destination)).await
+  let destination = PathBuf::from(destination);
+  // The old data either lives at the source remembered when the root changed, or
+  // at the platform default of an un-migrated relocation. With nothing waiting
+  // to move, fall back to the current root, which makes the destination "same as
+  // source" and the usual preconditions refuse it.
+  let source = previous_data_source()
+    .filter(|path| path != &destination && path.is_dir())
+    .unwrap_or_else(crate::app_dirs::data_dir);
+  let moved = move_to(app_handle, source, destination).await;
+  if moved.is_ok() {
+    clear_previous_dir();
+  }
+  moved
 }
 
 /// Forget a recorded directory so the next start uses the platform default
@@ -957,19 +1049,6 @@ mod tests {
     let fine = temp.path().join("fine");
     assert!(probe_writable(&fine).is_ok());
     assert_eq!(std::fs::read_dir(&fine).unwrap().count(), 0);
-  }
-
-  #[test]
-  fn a_destination_that_already_holds_files_is_refused() {
-    let temp = tempfile::tempdir().unwrap();
-    let destination = temp.path().join("destination");
-    std::fs::create_dir_all(&destination).unwrap();
-    assert!(ensure_empty(&destination).is_ok());
-    write(&destination.join("someone-elses.txt"), b"hello");
-    assert_eq!(
-      parsed_code(&ensure_empty(&destination).unwrap_err()),
-      "DATA_ROOT_DESTINATION_NOT_EMPTY"
-    );
   }
 
   #[test]

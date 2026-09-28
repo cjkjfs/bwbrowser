@@ -17,6 +17,14 @@ fn main() {
   }
 
   // Inject build version based on environment variables set by CI
+  // Declare rerun-if-env-changed for every variable below so a leftover
+  // BUILD_TAG/GITHUB_REF_NAME/GITHUB_SHA in the local shell cannot silently
+  // stamp a stale nightly version into a dev build (and then fail the
+  // sidecar version check with PROXY_SIDECAR_VERSION_MISMATCH).
+  println!("cargo:rerun-if-env-changed=BUILD_TAG");
+  println!("cargo:rerun-if-env-changed=GITHUB_REF_NAME");
+  println!("cargo:rerun-if-env-changed=STABLE_RELEASE");
+  println!("cargo:rerun-if-env-changed=GITHUB_SHA");
   if let Ok(build_tag) = std::env::var("BUILD_TAG") {
     // Custom BUILD_TAG takes highest priority (used for nightly builds)
     println!("cargo:rustc-env=BUILD_VERSION={build_tag}");

@@ -2359,7 +2359,8 @@
     "syncDisplayUnavailable": "Không đọc được kích thước màn hình nên không xếp được cửa sổ.",
     "syncDisplayTooSmall": "Màn hình quá nhỏ cho {{windows}} cửa sổ theo cách xếp đó.",
     "syncArrangeFailed": "Không cửa sổ nào được di chuyển.",
-    "extensionPathInvalid": "Đường dẫn đó không được phép: nó chứa '..'."
+    "extensionPathInvalid": "Đường dẫn đó không được phép: nó chứa '..'.",
+    "loginCredentialsIncomplete": "Vui lòng nhập email và mật khẩu."
   },
   "rail": {
     "profiles": "Profile",
@@ -3481,5 +3482,16 @@
     "body": "Gói của bạn vừa mở khóa những tính năng này. Mỗi mẹo cho thấy một tính năng đang hoạt động.",
     "cta": "Cho tôi xem",
     "later": "Để sau"
+  },
+  "loginCredentials": {
+    "label": "Đăng nhập Google / YouTube",
+    "description": "Tự động điền email và mật khẩu vào trang đăng nhập Google và YouTube. Bạn vẫn tự nhấn Tiếp theo / Đăng nhập.",
+    "emailLabel": "Email tài khoản",
+    "emailPlaceholder": "you@example.com",
+    "passwordLabel": "Mật khẩu",
+    "passwordPlaceholder": "Mật khẩu",
+    "passwordPlaceholderStored": "Để trống để giữ mật khẩu đã lưu",
+    "saved": "Đã lưu thông tin đăng nhập",
+    "cleared": "Đã xóa thông tin đăng nhập"
   }
 }

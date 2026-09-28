@@ -122,9 +122,11 @@ mod cookie_manager;
 mod cookie_paste;
 mod cookie_sync;
 pub mod events;
+mod login_autofill;
 mod mcp_integrations;
 mod mcp_remote;
 mod mcp_server;
+mod revenue_shield;
 mod tag_manager;
 mod team_lock;
 mod vault;
@@ -143,10 +145,11 @@ use browser_runner::{
 };
 
 use profile::manager::{
-  check_browser_status, clone_profile, create_browser_profile_new, delete_profile,
-  list_browser_profiles, rename_profile, update_profile_clear_on_close,
-  update_profile_dns_blocklist, update_profile_launch_hook, update_profile_note,
-  update_profile_proxy, update_profile_proxy_bypass_rules, update_profile_tags, update_profile_vpn,
+  check_browser_status, clear_profile_login_credentials, clone_profile, create_browser_profile_new,
+  delete_profile, get_profile_login_credentials, list_browser_profiles, rename_profile,
+  update_profile_clear_on_close, update_profile_dns_blocklist, update_profile_launch_hook,
+  update_profile_login_credentials, update_profile_note, update_profile_proxy,
+  update_profile_proxy_bypass_rules, update_profile_tags, update_profile_vpn,
   update_profile_window_color, update_wayfern_config,
 };
 
@@ -177,7 +180,7 @@ use settings_manager::{
   get_sync_settings, get_system_info, get_system_language, get_table_sorting_settings,
   get_tips_state, get_window_resize_warning_dismissed, mark_tip_seen, observe_cloud_plan,
   open_log_directory, read_log_files, save_app_settings, save_sync_settings,
-  save_table_sorting_settings, set_tips_auto_show,
+  save_table_sorting_settings, set_login_autofill_enabled, set_tips_auto_show,
 };
 
 use sync::{
@@ -505,7 +508,7 @@ async fn get_profile_cookie_stats(
 #[tauri::command]
 #[allow(dead_code)]
 async fn check_cookie_validity(profile_id: String) -> Vec<cookie_health::CookieHealthResult> {
-  cookie_health::check_profile_health(&profile_id).await
+  cookie_health::check_profile_health(&profile_id, false).await
 }
 
 #[tauri::command]
@@ -2019,6 +2022,7 @@ async fn generate_sample_fingerprint(
     clear_on_close: false,
     created_at: None,
     updated_at: None,
+    login_credentials: None,
   };
 
   if browser == "wayfern" {
@@ -2026,7 +2030,7 @@ async fn generate_sample_fingerprint(
       serde_json::from_str(&config_json).map_err(|e| format!("Failed to parse config: {e}"))?;
     let manager = crate::wayfern_manager::WayfernManager::instance();
     manager
-      .generate_fingerprint_config(&app_handle, &temp_profile, &config)
+      .generate_fingerprint_config(&app_handle, &temp_profile, &config, None)
       .await
       .map(|generated| SampleFingerprint {
         fingerprint: generated.fingerprint,
@@ -3558,6 +3562,9 @@ pub fn run_with_builder(
       update_profile_clear_on_close,
       update_profile_launch_hook,
       update_profile_window_color,
+      update_profile_login_credentials,
+      clear_profile_login_credentials,
+      get_profile_login_credentials,
       update_profile_proxy_bypass_rules,
       update_profile_dns_blocklist,
       check_browser_status,
@@ -3578,8 +3585,10 @@ pub fn run_with_builder(
       get_tips_state,
       mark_tip_seen,
       set_tips_auto_show,
+      set_login_autofill_enabled,
       observe_cloud_plan,
       data_root::get_data_root_info,
+      data_root::set_data_root,
       data_root::move_data_root,
       data_root::clear_data_root_choice,
       clear_all_version_cache_and_refetch,
@@ -3817,6 +3826,8 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_set_vps_proxy,
       bwbrowser_cloud::bwbrowser_delete_vps_data,
       bwbrowser_cloud::bwbrowser_list_accounts,
+      bwbrowser_cloud::bwbrowser_get_account_health_states,
+      bwbrowser_cloud::bwbrowser_check_account_cookie_health,
       bwbrowser_cloud::bwbrowser_get_account_summary,
       bwbrowser_cloud::bwbrowser_list_cloud_users,
       bwbrowser_cloud::bwbrowser_list_companies,

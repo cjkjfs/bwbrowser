@@ -87,6 +87,11 @@ pub struct AppSettings {
   /// copy is always re-encrypted regardless of this flag.
   #[serde(default)]
   pub keep_decrypted_profiles_in_ram: bool,
+  /// Whether the login-autofill watcher may fill a profile's stored credentials
+  /// into Google / YouTube sign-in pages. Off stops it immediately and keeps it
+  /// from starting on later launches. The accounts toolbar switch writes this.
+  #[serde(default = "default_autofill_enabled")]
+  pub autofill_enabled: bool,
   /// How long a deleted profile stays in the trash before it is purged.
   /// Clamped to 1..=365 on save; the sweeper reads it through
   /// `profile::trash::configured_retention_days`.
@@ -132,6 +137,12 @@ fn default_trash_retention_days() -> u32 {
   crate::profile::trash::DEFAULT_RETENTION_DAYS
 }
 
+/// Autofill defaults to ON: the whole point of storing per-account credentials
+/// is that they are filled automatically. The toolbar switch turns it off.
+fn default_autofill_enabled() -> bool {
+  true
+}
+
 fn default_tips_auto_show() -> bool {
   false
 }
@@ -169,6 +180,7 @@ impl Default for AppSettings {
       onboarding_completed: true,
       disable_auto_updates: false,
       keep_decrypted_profiles_in_ram: false,
+      autofill_enabled: true,
       trash_retention_days: crate::profile::trash::DEFAULT_RETENTION_DAYS,
       tips_auto_show: false,
       tips_seen: vec![
@@ -1065,6 +1077,24 @@ pub async fn set_tips_auto_show(enabled: bool) -> Result<TipsState, String> {
   Ok(TipsState::of(&settings, unix_now()))
 }
 
+/// Turn the login-autofill watcher on or off and persist the choice. Returns
+/// the value that was saved.
+#[tauri::command]
+pub async fn set_login_autofill_enabled(enabled: bool) -> Result<bool, String> {
+  let _serial = TIPS_WRITE
+    .lock()
+    .unwrap_or_else(|poisoned| poisoned.into_inner());
+  let manager = SettingsManager::instance();
+  let mut settings = manager
+    .load_settings()
+    .map_err(|e| format!("Failed to load settings: {e}"))?;
+  settings.autofill_enabled = enabled;
+  manager
+    .save_settings(&settings)
+    .map_err(|e| format!("Failed to save settings: {e}"))?;
+  Ok(enabled)
+}
+
 #[tauri::command]
 pub async fn observe_cloud_plan(
   user_id: String,
@@ -1317,6 +1347,7 @@ mod tests {
       tips_last_auto_shown_at: None,
       paid_welcome_seen_for: Vec::new(),
       cloud_plan_memory: std::collections::HashMap::new(),
+      autofill_enabled: true,
     };
 
     let save_result = manager.save_settings(&test_settings);

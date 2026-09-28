@@ -296,7 +296,6 @@ test("the data directory can be moved to another folder and the choice survives 
       assert.equal(before.overridden_by_environment, false);
       assert.ok(before.file_count > 0, "the seeded settings file is counted");
       assert.ok(before.size_bytes > 0, "the directory reports a real size");
-      assert.equal(typeof before.app_directory_name, "string");
 
       const profile = await app.invoke("create_browser_profile_new", {
         name: "Carried Across",
@@ -385,6 +384,23 @@ test("the data directory can be moved to another folder and the choice survives 
       const restored = await app.invoke("get_data_root_info");
       assert.equal(restored.active_path, defaultRoot);
       assert.equal(restored.configured_path, null);
+
+      // set_data_root: choosing a directory records it as the active root
+      // immediately without moving anything, and keeps the previous root as the
+      // migration source until move_data_root relocates it.
+      const chosen = await app.invoke("set_data_root", { destination });
+      assert.equal(chosen.configured_path, destination);
+      assert.equal(chosen.active_path, destination);
+      assert.equal(chosen.previous_path, defaultRoot);
+
+      // Pointing back at the platform default hides the waiting-data hint:
+      // the previous source is the active root again, so there is nothing
+      // distinct left to migrate.
+      const restore = await app.invoke("set_data_root", {
+        destination: defaultRoot,
+      });
+      assert.equal(restore.active_path, defaultRoot);
+      assert.equal(restore.previous_path, null);
     },
     { seedDownloadedBrowser: true },
   );

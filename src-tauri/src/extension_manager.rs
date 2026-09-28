@@ -1559,7 +1559,7 @@ impl ExtensionManager {
     Ok(extension_paths)
   }
 
-  fn unpacked_dir_for_profile(profile_id: &str) -> PathBuf {
+  pub(crate) fn unpacked_dir_for_profile(profile_id: &str) -> PathBuf {
     extensions_base_dir().join("unpacked").join(profile_id)
   }
 

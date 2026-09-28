@@ -2359,7 +2359,8 @@
     "syncDisplayUnavailable": "画面の大きさを読み取れなかったため、ウィンドウを並べられません。",
     "syncDisplayTooSmall": "その配置で {{windows}} 個のウィンドウを並べるには画面が小さすぎます。",
     "syncArrangeFailed": "動かせたウィンドウはありませんでした。",
-    "extensionPathInvalid": "そのパスは使用できません。'..' が含まれています。"
+    "extensionPathInvalid": "そのパスは使用できません。'..' が含まれています。",
+    "loginCredentialsIncomplete": "メールアドレスとパスワードの両方を入力してください。"
   },
   "rail": {
     "profiles": "プロファイル",
@@ -3481,5 +3482,16 @@
     "body": "プランで次の機能が使えるようになりました。各ヒントで実際の動きを確認できます。",
     "cta": "見てみる",
     "later": "あとで"
+  },
+  "loginCredentials": {
+    "label": "Google / YouTube ログイン",
+    "description": "Google と YouTube のログインページにメールアドレスとパスワードを自動入力します。送信はご自身で「次へ」「ログイン」を押してください。",
+    "emailLabel": "アカウントのメールアドレス",
+    "emailPlaceholder": "you@example.com",
+    "passwordLabel": "パスワード",
+    "passwordPlaceholder": "パスワード",
+    "passwordPlaceholderStored": "空欄のまま保存すると、保存済みのパスワードを保持します",
+    "saved": "ログイン情報を保存しました",
+    "cleared": "ログイン情報を削除しました"
   }
 }

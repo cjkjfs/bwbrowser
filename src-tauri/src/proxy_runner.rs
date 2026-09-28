@@ -210,6 +210,15 @@ fn sidecar_version_mismatch_error() -> Box<dyn std::error::Error> {
 /// main app. Windows can otherwise retain an executing, locked sidecar while
 /// NSIS replaces the app, leaving an incompatible mixed-version installation.
 pub(crate) async fn ensure_sidecar_version() -> Result<(), Box<dyn std::error::Error>> {
+  // Local debug builds skip the strict check on purpose: `tauri dev` and
+  // `cargo run` rebuild only the main binary, so a freshly bumped Cargo.toml
+  // version leaves the separately-built sidecar one build behind. The check
+  // exists to stop an *installed* release pairing a new app with a locked
+  // sidecar left over from the NSIS updater, which cannot happen in dev.
+  if cfg!(debug_assertions) {
+    return Ok(());
+  }
+
   if SIDECAR_VERSION_VERIFIED.load(Ordering::Acquire) {
     return Ok(());
   }

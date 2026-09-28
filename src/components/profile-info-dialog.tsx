@@ -95,6 +95,7 @@ import { cn } from "@/lib/utils";
 import type {
   BrowserProfile,
   ProfileGroup,
+  ProfileLoginCredentialsView,
   StoredProxy,
   VpnConfig,
   WayfernConfig,
@@ -191,6 +192,139 @@ function ClearOnCloseToggle({
         onCheckedChange={(v) => void toggle(v === true)}
         aria-label={t("clearOnClose.label")}
       />
+    </div>
+  );
+}
+
+function LoginCredentialsCard({
+  profile,
+  isDisabled,
+}: {
+  profile: BrowserProfile;
+  isDisabled: boolean;
+}) {
+  const { t } = useTranslation();
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [hasStoredPassword, setHasStoredPassword] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    invoke<ProfileLoginCredentialsView>("get_profile_login_credentials", {
+      profileId: profile.id,
+    })
+      .then((view) => {
+        if (cancelled) return;
+        setEmail(view.email ?? "");
+        setHasStoredPassword(view.has_password);
+      })
+      .catch(() => {
+        // Keep the card usable if the lookup fails; saving surfaces the real error.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profile.id]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await invoke("update_profile_login_credentials", {
+        profileId: profile.id,
+        email: email.trim(),
+        password,
+      });
+      setPassword("");
+      setHasStoredPassword(true);
+      showSuccessToast(t("loginCredentials.saved"));
+    } catch (error) {
+      showErrorToast(translateBackendError(t, error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clear = async () => {
+    setSaving(true);
+    try {
+      await invoke("clear_profile_login_credentials", {
+        profileId: profile.id,
+      });
+      setEmail("");
+      setPassword("");
+      setHasStoredPassword(false);
+      showSuccessToast(t("loginCredentials.cleared"));
+    } catch (error) {
+      showErrorToast(translateBackendError(t, error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const hasContent = email.trim() !== "" || password !== "";
+
+  return (
+    <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+      <div className="flex items-center gap-3">
+        <LuKey className="size-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">{t("loginCredentials.label")}</p>
+          <p className="text-[11px] text-muted-foreground">
+            {t("loginCredentials.description")}
+          </p>
+        </div>
+      </div>
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="min-w-0">
+          <span className="mb-1 block text-xs text-muted-foreground">
+            {t("loginCredentials.emailLabel")}
+          </span>
+          <Input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder={t("loginCredentials.emailPlaceholder")}
+            disabled={saving || isDisabled}
+            autoComplete="off"
+          />
+        </div>
+        <div className="min-w-0">
+          <span className="mb-1 block text-xs text-muted-foreground">
+            {t("loginCredentials.passwordLabel")}
+          </span>
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={
+              hasStoredPassword
+                ? t("loginCredentials.passwordPlaceholderStored")
+                : t("loginCredentials.passwordPlaceholder")
+            }
+            disabled={saving || isDisabled}
+            autoComplete="off"
+          />
+        </div>
+      </div>
+      <div className="mt-2 flex items-center justify-end gap-2">
+        {hasContent && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void clear()}
+            disabled={saving || isDisabled}
+          >
+            {t("common.buttons.clear")}
+          </Button>
+        )}
+        <Button
+          size="sm"
+          onClick={() => void save()}
+          disabled={saving || isDisabled || email.trim() === ""}
+        >
+          {saving ? t("common.buttons.saving") : t("common.buttons.save")}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1347,6 +1481,13 @@ function ProfileInfoLayout({
 
               {!profile.ephemeral && !profile.password_protected && (
                 <ClearOnCloseToggle profile={profile} isDisabled={isDisabled} />
+              )}
+
+              {!profile.ephemeral && !profile.password_protected && (
+                <LoginCredentialsCard
+                  profile={profile}
+                  isDisabled={isDisabled}
+                />
               )}
 
               {profile.created_by_email && (

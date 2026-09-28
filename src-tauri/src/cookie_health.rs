@@ -44,6 +44,73 @@ pub struct CookieHealthResult {
   pub message: String,
 }
 
+/// Last cookie-health verdict for a local profile, persisted so the accounts
+/// table can show a stable green/yellow dot between launches.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ProfileHealthRecord {
+  pub status: HealthStatus,
+  pub message: String,
+  pub checked_at: u64,
+}
+
+/// Where the per-profile health verdicts live (a small JSON keyed by
+/// `profile_id`). Local-only: this is about this machine's browser sessions,
+/// so a server column would be the wrong home for it.
+fn account_health_file() -> std::path::PathBuf {
+  crate::app_dirs::data_dir().join("account_health.json")
+}
+
+/// Load every stored per-profile health verdict.
+pub fn profile_health_map() -> HashMap<String, ProfileHealthRecord> {
+  match std::fs::read_to_string(account_health_file()) {
+    Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+    Err(_) => HashMap::new(),
+  }
+}
+
+fn save_profile_health(map: &HashMap<String, ProfileHealthRecord>) {
+  let dir = crate::app_dirs::data_dir();
+  let _ = std::fs::create_dir_all(&dir);
+  if let Ok(s) = serde_json::to_string_pretty(map) {
+    let _ = std::fs::write(account_health_file(), s);
+  }
+}
+
+fn store_profile_health(profile_id: &str, record: ProfileHealthRecord) {
+  let mut map = profile_health_map();
+  map.insert(profile_id.to_string(), record);
+  save_profile_health(&map);
+}
+
+/// Reduce a set of per-platform probe results to one verdict: green only when
+/// at least one probe is `Valid`; otherwise the first probe's status. Returns
+/// None when there was nothing to judge (no cookies / cooldown fired).
+pub fn best_health(results: &[CookieHealthResult], now_secs: u64) -> Option<ProfileHealthRecord> {
+  if results.is_empty() {
+    return None;
+  }
+  Some(ProfileHealthRecord {
+    status: if results.iter().any(|r| r.status == HealthStatus::Valid) {
+      HealthStatus::Valid
+    } else {
+      results[0].status.clone()
+    },
+    message: results[0].message.clone(),
+    checked_at: now_secs,
+  })
+}
+
+/// Stable string key used by the frontend's status dot.
+pub fn health_status_str(status: &HealthStatus) -> &'static str {
+  match status {
+    HealthStatus::Valid => "valid",
+    HealthStatus::Expired => "expired",
+    HealthStatus::Missing => "missing",
+    HealthStatus::Unknown => "unknown",
+  }
+}
+
 /// One platform to probe.
 #[derive(Debug, Clone)]
 pub struct PlatformRule {
@@ -64,6 +131,10 @@ pub struct PlatformRule {
   /// platforms whose server-rendered HTML reliably separates login states
   /// (YouTube is verified; the rest of the catalog keeps this off).
   pub network_probe: bool,
+  /// Loose mode: judge by domain cookie presence instead of named session
+  /// cookies. Used when a platform's real login cookie names vary (e.g. pdd
+  /// covers both the PC mall and the live-creator site with different names).
+  pub loose: bool,
   /// Response body substrings that mean "you are logged in".
   pub session_indicators: &'static [&'static str],
   /// Response body substrings that mean "you are NOT logged in".
@@ -160,6 +231,7 @@ fn platform_rules() -> Vec<PlatformRule> {
         "SIDCC",
       ],
       network_probe: true,
+      loose: false,
       session_indicators: &["INNERTUBE_API_KEY", "clientScript"],
       login_indicators: &["signin", "login", "/accounts/signin"],
       ok_status_range: (200, 299),
@@ -172,6 +244,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["douyin.com", "douyincdn.com", "amemv.com"],
       session_cookies: &["sessionid", "sessionid_ss", "sid_tt", "uid_tt"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -183,6 +256,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["tiktok.com", "tiktokcdn.com", "tiktokv.com"],
       session_cookies: &["sessionid", "sessionid_ss", "sid_tt", "uid_tt"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -194,6 +268,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["instagram.com", "cdninstagram.com"],
       session_cookies: &["sessionid", "ds_user_id", "csrftoken"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -205,6 +280,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["x.com", "twitter.com", "twimg.com"],
       session_cookies: &["auth_token", "twid"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -216,6 +292,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["facebook.com", "fbcdn.net"],
       session_cookies: &["c_user", "xs", "fr", "sb"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -227,6 +304,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["linkedin.com", "licdn.com"],
       session_cookies: &["li_at", "li_rm"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -238,6 +316,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["reddit.com", "redd.it"],
       session_cookies: &["reddit_session", "token_v2"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -257,6 +336,7 @@ fn platform_rules() -> Vec<PlatformRule> {
         "sid_guard",
       ],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -275,6 +355,7 @@ fn platform_rules() -> Vec<PlatformRule> {
         "MAIL163_SINFO",
       ],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -292,6 +373,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       ],
       session_cookies: &["MSCC", "MSPAuth", "MSAuth1", "RPSSecAuth"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -303,6 +385,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["bilibili.com", "bilivideo.com", "bilivideo.cn", "hdslb.com"],
       session_cookies: &["SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -314,6 +397,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["weibo.com", "weibo.cn", "sina.com.cn", "sinaimg.cn"],
       session_cookies: &["SUB", "SUBP", "SSOLockpin"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -325,6 +409,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["xiaohongshu.com", "xhscdn.com"],
       session_cookies: &["web_session", "xsecappid"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -342,6 +427,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       ],
       session_cookies: &["userId", "passToken", "kuaishou.server.web_st"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -353,6 +439,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["github.com", "githubusercontent.com"],
       session_cookies: &["logged_in", "dotcom_user", "user_session"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -364,6 +451,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["baidu.com", "bdstatic.com", "bdimg.com"],
       session_cookies: &["BDUSS", "BDUSS_BFESS", "STOKEN"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -375,6 +463,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["tieba.baidu.com", "baidu.com", "bdstatic.com"],
       session_cookies: &["BDUSS", "BDUSS_BFESS", "STOKEN"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -386,6 +475,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["taobao.com", "taobaoimg.com", "tmall.com"],
       session_cookies: &["cookie2", "unb"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -397,6 +487,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["youku.com", "ykimg.com", "youkutv.com"],
       session_cookies: &["cookie2", "unb"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -408,6 +499,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["jd.com", "jdstatic.com", "360buyimg.com", "paipai.com"],
       session_cookies: &["pt_key", "pt_pin", "wlfstk_smdl"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -419,6 +511,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["qq.com", "tencent.com", "qpic.cn", "gtimg.com"],
       session_cookies: &["uin", "skey", "p_skey"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -431,6 +524,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["zhihu.com", "zhimg.cn"],
       session_cookies: &["z_c0", "d_c0"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -442,6 +536,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["xueqiu.com", "xueqiu.net"],
       session_cookies: &["xq_a_token", "xq_r_token"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -453,6 +548,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["pinduoduo.com", "yangkeduo.com", "pddpic.com"],
       session_cookies: &["pdd_user_id", "pdd_user_uin"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -464,6 +560,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["csdn.net", "csdn.com"],
       session_cookies: &["UserName", "UserInfo"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -475,6 +572,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["juejin.cn", "juejin.com"],
       session_cookies: &["sessionid", "sessionid.sig"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -486,6 +584,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["mp.weixin.qq.com", "weixin.qq.com", "wx.qq.com"],
       session_cookies: &["slave_sid", "slave_user", "token"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -497,6 +596,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["ixigua.com", "toutiao.com", "bytedance.com", "douyin.com"],
       session_cookies: &["sessionid", "sessionid_ss", "sid_tt", "uid_tt"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -513,6 +613,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       ],
       session_cookies: &["sessionid", "sessionid_ss", "sid_tt", "uid_tt"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -524,6 +625,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["dianping.com", "51ping.com", "meituan.com"],
       session_cookies: &["dper", "ua"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -535,17 +637,23 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["weixin.qq.com", "wx.qq.com", "tenpay.com"],
       session_cookies: &["slave_sid", "slave_user", "token"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
     },
-    // iQiyi — P00003 (访问票据) + QC006 (用户标识) are set on login.
+    // iQiyi — P00003 (访问票据) + QC006 (用户标识) are set on login, but a
+    // creator.iqiyi.com session often carries QC006 + QC008 without P00003.
+    // QC006 is the definitive user-ID cookie (guests never have it), so counting
+    // QC008 as the pairing cookie fixes that false "logged out" while a
+    // device-only guest still stays below the two required.
     PlatformRule {
       key: "iqiyi",
       url: "https://www.iqiyi.com/",
       domains: &["iqiyi.com", "iqiyipic.com", "qiyi.com"],
-      session_cookies: &["P00003", "QC006"],
+      session_cookies: &["P00003", "QC006", "QC008"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -557,6 +665,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["sohu.com", "sohucs.com"],
       session_cookies: &["sessionid", "userid"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -568,6 +677,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["meituan.com", "meituan.net", "dianping.com", "51ping.com"],
       session_cookies: &["CK", "acctId"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -579,6 +689,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["ele.me", "eleme.com"],
       session_cookies: &["SID", "cookie2"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -590,6 +701,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["vip.com", "vipstatic.com"],
       session_cookies: &["vip_sess", "vip_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -601,6 +713,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["suning.com", "suncdn.com"],
       session_cookies: &["suning_sess", "suning_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -612,6 +725,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["dingtalk.com", "aliyun.com"],
       session_cookies: &["dingtalk_sess", "dingtalk_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -623,6 +737,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["mgtv.com", "hunantv.com"],
       session_cookies: &["mgtv_sess", "mgtv_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -634,6 +749,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["mogujie.com", "mogu.com", "mogucdn.com"],
       session_cookies: &["mogujie_sess", "mogujie_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -645,6 +761,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["dangdang.com"],
       session_cookies: &["dangdang_sess", "dangdang_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -656,6 +773,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["kaola.com", "kaolacdn.com"],
       session_cookies: &["NTES_SESS", "P_INFO", "S_INFO"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -667,6 +785,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["yhd.com", "yihaodian.com"],
       session_cookies: &["pt_key", "pt_pin"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -678,6 +797,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["flyme.cn", "meizu.com"],
       session_cookies: &["flyme_sess", "flyme_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -689,6 +809,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["oppo.com", "nearme.com.cn", "coloros.com"],
       session_cookies: &["oppo_sess", "oppo_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -700,6 +821,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["vivo.com", "vivvo.com"],
       session_cookies: &["vivo_sess", "vivo_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -711,6 +833,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["huawei.com", "vmall.com", "hicloud.com"],
       session_cookies: &["huawei_sess", "huawei_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -722,6 +845,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["mi.com", "xiaomi.com", "miui.com"],
       session_cookies: &["passToken", "userId"],
       network_probe: false,
+      loose: false,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -733,6 +857,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["360.cn", "haosou.com", "qihoo.com", "360.com"],
       session_cookies: &["QI_USERNAME", "SM_ID"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -744,6 +869,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["sina.com.cn", "sina.cn", "sina.com"],
       session_cookies: &["login_sid_t", "SINA_ID"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -755,6 +881,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["eastmoney.com", "eastmoney.cn"],
       session_cookies: &["eastmoney_sess", "eastmoney_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -766,6 +893,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["wallstreetcn.com", "wallstreetcn.cn"],
       session_cookies: &["wallstreetcn_sess", "wallstreetcn_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -777,6 +905,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["cls.cn", "cailianpress.com"],
       session_cookies: &["cls_sess", "cls_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -788,6 +917,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["yicai.com", "yicai.tv"],
       session_cookies: &["yicai_sess", "yicai_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -799,6 +929,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["ifeng.com", "ifengimg.com"],
       session_cookies: &["ifeng_sess", "ifeng_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -810,6 +941,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["people.com.cn", "people.cn"],
       session_cookies: &["people_sess", "people_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -821,6 +953,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["cctv.com", "cntv.cn", "cctv.cn"],
       session_cookies: &["cctv_sess", "cctv_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -832,6 +965,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["china.com.cn", "china.com"],
       session_cookies: &["china_sess", "china_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -843,6 +977,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["gmw.cn", "gmw.com.cn"],
       session_cookies: &["gmw_sess", "gmw_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -854,6 +989,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["huanqiu.com", "huanqiu.net"],
       session_cookies: &["huanqiu_sess", "huanqiu_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -865,6 +1001,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["eastday.com", "eastday.cn"],
       session_cookies: &["eastday_sess", "eastday_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -876,6 +1013,7 @@ fn platform_rules() -> Vec<PlatformRule> {
       domains: &["redstar.cn", "redstar.com"],
       session_cookies: &["redstar_sess", "redstar_uid"],
       network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),
@@ -891,6 +1029,20 @@ fn domain_matches(cookie_domain: &str, platform_domains: &[&str]) -> bool {
     let pd = pd.trim_start_matches('.');
     cd == pd || cd.ends_with(&format!(".{pd}"))
   })
+}
+
+/// Resolve the proxy bound to a profile so health probes exit through the
+/// account's own node instead of the machine's IP — a shared exit IP would
+/// let the platform correlate every account back to this device.
+pub fn proxy_for_profile(
+  profile: &crate::profile::BrowserProfile,
+) -> Option<crate::browser::ProxySettings> {
+  let proxy_id = profile.proxy_id.as_deref()?;
+  if let Some(node) = proxy_id.strip_prefix(crate::cloud_proxy_manager::NODE_PREFIX) {
+    crate::cloud_proxy_manager::parse_proxy_node(node)
+  } else {
+    crate::proxy_manager::PROXY_MANAGER.get_proxy_settings_by_id(proxy_id)
+  }
 }
 
 /// Tracks the last time we ran a health check per profile.
@@ -910,6 +1062,7 @@ static LAST_CHECK: LazyLock<Mutex<HashMap<String, u64>>> =
 async fn probe_platform(
   rule: &PlatformRule,
   cookies: &[crate::cookie_manager::UnifiedCookie],
+  proxy: Option<&crate::browser::ProxySettings>,
 ) -> (HealthStatus, String) {
   let matching: Vec<&crate::cookie_manager::UnifiedCookie> = cookies
     .iter()
@@ -920,6 +1073,32 @@ async fn probe_platform(
     return (
       HealthStatus::Missing,
       "No cookies found for this domain".to_string(),
+    );
+  }
+
+  // Loose mode: the platform's real login cookie names vary across its sites
+  // (pdd covers the PC mall and the live-creator site with different cookie
+  // sets), so judge by domain presence: any two unexpired domain cookies mean
+  // a live session. Named session-cookie rules below would misreport these as
+  // "logged out" even when the user is signed in.
+  if rule.loose {
+    let now_secs = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap_or_default()
+      .as_secs() as i64;
+    let unexpired = matching
+      .iter()
+      .filter(|c| c.expires <= 0 || c.expires > now_secs)
+      .count();
+    if unexpired < 2 {
+      return (
+        HealthStatus::Expired,
+        format!("Only {unexpired} unexpired domain cookie(s) — logged out"),
+      );
+    }
+    return (
+      HealthStatus::Valid,
+      "Domain cookies present and unexpired".to_string(),
     );
   }
 
@@ -967,18 +1146,92 @@ async fn probe_platform(
     .collect::<Vec<_>>()
     .join("; ");
 
-  let client = match reqwest::Client::builder()
+  // Route the probe through the account's own node: every account's health
+  // check exits from its proxy IP instead of the machine's, so the platform
+  // cannot correlate accounts by a shared exit. VLESS/Trojan get a throwaway
+  // Xray worker for the probe (reqwest cannot speak those protocols itself);
+  // it is always stopped before returning, even on early verdicts.
+  let probe_client = build_probe_client(proxy).await;
+  let mut verdict = run_network_probe(rule, &cookie_header, probe_client.client).await;
+  if let Some(ref note) = probe_client.proxy_fallback {
+    // Make a silent direct fallback visible in the log: an account whose
+    // node could not be enabled must not look like it was node-routed.
+    verdict.1 = format!("{} ({}; probed from this machine's IP)", verdict.1, note);
+    log::warn!("Cookie health: {note}");
+  }
+  if let Some(worker_id) = probe_client.xray_worker_id {
+    let _ = crate::xray_worker_runner::stop_xray_worker(&worker_id).await;
+  }
+  verdict
+}
+
+/// Client for a live probe plus bookkeeping about how it was built.
+struct ProbeClient {
+  client: Option<reqwest::Client>,
+  xray_worker_id: Option<String>,
+  /// Some(reason) when the account's proxy could not be enabled and the probe
+  /// will exit from the machine's own IP instead of the account's node.
+  proxy_fallback: Option<String>,
+}
+
+/// Build the client for a live probe.
+async fn build_probe_client(proxy: Option<&crate::browser::ProxySettings>) -> ProbeClient {
+  let mut builder = reqwest::Client::builder()
     .timeout(PROBE_TIMEOUT)
-    .redirect(reqwest::redirect::Policy::none())
-    .build()
-  {
-    Ok(c) => c,
-    Err(_) => {
-      return (
-        HealthStatus::Valid,
-        "Session cookies valid; network probe unavailable".to_string(),
-      );
+    .redirect(reqwest::redirect::Policy::none());
+
+  let mut xray_worker_id = None;
+  let mut proxy_fallback = None;
+  let proxy_url = match proxy {
+    Some(p)
+      if p.proxy_type.eq_ignore_ascii_case("vless")
+        || p.proxy_type.eq_ignore_ascii_case("trojan") =>
+    {
+      let uri = p.vless_uri.as_deref().unwrap_or("").to_string();
+      match crate::xray_worker_runner::start_xray_worker(None, &uri).await {
+        Ok(worker) => {
+          xray_worker_id = Some(worker.id.clone());
+          crate::proxy_manager::ProxyManager::build_probe_proxy_url(&worker.local_proxy_settings())
+        }
+        Err(e) => {
+          proxy_fallback = Some(format!("Xray worker unavailable ({e})"));
+          String::new()
+        }
+      }
     }
+    Some(p) => crate::proxy_manager::ProxyManager::build_probe_proxy_url(p),
+    None => String::new(),
+  };
+
+  if !proxy_url.is_empty() && crate::proxy_storage::reqwest_can_proxy(&proxy_url) {
+    if let Ok(p) = reqwest::Proxy::all(&proxy_url) {
+      builder = builder.proxy(p);
+    } else {
+      proxy_fallback = Some("unusable proxy URL".to_string());
+    }
+  }
+
+  let client = builder.build().ok();
+  ProbeClient {
+    client,
+    xray_worker_id,
+    proxy_fallback,
+  }
+}
+
+/// Execute the live probe once the client is ready. A missing client (build
+/// failure) or a failed request keeps the session-cookie verdict: a network
+/// hiccup must not mark a valid session as logged out.
+async fn run_network_probe(
+  rule: &PlatformRule,
+  cookie_header: &str,
+  client: Option<reqwest::Client>,
+) -> (HealthStatus, String) {
+  let Some(client) = client else {
+    return (
+      HealthStatus::Valid,
+      "Session cookies valid; network probe unavailable".to_string(),
+    );
   };
 
   let resp = match client
@@ -988,7 +1241,7 @@ async fn probe_platform(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     )
     .header("Accept", "text/html,application/xhtml+xml")
-    .header("Cookie", &cookie_header)
+    .header("Cookie", cookie_header)
     .send()
     .await
   {
@@ -1008,6 +1261,17 @@ async fn probe_platform(
   // Check for redirect to login.
   if (300..399).contains(&status) {
     let loc_lower = location.to_lowercase();
+    // Google shows /CookieMismatch when a stored session cookie disagrees
+    // with the current device, but the session itself is often still alive
+    // on the account side. Judging it expired would burn a working cookie
+    // and block the push-back, so treat it as valid and let the caller
+    // upload the current cookies to the cloud.
+    if loc_lower.contains("cookiemismatch") {
+      return (
+        HealthStatus::Valid,
+        "Cookie mismatch page detected; treating session as valid".to_string(),
+      );
+    }
     if rule
       .login_indicators
       .iter()
@@ -1071,19 +1335,21 @@ async fn probe_platform(
 /// cookie set that lives in the browser right now — e.g. cloud cookies fetched
 /// at launch time — without requiring the cookies to be persisted on disk.
 ///
-/// Returns `None` when the platform has no probe rule (caller falls back to
-/// its existing logic). `Missing` means none of the cookies matched the
-/// platform's domains.
+/// `proxy` routes the live probe through the account's own node (None probes
+/// from the machine's network). Returns `None` when the platform has no probe
+/// rule (caller falls back to its existing logic). `Missing` means none of the
+/// cookies matched the platform's domains.
 pub async fn probe_cdp_cookies(
   platform: &str,
   cdp_cookies: &[serde_json::Value],
+  proxy: Option<&crate::browser::ProxySettings>,
 ) -> Option<(HealthStatus, String)> {
   let rule = rule_for_platform(platform)?;
 
   let cookies: Vec<crate::cookie_manager::UnifiedCookie> =
     cdp_cookies.iter().map(unified_from_cdp).collect();
 
-  let (status, message) = probe_platform(rule, &cookies).await;
+  let (status, message) = probe_platform(rule, &cookies, proxy).await;
   debug!(
     "Cookie health [{rule_key}]: {status:?} — {message}",
     rule_key = rule.key
@@ -1150,24 +1416,41 @@ fn unified_from_cdp(c: &serde_json::Value) -> crate::cookie_manager::UnifiedCook
 }
 
 /// Run health checks for all configured platforms against a single profile's cookies.
-pub async fn check_profile_health(profile_id: &str) -> Vec<CookieHealthResult> {
+/// When `force` is true the 60s per-profile cooldown is bypassed (used by the
+/// manual 检测 button); either way a fresh non-empty verdict is persisted for
+/// the accounts table's status dot.
+pub async fn check_profile_health(profile_id: &str, force: bool) -> Vec<CookieHealthResult> {
   let now_secs = SystemTime::now()
     .duration_since(UNIX_EPOCH)
     .unwrap_or_default()
     .as_secs();
 
-  // Respect cooldown.
+  // Respect cooldown unless forced.
   {
     let mut last = LAST_CHECK.lock().await;
-    if let Some(&last_check) = last.get(profile_id) {
-      if now_secs - last_check < COOLDOWN_SECS {
-        debug!("Cookie health: profile {profile_id} checked {COOLDOWN_SECS}s ago, skipping");
-        return vec![];
+    if !force {
+      if let Some(&last_check) = last.get(profile_id) {
+        if now_secs - last_check < COOLDOWN_SECS {
+          debug!("Cookie health: profile {profile_id} checked {COOLDOWN_SECS}s ago, skipping");
+          return vec![];
+        }
       }
     }
     last.insert(profile_id.to_string(), now_secs);
     drop(last);
   }
+
+  // Route probes through the profile's own proxy so the health check exits
+  // from the account's node rather than the machine's IP.
+  let proxy = crate::profile::manager::ProfileManager::instance()
+    .list_profiles()
+    .ok()
+    .and_then(|profiles| {
+      profiles
+        .into_iter()
+        .find(|p| p.id == uuid::Uuid::parse_str(profile_id).unwrap_or_default())
+        .and_then(|p| proxy_for_profile(&p))
+    });
 
   // Read cookies synchronously from the existing manager.
   let read_result = match CookieManager::read_cookies(profile_id) {
@@ -1212,7 +1495,7 @@ pub async fn check_profile_health(profile_id: &str) -> Vec<CookieHealthResult> {
       .unwrap_or("")
       .to_string();
 
-    let (status, message) = probe_platform(rule, &cookies).await;
+    let (status, message) = probe_platform(rule, &cookies, proxy.as_ref()).await;
     debug!("Cookie health [{domain}]: {status:?} — {message}");
     results.push(CookieHealthResult {
       profile_id: profile_id.to_string(),
@@ -1233,6 +1516,14 @@ pub async fn check_profile_health(profile_id: &str) -> Vec<CookieHealthResult> {
     results.len(),
     rules.len(),
   );
+
+  // Persist a stable verdict so the accounts table can show green/yellow even
+  // after the probe returns. Skipped when there was nothing to judge (empty
+  // results from cooldown or an empty cookie jar) so a stale good verdict is
+  // not clobbered by a "no data" pass.
+  if let Some(record) = best_health(&results, now_secs) {
+    store_profile_health(profile_id, record);
+  }
 
   results
 }

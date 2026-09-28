@@ -364,7 +364,7 @@ impl BwbrowserAuthManager {
         return Err(msg);
       }
       let preview = if body.len() > 200 {
-        format!("{}", trunc(&body, 200))
+        trunc(&body, 200).to_string()
       } else {
         body.to_string()
       };
@@ -626,6 +626,44 @@ fn extract_proxy_host_from_node(node: &str) -> Option<String> {
     .filter(|h| !h.is_empty())
 }
 
+/// 服务端账号行可能同时携带 avatar / Avatar / avatar_url（历史遗留列并存），
+/// 三个键会撞到同一个 Rust 字段触发 serde "duplicate field"。
+/// 统一归一化：非空优先取 Avatar(大写列) > avatar > avatar_url，
+/// 结果写回 avatar_url，其余头像键删除。
+fn normalize_avatar_keys(v: &mut serde_json::Value) {
+  match v {
+    serde_json::Value::Object(map) => {
+      const AVATAR_KEYS: [&str; 3] = ["Avatar", "avatar", "avatar_url"];
+      if AVATAR_KEYS.iter().any(|k| map.contains_key(*k)) {
+        let chosen = AVATAR_KEYS.iter().find_map(|k| {
+          map.get(*k).and_then(|val| {
+            let s = val.as_str().unwrap_or("");
+            if s.is_empty() {
+              None
+            } else {
+              Some(val.clone())
+            }
+          })
+        });
+        if let Some(val) = chosen {
+          map.insert("avatar_url".to_string(), val);
+        }
+        map.remove("Avatar");
+        map.remove("avatar");
+      }
+      for (_k, child) in map.iter_mut() {
+        normalize_avatar_keys(child);
+      }
+    }
+    serde_json::Value::Array(arr) => {
+      for item in arr.iter_mut() {
+        normalize_avatar_keys(item);
+      }
+    }
+    _ => {}
+  }
+}
+
 fn parse_body<T: serde::de::DeserializeOwned>(action: &str, body: &str) -> Result<T, String> {
   if body.trim().is_empty() {
     let msg = "服务器返回了空响应".to_string();
@@ -636,10 +674,11 @@ fn parse_body<T: serde::de::DeserializeOwned>(action: &str, body: &str) -> Resul
   // 先解析为 serde_json::Value（重复键自动取最后一个），再转目标结构体，
   // 避免服务端偶尔返回重复字段（如 owner_id）触发 serde "duplicate field" 解析失败，
   // 导致 get_account_detail 等接口在启动关键路径上出错、被迫回落用旧参数。
-  let from_value = |v: serde_json::Value| -> Result<T, String> {
+  let from_value = |mut v: serde_json::Value| -> Result<T, String> {
+    normalize_avatar_keys(&mut v);
     serde_json::from_value::<T>(v).map_err(|e| {
       let preview = if body.len() > 200 {
-        format!("{}", trunc(&body, 200))
+        trunc(body, 200).to_string()
       } else {
         body.to_string()
       };
@@ -666,7 +705,7 @@ fn parse_body<T: serde::de::DeserializeOwned>(action: &str, body: &str) -> Resul
       }
 
       let preview = if body.len() > 200 {
-        format!("{}", trunc(&body, 200))
+        trunc(body, 200).to_string()
       } else {
         body.to_string()
       };
@@ -699,7 +738,7 @@ fn parse_api_response<T: serde::de::DeserializeOwned>(
     let preview = if body.is_empty() {
       "(空响应)".to_string()
     } else if body.len() > 200 {
-      format!("{}", trunc(&body, 200))
+      trunc(body, 200).to_string()
     } else {
       body.to_string()
     };
@@ -722,7 +761,7 @@ fn parse_api_response<T: serde::de::DeserializeOwned>(
   match serde_json::from_str::<serde_json::Value>(body) {
     Ok(v) => serde_json::from_value::<T>(v).map_err(|e| {
       let preview = if body.len() > 200 {
-        format!("{}", trunc(&body, 200))
+        trunc(body, 200).to_string()
       } else {
         body.to_string()
       };
@@ -732,7 +771,7 @@ fn parse_api_response<T: serde::de::DeserializeOwned>(
     }),
     Err(_) => {
       let preview = if body.len() > 200 {
-        format!("{}", trunc(&body, 200))
+        trunc(body, 200).to_string()
       } else {
         body.to_string()
       };
@@ -781,6 +820,23 @@ fn mask_password(pwd: &str) -> String {
   )
 }
 
+/// Masks an email for logging: keep the local part's first char and the full
+/// domain, e.g. `x***@gmail.com`.
+fn mask_email(email: &str) -> String {
+  let at = email.find('@');
+  let (local, domain) = match at {
+    Some(i) => (&email[..i], &email[i..]),
+    None => (email, ""),
+  };
+  let masked_local = if local.is_empty() {
+    String::new()
+  } else {
+    let first = local.chars().next().unwrap();
+    format!("{first}***")
+  };
+  format!("{masked_local}{domain}")
+}
+
 // ========== Tauri Commands ==========
 
 #[tauri::command]
@@ -819,7 +875,7 @@ pub async fn bwbrowser_open_account_detail_in_vps(
   let detail_url = build_baowenku_account_detail_url(&account_name, plat);
   log_bwbrowser(
     "open_account_in_vps",
-    &format!("  账号详情 URL: {}", &detail_url),
+    &format!("  账号详情 URL: {}", detail_url),
   );
 
   let profiles = crate::profile::manager::ProfileManager::instance()
@@ -1268,8 +1324,7 @@ pub async fn bwbrowser_open_vps_login(
     // 确认已登录 → 上传并停止；未登录 → 持续探测，最多 300 秒；
     // 浏览器关闭或超时 → 停止（不回传 cookie，仅按需补传书签）。
     const LOGIN_WAIT_SECONDS: u64 = 300;
-    let deadline =
-      std::time::Instant::now() + std::time::Duration::from_secs(LOGIN_WAIT_SECONDS);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(LOGIN_WAIT_SECONDS);
 
     loop {
       tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -1315,7 +1370,10 @@ pub async fn bwbrowser_open_vps_login(
       if std::time::Instant::now() >= deadline {
         log_bwbrowser(
           "vps_cookie_sync",
-          &format!("等待登录超时 ({} 秒)，未确认登录，跳过回传", LOGIN_WAIT_SECONDS),
+          &format!(
+            "等待登录超时 ({} 秒)，未确认登录，跳过回传",
+            LOGIN_WAIT_SECONDS
+          ),
         );
         break;
       }
@@ -1948,7 +2006,17 @@ impl BwbrowserAuthManager {
       log_bwbrowser("list_accounts", &format!("  响应内容: {}", body));
 
       let body = body.trim_start_matches('\u{feff}');
-      match serde_json::from_str::<BwbrowserAccountListResponse>(body) {
+      let mut parsed = match serde_json::from_str::<serde_json::Value>(body) {
+        Ok(v) => v,
+        Err(e) => {
+          let err_msg = format!("解析响应失败: {} | body={}", e, trunc(body, 200));
+          log_bwbrowser_error("list_accounts", &err_msg);
+          last_err = Some(err_msg.clone());
+          continue;
+        }
+      };
+      normalize_avatar_keys(&mut parsed);
+      match serde_json::from_value::<BwbrowserAccountListResponse>(parsed) {
         Ok(mut result) => {
           if !result.success {
             let msg = result
@@ -2164,7 +2232,7 @@ impl BwbrowserAuthManager {
         "  响应: HTTP {} body={}",
         status.as_u16(),
         if body.len() > 200 {
-          format!("{}", trunc(&body, 200))
+          trunc(&body, 200).to_string()
         } else {
           body.clone()
         }
@@ -2295,6 +2363,8 @@ pub struct BwbrowserAccount {
   pub total_views: Option<i64>,
   #[serde(default)]
   pub visibility: Option<String>,
+  // 头像键（Avatar/avatar/avatar_url）已在 parse_body 归一化合并进 avatar_url，
+  // 这里不设 alias，避免服务端同帧返回多键时触发 serde duplicate field
   #[serde(default)]
   pub avatar_url: Option<String>,
   #[serde(default, deserialize_with = "deserialize_int_or_bool")]
@@ -2497,6 +2567,97 @@ pub async fn bwbrowser_list_accounts(
   }
 
   Ok(result)
+}
+
+/// Crosswalk account → its reused local profile → last saved health verdict,
+/// for every account the caller can see. Backs the green/yellow dots.
+#[tauri::command]
+pub async fn bwbrowser_get_account_health_states() -> Result<serde_json::Value, String> {
+  let health = crate::cookie_health::profile_health_map();
+  let pm = crate::profile::manager::ProfileManager::instance();
+  let profiles = pm.list_profiles().unwrap_or_default();
+
+  let list = BWBROWSER_AUTH
+    .list_cloud_accounts(1, 500, None, None, None, None)
+    .await?;
+  let mut views = Vec::new();
+  if let Some(accounts) = list.accounts {
+    for a in accounts {
+      let profile_name = account_profile_name(&a.account_name, a.id);
+      let record = profiles
+        .iter()
+        .find(|p| p.name.to_lowercase() == profile_name.to_lowercase())
+        .and_then(|p| health.get(&p.id.to_string()));
+      let (status, message, checked_at) = match record {
+        Some(r) => (
+          crate::cookie_health::health_status_str(&r.status).to_string(),
+          r.message.clone(),
+          r.checked_at,
+        ),
+        None => ("unknown".to_string(), "未检测".to_string(), 0),
+      };
+      views.push(serde_json::json!({
+        "account_id": a.id,
+        "platform": a.platform,
+        "status": status,
+        "message": message,
+        "checked_at": checked_at,
+      }));
+    }
+  }
+  Ok(serde_json::Value::Array(views))
+}
+
+/// Manually run a fresh cookie-health probe for one account's local profile
+/// and persist it. Manager/super-admin only.
+#[tauri::command]
+pub async fn bwbrowser_check_account_cookie_health(
+  account_id: i64,
+  account_name: String,
+) -> Result<serde_json::Value, String> {
+  if !BWBROWSER_AUTH.is_manager_role() {
+    return Err(serde_json::json!({ "code": "PERMISSION_DENIED" }).to_string());
+  }
+  let now = crate::proxy_manager::now_secs();
+  let profile_name = account_profile_name(&account_name, account_id);
+  let pm = crate::profile::manager::ProfileManager::instance();
+  let profile = pm.list_profiles().ok().and_then(|ps| {
+    ps.into_iter()
+      .find(|p| p.name.to_lowercase() == profile_name.to_lowercase())
+  });
+  let Some(profile) = profile else {
+    return Ok(serde_json::json!({
+      "account_id": account_id,
+      "status": "unknown",
+      "message": "本地未找到该账号环境（尚未打开过），无法检测",
+      "checked_at": now,
+    }));
+  };
+
+  let profile_id = profile.id.to_string();
+  log_bwbrowser(
+    "cookie_health",
+    &format!("手动检测账号 {account_id} → profile {profile_id}"),
+  );
+  let results = crate::cookie_health::check_profile_health(&profile_id, true).await;
+  let (status, message, checked_at) = match crate::cookie_health::best_health(&results, now) {
+    Some(record) => (
+      crate::cookie_health::health_status_str(&record.status).to_string(),
+      record.message,
+      record.checked_at,
+    ),
+    None => (
+      "unknown".to_string(),
+      "本地无 Cookie，未检测到有效会话".to_string(),
+      now,
+    ),
+  };
+  Ok(serde_json::json!({
+    "account_id": account_id,
+    "status": status,
+    "message": message,
+    "checked_at": checked_at,
+  }))
 }
 
 #[tauri::command]
@@ -3306,7 +3467,7 @@ pub fn bwbrowser_to_proxy_settings(sp: &BwbrowserProxy) -> ProxySettings {
             &format!(
               "  ⚠ JSON protocol_config 缺少 key={}: {}",
               key,
-              trunc(&pc_trimmed, 200)
+              trunc(pc_trimmed, 200)
             ),
           );
         }
@@ -3329,7 +3490,7 @@ pub fn bwbrowser_to_proxy_settings(sp: &BwbrowserProxy) -> ProxySettings {
               &format!(
                 "  ⚠ protocol_config 不以 {} 开头: {}",
                 prefix,
-                trunc(&pc_trimmed, 200)
+                trunc(pc_trimmed, 200)
               ),
             );
             None
@@ -4439,7 +4600,7 @@ pub async fn bwbrowser_update_account_info(
     &format!(
       "← 响应: {}",
       if body.len() > 500 {
-        format!("{}", trunc(&body, 500))
+        trunc(&body, 500).to_string()
       } else {
         body.clone()
       }
@@ -4838,6 +4999,7 @@ pub async fn bwbrowser_delete_cloud_cookies(account_id: i64) -> Result<(), Strin
 /// 删除本地 Cookie（清除指定账号的所有 Cookie 和浏览数据）
 #[tauri::command]
 pub async fn bwbrowser_delete_local_cookies(
+  app_handle: tauri::AppHandle,
   account_name: String,
   account_id: Option<i64>,
 ) -> Result<(), String> {
@@ -4865,11 +5027,20 @@ pub async fn bwbrowser_delete_local_cookies(
   }
 
   let mut total_deleted = 0;
+  let mut failures: Vec<String> = Vec::new();
+
+  // 浏览器由用户手动关闭，这里不再尝试停止进程；若确有文件被占用，
+  // 删除会失败并如实上报。
+  let _ = &app_handle;
+
   for profile in &matching {
     match profile.browser.as_str() {
       "wayfern" => {
+        // user-data-dir 就是整个 profile 数据目录：Cookie、Local Storage、
+        // 缓存、Service Worker、Local State 等全在里面。只删 Default 会留下
+        // 顶层残留（Local State / First Run / Crashpad 等），删掉整个目录
+        // 才能清干净，下次启动浏览器会自动重建。
         let profile_data_path = profile.get_profile_data_path(&profiles_dir);
-        let default_dir = profile_data_path.join("Default");
 
         log_bwbrowser(
           "delete_local_cookies",
@@ -4880,43 +5051,73 @@ pub async fn bwbrowser_delete_local_cookies(
           ),
         );
 
-        if default_dir.exists() {
-          match std::fs::remove_dir_all(&default_dir) {
+        if profile_data_path.exists() {
+          match std::fs::remove_dir_all(&profile_data_path) {
             Ok(_) => {
               total_deleted += 1;
               log_bwbrowser(
                 "delete_local_cookies",
-                &format!("  ✓ 已删除 Default 目录 ({})", profile.id),
+                &format!("  ✓ 已删除整个 profile 数据目录 ({})", profile.id),
               );
             }
             Err(e) => {
               log_bwbrowser_error(
                 "delete_local_cookies",
                 &format!(
-                  "  ⚠ 删除 Default 目录失败 ({}): {}，尝试逐项删除",
+                  "  ⚠ 删除 profile 目录失败 ({}): {}，尝试逐项删除",
                   profile.id, e
                 ),
               );
-              // 逐项删除
-              if default_dir.exists() {
-                if let Ok(entries) = std::fs::read_dir(&default_dir) {
+              // 逐项删除：统计失败项并如实报告，不能静默跳过。
+              let mut removed = 0usize;
+              let mut failed = 0usize;
+              match std::fs::read_dir(&profile_data_path) {
+                Ok(entries) => {
                   for entry in entries.flatten() {
                     let p = entry.path();
-                    let _ = if p.is_dir() {
+                    let res = if p.is_dir() {
                       std::fs::remove_dir_all(&p)
                     } else {
                       std::fs::remove_file(&p)
                     };
+                    match res {
+                      Ok(_) => removed += 1,
+                      Err(err) => {
+                        failed += 1;
+                        log_bwbrowser_error(
+                          "delete_local_cookies",
+                          &format!("  ✗ 无法删除 {}: {}", p.display(), err),
+                        );
+                      }
+                    }
                   }
-                  total_deleted += 1;
                 }
+                Err(err) => {
+                  failures.push(format!("profile {} 目录无法枚举: {}", profile.id, err));
+                  continue;
+                }
+              }
+              if failed == 0 {
+                total_deleted += 1;
+                log_bwbrowser(
+                  "delete_local_cookies",
+                  &format!(
+                    "  ✓ 逐项删除完成（{} 项），profile {} 已清空",
+                    removed, profile.id
+                  ),
+                );
+              } else {
+                failures.push(format!(
+                  "profile {} 仍有 {} 项删除失败（多为文件被占用）",
+                  profile.id, failed
+                ));
               }
             }
           }
         } else {
           log_bwbrowser(
             "delete_local_cookies",
-            &format!("  Default 目录不存在 ({})", profile.id),
+            &format!("  profile 数据目录不存在 ({})", profile.id),
           );
         }
       }
@@ -4927,6 +5128,83 @@ pub async fn bwbrowser_delete_local_cookies(
         );
       }
     }
+  }
+
+  // 指纹生成会在 %TEMP% 下建 wayfern_fingerprint_* 沙盒目录（不是 profile
+  // 目录），里面同样有 Cookie / Local Storage。以前只杀主进程、删除又静默
+  // 失败，机器上堆了一堆残留；这里一并清扫，删除失败如实报告。
+  let temp_dir = std::env::temp_dir();
+  if let Ok(entries) = std::fs::read_dir(&temp_dir) {
+    let fingerprint_dirs: Vec<_> = entries
+      .flatten()
+      .filter(|e| {
+        e.file_name()
+          .to_str()
+          .map(|n| n.starts_with("wayfern_fingerprint_") && e.path().is_dir())
+          .unwrap_or(false)
+      })
+      .collect();
+    if !fingerprint_dirs.is_empty() {
+      let mut swept = 0usize;
+      for entry in &fingerprint_dirs {
+        let path = entry.path();
+        let mut in_use = false;
+        let mut last_err = String::new();
+        let mut removed = false;
+        // 短暂重试：指纹生成进程刚结束、文件句柄即将释放时会撞上共享冲突，
+        // 稍等一拍往往就能删掉。
+        for attempt in 0..3 {
+          match std::fs::remove_dir_all(&path) {
+            Ok(_) => {
+              removed = true;
+              break;
+            }
+            Err(e) => {
+              last_err = e.to_string();
+              in_use = e.raw_os_error() == Some(32);
+              if in_use {
+                tokio::time::sleep(std::time::Duration::from_millis(200 * (attempt + 1))).await;
+              } else {
+                break;
+              }
+            }
+          }
+        }
+        if removed {
+          swept += 1;
+        } else if in_use {
+          // 被别处正在运行的 headless 指纹进程占用（随机目录名无法归属到本账号）。
+          // 它不属于本次删除的对象，只是并发残留，不阻塞本账号删除；其所属进程
+          // 结束后会自行清理。
+          log_bwbrowser(
+            "delete_local_cookies",
+            &format!(
+              "  ⚠ 指纹临时目录使用中，跳过等待所属进程清理: {}",
+              path.display()
+            ),
+          );
+        } else {
+          failures.push(format!(
+            "指纹临时目录 {} 删除失败: {}",
+            path.display(),
+            last_err
+          ));
+        }
+      }
+      log_bwbrowser(
+        "delete_local_cookies",
+        &format!(
+          "  清扫指纹临时目录: {} 个已删除, {} 个失败/占用中",
+          swept,
+          fingerprint_dirs.len() - swept
+        ),
+      );
+      total_deleted += swept;
+    }
+  }
+
+  if !failures.is_empty() {
+    return Err(format!("本地数据未完全清除: {}", failures.join("；")));
   }
 
   log_bwbrowser(
@@ -6299,21 +6577,95 @@ pub async fn bwbrowser_launch_account(
   proxy_node: Option<String>,
   platform: Option<String>,
 ) -> Result<String, String> {
-  // 整体启动超时兜底：防止某个联网/启动步骤永久挂起，导致进度卡在 95%
-  tokio::time::timeout(
+  // 启动成功与否都在 log_launch_to_server 上报（成功在 launch_account_impl 尾部上报，
+  // 失败在这里统一上报），这样 logs.php 的"指纹浏览器"页能记录每次启动结果。
+  let result = tokio::time::timeout(
     std::time::Duration::from_secs(70),
     launch_account_impl(
       app_handle,
       account_id,
-      account_name,
-      env_uuid,
-      proxy_node,
-      platform,
+      account_name.clone(),
+      env_uuid.clone(),
+      proxy_node.clone(),
+      platform.clone(),
     ),
   )
   .await
   .map_err(|_| "账号启动超时：启动流程超过 70 秒未完成，请重试".to_string())
-  .and_then(|r| r)
+  .and_then(|r| r);
+
+  if let Err(ref e) = result {
+    // environment 可能为空（首次启动），服务器端也会接收
+    log_launch_to_server(
+      account_id,
+      &account_name,
+      platform.as_deref(),
+      "account",
+      None,
+      env_uuid.as_deref(),
+      proxy_node.as_deref(),
+      "failed",
+      e,
+    );
+  }
+
+  result
+}
+
+/// 上报云端账号启动记录到服务器（异步，不阻塞启动流程）
+fn log_launch_to_server(
+  account_id: i64,
+  account_name: &str,
+  platform: Option<&str>,
+  account_type: &str,
+  homepage_url: Option<&str>,
+  env_uuid: Option<&str>,
+  proxy_node: Option<&str>,
+  launch_status: &str,
+  fail_reason: &str,
+) {
+  // 异步上报，不阻塞启动
+  let account_name = account_name.to_string();
+  let platform = platform.unwrap_or("").to_string();
+  let account_type = account_type.to_string();
+  let homepage_url = homepage_url.unwrap_or("").to_string();
+  let env_uuid = env_uuid.unwrap_or("").to_string();
+  let proxy_node = proxy_node.unwrap_or("").to_string();
+  let launch_status = launch_status.to_string();
+  let fail_reason = fail_reason.to_string();
+
+  tauri::async_runtime::spawn(async move {
+    if let Some((username, password)) = BWBROWSER_AUTH.get_credentials() {
+      let form_data = format!(
+        "action=log_launch&username={}&password={}&account_id={}&account_name={}&platform={}&account_type={}&homepage_url={}&env_uuid={}&proxy_node={}&launch_status={}&fail_reason={}",
+        urlencode(&username),
+        urlencode(&password),
+        account_id,
+        urlencode(&account_name),
+        urlencode(&platform),
+        urlencode(&account_type),
+        urlencode(&homepage_url),
+        urlencode(&env_uuid),
+        urlencode(&proxy_node),
+        urlencode(&launch_status),
+        urlencode(&fail_reason),
+      );
+
+      let client = reqwest::Client::new();
+      let _ = client
+        .post(BWBROWSER_API_URL)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(form_data)
+        .send()
+        .await;
+
+      log::info!(
+        "[launch_account] 上报启动记录: account_id={}, status={}",
+        account_id,
+        launch_status
+      );
+    }
+  });
 }
 
 async fn launch_account_impl(
@@ -6715,7 +7067,7 @@ async fn launch_account_impl(
     }
   };
 
-  let profile = match existing_profile {
+  let mut profile = match existing_profile {
     Some(mut p) => {
       log_bwbrowser(
         "launch_account",
@@ -6931,6 +7283,64 @@ async fn launch_account_impl(
     }
   };
 
+  // 3.4 把云端账号的登录凭据同步到 profile，驱动登录页自动填充。
+  //     账号管理面板维护的是 BwbrowserAccount.login_account / login_password，
+  //     而 wayfern 自动填充读取的是 profile.login_credentials —— 二者必须联动，
+  //     否则 watcher 因找不到凭据而从不启动，登录页永远不会被填充。
+  //     仅在云端确有凭据时覆盖，保留用户在 profile 信息面板手动填写的值。
+  {
+    let pm = crate::profile::manager::ProfileManager::instance();
+    let server_credentials = match BWBROWSER_AUTH.get_account_detail(account_id).await {
+      Ok(detail) => detail
+        .login_account
+        .filter(|s| !s.trim().is_empty())
+        .zip(detail.login_password.filter(|s| !s.trim().is_empty())),
+      Err(e) => {
+        log_bwbrowser_error(
+          "launch_account",
+          &format!("  获取账号登录凭据失败（跳过自动填充同步）: {}", e),
+        );
+        None
+      }
+    };
+    if let Some((login_email, login_pwd)) = server_credentials {
+      log_bwbrowser(
+        "launch_account",
+        &format!(
+          "  同步云端登录凭据 → profile（{}）",
+          mask_email(&login_email)
+        ),
+      );
+      match pm.update_profile_login_credentials(
+        &app_handle,
+        &profile.id.to_string(),
+        Some(crate::profile::types::LoginCredentials {
+          email: login_email.clone(),
+          password: login_pwd.clone(),
+        }),
+      ) {
+        Ok(updated) => {
+          profile.login_credentials = updated.login_credentials.clone();
+        }
+        Err(e) => {
+          log_bwbrowser_error("launch_account", &format!("  同步登录凭据失败: {}", e));
+          // 即便落盘失败，也写入内存，确保本次启动仍能自动填充。
+          if profile.login_credentials.is_none() {
+            profile.login_credentials = Some(crate::profile::types::LoginCredentials {
+              email: login_email.clone(),
+              password: login_pwd.clone(),
+            });
+          }
+        }
+      }
+    } else {
+      log_bwbrowser(
+        "launch_account",
+        "  云端账号无登录账号/密码，保留 profile 已有凭据（若有）",
+      );
+    }
+  }
+
   let profile_id_str = profile.id.to_string();
   let app_handle_clone = app_handle.clone();
 
@@ -6993,8 +7403,23 @@ async fn launch_account_impl(
 
   let launch_url_for_cookie = launch_url.clone();
   let launched_profile = {
+    // 首次启动（本地无指纹）时，浏览器内核启动内部要现场生成指纹 + 探测
+    // 代理地理位置，会卡在 75% 十几秒。把这两个子阶段的进度回传给前端，
+    // 让用户看到"正在生成设备指纹/正在探测代理出口地理位置"而不是干等。
+    let fp_emit_app = app_handle.clone();
     let options = crate::browser_runner::LaunchOptions {
       gate: crate::launch_gate::FingerprintGate::Advisory,
+      on_fingerprint_progress: Some(std::sync::Arc::new(move |stage: &str| {
+        let _ = fp_emit_app.emit(
+          "account-launch-progress",
+          serde_json::json!({
+            "account_id": account_id,
+            "pct": 80,
+            "label": stage,
+          }),
+        );
+      })),
+      shield_platform: server_platform.clone(),
       ..Default::default()
     };
     crate::browser_runner::launch_browser_profile_impl(app_handle, profile, launch_url, options)
@@ -7251,6 +7676,23 @@ async fn launch_account_impl(
 
   emit_progress(100, "浏览器已启动");
   log_bwbrowser("launch_account", "✓ 启动成功");
+
+  // 上报启动成功记录到服务器（logs.php 指纹浏览器页）
+  let final_env_uuid = new_env_uuid
+    .as_deref()
+    .or_else(|| server_env_uuid.as_deref().filter(|s| !s.is_empty()));
+  log_launch_to_server(
+    account_id,
+    &server_account_name,
+    server_platform.as_deref(),
+    "account",
+    launch_url_for_cookie.as_deref(),
+    final_env_uuid,
+    server_proxy_node.as_deref(),
+    "success",
+    "",
+  );
+
   Ok("ok".to_string())
 }
 
@@ -7378,6 +7820,80 @@ async fn fetch_platform_url(platform: &str) -> Option<String> {
   None
 }
 
+/// The per-platform `earnings_hide.selectors` the platform config publishes, if
+/// the platform has any.
+///
+/// This is the authoritative "which elements are the revenue surfaces here?"
+/// answer, and it is far sharper than anything a local list could guess:
+/// Douyin publishes `#douyin-creator-master-menu-nav-cash`, which is exactly
+/// the `收入变现` navigation entry that a class-substring selector misses.
+/// `earnings_hide.js_script` is deliberately NOT executed — running remote JS
+/// on every launch would hand the browser to the config host whenever the
+/// signed-in employee could not see revenue; its only effect (per the style)
+/// is `display: none`, so CSS achieves the same with no code of ours in the page.
+pub(crate) async fn fetch_platform_earnings_hide_selectors(platform: &str) -> Vec<String> {
+  let resp = match BWBROWSER_AUTH
+    .client
+    .get(PLATFORM_CONFIG_API_URL)
+    .send()
+    .await
+  {
+    Ok(r) => r,
+    Err(e) => {
+      log_bwbrowser_error("platform_url", &format!("拉取平台配置失败: {}", e));
+      return Vec::new();
+    }
+  };
+  let body = match resp.text().await {
+    Ok(b) => b,
+    Err(e) => {
+      log_bwbrowser_error("platform_url", &format!("读取平台配置失败: {}", e));
+      return Vec::new();
+    }
+  };
+  let result: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::json!({}));
+  let platforms = result
+    .get("data")
+    .and_then(|d| d.get("platforms"))
+    .or_else(|| result.get("platforms"));
+  let Some(platforms) = platforms else {
+    return Vec::new();
+  };
+  let platform_lower = platform.to_lowercase();
+  let pick = |selectors: Option<&serde_json::Value>| -> Vec<String> {
+    selectors
+      .and_then(|s| s.as_array())
+      .map(|arr| {
+        arr
+          .iter()
+          .filter_map(|v| v.as_str().map(str::to_string))
+          .collect()
+      })
+      .unwrap_or_default()
+  };
+  // 支持对象 {"douyin": {...}} 和数组 [...{ id/platform }]。
+  if let Some(map) = platforms.as_object() {
+    let selectors = map
+      .get(&platform_lower)
+      .and_then(|item| item.get("earnings_hide"))
+      .and_then(|eh| eh.get("selectors"));
+    return pick(selectors);
+  }
+  if let Some(arr) = platforms.as_array() {
+    for item in arr {
+      let matched = ["id", "platform"]
+        .iter()
+        .filter_map(|field| item.get(field).and_then(|v| v.as_str()))
+        .any(|val| val.to_lowercase() == platform_lower);
+      if matched {
+        let selectors = item.get("earnings_hide").and_then(|eh| eh.get("selectors"));
+        return pick(selectors);
+      }
+    }
+  }
+  Vec::new()
+}
+
 /// 指纹验证结果
 #[derive(Debug, Clone)]
 struct FingerprintInfo {
@@ -7474,6 +7990,23 @@ async fn inject_cloud_cookies_after_launch(
     .get_credentials()
     .ok_or_else(|| "未登录".to_string())?;
 
+  // 健康检查经由账号自己的节点出口，避免所有账号共享本机 IP 被平台关联。
+  let account_proxy = crate::cookie_health::proxy_for_profile(profile);
+  match account_proxy.as_ref() {
+    Some(p) => {
+      let endpoint = if p.host.is_empty() {
+        p.vless_uri.as_deref().unwrap_or("").to_string()
+      } else {
+        format!("{}:{}", p.host, p.port)
+      };
+      log_bwbrowser(
+        "inject_cookies",
+        &format!("健康检查走账号节点: {} (type={})", endpoint, p.proxy_type),
+      );
+    }
+    None => log_bwbrowser("inject_cookies", "账号未绑定代理，健康检查走本机网络"),
+  }
+
   let default_platform = platform.unwrap_or("toutiao").to_string();
 
   // 1. 从云端拉取 Cookie
@@ -7513,7 +8046,7 @@ async fn inject_cloud_cookies_after_launch(
   );
   if !body.is_empty() {
     let preview = if body.len() > 200 {
-      format!("{}", trunc(&body, 200))
+      trunc(&body, 200).to_string()
     } else {
       body.clone()
     };
@@ -7707,11 +8240,41 @@ async fn inject_cloud_cookies_after_launch(
     }
   };
 
-  // 本地已确定登录：绝不注入。防止云端旧 cookie 合并进本地，造成
+  // 本地已确认登录：绝不注入。防止云端旧 cookie 合并进本地，造成
   // sessionid/sid_guard 等会话族错配导致掉登录（merge 注入的缺陷）。
-  if local_score.definite_logged_in {
-    should_inject = false;
-    log_bwbrowser("inject_cookies", "本地已确定登录，跳过注入（保留本地自洽会话）");
+  // 登录判定以健康检查为准（评分只看 cookie 存在性，部分平台名单缺失会误判）。
+  if should_inject {
+    if let Some(arr) = local_val.as_array() {
+      match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref()),
+      )
+      .await
+      {
+        Ok(Some((crate::cookie_health::HealthStatus::Valid, msg))) => {
+          should_inject = false;
+          log_bwbrowser(
+            "inject_cookies",
+            &format!(
+              "本地 Cookie 健康检查有效（{}），跳过注入（保留本地自洽会话）",
+              msg
+            ),
+          );
+        }
+        Ok(Some((verdict, msg))) => {
+          log_bwbrowser(
+            "inject_cookies",
+            &format!("本地 Cookie 健康检查: {:?} — {}", verdict, msg),
+          );
+        }
+        Ok(None) | Err(_) => {
+          log_bwbrowser(
+            "inject_cookies",
+            "本地 Cookie 健康检查无规则/超时，按评分逻辑继续",
+          );
+        }
+      }
+    }
   }
 
   // HTTP 交叉验证（注入前）：对云端 cookie 做一次真实请求探测。
@@ -7724,7 +8287,7 @@ async fn inject_cloud_cookies_after_launch(
       if let Some(arr) = cloud_val.as_array() {
         match tokio::time::timeout(
           std::time::Duration::from_secs(10),
-          crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr),
+          crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref()),
         )
         .await
         {
@@ -7789,11 +8352,10 @@ async fn inject_cloud_cookies_after_launch(
   // 8. 确认登录后才回传 Cookie（最多等待 300 秒）
   // 页面 DOM 检测（login_check 选择器）在未登录的落地页也会误报"已登录"
   // （例如抖音创作者页未登录时同样渲染作品管理/发布/头像），所以这里不再用它
-  // 判登录，而是以 cookie 评分的"确定登录"为准。未确认登录就每 3 秒探测一次，
-  // 最多 300 秒；浏览器关闭或超时则停止，保留云端完好的会话。
+  // 判登录，而是以健康检查探测为准（评分仅作诊断，不参与判定）。未确认登录就
+  // 每 3 秒探测一次，最多 300 秒；浏览器关闭或超时则停止，保留云端完好的会话。
   const LOGIN_WAIT_SECONDS: u64 = 300;
-  let deadline =
-    std::time::Instant::now() + std::time::Duration::from_secs(LOGIN_WAIT_SECONDS);
+  let deadline = std::time::Instant::now() + std::time::Duration::from_secs(LOGIN_WAIT_SECONDS);
   // 探测连续确认失效达到该次数后停止等待（会话不会自己复活，继续空转只会
   // 白白占用任务 300 秒；留给用户手动登录，下次启动再回传）。
   const MAX_DEAD_PROBES: u32 = 3;
@@ -7817,12 +8379,17 @@ async fn inject_cloud_cookies_after_launch(
     if std::time::Instant::now() >= deadline {
       log_bwbrowser(
         "inject_cookies",
-        &format!("等待登录超时 ({} 秒)，未确认登录，跳过回传", LOGIN_WAIT_SECONDS),
+        &format!(
+          "等待登录超时 ({} 秒)，未确认登录，跳过回传",
+          LOGIN_WAIT_SECONDS
+        ),
       );
       break;
     }
 
-    // 导出并评分本地 cookie，确认"确定登录"后才回传
+    // 导出本地 cookie，评分仅作诊断。部分平台的登录 cookie 名单在
+    // has_login_cookies 中缺失（如拼多多），评分会恒判"确定登录=false"，
+    // 已登录也永远等不到回传 —— 所以登录判定以健康检查探测为准。
     let cookie_json = match crate::cookie_sync::export_cookies_via_cdp(profile).await {
       Ok(s) => s,
       Err(e) => {
@@ -7846,59 +8413,72 @@ async fn inject_cloud_cookies_after_launch(
         score.total, score.definite_logged_in
       ),
     );
-    if !score.definite_logged_in {
-      log_bwbrowser("inject_cookies", "尚未确认登录，继续等待...");
-      continue;
-    }
 
-    // HTTP 交叉验证（回传前）：评分判定"确定登录"后，再用真实请求确认会话
-    // 有效。评分只看 cookie 存在性 —— 会话可能已过期但 cookie 还在（这正是
-    // "未登录却判定已登录"的来源）。探测到已失效就不回传，继续等待。
-    if let Some(arr) = local_val.as_array() {
-      match tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr),
+    // 登录判定：完全以健康检查探测为准（评分仅作诊断）。有探测规则 → 以探测
+    // 结果为准（Valid 才通过）；无规则或探测超时 → 无法判定，继续等待，等待
+    // 超时后自然停止，绝不把未确认登录的 cookie 回传云端。
+    match if let Some(arr) = local_val.as_array() {
+      Some(
+        tokio::time::timeout(
+          std::time::Duration::from_secs(10),
+          crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref()),
+        )
+        .await,
       )
-      .await
-      {
-        Ok(Some((crate::cookie_health::HealthStatus::Expired, msg))) => {
-          dead_probe_count += 1;
-          log_bwbrowser(
-            "inject_cookies",
-            &format!(
-              "⚠ 评分判定登录，但 HTTP 探测确认会话已失效（{}），第 {} 次，{}",
-              msg,
-              dead_probe_count,
-              if dead_probe_count >= MAX_DEAD_PROBES {
-                "停止等待，不回传失效会话"
-              } else {
-                "继续等待"
-              }
-            ),
-          );
-          if dead_probe_count >= MAX_DEAD_PROBES {
-            break;
-          }
-          continue;
+    } else {
+      None
+    } {
+      Some(Ok(Some((crate::cookie_health::HealthStatus::Valid, msg)))) => {
+        log_bwbrowser(
+          "inject_cookies",
+          &format!("健康检查确认登录: Valid — {}", msg),
+        );
+      }
+      Some(Ok(Some((verdict, msg)))) => {
+        dead_probe_count += 1;
+        log_bwbrowser(
+          "inject_cookies",
+          &format!(
+            "⚠ 健康检查判定未登录（{:?}，{}），第 {} 次，{}",
+            verdict,
+            msg,
+            dead_probe_count,
+            if dead_probe_count >= MAX_DEAD_PROBES {
+              "停止等待，不回传未通过健康检查的会话"
+            } else {
+              "继续等待"
+            }
+          ),
+        );
+        if dead_probe_count >= MAX_DEAD_PROBES {
+          break;
         }
-        Ok(Some((verdict, msg))) => {
-          log_bwbrowser(
-            "inject_cookies",
-            &format!("HTTP 探测确认登录: {:?} — {}", verdict, msg),
-          );
-        }
-        Ok(None) => {
-          log_bwbrowser("inject_cookies", "该平台无探测规则，按评分结果回传");
-        }
-        Err(_) => {
-          log_bwbrowser("inject_cookies", "HTTP 探测超时，按评分结果回传");
-        }
+        continue;
+      }
+      Some(Ok(None)) => {
+        log_bwbrowser(
+          "inject_cookies",
+          "该平台无探测规则，无法判定登录，继续等待...",
+        );
+        continue;
+      }
+      Some(Err(_)) => {
+        log_bwbrowser(
+          "inject_cookies",
+          "健康检查探测超时，无法判定登录，继续等待...",
+        );
+        continue;
+      }
+      None => {
+        log_bwbrowser("inject_cookies", "本地 cookie 数据异常，继续等待...");
+        continue;
       }
     }
 
-    // 已确认登录：回传云端并停止
+    // 已确认登录：回传云端并停止。能走到这里说明健康检查已判 Valid，
+    // 登录已被确认，不再依赖评分。
     log_bwbrowser("inject_cookies", "已确认登录，回传 Cookie 到云端");
-    match sync_cookies_to_cloud(app_handle, account_id, &cookie_json, &cloud_platform).await {
+    match sync_cookies_to_cloud(app_handle, account_id, &cookie_json, &cloud_platform, true).await {
       Ok((uploaded, local_total, cloud_total)) => {
         if uploaded {
           log_bwbrowser("inject_cookies", "✓ Cookie 已回传云端");
@@ -7953,11 +8533,15 @@ async fn wait_for_process_exit(pid: u32) {
 
 /// 对比本地 Cookie 与云端 Cookie 评分，本地更高则上传到云端
 /// 返回 (是否上传, 本地评分, 云端评分)
+/// `health_confirmed`：调用方已通过健康检查（HTTP 探测）确认登录时为 true，
+/// 此时跳过评分闸门 —— 健康检查验证的是真实会话，比评分（只看 cookie 存在性，
+/// 且部分平台登录名单缺失会误判未登录）更准。
 async fn sync_cookies_to_cloud(
   _app_handle: &tauri::AppHandle,
   account_id: i64,
   cookie_json: &str,
   platform: &str,
+  health_confirmed: bool,
 ) -> Result<(bool, i32, Option<i32>), String> {
   if cookie_json.trim().is_empty() || cookie_json == "[]" {
     log_bwbrowser("cookie_sync", "  无本地 Cookie 数据，跳过上传");
@@ -8038,20 +8622,25 @@ async fn sync_cookies_to_cloud(
     ),
   );
 
-  // 权威闸门：只有本地 cookie 具备"确定登录"证据时才上传，否则保留云端。
+  // 权威闸门：只有健康检查确认登录的本地会话才回传云端，否则保留云端完好会话。
+  // 评分只看 cookie 存在性（部分平台的登录 cookie 名单缺失会误判未登录），
   // 页面 DOM 检测（login_check 选择器）在未登录的落地页也会误报"已登录"
-  // （例如抖音创作者页在未登录时同样渲染作品管理/发布/头像），所以这里以
-  // cookie 评分为准，避免把本机未登录的弱 cookie 上传覆盖云端完好的会话。
-  if !local_score.definite_logged_in {
+  // （例如抖音创作者页未登录时同样渲染作品管理/发布/头像），所以登录判定
+  // 完全以健康检查为准，评分仅作诊断、不参与判定。
+  if !health_confirmed {
     log_bwbrowser(
       "cookie_sync",
-      "  本地 cookie 未确定登录，跳过回传，保留云端完好会话",
+      "  未经健康检查确认登录，跳过回传，保留云端完好会话",
     );
-    return Ok((false, local_score.total, cloud_score.as_ref().map(|s| s.total)));
+    return Ok((
+      false,
+      local_score.total,
+      cloud_score.as_ref().map(|s| s.total),
+    ));
   }
   log_bwbrowser(
     "cookie_sync",
-    &format!("  ✓ 本地 cookie 已确定登录，回传云端"),
+    "  ✓ 健康检查已确认登录，按健康检查结果回传云端",
   );
 
   // 上传到服务器

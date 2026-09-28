@@ -13,13 +13,6 @@ import { formatBytes } from "@/lib/format-bytes";
 import { showSuccessToast } from "@/lib/toast-utils";
 import type { DataRootInfo, DataRootMoveProgress } from "@/types";
 
-/** Join a chosen folder with the app's own folder name, both separator styles. */
-function resolveDestination(folder: string, appDirectoryName: string): string {
-  const separator = folder.includes("\\") && !folder.includes("/") ? "\\" : "/";
-  const trimmed = folder.replace(/[\\/]+$/, "");
-  return `${trimmed}${separator}${appDirectoryName}`;
-}
-
 function percentOf(progress: DataRootMoveProgress): number {
   if (progress.phase === "scanning") return 0;
   if (progress.phase !== "copying") return 100;
@@ -41,7 +34,6 @@ function percentOf(progress: DataRootMoveProgress): number {
 export function DataRootSetting() {
   const { t } = useTranslation();
   const [info, setInfo] = useState<DataRootInfo | null>(null);
-  const [destination, setDestination] = useState<string | null>(null);
   const [progress, setProgress] = useState<DataRootMoveProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isMoving, setIsMoving] = useState(false);
@@ -81,10 +73,14 @@ export function DataRootSetting() {
       });
       if (typeof picked === "string") {
         setError(null);
-        setDestination(resolveDestination(picked, info.app_directory_name));
+        const updated = await invoke<DataRootInfo>("set_data_root", {
+          destination: picked,
+        });
+        setInfo(updated);
+        showSuccessToast(t("settings.dataRoot.savedNow"));
       }
     } catch (err) {
-      console.error("Failed to choose a folder:", err);
+      console.error("Failed to set the data directory:", err);
       setError(translateBackendError(t, err));
     }
   }, [info, t]);
@@ -101,16 +97,15 @@ export function DataRootSetting() {
   }, [t]);
 
   const handleMove = useCallback(async () => {
-    if (!destination || movePending.current) return;
+    if (!info?.previous_path || movePending.current) return;
     movePending.current = true;
     setIsMoving(true);
     setError(null);
     try {
       const moved = await invoke<DataRootInfo>("move_data_root", {
-        destination,
+        destination: info.active_path,
       });
       setInfo(moved);
-      setDestination(null);
       showSuccessToast(t("settings.dataRoot.moved"));
     } catch (err) {
       console.error("Failed to move the data directory:", err);
@@ -120,7 +115,7 @@ export function DataRootSetting() {
       movePending.current = false;
       setIsMoving(false);
     }
-  }, [destination, t]);
+  }, [info, t]);
 
   if (!info) {
     return (
@@ -210,25 +205,27 @@ export function DataRootSetting() {
         >
           {t("settings.dataRoot.choose")}
         </Button>
-        <LoadingButton
-          size="sm"
-          data-slot="data-root-move"
-          isLoading={isMoving}
-          disabled={destination === null || isMoving}
-          onClick={() => void handleMove()}
-        >
-          {t("settings.dataRoot.move")}
-        </LoadingButton>
+        {info.previous_path && (
+          <LoadingButton
+            size="sm"
+            data-slot="data-root-move"
+            isLoading={isMoving}
+            disabled={isMoving}
+            onClick={() => void handleMove()}
+          >
+            {t("settings.dataRoot.migrateData")}
+          </LoadingButton>
+        )}
       </div>
 
-      {destination && (
+      {info.previous_path && (
         <p className="text-xs text-muted-foreground">
-          {t("settings.dataRoot.willMoveTo")}{" "}
+          {t("settings.dataRoot.waitingData", { from: info.previous_path })}{" "}
           <span
             data-slot="data-root-destination"
             className="font-mono break-all text-foreground"
           >
-            {destination}
+            {info.active_path}
           </span>
         </p>
       )}

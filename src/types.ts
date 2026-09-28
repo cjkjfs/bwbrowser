@@ -47,6 +47,24 @@ export interface BrowserProfile {
   created_at?: number;
   dns_blocklist?: string;
   password_protected?: boolean;
+  /** Autofill credentials for Google/YouTube sign-in pages. Absent/null turns
+   * the feature off. */
+  login_credentials?: LoginCredentials | null;
+}
+
+/** Site sign-in credentials a profile autofills into supported login pages
+ * (Google / YouTube). Stored in the profile metadata, so it travels with the
+ * profile and syncs like any other field. */
+export interface LoginCredentials {
+  email: string;
+  password: string;
+}
+
+/** What the backend reveals about a profile's stored credentials. The password
+ * itself never leaves the backend; only whether one is stored. */
+export interface ProfileLoginCredentialsView {
+  email: string | null;
+  has_password: boolean;
 }
 
 export interface Extension {
@@ -690,11 +708,11 @@ export interface DataRootInfo {
   active_path: string;
   configured_path: string | null;
   default_path: string;
+  previous_path: string | null;
   size_bytes: number;
   file_count: number;
   overridden_by_environment: boolean;
   restart_required: boolean;
-  app_directory_name: string;
   active_path_missing: boolean;
 }
 

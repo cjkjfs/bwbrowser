@@ -251,6 +251,8 @@ impl BrowserRunner {
     headless: bool,
     kind: crate::wayfern_manager::LaunchKind,
     gate: &crate::launch_gate::FingerprintGate,
+    on_fingerprint_progress: Option<&(dyn Fn(&str) + Sync)>,
+    shield_platform: Option<&str>,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
     // Handle Wayfern profiles using WayfernManager
     if profile.browser == "wayfern" {
@@ -535,7 +537,12 @@ impl BrowserRunner {
         // translates a coded error.
         let generated = self
           .wayfern_manager
-          .generate_fingerprint_config(&app_handle, profile, &config_for_generation)
+          .generate_fingerprint_config(
+            &app_handle,
+            profile,
+            &config_for_generation,
+            on_fingerprint_progress,
+          )
           .await
           .map_err(|e| {
             let detail = e.to_string();
@@ -680,6 +687,19 @@ impl BrowserRunner {
 
       // Get proxy URL from config
       let proxy_url = wayfern_config.proxy.as_deref();
+
+      // The revenue shield is an ordinary extension, so it rides the same
+      // `--load-extension` channel. Staged after the group install because that
+      // call wipes the profile's staging directory, and asked for before the
+      // launch because the browser reads the folder only once, at startup.
+      if let Some(shield) = crate::revenue_shield::extension_for_launch(
+        &updated_profile.id.to_string(),
+        shield_platform,
+      )
+      .await
+      {
+        extension_paths.push(shield);
+      }
 
       emit_launch_stage(profile, "starting", None);
       let wayfern_result = self
@@ -865,6 +885,9 @@ impl BrowserRunner {
     Err(format!("Unsupported browser type: {}", profile.browser).into())
   }
 
+  /// The same independent argument set as `launch_browser_internal` minus the
+  /// launch kind, which is fixed to `Automation` here.
+  #[allow(clippy::too_many_arguments)]
   pub async fn launch_browser_with_debugging(
     &self,
     app_handle: tauri::AppHandle,
@@ -873,6 +896,8 @@ impl BrowserRunner {
     remote_debugging_port: Option<u16>,
     headless: bool,
     gate: &crate::launch_gate::FingerprintGate,
+    on_fingerprint_progress: Option<&(dyn Fn(&str) + Sync)>,
+    shield_platform: Option<&str>,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
     // Wayfern starts (and PID-reconciles) its own local proxy
     // inside `launch_browser_internal`, so we hand it None here rather than
@@ -886,10 +911,15 @@ impl BrowserRunner {
         headless,
         crate::wayfern_manager::LaunchKind::Automation,
         gate,
+        on_fingerprint_progress,
+        shield_platform,
       )
       .await
   }
 
+  /// Like `launch_browser_internal` but routes an already-running profile to
+  /// `open_url_in_existing_browser`; every argument stays independent.
+  #[allow(clippy::too_many_arguments)]
   pub async fn launch_or_open_url(
     &self,
     app_handle: tauri::AppHandle,
@@ -897,6 +927,8 @@ impl BrowserRunner {
     url: Option<String>,
     internal_proxy_settings: Option<&ProxySettings>,
     gate: &crate::launch_gate::FingerprintGate,
+    on_fingerprint_progress: Option<&(dyn Fn(&str) + Sync)>,
+    shield_platform: Option<&str>,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
     log::info!(
       "launch_or_open_url called for profile: {} (ID: {})",
@@ -985,6 +1017,8 @@ impl BrowserRunner {
           false,
           crate::wayfern_manager::LaunchKind::Interactive,
           gate,
+          on_fingerprint_progress,
+          shield_platform,
         )
         .await
     }
@@ -1539,7 +1573,15 @@ impl BrowserRunner {
 
     // Use launch_or_open_url which handles both launching new instances and opening in existing ones
     if let Err(e) = self
-      .launch_or_open_url(app_handle, &profile, Some(url.clone()), None, &gate)
+      .launch_or_open_url(
+        app_handle,
+        &profile,
+        Some(url.clone()),
+        None,
+        &gate,
+        None,
+        None,
+      )
       .await
     {
       log::info!(
@@ -1580,18 +1622,30 @@ pub async fn launch_browser_profile(
   launch_browser_profile_impl(app_handle, profile, url, options).await
 }
 
+/// Reporter for the on-launch fingerprint steps (device generation,
+/// geolocation probe). Invoked only when a launch actually mints a device.
+pub type FingerprintProgressCallback = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// How one launch should behave.
 ///
 /// A struct rather than four trailing positional arguments: `headless` and
 /// `force_new` are already passed adjacently as bare booleans, so a fifth would
 /// compile everywhere while silently inverting behavior wherever the order was
 /// got wrong.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct LaunchOptions {
   pub remote_debugging_port: Option<u16>,
   pub headless: bool,
   pub force_new: bool,
   pub gate: crate::launch_gate::FingerprintGate,
+  pub on_fingerprint_progress: Option<FingerprintProgressCallback>,
+  /// The cloud platform this launch is for (e.g. `douyin`). When set, the
+  /// revenue shield unions that platform's `earnings_hide.selectors` into its
+  /// stylesheet, so a platform can hide exactly the navigation entry
+  /// (`#douyin-creator-master-menu-nav-cash` for Douyin) that a class-name
+  /// guess never reaches. `None` for a manual profile launch; the generic
+  /// fallback selectors still apply.
+  pub shield_platform: Option<String>,
 }
 
 impl LaunchOptions {
@@ -1604,6 +1658,8 @@ impl LaunchOptions {
       headless,
       force_new: true,
       gate: crate::launch_gate::FingerprintGate::Advisory,
+      on_fingerprint_progress: None,
+      shield_platform: None,
     }
   }
 }
@@ -1680,8 +1736,18 @@ pub async fn launch_browser_profile_impl(
       // Fire cookie health checks in background — never block the launch.
       let profile_id = profile.id.to_string();
       tauri::async_runtime::spawn(async move {
-        let _ = crate::cookie_health::check_profile_health(&profile_id).await;
+        let _ = crate::cookie_health::check_profile_health(&profile_id, false).await;
       });
+      // Autofill watcher: while the browser runs, keep filling the profile's
+      // stored credentials into Google / YouTube sign-in pages the user lands
+      // on. Spawned only when credentials are set; it stops itself when the
+      // browser exits or the credentials are cleared.
+      if profile.login_credentials.is_some() {
+        let profile_id = profile.id.to_string();
+        tauri::async_runtime::spawn(async move {
+          crate::login_autofill::watch_profile(&profile_id).await;
+        });
+      }
     }
     Err(error) => emit_launch_stage(
       &profile,
@@ -1703,7 +1769,12 @@ async fn launch_browser_profile_tracked(
     headless,
     force_new,
     gate,
+    on_fingerprint_progress,
+    shield_platform,
   } = options;
+  let on_fingerprint_progress = on_fingerprint_progress
+    .as_ref()
+    .map(|cb| cb.as_ref() as &(dyn Fn(&str) + Sync));
   log::info!(
     "Launch request received for profile: {} (ID: {})",
     profile.name,
@@ -1803,11 +1874,21 @@ async fn launch_browser_profile_tracked(
         remote_debugging_port,
         headless,
         &gate,
+        on_fingerprint_progress,
+        shield_platform.as_deref(),
       )
       .await
   } else {
     browser_runner
-      .launch_or_open_url(app_handle.clone(), &profile_for_launch, url, None, &gate)
+      .launch_or_open_url(
+        app_handle.clone(),
+        &profile_for_launch,
+        url,
+        None,
+        &gate,
+        on_fingerprint_progress,
+        shield_platform.as_deref(),
+      )
       .await
   };
   let updated_profile = match launch_result {

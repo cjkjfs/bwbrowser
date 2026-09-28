@@ -952,9 +952,9 @@ pub async fn inject_cookies_via_cdp(
           if domain.is_empty() || name.is_empty() {
             continue;
           }
-          let matches = target_domains.iter().any(|d| {
-            domain == *d || domain.ends_with(&format!(".{}", d))
-          });
+          let matches = target_domains
+            .iter()
+            .any(|d| domain == *d || domain.ends_with(&format!(".{}", d)));
           if !matches {
             continue;
           }
@@ -1218,7 +1218,7 @@ pub async fn check_login_via_page(
 /// - `Ok(Some(true))`  => still on `login.php` (NOT logged in), keep waiting
 /// - `Ok(Some(false))` => on a real `yacm.xin` page that is NOT `login.php` (logged in)
 /// - `Ok(None)`        => cannot tell yet (about:blank / page not ready / external page),
-///                        conservatively treated as NOT logged in
+///   conservatively treated as NOT logged in
 pub async fn current_page_is_login(profile: &BrowserProfile) -> Result<Option<bool>, CdpError> {
   let target = cdp_target::resolve(profile)
     .await
@@ -1276,7 +1276,11 @@ pub async fn current_page_is_login(profile: &BrowserProfile) -> Result<Option<bo
       }
     };
     let doc = conn
-      .call(940u64, "DOM.getDocument", serde_json::json!({ "depth": -1 }))
+      .call(
+        940u64,
+        "DOM.getDocument",
+        serde_json::json!({ "depth": -1 }),
+      )
       .await;
     href = match &doc {
       Ok(r) => r

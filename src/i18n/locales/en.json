@@ -2359,7 +2359,8 @@
     "syncDisplayUnavailable": "The display size could not be read, so the windows cannot be arranged.",
     "syncDisplayTooSmall": "The display is too small for {{windows}} windows in that layout.",
     "syncArrangeFailed": "No window could be moved.",
-    "extensionPathInvalid": "That path is not allowed: it contains '..'."
+    "extensionPathInvalid": "That path is not allowed: it contains '..'.",
+    "loginCredentialsIncomplete": "Enter both an email and a password."
   },
   "rail": {
     "profiles": "Profiles",
@@ -3481,5 +3482,16 @@
     "body": "Your plan just unlocked these. Each tip shows one of them working.",
     "cta": "Show me",
     "later": "Later"
+  },
+  "loginCredentials": {
+    "label": "Google / YouTube sign-in",
+    "description": "Automatically fill your email and password into Google and YouTube login pages. You still press Next / Sign in yourself.",
+    "emailLabel": "Account email",
+    "emailPlaceholder": "you@example.com",
+    "passwordLabel": "Password",
+    "passwordPlaceholder": "Password",
+    "passwordPlaceholderStored": "Leave blank to keep the stored password",
+    "saved": "Sign-in credentials saved",
+    "cleared": "Sign-in credentials cleared"
   }
 }

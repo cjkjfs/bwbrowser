@@ -20,6 +20,16 @@ pub enum SyncMode {
   Encrypted,
 }
 
+/// Site sign-in credentials a profile autofills into supported login pages
+/// (Google / YouTube) when the profile lands on one. The app fills the fields
+/// and stops; the human still submits the form. Stored in the profile
+/// metadata, so it travels with the profile and syncs like any other field.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct LoginCredentials {
+  pub email: String,
+  pub password: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct BrowserProfile {
   pub id: uuid::Uuid,
@@ -94,6 +104,10 @@ pub struct BrowserProfile {
   /// NOT bumped by browser-file changes, which sync via the file manifest.
   #[serde(default)]
   pub updated_at: Option<u64>,
+  /// Autofill credentials for supported sign-in pages. `None` means the
+  /// feature is off for this profile.
+  #[serde(default)]
+  pub login_credentials: Option<LoginCredentials>,
 }
 
 pub fn default_release_type() -> String {

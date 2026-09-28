@@ -36,6 +36,7 @@ import {
   LuUsers,
   LuX,
 } from "react-icons/lu";
+import { AnimatedSwitch } from "@/components/ui/animated-switch";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -103,6 +104,16 @@ interface BwbrowserCloudAccountsDialogProps {
 }
 
 // ==================== 常量 ====================
+
+// 云端 Avatar 字段可能是完整 URL、data: 或相对路径，统一转为可直接渲染的地址
+function resolveAvatarUrl(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  const v = raw.trim();
+  if (!v) return undefined;
+  if (/^(https?:|data:|blob:)/i.test(v)) return v;
+  if (v.startsWith("/")) return `http://yacm.xin${v}`;
+  return v;
+}
 
 const PLATFORM_LABELS: Record<string, string> = {
   douyin: "抖音",
@@ -421,7 +432,38 @@ export function BwbrowserCloudAccountsDialog({
   const [sorting, setSorting] = useState<SortingState>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [activeTab, setActiveTab] = useState("accounts");
+
+  // Cookie 健康检测：按账号 id 存最近一次判定结果
+  const [healthStates, setHealthStates] = useState<
+    Record<number, { status: string; message: string; checked_at: number }>
+  >({});
+  const [healthLoadingIds, setHealthLoadingIds] = useState<Set<number>>(
+    new Set(),
+  );
   const [sectorFilter, setSectorFilter] = useState<string | null>(null);
+  const [autofillEnabled, setAutofillEnabled] = useState(true);
+
+  useEffect(() => {
+    void invoke<{ autofill_enabled: boolean }>("get_app_settings")
+      .then((s) => setAutofillEnabled(s.autofill_enabled))
+      .catch(() => {});
+  }, []);
+
+  // Persist the 自动输入 switch; revert the UI if the backend refuses.
+  const handleAutofillToggle = useCallback(
+    async (checked: boolean) => {
+      setAutofillEnabled(checked);
+      try {
+        await invoke<boolean>("set_login_autofill_enabled", {
+          enabled: checked,
+        });
+      } catch (err) {
+        setAutofillEnabled((prev) => !prev);
+        showErrorToast(`设置保存失败: ${translateBackendError(t, err)}`);
+      }
+    },
+    [t],
+  );
 
   const { isLoggedIn: isBwbrowserLoggedIn } = useBwbrowserAuth();
   const { isSuperAdmin: isSuperAdminPerm } = useBwbrowserPermissions();
@@ -467,6 +509,88 @@ export function BwbrowserCloudAccountsDialog({
     canViewSMSCode,
     canViewPassword,
   });
+
+  // 按账号加载并展示 Cookie 健康状态（绿=通过，黄=未通过，灰=未检测）
+  const loadHealthStates = useCallback(async () => {
+    try {
+      const states = await invoke<
+        Array<{
+          account_id: number;
+          status: string;
+          message: string;
+          checked_at: number;
+        }>
+      >("bwbrowser_get_account_health_states");
+      const next: Record<
+        number,
+        { status: string; message: string; checked_at: number }
+      > = {};
+      for (const s of states) {
+        next[s.account_id] = {
+          status: s.status,
+          message: s.message,
+          checked_at: s.checked_at,
+        };
+      }
+      setHealthStates(next);
+    } catch (err) {
+      const msg = translateBackendError(t, err);
+      if (msg && !msg.includes("PERMISSION")) {
+        showErrorToast(`获取健康状态失败: ${msg}`);
+      }
+    }
+  }, [t]);
+
+  useEffect(() => {
+    if (isBwbrowserLoggedIn) void loadHealthStates();
+  }, [isBwbrowserLoggedIn, loadHealthStates]);
+
+  const handleCheckHealth = useCallback(
+    async (account: BwbrowserAccount) => {
+      setHealthLoadingIds((prev) => {
+        const next = new Set(prev);
+        next.add(account.id);
+        return next;
+      });
+      try {
+        const result = await invoke<{
+          account_id: number;
+          status: string;
+          message: string;
+          checked_at: number;
+        }>("bwbrowser_check_account_cookie_health", {
+          accountId: account.id,
+          accountName: account.account_name,
+        });
+        setHealthStates((prev) => ({
+          ...prev,
+          [result.account_id]: {
+            status: result.status,
+            message: result.message,
+            checked_at: result.checked_at,
+          },
+        }));
+        if (result.status === "valid") {
+          showSuccessToast(
+            result.message || `账号 ${account.account_name} Cookie 健康`,
+          );
+        } else {
+          showErrorToast(
+            result.message || `账号 ${account.account_name} Cookie 需重新登录`,
+          );
+        }
+      } catch (err) {
+        showErrorToast(`健康检测失败: ${translateBackendError(t, err)}`);
+      } finally {
+        setHealthLoadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(account.id);
+          return next;
+        });
+      }
+    },
+    [t],
+  );
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showPasswordIds, setShowPasswordIds] = useState<Set<number>>(
@@ -1612,7 +1736,16 @@ export function BwbrowserCloudAccountsDialog({
       },
       {
         accessorKey: "device_id",
-        header: "手机编号",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="flex items-center gap-1 text-xs font-medium"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            手机编号
+            <LuChevronsUpDown className="h-3 w-3 opacity-50" />
+          </button>
+        ),
         cell: ({ row }) => (
           <div className="font-mono text-xs text-muted-foreground">
             {row.getValue("device_id") || "-"}
@@ -1637,6 +1770,8 @@ export function BwbrowserCloudAccountsDialog({
           const vp = vpsLaunchProgress[account.id];
           const vpsBusy =
             vpsLaunchingIds.has(account.id) || (vp && vp.pct < 100);
+          const avatarUrl = resolveAvatarUrl(account.avatar_url);
+          const displayName = account.account_name || account.nickname;
           return (
             <div className="flex max-w-[180px] flex-col gap-1">
               {vpsBusy && (
@@ -1647,14 +1782,28 @@ export function BwbrowserCloudAccountsDialog({
                   </span>
                 </div>
               )}
-              <button
-                type="button"
-                onClick={() => void handleOpenAccountInVps(account)}
-                title="在 VPS 登录浏览器中打开该账号的爆文库详情"
-                className="truncate text-left text-xs font-medium transition-colors hover:text-primary hover:underline"
-              >
-                {account.account_name || account.nickname || "-"}
-              </button>
+              <div className="flex items-center gap-2">
+                {avatarUrl ? (
+                  <span
+                    role="img"
+                    aria-label={displayName}
+                    className="size-6 shrink-0 rounded-full bg-cover bg-center border border-border"
+                    style={{ backgroundImage: `url(${avatarUrl})` }}
+                  />
+                ) : (
+                  <span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                    {(displayName || "?").charAt(0).toUpperCase()}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleOpenAccountInVps(account)}
+                  title="在 VPS 登录浏览器中打开该账号的爆文库详情"
+                  className="truncate text-left text-xs font-medium transition-colors hover:text-primary hover:underline"
+                >
+                  {displayName || "-"}
+                </button>
+              </div>
             </div>
           );
         },
@@ -1865,6 +2014,53 @@ export function BwbrowserCloudAccountsDialog({
           <PlatformBadge platform={row.getValue("platform") || "unknown"} />
         ),
         size: 80,
+      },
+      {
+        id: "health",
+        header: "健康检测",
+        cell: ({ row }) => {
+          const account = row.original;
+          const h = healthStates[account.id];
+          const status = h?.status ?? "unknown";
+          const loading = healthLoadingIds.has(account.id);
+          const isAdmin = isManager || isSuperAdmin;
+          return (
+            <div
+              className="flex items-center gap-1.5"
+              title={`${
+                h?.message || (status === "unknown" ? "未检测" : "")
+              }${h?.checked_at ? ` · ${formatDateShort(new Date(h.checked_at * 1000).toISOString())}` : ""}`}
+            >
+              <span
+                className={cn(
+                  "size-2.5 shrink-0 rounded-full",
+                  status === "valid"
+                    ? "bg-success"
+                    : status === "unknown"
+                      ? "bg-muted-foreground/40"
+                      : "bg-warning",
+                )}
+              />
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => void handleCheckHealth(account)}
+                  disabled={loading}
+                  className="text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                  title="手动检测Cookie健康"
+                >
+                  {loading ? (
+                    <LuLoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <LuRefreshCw className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              )}
+            </div>
+          );
+        },
+        size: 86,
+        enableSorting: false,
       },
       {
         accessorKey: "owner_name",
@@ -2218,6 +2414,11 @@ export function BwbrowserCloudAccountsDialog({
     onNavigateToEnvManagement,
     handleOpenEdit,
     handleOpenAccountInVps,
+    healthStates,
+    healthLoadingIds,
+    isManager,
+    isSuperAdmin,
+    handleCheckHealth,
   ]);
 
   const table = useReactTable({
@@ -2346,6 +2547,17 @@ export function BwbrowserCloudAccountsDialog({
             <LuUserPlus className="h-3.5 w-3.5" />
             添加账号
           </Button>
+          <div
+            className="flex h-8 cursor-pointer select-none items-center gap-1.5 rounded-md border border-border bg-card px-2 text-xs text-muted-foreground"
+            title="开启后自动填入登录账号和密码，关闭后不再自动输入"
+          >
+            自动输入
+            <AnimatedSwitch
+              data-slot="autofill-toggle"
+              checked={autofillEnabled}
+              onCheckedChange={(v) => void handleAutofillToggle(v)}
+            />
+          </div>
         </div>
       </header>
 

@@ -679,6 +679,29 @@ test("real Wayfern fingerprinting, terms, API automation, CDP, cookies, and proc
       true,
     );
     assertIdleResourceBounds(browserPid);
+
+    // The revenue shield is an ordinary extension, not CDP script injection:
+    // the browser refuses `Runtime.evaluate` on a free plan, which is exactly
+    // the employee this exists for. The harness is signed out and the
+    // permission lookup fails closed, so this launch must carry the shield.
+    const shieldDir = path.join(
+      app.dataRoot,
+      "data",
+      "extensions",
+      "unpacked",
+      profile.id,
+      "bw-revenue-shield",
+    );
+    assert.ok(
+      existsSync(path.join(shieldDir, "manifest.json")),
+      "a signed-out launch must stage the revenue shield under the profile",
+    );
+    assert.match(
+      await readFile(path.join(shieldDir, "hide.css"), "utf8"),
+      /display: none !important/,
+      "the staged stylesheet must be the one that hides",
+    );
+
     if (process.platform !== "win32") {
       const command = execFileSync(
         "ps",
@@ -702,7 +725,29 @@ test("real Wayfern fingerprinting, terms, API automation, CDP, cookies, and proc
         /--enable-logging=stderr/,
         "the browser's own verdicts reach the app through stderr",
       );
+      assert.ok(
+        command.includes(`--load-extension=${shieldDir}`),
+        "Wayfern must be handed the staged shield through --load-extension",
+      );
     }
+
+    // Applied at document_start by the browser itself, so an element inserted
+    // long after the page settled is hidden on sight, with no further command
+    // from the app and no automation entitlement involved.
+    await cdp.evaluate(
+      "const card = document.createElement('div'); card.className = 'revenue-summary'; card.id = 'shield-revenue'; const plain = document.createElement('div'); plain.className = 'plain-panel'; plain.id = 'shield-plain'; document.body.append(card, plain);",
+    );
+    await cdp.waitFor(
+      "getComputedStyle(document.querySelector('#shield-revenue')).display === 'none'",
+      { description: "the revenue shield hides an earnings surface" },
+    );
+    assert.equal(
+      await cdp.evaluate(
+        "getComputedStyle(document.querySelector('#shield-plain')).display",
+      ),
+      "block",
+      "the shield must leave ordinary UI alone",
+    );
 
     const opened = await request(`${base}/v1/profiles/${profile.id}/open-url`, {
       method: "POST",
@@ -728,6 +773,12 @@ test("real Wayfern fingerprinting, terms, API automation, CDP, cookies, and proc
     cdp.close();
     cdp = null;
     await waitForProcessExit(app, browserPid);
+    // The staged shield is plaintext extension code on real disk, and nothing
+    // reads it once the browser that was handed the folder has exited.
+    assert.ok(
+      !existsSync(shieldDir),
+      "the staged shield must not outlive the browser it was staged for",
+    );
     const stoppedProfile = (await app.invoke("list_browser_profiles")).find(
       (item) => item.id === profile.id,
     );
