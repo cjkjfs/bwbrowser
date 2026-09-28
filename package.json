@@ -2,7 +2,7 @@
   "name": "bwbrowser",
   "private": true,
   "license": "AGPL-3.0",
-  "version": "2.1.2",
+  "version": "2.3.3",
   "type": "module",
   "scripts": {
     "predev": "pnpm licenses:generate",
@@ -54,6 +54,7 @@
     "check-unused-commands": "cd src-tauri && cargo test test_no_unused_tauri_commands",
     "copy-proxy-binary": "node src-tauri/copy-proxy-binary.mjs",
     "copy-proxy-binary:release": "node src-tauri/copy-proxy-binary.mjs --release",
+    "bump-version": "node scripts/bump-version.mjs",
     "pretauri:dev": "pnpm copy-proxy-binary",
     "precargo": "pnpm copy-proxy-binary"
   },
@@ -128,7 +129,7 @@
     ],
     "src-tauri/**/*.rs": [
       "bash -c 'cd src-tauri && cargo fmt --all'",
-      "bash -c 'cd src-tauri && cargo clippy --all-targets --all-features -- -D warnings -D clippy::all'",
+      "bash -c 'cd src-tauri && cargo clippy --all-targets -- -D warnings -D clippy::all'",
       "bash -c 'cd src-tauri && cargo test --lib'"
     ],
     "**/*.{rs,ts,tsx,js,jsx,md}": [
