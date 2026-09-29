@@ -7890,6 +7890,235 @@ pub async fn bwbrowser_platform_names() -> Result<std::collections::HashMap<Stri
   Ok(names)
 }
 
+/// 自动填表的一个字段步骤：role 决定填什么值（email / password），selectors 是按序
+/// 尝试的候选 DOM 选择器（命中第一个即填写）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AutofillStep {
+  pub role: String,
+  pub selectors: Vec<String>,
+}
+
+/// 自动填表的一条命中规则。同一规则内 host 与 path 是 AND，不同规则之间是 OR，
+/// 空数组表示该维度不过滤。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AutofillMatchRule {
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub hosts: Vec<String>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub host_suffixes: Vec<String>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub paths: Vec<String>,
+}
+
+/// 一个平台的自动填表方案，可来自服务端 platform_config 的 `platforms[].autofill`。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AutofillPlan {
+  pub matching: Vec<AutofillMatchRule>,
+  pub steps: Vec<AutofillStep>,
+  #[serde(default)]
+  pub submit: bool,
+}
+
+/// 内置兜底方案，与旧的硬编码 Google/YouTube 自动填表行为一致。服务端没有 autofill
+/// 字段或拉取失败时仍能工作，覆盖 Google / YouTube 登录页。
+fn builtin_autofill_plan() -> AutofillPlan {
+  AutofillPlan {
+    matching: vec![
+      AutofillMatchRule {
+        hosts: vec!["accounts.google.com".into(), "accounts.youtube.com".into()],
+        host_suffixes: Vec::new(),
+        paths: Vec::new(),
+      },
+      AutofillMatchRule {
+        hosts: Vec::new(),
+        host_suffixes: vec![".youtube.com".into()],
+        paths: vec!["/signin".into()],
+      },
+    ],
+    steps: vec![
+      AutofillStep {
+        role: "email".into(),
+        selectors: vec![
+          "input[type=\"email\"]:not([type=\"hidden\"])".into(),
+          "input[name=\"identifier\"]:not([type=\"hidden\"])".into(),
+          "input[jsname=\"KKx9x\"]:not([type=\"hidden\"])".into(),
+          "input[jsname=\"YPqjbf\"]:not([type=\"hidden\"])".into(),
+          "#identifierId".into(),
+        ],
+      },
+      AutofillStep {
+        role: "password".into(),
+        selectors: vec![
+          "input[name=\"Passwd\"]".into(),
+          "input[type=\"password\"]:not([name=\"ca\"])".into(),
+        ],
+      },
+    ],
+    submit: false,
+  }
+}
+
+/// 平台完整配置（`data.platforms`）的进程级缓存，带 TTL。自动填表每 1.5s 轮询一次，
+/// 不能每次都重新拉取，但也不能像平台中文名那样永久缓存——服务端改选择器要能生效。
+const PLATFORM_CONFIG_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+fn platform_config_cache(
+) -> &'static std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>> {
+  static CACHE: std::sync::OnceLock<
+    std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>>,
+  > = std::sync::OnceLock::new();
+  CACHE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// 拉取完整的 `data.platforms`（TTL 内走缓存，失败时回退到过期缓存以兜底）。
+async fn fetch_platforms_doc() -> Option<serde_json::Value> {
+  let cached = platform_config_cache().lock().ok().and_then(|g| g.clone());
+  if let Some((at, doc)) = cached.clone().as_ref() {
+    if at.elapsed() < PLATFORM_CONFIG_TTL {
+      return Some(doc.clone());
+    }
+  }
+  let resp = BWBROWSER_AUTH
+    .client
+    .get(PLATFORM_CONFIG_API_URL)
+    .send()
+    .await
+    .ok()?;
+  let body = match resp.text().await {
+    Ok(b) => b,
+    Err(e) => {
+      log_bwbrowser_error("platform_config", &format!("读取响应失败: {e}"));
+      return cached.map(|(_, doc)| doc);
+    }
+  };
+  let result: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::json!({}));
+  let platforms = result
+    .get("data")
+    .and_then(|d| d.get("platforms"))
+    .or_else(|| result.get("platforms"))
+    .cloned()
+    .unwrap_or_default();
+  if let Ok(mut guard) = platform_config_cache().lock() {
+    *guard = Some((std::time::Instant::now(), platforms.clone()));
+  }
+  Some(platforms)
+}
+
+fn autofill_str_array(v: Option<&serde_json::Value>) -> Vec<String> {
+  v.and_then(serde_json::Value::as_array)
+    .map(|arr| {
+      arr
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_string)
+        .collect()
+    })
+    .unwrap_or_default()
+}
+
+/// 把某个平台的 `autofill` 配置项解析为方案；缺少 steps 时视为未配置。
+pub fn parse_autofill(v: &serde_json::Value) -> Option<AutofillPlan> {
+  let matching = v.get("matching").and_then(serde_json::Value::as_array)?;
+  let mut rules = Vec::new();
+  for rule in matching {
+    rules.push(AutofillMatchRule {
+      hosts: autofill_str_array(rule.get("hosts")),
+      host_suffixes: autofill_str_array(rule.get("host_suffixes")),
+      paths: autofill_str_array(rule.get("paths")),
+    });
+  }
+  let mut steps = Vec::new();
+  if let Some(arr) = v.get("steps").and_then(serde_json::Value::as_array) {
+    for step in arr {
+      let selectors = autofill_str_array(step.get("selectors"));
+      if selectors.is_empty() {
+        continue;
+      }
+      steps.push(AutofillStep {
+        role: step
+          .get("role")
+          .and_then(serde_json::Value::as_str)
+          .unwrap_or("email")
+          .to_string(),
+        selectors,
+      });
+    }
+  }
+  if steps.is_empty() {
+    return None;
+  }
+  Some(AutofillPlan {
+    matching: rules,
+    steps,
+    submit: v
+      .get("submit")
+      .and_then(serde_json::Value::as_bool)
+      .unwrap_or(false),
+  })
+}
+
+/// 返回服务端配置的全部自动填表方案，末尾始终追加内置兜底，保证未配置时仍覆盖
+/// Google / YouTube。
+pub async fn autofill_plans() -> Vec<AutofillPlan> {
+  let mut plans = Vec::new();
+  if let Some(doc) = fetch_platforms_doc().await {
+    if let Some(arr) = doc.as_array() {
+      for item in arr {
+        if let Some(plan) = parse_autofill(item) {
+          plans.push(plan);
+        }
+      }
+    } else if let Some(map) = doc.as_object() {
+      for item in map.values() {
+        if let Some(plan) = parse_autofill(item) {
+          plans.push(plan);
+        }
+      }
+    }
+  }
+  plans.push(builtin_autofill_plan());
+  plans
+}
+
+/// 判断 autofill 配置中的一条命中规则是否匹配当前 host / path。
+fn autofill_rule_matches(rule: &AutofillMatchRule, host: &str, path: &str) -> bool {
+  let host_ok = (rule.hosts.is_empty() && rule.host_suffixes.is_empty())
+    || rule.hosts.iter().any(|h| host == h.as_str())
+    || rule
+      .host_suffixes
+      .iter()
+      .any(|s| host == s.trim_start_matches('.') || host.ends_with(s));
+  let path_ok = rule.paths.is_empty()
+    || rule
+      .paths
+      .iter()
+      .any(|p| path == p.as_str() || path.contains(p));
+  host_ok && path_ok
+}
+
+/// 为一页 URL 选出命中的自动填表方案（服务端配置优先，内置兜底兜底）。
+pub fn autofill_plan_for_url<'a>(plans: &'a [AutofillPlan], url: &str) -> Option<&'a AutofillPlan> {
+  let lower = url.to_lowercase();
+  let host_port = lower.split('/').nth(2).unwrap_or("");
+  let host = host_port
+    .split(':')
+    .next()
+    .unwrap_or("")
+    .trim_end_matches('.');
+  let path = lower
+    .split('?')
+    .next()
+    .unwrap_or("")
+    .split('#')
+    .next()
+    .unwrap_or("");
+  plans.iter().find(|p| {
+    p.matching
+      .iter()
+      .any(|r| autofill_rule_matches(r, host, path))
+  })
+}
+
 /// The per-platform `earnings_hide.selectors` the platform config publishes, if
 /// the platform has any.
 ///

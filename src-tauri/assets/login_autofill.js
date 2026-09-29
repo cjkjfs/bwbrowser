@@ -1,21 +1,19 @@
-// Fills a profile's stored credentials into Google/YouTube sign-in pages.
-// Injected by the login-autofill watcher on every probe. Idempotent: a field
-// that already holds the credential is left alone. Never submits the form —
-// the human still presses Next / Sign in, and a captcha or 2FA step simply
-// waits for them. The __EMAIL__ / __PASSWORD__ placeholders are substituted
-// with JSON-escaped values when the script is generated.
+// Fills a profile's stored credentials into the sign-in pages described by the
+// injected plans (pulled from platform_config, with a built-in Google/YouTube
+// fallback). Injected by the login-autofill watcher on every probe. Idempotent:
+// a field that already holds the credential is left alone. Never submits the
+// form — the human still presses Next / Sign in, and a captcha or 2FA step
+// simply waits for them. The __AUTOFILL_PLANS__ / __EMAIL__ / __PASSWORD__
+// placeholders are substituted at script generation time.
 (() => {
+  const PLANS = __AUTOFILL_PLANS__;
   const EMAIL = __EMAIL__;
   const PASSWORD = __PASSWORD__;
 
   const host = location.hostname.toLowerCase();
   const path = location.pathname.toLowerCase();
-  const isSigninPage =
-    host.endsWith("accounts.google.com") ||
-    host.endsWith("accounts.youtube.com") ||
-    ((host === "youtube.com" || host.endsWith(".youtube.com")) &&
-      path.includes("/signin"));
-  if (!isSigninPage) return "skip:not-signin";
+
+  const ROLES = { email: EMAIL, password: PASSWORD };
 
   function fillField(el, value) {
     if (!el || el.disabled) return false;
@@ -32,36 +30,47 @@
     return true;
   }
 
+  function ruleMatches(rule) {
+    const hosts = rule.hosts || [];
+    const suffixes = rule.host_suffixes || [];
+    const paths = rule.paths || [];
+    const hostOk =
+      (hosts.length === 0 && suffixes.length === 0) ||
+      hosts.some((h) => host === h) ||
+      suffixes.some((s) => host === s.replace(/^\./, "") || host.endsWith(s));
+    const pathOk =
+      paths.length === 0 || paths.some((p) => path === p || path.includes(p));
+    return hostOk && pathOk;
+  }
+
+  const plan = (PLANS || []).find((p) => (p.matching || []).some(ruleMatches));
+  if (!plan) return "skip:not-signin";
+
   const filled = [];
   const skipped = [];
 
-  // Email step: the visible identifier field. Google renders a hidden
-  // duplicate with the same name, so hidden inputs are excluded.
-  const emailEl = document.querySelector(
-    'input[type="email"]:not([type="hidden"]), input[name="identifier"]:not([type="hidden"]), input[jsname="KKx9x"]:not([type="hidden"])',
-  );
-  if (!emailEl) {
-    skipped.push("no-email-field");
-  } else if (fillField(emailEl, EMAIL)) {
-    filled.push("email");
-  } else {
-    skipped.push("email-already-filled");
-  }
-
-  // Password step: `Passwd` is the stable selector; fall back to any visible
-  // password input that is not the security-code field.
-  const passEl = document.querySelector(
-    'input[name="Passwd"], input[type="password"]:not([name="ca"])',
-  );
-  if (!passEl) {
-    skipped.push("no-password-field");
-  } else if (fillField(passEl, PASSWORD)) {
-    filled.push("password");
-  } else {
-    skipped.push("password-already-filled");
+  for (const step of plan.steps || []) {
+    const selectors = step.selectors || [];
+    const value = ROLES[step.role];
+    if (value === undefined || value === "") {
+      skipped.push(`${step.role}-no-value`);
+      continue;
+    }
+    let el = null;
+    for (const selector of selectors) {
+      el = document.querySelector(selector);
+      if (el) break;
+    }
+    if (!el) {
+      skipped.push(`no-${step.role}-field`);
+    } else if (fillField(el, value)) {
+      filled.push(step.role);
+    } else {
+      skipped.push(`${step.role}-already-filled`);
+    }
   }
 
   return filled.length > 0
-    ? "filled:" + filled.join("+")
-    : "filled:nothing:" + skipped.join("+") + ":on=" + path;
+    ? `filled:${filled.join("+")}`
+    : `filled:nothing:${skipped.join("+")}:on=${path}`;
 })();

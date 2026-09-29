@@ -35,11 +35,16 @@ fn active_watchers() -> &'static Mutex<HashSet<String>> {
   ACTIVE_WATCHERS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-/// The autofill script with the profile's credentials substituted in.
+/// The autofill script with the profile's credentials and the per-platform
+/// plans substituted in.
 ///
 /// `serde_json::to_string` on a `&str` produces the quoted, escaped literal the
-/// script's `const EMAIL = ...` needs.
-fn autofill_script(credentials: &LoginCredentials) -> String {
+/// script's `const EMAIL = ...` needs. The plans come from platform_config and
+/// let the server push selector fixes without a client release.
+fn autofill_script(
+  credentials: &LoginCredentials,
+  plans: &[crate::bwbrowser_cloud::AutofillPlan],
+) -> String {
   include_str!("../assets/login_autofill.js")
     .replace(
       "__EMAIL__",
@@ -48,6 +53,10 @@ fn autofill_script(credentials: &LoginCredentials) -> String {
     .replace(
       "__PASSWORD__",
       &serde_json::to_string(&credentials.password).unwrap_or_else(|_| "\"\"".to_string()),
+    )
+    .replace(
+      "__AUTOFILL_PLANS__",
+      &serde_json::to_string(plans).unwrap_or_else(|_| "[]".to_string()),
     )
 }
 
@@ -153,14 +162,18 @@ pub async fn watch_profile(profile_id: &str) {
       &format!("CDP 端口就绪: {port}，开始探测页面"),
     );
 
+    // 每个轮询周期解析一次自动填表方案：内部带 TTL 缓存，服务端改选择器最多 5 分钟生效。
+    let plans = crate::bwbrowser_cloud::autofill_plans().await;
+
     match probe_pages(
       port,
-      &autofill_script(credentials),
+      &autofill_script(credentials, &plans),
       &credentials.email,
       &credentials.password,
       &profile.name,
       profile_id,
       &mut filled_once,
+      &plans,
     )
     .await
     {
@@ -201,6 +214,7 @@ enum ProbeResult {
 }
 
 /// Evaluate the script on every drivable page of the browser on `port`.
+#[allow(clippy::too_many_arguments)]
 async fn probe_pages(
   port: u16,
   script: &str,
@@ -209,6 +223,7 @@ async fn probe_pages(
   profile_name: &str,
   profile_id: &str,
   filled_once: &mut HashSet<String>,
+  plans: &[crate::bwbrowser_cloud::AutofillPlan],
 ) -> ProbeResult {
   let listing = format!("http://127.0.0.1:{port}/json");
   let targets: Vec<serde_json::Value> = {
@@ -260,7 +275,7 @@ async fn probe_pages(
     };
     saw_page = true;
 
-    match probe_page(ws_url, script, email, password, filled_once).await {
+    match probe_page(ws_url, script, email, password, filled_once, plans).await {
       Ok(verdict) if verdict.starts_with("filled:") && !verdict.contains("nothing") => {
         let url_short = &url[..url.len().min(120)];
         crate::bwbrowser_cloud::log_bwbrowser(
@@ -324,6 +339,7 @@ async fn probe_page(
   email: &str,
   password: &str,
   filled_once: &mut HashSet<String>,
+  plans: &[crate::bwbrowser_cloud::AutofillPlan],
 ) -> Result<String, String> {
   let target = CdpTarget::Local {
     ws_url: ws_url.to_string(),
@@ -361,32 +377,9 @@ async fn probe_page(
         "autofill",
         &format!("Runtime.evaluate 受限（{err_str}），改用 DOM 域填充"),
       );
-      probe_page_dom(&target, email, password, filled_once).await
+      probe_page_dom(&target, email, password, filled_once, plans).await
     }
   }
-}
-
-/// Whether a page URL is one of the Google/YouTube sign-in surfaces the
-/// autofill targets. Mirrors the JS guard in `assets/login_autofill.js`.
-fn is_signin_url(url: &str) -> bool {
-  let lower = url.to_lowercase();
-  let host_port = lower.split('/').nth(2).unwrap_or("");
-  let host = host_port
-    .split(':')
-    .next()
-    .unwrap_or("")
-    .trim_end_matches('.');
-  let path = lower
-    .split('?')
-    .next()
-    .unwrap_or("")
-    .split('#')
-    .next()
-    .unwrap_or("");
-
-  host.ends_with("accounts.google.com")
-    || host.ends_with("accounts.youtube.com")
-    || ((host == "youtube.com" || host.ends_with(".youtube.com")) && path.contains("/signin"))
 }
 
 /// Fill the credentials through the DOM + Input domains when the gate blocks
@@ -400,19 +393,8 @@ async fn probe_page_dom(
   email: &str,
   password: &str,
   filled_once: &mut HashSet<String>,
+  plans: &[crate::bwbrowser_cloud::AutofillPlan],
 ) -> Result<String, String> {
-  let email_selectors = [
-    r#"input[type="email"]:not([type="hidden"])"#,
-    r#"input[name="identifier"]:not([type="hidden"])"#,
-    r#"input[jsname="KKx9x"]:not([type="hidden"])"#,
-    r#"input[jsname="YPqjbf"]:not([type="hidden"])"#,
-    "#identifierId",
-  ];
-  let password_selectors = [
-    r#"input[name="Passwd"]"#,
-    r#"input[type="password"]:not([name="ca"])"#,
-  ];
-
   let mut conn = target.connect().await.map_err(|e| e.to_string())?;
   let doc = match conn
     .call(1u64, "DOM.getDocument", serde_json::json!({ "depth": -1 }))
@@ -430,10 +412,22 @@ async fn probe_page_dom(
     .and_then(Value::as_str)
     .unwrap_or("")
     .to_string();
-  if !is_signin_url(&url) {
+  let Some(plan) = crate::bwbrowser_cloud::autofill_plan_for_url(plans, &url) else {
     conn.close().await;
     return Ok("skip:not-signin".to_string());
-  }
+  };
+  let email_selectors: Vec<&str> = plan
+    .steps
+    .iter()
+    .filter(|s| s.role == "email")
+    .flat_map(|s| s.selectors.iter().map(String::as_str))
+    .collect();
+  let password_selectors: Vec<&str> = plan
+    .steps
+    .iter()
+    .filter(|s| s.role == "password")
+    .flat_map(|s| s.selectors.iter().map(String::as_str))
+    .collect();
   let root_id = root.get("nodeId").and_then(Value::as_i64).unwrap_or(0);
   if root_id == 0 {
     conn.close().await;

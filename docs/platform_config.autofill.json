@@ -1,0 +1,55 @@
+{
+  "note": "把该平台的 autofill 字段合并进服务端 platform_config 的对应 data.platforms[]（Google 与 YouTube 是同一平台，共用一个 autofill）。客户端每 5 分钟重拉该配置并生效，无需重新发布程序。省略该字段时客户端用内置兜底方案。",
+  "platforms": {
+    "google": {
+      "id": "google",
+      "name": "Google / YouTube",
+      "autofill": {
+        "matching": [
+          { "hosts": ["accounts.google.com", "accounts.youtube.com"] },
+          { "host_suffixes": [".youtube.com"], "paths": ["/signin"] }
+        ],
+        "steps": [
+          {
+            "role": "email",
+            "selectors": [
+              "input[type=\"email\"]:not([type=\"hidden\"])",
+              "input[name=\"identifier\"]:not([type=\"hidden\"])",
+              "input[jsname=\"KKx9x\"]:not([type=\"hidden\"])",
+              "input[jsname=\"YPqjbf\"]:not([type=\"hidden\"])",
+              "#identifierId"
+            ]
+          },
+          {
+            "role": "password",
+            "selectors": [
+              "input[name=\"Passwd\"]",
+              "input[type=\"password\"]:not([name=\"ca\"])"
+            ]
+          }
+        ],
+        "submit": false
+      }
+    }
+  },
+  "schema": {
+    "autofill": {
+      "matching": {
+        "desc": "命中规则数组，任一条命中即采用本方案。单条规则内 hosts/host_suffixes 与 paths 是 AND；维度为空数组表示不过滤。同一平台的多个入口（如 accounts.google.com 、youtube.com/signin）各写一条规则。",
+        "hosts": ["精确 host，如 accounts.google.com"],
+        "host_suffixes": [
+          "host 后缀，如 .youtube.com，等价于 host 以该后缀结尾或等于去掉点后的值"
+        ],
+        "paths": ["path 包含即命中，如 /signin，等价于 path 包含该片段"]
+      },
+      "steps": {
+        "desc": "按序尝试的字段步骤。role=email 填账号，role=password 填密码，其余 role 不填值。selectors 按序第一个命中的元素被填写。",
+        "role": "email | password | 自定义",
+        "selectors": ["候选 CSS 选择器数组"]
+      },
+      "submit": {
+        "desc": "默认 false。客户端始终不自动提交表单（由人工点击，规避验证码/2FA）。"
+      }
+    }
+  }
+}
