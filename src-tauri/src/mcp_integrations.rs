@@ -1815,10 +1815,7 @@ mod tests {
     assert_eq!(endpoint_of_url("http://127.0.0.1:51080/api"), None);
     assert_eq!(endpoint_of_url("https://api.githubcopilot.com/mcp/"), None);
     assert_eq!(endpoint_of_url("http://evil.example/mcp/tok"), None);
-    assert_eq!(
-      endpoint_of_url("https://api.bwbrowser.com/api/mcp-bridge"),
-      None
-    );
+    assert_eq!(endpoint_of_url("https://api.yacm.xin/api/mcp-bridge"), None);
     assert_eq!(McpEndpoint::parse("remote"), Some(McpEndpoint::Remote));
     assert_eq!(McpEndpoint::parse("local"), Some(McpEndpoint::Local));
     assert_eq!(McpEndpoint::parse("cloud"), None);

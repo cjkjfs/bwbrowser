@@ -1,6 +1,6 @@
 # bwbrowser
 
-A thin Python client for the [BW Browser](https://bwbrowser.com) local
+A thin Python client for the [BW Browser](https://yacm.xin) local
 REST API. Every method wraps exactly one documented endpoint; nothing is
 invented, cached or retried.
 

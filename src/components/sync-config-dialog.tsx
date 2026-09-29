@@ -24,6 +24,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useCloudAuth } from "@/hooks/use-cloud-auth";
+import { CLOUD_ROOT } from "@/lib/cloud-config";
 import { effectivePlanOf } from "@/lib/entitlements";
 import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import type { SyncServerCheck, SyncSettings } from "@/types";
@@ -339,7 +340,7 @@ export function SyncConfigDialog({
             <div className="flex gap-2 pt-2">
               <Button variant="outline" className="flex-1" asChild>
                 <a
-                  href="https://bwbrowser.com/account"
+                  href={`${CLOUD_ROOT}/account`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >

@@ -3829,6 +3829,7 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_get_account_health_states,
       bwbrowser_cloud::bwbrowser_check_account_cookie_health,
       bwbrowser_cloud::bwbrowser_get_account_summary,
+      bwbrowser_cloud::bwbrowser_platform_names,
       bwbrowser_cloud::bwbrowser_list_cloud_users,
       bwbrowser_cloud::bwbrowser_list_companies,
       bwbrowser_cloud::bwbrowser_get_account_detail,

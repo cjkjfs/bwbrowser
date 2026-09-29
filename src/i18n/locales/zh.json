@@ -881,7 +881,7 @@
     "tabRemote": "远程 MCP",
     "remote": {
       "enableLabel": "远程控制",
-      "enableDescription": "允许 Bwbrowser 云驱动此浏览器，让 bwbrowser.com 上的智能体控制它。没有任何东西监听传入连接：本应用主动向外连接，并可随时挂断。",
+      "enableDescription": "允许 Bwbrowser 云驱动此浏览器，让 yacm.xin 上的智能体控制它。没有任何东西监听传入连接：本应用主动向外连接，并可随时挂断。",
       "signInRequired": "登录 Bwbrowser 账户后即可使用远程控制。",
       "connected": "已连接：",
       "connecting": "正在连接：",
@@ -2044,6 +2044,8 @@
       "uploading": "上传中",
       "downloading": "下载中",
       "startingUpdate": "正在开始更新...",
+      "forceUpdating": "检测到强制更新，正在自动更新...",
+      "autoRestarting": "更新完成，即将自动重启...",
       "checkFailed": "更新检查失败"
     }
   },
@@ -3471,7 +3473,7 @@
       },
       "remoteControl": {
         "label": "远程控制",
-        "title": "从 bwbrowser.com 控制这台电脑",
+        "title": "从 yacm.xin 控制这台电脑",
         "body": "开启远程控制后，网站上的智能体可通过出站桥接访问这台电脑的配置文件。在“集成”中开启。",
         "action": "打开集成"
       }

@@ -881,7 +881,7 @@
     "tabRemote": "MCP từ xa",
     "remote": {
       "enableLabel": "Điều khiển từ xa",
-      "enableDescription": "Cho phép Bwbrowser cloud điều khiển trình duyệt này, để một tác nhân trên bwbrowser.com có thể điều khiển nó. Không có gì lắng nghe kết nối đến: ứng dụng này gọi ra ngoài và có thể ngắt bất cứ lúc nào.",
+      "enableDescription": "Cho phép Bwbrowser cloud điều khiển trình duyệt này, để một tác nhân trên yacm.xin có thể điều khiển nó. Không có gì lắng nghe kết nối đến: ứng dụng này gọi ra ngoài và có thể ngắt bất cứ lúc nào.",
       "signInRequired": "Đăng nhập tài khoản Bwbrowser để dùng điều khiển từ xa.",
       "connected": "Đã kết nối với tên",
       "connecting": "Đang kết nối với tên",
@@ -2044,6 +2044,8 @@
       "uploading": "Đang tải lên",
       "downloading": "Đang tải xuống",
       "startingUpdate": "Đang bắt đầu cập nhật...",
+      "forceUpdating": "Đã phát hiện bản cập nhật bắt buộc, đang cập nhật tự động...",
+      "autoRestarting": "Cập nhật hoàn tất, tự động khởi động lại...",
       "checkFailed": "Kiểm tra cập nhật thất bại"
     }
   },
@@ -3471,7 +3473,7 @@
       },
       "remoteControl": {
         "label": "Điều khiển từ xa",
-        "title": "Điều khiển máy này từ bwbrowser.com",
+        "title": "Điều khiển máy này từ yacm.xin",
         "body": "Khi bật điều khiển từ xa, các tác nhân trên trang web tiếp cận hồ sơ của máy này qua một cầu nối đi ra. Bật trong Tích hợp.",
         "action": "Mở Tích hợp"
       }

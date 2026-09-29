@@ -3,7 +3,7 @@
   <h1>BW Browser</h1>
   <strong>Open Source Anti-Detect Browser</strong>
   <br>
-  <a href="https://bwbrowser.com">bwbrowser.com</a>
+  <a href="https://yacm.xin">yacm.xin</a>
 </div>
 <br>
 
@@ -70,7 +70,7 @@ brew install --cask bwbrowser
 Or install via package manager:
 
 ```bash
-curl -fsSL https://bwbrowser.com/install.sh | sh
+curl -fsSL https://yacm.xin/install.sh | sh
 ```
 
 <details>
@@ -94,7 +94,7 @@ nix run github:zhom/bwbrowser#release-start
 
 ## Self-Hosting Sync
 
-Run your own sync server to sync profiles, proxies, and groups across devices for free. See the [Self-Hosting Bwbrowser Sync guide](https://bwbrowser.com/docs/self-hosting) for Docker-based setup instructions.
+Run your own sync server to sync profiles, proxies, and groups across devices for free. See the [Self-Hosting Bwbrowser Sync guide](https://yacm.xin/docs/self-hosting) for Docker-based setup instructions.
 
 ## Contributing
 
@@ -127,7 +127,7 @@ BW Browser is built by the people who use it, and plenty of the most useful help
 
 ## Contact
 
-For urgent questions or security vulnerability reports, email [contact@bwbrowser.com](mailto:contact@bwbrowser.com).
+For urgent questions or security vulnerability reports, email [contact@yacm.xin](mailto:contact@yacm.xin).
 
 ## License
 

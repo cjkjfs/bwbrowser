@@ -881,7 +881,7 @@
     "tabRemote": "リモート MCP",
     "remote": {
       "enableLabel": "リモート制御",
-      "enableDescription": "Bwbrowser クラウドがこのブラウザーを操作できるようにし、bwbrowser.com 上のエージェントから制御できるようにします。着信接続を待ち受けるものはありません。このアプリから発信し、いつでも切断できます。",
+      "enableDescription": "Bwbrowser クラウドがこのブラウザーを操作できるようにし、yacm.xin 上のエージェントから制御できるようにします。着信接続を待ち受けるものはありません。このアプリから発信し、いつでも切断できます。",
       "signInRequired": "リモート制御を使うには Bwbrowser アカウントにサインインしてください。",
       "connected": "接続済み",
       "connecting": "接続中",
@@ -2044,6 +2044,8 @@
       "uploading": "アップロード中",
       "downloading": "ダウンロード中",
       "startingUpdate": "更新を開始しています...",
+      "forceUpdating": "強制更新が検出されました。自動更新中...",
+      "autoRestarting": "更新が完了しました。自動的に再起動します...",
       "checkFailed": "アップデート確認に失敗しました"
     }
   },
@@ -3471,7 +3473,7 @@
       },
       "remoteControl": {
         "label": "リモート操作",
-        "title": "bwbrowser.com からこのデスクトップを操作",
+        "title": "yacm.xin からこのデスクトップを操作",
         "body": "リモートコントロールを有効にすると、ウェブサイト上のエージェントが送信方向のブリッジ経由でこのマシンのプロファイルにアクセスできます。「連携」で有効にしてください。",
         "action": "連携を開く"
       }

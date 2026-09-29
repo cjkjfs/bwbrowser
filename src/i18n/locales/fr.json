@@ -885,7 +885,7 @@
     "tabRemote": "MCP à distance",
     "remote": {
       "enableLabel": "Contrôle à distance",
-      "enableDescription": "Permet à Bwbrowser cloud de piloter ce navigateur, afin qu'un agent sur bwbrowser.com puisse le contrôler. Rien n'écoute les connexions entrantes : cette application appelle vers l'extérieur et peut raccrocher à tout moment.",
+      "enableDescription": "Permet à Bwbrowser cloud de piloter ce navigateur, afin qu'un agent sur yacm.xin puisse le contrôler. Rien n'écoute les connexions entrantes : cette application appelle vers l'extérieur et peut raccrocher à tout moment.",
       "signInRequired": "Connectez-vous à votre compte Bwbrowser pour utiliser le contrôle à distance.",
       "connected": "Connecté en tant que",
       "connecting": "Connexion en tant que",
@@ -2054,6 +2054,8 @@
       "uploading": "Envoi",
       "downloading": "Téléchargement",
       "startingUpdate": "Démarrage de la mise à jour...",
+      "forceUpdating": "Mise à jour obligatoire détectée, mise à jour automatique en cours...",
+      "autoRestarting": "Mise à jour terminée, redémarrage automatique...",
       "checkFailed": "Échec de la vérification des mises à jour"
     }
   },
@@ -3504,7 +3506,7 @@
       },
       "remoteControl": {
         "label": "Contrôle à distance",
-        "title": "Pilotez ce poste depuis bwbrowser.com",
+        "title": "Pilotez ce poste depuis yacm.xin",
         "body": "Avec le contrôle à distance activé, les agents du site web atteignent les profils de cette machine par un pont sortant. Activez-le dans Intégrations.",
         "action": "Ouvrir Intégrations"
       }

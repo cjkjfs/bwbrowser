@@ -8,7 +8,7 @@ I take the security of BW Browser seriously. If you believe you have found a sec
 
 Do not report security vulnerabilities through public GitHub issues, discussions, or pull requests.
 
-Instead, send an email to [contact@bwbrowser.com](mailto:contact@bwbrowser.com) with the subject line "Security Vulnerability Report".
+Instead, send an email to [contact@yacm.xin](mailto:contact@yacm.xin) with the subject line "Security Vulnerability Report".
 
 Include as much of the following as you can:
 
@@ -40,7 +40,7 @@ Say in your email whether AI was involved and what it did. That disclosure is ne
 
 ## Contact
 
-For urgent security matters, contact me at [contact@bwbrowser.com](mailto:contact@bwbrowser.com).
+For urgent security matters, contact me at [contact@yacm.xin](mailto:contact@yacm.xin).
 
 For general questions about this security policy, you can also reach out through:
 

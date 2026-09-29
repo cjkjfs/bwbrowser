@@ -14,8 +14,8 @@ use crate::proxy_manager::PROXY_MANAGER;
 use crate::settings_manager::{SettingsManager, StoredMcpRemoteKey};
 use crate::sync;
 
-pub const CLOUD_API_URL: &str = "https://api.bwbrowser.com";
-pub const CLOUD_SYNC_URL: &str = "https://sync.bwbrowser.com";
+pub const CLOUD_API_URL: &str = "https://api.yacm.xin";
+pub const CLOUD_SYNC_URL: &str = "https://sync.yacm.xin";
 
 /// Default per-hour cap on local automation API / MCP requests, used when the
 /// cloud API has not sent one.
@@ -1291,7 +1291,7 @@ impl CloudAuthManager {
       .api_call_with_retry(|access_token| {
         let url = format!("{CLOUD_API_URL}/api/auth/wayfern-start");
         // Bound the request: without a timeout, an unreachable
-        // api.bwbrowser.com hangs the background fetch indefinitely,
+        // api.yacm.xin hangs the background fetch indefinitely,
         // which in turn forces wayfern_manager's launch-time wait to
         // exhaust its full polling budget every time.
         let client = reqwest::Client::builder()

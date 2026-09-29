@@ -114,6 +114,10 @@ pub struct AppUpdateInfo {
   pub is_nightly: bool,
   pub published_at: String,
   pub manual_update_required: bool,
+  /// Server-marked mandatory update: once downloaded the client applies it and
+  /// restarts automatically instead of waiting for the user to click restart.
+  #[serde(default)]
+  pub force_update: bool,
   pub release_page_url: Option<String>,
   /// True when a system package manager repo is configured (apt/dnf/zypper)
   pub repo_update: bool,
@@ -271,7 +275,10 @@ impl AppAutoUpdater {
       .to_string();
     let force_update = update
       .get("force_update")
-      .and_then(|v| v.as_bool())
+      .and_then(|v| {
+        // Tolerant of both a JSON boolean and the 1/0 int the PHP admin stores.
+        v.as_bool().or_else(|| v.as_i64().map(|n| n != 0))
+      })
       .unwrap_or(false);
 
     log::info!(
@@ -293,6 +300,7 @@ impl AppAutoUpdater {
         .unwrap_or("")
         .to_string(),
       manual_update_required: false,
+      force_update,
       release_page_url: None,
       repo_update: false,
       checksums_url: None,

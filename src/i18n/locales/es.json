@@ -885,7 +885,7 @@
     "tabRemote": "MCP remoto",
     "remote": {
       "enableLabel": "Control remoto",
-      "enableDescription": "Permite que Bwbrowser cloud controle este navegador, para que un agente en bwbrowser.com pueda manejarlo. Nada escucha conexiones entrantes: esta aplicación llama hacia fuera y puede colgar en cualquier momento.",
+      "enableDescription": "Permite que Bwbrowser cloud controle este navegador, para que un agente en yacm.xin pueda manejarlo. Nada escucha conexiones entrantes: esta aplicación llama hacia fuera y puede colgar en cualquier momento.",
       "signInRequired": "Inicia sesión en tu cuenta de Bwbrowser para usar el control remoto.",
       "connected": "Conectado como",
       "connecting": "Conectando como",
@@ -2054,6 +2054,8 @@
       "uploading": "Subiendo",
       "downloading": "Descargando",
       "startingUpdate": "Iniciando actualización...",
+      "forceUpdating": "Actualización obligatoria detectada, actualizando automáticamente...",
+      "autoRestarting": "Actualización completada, reiniciando automáticamente...",
       "checkFailed": "Error al comprobar actualizaciones"
     }
   },
@@ -3504,7 +3506,7 @@
       },
       "remoteControl": {
         "label": "Control remoto",
-        "title": "Controla este equipo desde bwbrowser.com",
+        "title": "Controla este equipo desde yacm.xin",
         "body": "Con el control remoto activado, los agentes del sitio web llegan a los perfiles de esta máquina a través de un puente saliente. Actívalo en Integraciones.",
         "action": "Abrir Integraciones"
       }

@@ -44,13 +44,14 @@ import { OperationFlow } from "@/components/ui/operation-flow";
 import { useCloudAuth } from "@/hooks/use-cloud-auth";
 import { useWayfernTerms } from "@/hooks/use-wayfern-terms";
 import { translateBackendError } from "@/lib/backend-errors";
+import { CLOUD_API_URL } from "@/lib/cloud-config";
 import { canUseRemoteControl } from "@/lib/entitlements";
 import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import { cn } from "@/lib/utils";
 import { CopyToClipboard } from "./ui/copy-to-clipboard";
 
 /** Where an agent points to drive this browser through Bwbrowser cloud. */
-const REMOTE_MCP_URL = "https://api.bwbrowser.com/api/mcp";
+const REMOTE_MCP_URL = `${CLOUD_API_URL}/api/mcp`;
 
 /**
  * fx refuses a literal Authorization header in its config and reads the

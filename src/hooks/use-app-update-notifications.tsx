@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { AppUpdateProgressToast } from "@/components/app-update-progress-toast";
 import { AppUpdateToast } from "@/components/app-update-toast";
 import { translateBackendError } from "@/lib/backend-errors";
 import { showToast } from "@/lib/toast-utils";
@@ -208,6 +209,9 @@ export function useAppUpdateNotifications() {
       return;
     }
     if (!updateInfo) return;
+    // Forced updates surface through their own progress prompt and auto-restart
+    // below; showing the manual "restart to apply" toast here would duplicate it.
+    if (updateInfo.force_update) return;
 
     toast.custom(
       () => (
@@ -245,6 +249,54 @@ export function useAppUpdateNotifications() {
     // Check for updates immediately on startup
     void checkForAppUpdates();
   }, [isClient, checkForAppUpdates]);
+
+  // Forced updates run visibly in the foreground: keep a "正在更新" prompt on
+  // screen for the whole download/install, then flip it to "即将自动重启".
+  const forceUpdate = !!updateInfo?.force_update;
+  useEffect(() => {
+    if (!isClient || !forceUpdate) return;
+    if (!isUpdating && !updateReady) return;
+
+    toast.custom(
+      () => (
+        <AppUpdateProgressToast
+          updateReady={updateReady}
+          progress={updateProgress}
+          version={updateInfo?.new_version ?? ""}
+        />
+      ),
+      {
+        id: "app-update-force",
+        duration: Number.POSITIVE_INFINITY,
+        position: "top-left",
+        style: {
+          zIndex: 100000,
+          pointerEvents: "auto",
+          marginTop: "16px",
+        },
+      },
+    );
+
+    return () => {
+      toast.dismiss("app-update-force");
+    };
+  }, [
+    isClient,
+    forceUpdate,
+    isUpdating,
+    updateReady,
+    updateProgress,
+    updateInfo,
+  ]);
+
+  // Once a mandatory update is ready to apply, restart automatically (brief
+  // delay so the user sees the "即将自动重启" prompt before the app closes).
+  useEffect(() => {
+    if (!isClient || !updateReady || !forceUpdate) return;
+
+    const timer = setTimeout(() => void handleRestart(), 2000);
+    return () => clearTimeout(timer);
+  }, [isClient, updateReady, forceUpdate, handleRestart]);
 
   return {
     updateInfo,

@@ -1,0 +1,19 @@
+﻿cargo : [1m[92m    Blocking[0m waiting for file lock on build directory
+所在位置 行:15 字符: 2651
++ ... \src-tauri; cargo check --lib > d:\bian\bwbrowser-main\.scratch\cc.tx ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([1m[92m    Bl...build directory:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[1m[92m   Compiling[0m bwbrowser v2.3.5 (D:\bian\bwbrowser-main\src-tauri)
+[1m[91merror[0m[1m[97m: failed to read asset at D:\bian\bwbrowser-main\src-tauri\../dist\dev\cache\turbopack\v16.3
+.3-a9a1cb78\00000386.sst because 系统找不到指定的文件。 (os error 2)[0m
+    [1m[96m--> [0msrc\lib.rs:3910:12
+     [1m[96m|[0m
+[1m[96m3910[0m [1m[96m|[0m     .build(tauri::generate_context!())
+     [1m[96m|[0m            [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+     [1m[96m|[0m
+     [1m[96m= [0m[1m[97mnote[0m: this error originates in the macro `tauri::generate_context` (in Nightly builds,
+ run with -Z macro-backtrace for more info)
+
+[1m[91merror[0m: could not compile `bwbrowser` (lib) due to 1 previous error

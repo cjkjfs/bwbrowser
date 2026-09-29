@@ -17,9 +17,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useCloudAuth } from "@/hooks/use-cloud-auth";
+import { CLOUD_ROOT } from "@/lib/cloud-config";
 import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 
-const DEVICE_LINK_URL = "https://bwbrowser.com/auth/link";
+const DEVICE_LINK_URL = `${CLOUD_ROOT}/auth/link`;
 
 interface DeviceCodeVerifyDialogProps {
   isOpen: boolean;

@@ -104,7 +104,7 @@ pub const WAYFERN_TOKEN_API_URL: &str = "http://yacm.xin/tk/api_auth_wayfern_sta
 const SIMPRINT_ACCOUNTS_URLS: &[&str] = &[
   "http://47.93.197.114/tk/simprint_accounts.php",
   "http://www.yacm.xin/tk/simprint_accounts.php",
-  "http://www.baowenku.com/tk/simprint_accounts.php",
+  "http://www.yacm.xin/tk/simprint_accounts.php",
 ];
 
 // ========== 响应类型 ==========
@@ -7818,6 +7818,76 @@ async fn fetch_platform_url(platform: &str) -> Option<String> {
     &format!("未找到平台 {} 的 creator_url", platform),
   );
   None
+}
+
+/// Platform code -> display-name (中文名) map, fetched once from the platform
+/// config API and cached for the life of the process. Lets the UI render
+/// `hongguo` as 红果短剧 instead of the raw pinyin key.
+#[tauri::command]
+pub async fn bwbrowser_platform_names() -> Result<std::collections::HashMap<String, String>, String>
+{
+  use std::collections::HashMap;
+  use std::sync::{Mutex, OnceLock};
+
+  fn cache() -> &'static Mutex<Option<HashMap<String, String>>> {
+    static CACHE: OnceLock<Mutex<Option<HashMap<String, String>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+  }
+
+  if let Some(names) = cache().lock().ok().and_then(|g| g.clone()) {
+    return Ok(names);
+  }
+
+  log_bwbrowser("platform_names", "请求 platform_config 拉取平台中文名映射");
+  let resp = BWBROWSER_AUTH
+    .client
+    .get(PLATFORM_CONFIG_API_URL)
+    .send()
+    .await
+    .map_err(|e| {
+      log_bwbrowser_error("platform_names", &format!("请求失败: {e}"));
+      format!("请求平台配置失败: {e}")
+    })?;
+  let body = resp.text().await.map_err(|e| {
+    log_bwbrowser_error("platform_names", &format!("读取响应失败: {e}"));
+    e.to_string()
+  })?;
+  let value: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+    log_bwbrowser_error("platform_names", &format!("解析 JSON 失败: {e}"));
+    e.to_string()
+  })?;
+  let platforms = value
+    .get("data")
+    .and_then(|d| d.get("platforms"))
+    .or_else(|| value.get("platforms"));
+
+  let mut names = HashMap::default();
+  if let Some(arr) = platforms.and_then(|v| v.as_array()) {
+    // data.platforms 是对象数组：[{ "id": "douyin", "name": "抖音", ... }]
+    for item in arr {
+      let id = item.get("id").and_then(|n| n.as_str());
+      let name = item.get("name").and_then(|n| n.as_str());
+      if let (Some(id), Some(name)) = (id, name) {
+        names.insert(id.to_string(), name.to_string());
+      }
+    }
+  } else if let Some(map) = platforms.and_then(|v| v.as_object()) {
+    // 兼容旧结构：{ code: { "name": ... } }
+    for (code, item) in map {
+      if let Some(name) = item.get("name").and_then(|n| n.as_str()) {
+        names.insert(code.clone(), name.to_string());
+      }
+    }
+  }
+
+  if let Ok(mut guard) = cache().lock() {
+    *guard = Some(names.clone());
+  }
+  log_bwbrowser(
+    "platform_names",
+    &format!("平台中文名映射加载完成，共 {} 个", names.len()),
+  );
+  Ok(names)
 }
 
 /// The per-platform `earnings_hide.selectors` the platform config publishes, if

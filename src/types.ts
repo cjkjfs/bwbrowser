@@ -150,7 +150,7 @@ export interface Entitlements {
    */
   remoteInteractive: boolean;
   /**
-   * May drive this desktop from bwbrowser.com, the remote MCP endpoint and
+   * May drive this desktop from yacm.xin, the remote MCP endpoint and
    * the API in front of it. Enterprise only.
    *
    * Read by the UI to explain why a connected desktop cannot be driven. The
@@ -512,6 +512,8 @@ export interface AppUpdateInfo {
   is_nightly: boolean;
   published_at: string;
   manual_update_required: boolean;
+  /** Server-marked mandatory update; the app auto-restarts once it's applied. */
+  force_update: boolean;
   release_page_url?: string;
   repo_update: boolean;
   /** URL of the release's SHA256SUMS.txt; downloads are verified against it. */

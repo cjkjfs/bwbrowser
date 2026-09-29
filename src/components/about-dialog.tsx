@@ -21,6 +21,7 @@ import { StepTransition } from "@/components/ui/step-transition";
 import licenses from "@/generated/licenses.json";
 import xraySource from "@/generated/xray-source.json";
 import { launchBwbrowserClone } from "@/lib/bwbrowser-physics";
+import { CLOUD_ROOT } from "@/lib/cloud-config";
 import { Logo } from "./icons/logo";
 import { RippleButton } from "./ui/ripple";
 
@@ -282,7 +283,7 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => void openUrl("https://bwbrowser.com")}
+                    onClick={() => void openUrl(CLOUD_ROOT)}
                   >
                     {t("about.website")}
                   </Button>

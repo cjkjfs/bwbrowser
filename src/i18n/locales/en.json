@@ -881,7 +881,7 @@
     "tabRemote": "Remote MCP",
     "remote": {
       "enableLabel": "Remote control",
-      "enableDescription": "Let Bwbrowser cloud drive this browser, so an agent on bwbrowser.com can control it. Nothing listens for incoming connections: this app dials out and can hang up at any time.",
+      "enableDescription": "Let Bwbrowser cloud drive this browser, so an agent on yacm.xin can control it. Nothing listens for incoming connections: this app dials out and can hang up at any time.",
       "signInRequired": "Sign in to your Bwbrowser account to use remote control.",
       "connected": "Connected as",
       "connecting": "Connecting as",
@@ -2044,6 +2044,8 @@
       "uploading": "Uploading",
       "downloading": "Downloading",
       "startingUpdate": "Starting update...",
+      "forceUpdating": "Forced update detected, updating automatically...",
+      "autoRestarting": "Update complete, restarting automatically...",
       "checkFailed": "Update check failed"
     }
   },
@@ -3471,7 +3473,7 @@
       },
       "remoteControl": {
         "label": "Remote control",
-        "title": "Drive this desktop from bwbrowser.com",
+        "title": "Drive this desktop from yacm.xin",
         "body": "With remote control on, agents on the website reach this machine's profiles over an outbound bridge. Turn it on under Integrations.",
         "action": "Open Integrations"
       }

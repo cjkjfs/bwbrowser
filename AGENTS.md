@@ -363,7 +363,7 @@ If I ask you to create me a summary for a PR, make sure to include something tha
 
 ## Publishing Linux Repositories
 
-The `scripts/publish-repo.sh` script publishes DEB and RPM packages to Cloudflare R2 (served at `repo.bwbrowser.com`). It requires Linux tools, so run it in Docker on macOS:
+The `scripts/publish-repo.sh` script publishes DEB and RPM packages to Cloudflare R2 (served at `repo.yacm.xin`). It requires Linux tools, so run it in Docker on macOS:
 
 ```bash
 docker run --rm -v "$(pwd):/work" -w /work --env-file .env -e GH_TOKEN="$(gh auth token)" \

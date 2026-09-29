@@ -23,6 +23,6 @@ Examples of unacceptable behavior by participants include:
 
 ## Enforcement
 
-Violations of the Code of Conduct may be reported to [contact@bwbrowser.com](mailto:contact@bwbrowser.com). All reports will be reviewed and investigated and will result in a response that is deemed necessary and appropriate to the circumstances. Further details of specific enforcement policies may be posted separately.
+Violations of the Code of Conduct may be reported to [contact@yacm.xin](mailto:contact@yacm.xin). All reports will be reviewed and investigated and will result in a response that is deemed necessary and appropriate to the circumstances. Further details of specific enforcement policies may be posted separately.
 
 The maintainers hold the right and responsibility to remove comments or other contributions that are not aligned to this Code of Conduct, or to ban temporarily or permanently any members for other behaviors that are deemed inappropriate, threatening, offensive, or harmful.

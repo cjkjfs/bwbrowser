@@ -109,7 +109,7 @@ jobs:
 
           # PAID vs FREE FEATURES
 
-          Source: bwbrowser.com pricing tiers (verbatim from translations).
+          Source: yacm.xin pricing tiers (verbatim from translations).
 
           ## Free (no account required)
           - Unlimited local profiles
@@ -126,7 +126,7 @@ jobs:
             `evaluate_javascript`, `screenshot`, `navigate`, etc.)
           - Cross-OS fingerprinting (e.g. macOS user appearing as Windows)
           - Profile Synchronizer for Wayfern
-          - 20 cloud profile backup (cloud sync via bwbrowser.com)
+          - 20 cloud profile backup (cloud sync via yacm.xin)
           - Commercial use license
 
           ## Team ($80/mo) adds:
@@ -144,8 +144,8 @@ jobs:
             "clear", "reasonable", "well-thought-out", etc.
           - AI-generated / template-violating report: report doesn't follow the
             template, may cite "official documentation" via context7, deepwiki, or any
-            non-`bwbrowser.com` / non-`github.com/zhom` URL. The only authoritative
-            sources are this GitHub repo and bwbrowser.com.
+            non-`yacm.xin` / non-`github.com/zhom` URL. The only authoritative
+            sources are this GitHub repo and yacm.xin.
           - Speculation about internals: never write a "Possible cause" / "Likely
             cause" / "Root cause" section. Never cite internal file paths or line
             numbers. Never speculate about how subscription / paid-plan checks work.
@@ -343,7 +343,7 @@ jobs:
           The triage classification (`triage.classification`) determines the response shape:
 
           - `bug-in-scope`: ask for what is missing using the user's reported OS log path. Be concrete about how to obtain logs.
-          - `bug-template-violation` or `automated-content`: politely ask the user to refile using the bug-report template (the Operating System, BW Browser version, Wayfern version, Steps to reproduce, Error logs sections). If they cited "documentation" from any non-`bwbrowser.com`/non-`github.com/zhom` URL (e.g. context7, deepwiki), gently note that those are AI-generated third-party summaries and the only authoritative sources are this repo and bwbrowser.com.
+          - `bug-template-violation` or `automated-content`: politely ask the user to refile using the bug-report template (the Operating System, BW Browser version, Wayfern version, Steps to reproduce, Error logs sections). If they cited "documentation" from any non-`yacm.xin`/non-`github.com/zhom` URL (e.g. context7, deepwiki), gently note that those are AI-generated third-party summaries and the only authoritative sources are this repo and yacm.xin.
           - `feature-request`: one neutral sentence acknowledging, then ask only what is genuinely needed (concrete use case, whether a workaround would suffice). Do NOT validate.
           - `fork-request`: one neutral sentence acknowledging the request. Note that this would substantially increase support burden and the maintainer evaluates such requests on a case-by-case basis. Ask whether the alternative fork supports all platforms the user uses (macOS / Windows / Linux). No "clear enhancement" language.
           - `regression`: do NOT call known/expected. Ask which exact previous version was the last working one, what changed in the user's environment between then and now, and the specific delta in symptoms.

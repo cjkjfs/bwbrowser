@@ -190,8 +190,14 @@ interface CloudProxyItem {
   city?: string | null;
 }
 
+// 服务端 platform_config 拉取的全量 code->中文名（如 hongguo -> 红果短剧）。
+// 拉取成功前 fallback 到本地硬编码表，因此拼音 code 只会在服务端数据到达前短暂出现。
+let remotePlatformLabels: Record<string, string> = {};
+
 // ==================== 工具函数 ====================
 function getPlatformLabel(platform: string): string {
+  const remote = remotePlatformLabels[platform];
+  if (remote !== undefined) return remote;
   return PLATFORM_LABELS[platform] || platform;
 }
 
@@ -496,6 +502,17 @@ export function BwbrowserCloudAccountsDialog({
     canView2FA,
     canViewSMS,
   } = useBwbrowserAccounts(selectedCompanyId);
+
+  // 从服务端 platform_config 拉全量平台中文名，用来替代散落的拼音 code 显示。
+  const [, setPlatformNamesVersion] = useState(0);
+  useEffect(() => {
+    void invoke<Record<string, string>>("bwbrowser_platform_names")
+      .then((names) => {
+        remotePlatformLabels = names;
+        setPlatformNamesVersion((v) => v + 1);
+      })
+      .catch(() => {});
+  }, []);
 
   // 权限判断：根据 users.php 的 allow_2fa 和 allow_sms_management 字段
   const canView2FACode = canView2FA || isManager || isSuperAdmin;
@@ -3953,7 +3970,10 @@ export function BwbrowserCloudAccountsDialog({
                 }
                 className="w-full rounded-md border bg-transparent px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
               >
-                {Object.entries(PLATFORM_LABELS).map(([key, label]) => (
+                {Object.entries({
+                  ...PLATFORM_LABELS,
+                  ...remotePlatformLabels,
+                }).map(([key, label]) => (
                   <option key={key} value={key}>
                     {label}
                   </option>

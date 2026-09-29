@@ -881,7 +881,7 @@
     "tabRemote": "원격 MCP",
     "remote": {
       "enableLabel": "원격 제어",
-      "enableDescription": "Bwbrowser 클라우드가 이 브라우저를 구동하도록 허용하여 bwbrowser.com의 에이전트가 제어할 수 있게 합니다. 들어오는 연결을 수신하는 것은 없습니다. 이 앱이 바깥으로 연결하며 언제든지 끊을 수 있습니다.",
+      "enableDescription": "Bwbrowser 클라우드가 이 브라우저를 구동하도록 허용하여 yacm.xin의 에이전트가 제어할 수 있게 합니다. 들어오는 연결을 수신하는 것은 없습니다. 이 앱이 바깥으로 연결하며 언제든지 끊을 수 있습니다.",
       "signInRequired": "원격 제어를 사용하려면 Bwbrowser 계정에 로그인하세요.",
       "connected": "연결됨",
       "connecting": "연결 중",
@@ -2044,6 +2044,8 @@
       "uploading": "업로드 중",
       "downloading": "다운로드 중",
       "startingUpdate": "업데이트를 시작하는 중...",
+      "forceUpdating": "강제 업데이트가 감지되어 자동 업데이트 중...",
+      "autoRestarting": "업데이트 완료, 자동 재시작 중...",
       "checkFailed": "업데이트 확인 실패"
     }
   },
@@ -3471,7 +3473,7 @@
       },
       "remoteControl": {
         "label": "원격 제어",
-        "title": "bwbrowser.com에서 이 데스크톱 제어",
+        "title": "yacm.xin에서 이 데스크톱 제어",
         "body": "원격 제어를 켜면 웹사이트의 에이전트가 아웃바운드 브리지를 통해 이 컴퓨터의 프로필에 접근합니다. 통합에서 켜세요.",
         "action": "통합 열기"
       }

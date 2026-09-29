@@ -64,7 +64,7 @@ const _PLAN_CAPABILITIES: Record<string, Capabilities> = {
     remoteControl: false,
     agentAutomation: true,
   },
-  // The only tier that may drive this desktop from bwbrowser.com.
+  // The only tier that may drive this desktop from yacm.xin.
   enterprise: {
     browserAutomation: true,
     crossOsFingerprints: true,
@@ -141,7 +141,7 @@ export function canUseCookieBot(user: CloudUser | null | undefined): boolean {
 }
 
 /**
- * Whether this user may drive this desktop from bwbrowser.com.
+ * Whether this user may drive this desktop from yacm.xin.
  *
  * The bridge itself does not read this, the server decides who may send work,
  * and a cached entitlement that is a refresh cycle out of date must not be what

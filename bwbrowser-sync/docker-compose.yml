@@ -7,7 +7,7 @@
 # container too, and it must set S3_PUBLIC_ENDPOINT, because a server that signs
 # presigned URLs against a compose-internal host such as `http://minio:9000`
 # hands every device a URL it cannot open, while /health and /readyz stay green.
-# Take the self-hosting compose from https://bwbrowser.com/docs/self-hosting
+# Take the self-hosting compose from https://yacm.xin/docs/self-hosting
 # rather than from here.
 services:
   minio:

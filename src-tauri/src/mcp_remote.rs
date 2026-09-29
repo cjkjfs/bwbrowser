@@ -4,7 +4,7 @@
 //! The local MCP server in [`crate::mcp_server`] answers on loopback, which is
 //! only reachable by an agent running on this machine. Remote control inverts
 //! the reach without inverting the trust: nothing dials in to the desktop. The
-//! app dials OUT to `wss://api.bwbrowser.com/api/mcp-bridge`, proves who it
+//! app dials OUT to `wss://api.yacm.xin/api/mcp-bridge`, proves who it
 //! is with the same cloud access token every other cloud call uses, and then
 //! answers JSON-RPC that arrives down that socket.
 //!
@@ -986,7 +986,7 @@ mod tests {
 
   #[test]
   fn bridge_url_is_the_websocket_scheme_of_the_cloud_api() {
-    assert_eq!(bridge_url(), "wss://api.bwbrowser.com/api/mcp-bridge");
+    assert_eq!(bridge_url(), "wss://api.yacm.xin/api/mcp-bridge");
   }
 
   #[test]

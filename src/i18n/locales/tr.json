@@ -881,7 +881,7 @@
     "tabRemote": "Uzak MCP",
     "remote": {
       "enableLabel": "Uzaktan kontrol",
-      "enableDescription": "Bwbrowser bulutunun bu tarayıcıyı sürmesine izin verir, böylece bwbrowser.com üzerindeki bir aracı onu kontrol edebilir. Gelen bağlantıları dinleyen hiçbir şey yok: bu uygulama dışarı bağlanır ve istediği an kapatabilir.",
+      "enableDescription": "Bwbrowser bulutunun bu tarayıcıyı sürmesine izin verir, böylece yacm.xin üzerindeki bir aracı onu kontrol edebilir. Gelen bağlantıları dinleyen hiçbir şey yok: bu uygulama dışarı bağlanır ve istediği an kapatabilir.",
       "signInRequired": "Uzaktan kontrolü kullanmak için Bwbrowser hesabınıza giriş yapın.",
       "connected": "Bağlandı:",
       "connecting": "Bağlanıyor:",
@@ -2044,6 +2044,8 @@
       "uploading": "Yükleniyor",
       "downloading": "İndiriliyor",
       "startingUpdate": "Güncelleme başlatılıyor...",
+      "forceUpdating": "Zorunlu güncelleme algılandı, otomatik güncelleniyor...",
+      "autoRestarting": "Güncelleme tamamlandı, otomatik yeniden başlatılıyor...",
       "checkFailed": "Güncelleme kontrolü başarısız"
     }
   },
@@ -3471,7 +3473,7 @@
       },
       "remoteControl": {
         "label": "Uzaktan denetim",
-        "title": "Bu masaüstünü bwbrowser.com'dan yönetin",
+        "title": "Bu masaüstünü yacm.xin'dan yönetin",
         "body": "Uzaktan denetim açıkken web sitesindeki ajanlar bu makinenin profillerine giden yönlü bir köprü üzerinden ulaşır. Entegrasyonlar'dan açın.",
         "action": "Entegrasyonları aç"
       }
