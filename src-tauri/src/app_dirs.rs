@@ -173,12 +173,22 @@ pub fn clear_data_root_pointer(file: &std::path::Path) -> std::io::Result<()> {
 
 /// Lazily read the recorded data directory into memory the first time it is
 /// asked for.
+///
+/// The read happens under the write lock rather than after `fetch_or` claims the
+/// init: claiming first lets a concurrent reader observe `INITED` as true while
+/// `CUSTOM_DATA_ROOT` is still `None`, so two `data_dir()` calls in the same
+/// thread can disagree. Holding the lock makes every reader block until the
+/// value is written.
 fn ensure_custom_data_root_inited() {
-  if CUSTOM_DATA_ROOT_INITED.fetch_or(true, Ordering::SeqCst) {
+  if CUSTOM_DATA_ROOT_INITED.load(Ordering::SeqCst) {
     return;
   }
-  let path = read_data_root_pointer(&data_root_pointer_file());
-  *CUSTOM_DATA_ROOT.write().unwrap_or_else(|p| p.into_inner()) = path;
+  let mut guard = CUSTOM_DATA_ROOT.write().unwrap_or_else(|p| p.into_inner());
+  if CUSTOM_DATA_ROOT_INITED.load(Ordering::SeqCst) {
+    return;
+  }
+  *guard = read_data_root_pointer(&data_root_pointer_file());
+  CUSTOM_DATA_ROOT_INITED.store(true, Ordering::SeqCst);
 }
 
 /// The data directory a previous move chose.
@@ -593,14 +603,14 @@ mod tests {
   #[test]
   fn test_data_dir_returns_path() {
     let dir = data_dir();
-    // Portable mode deliberately drops the app_name segment: state lives at
-    // <exe dir>/data. The assertion only holds for the platform-default path.
-    if is_portable() {
-      assert!(dir.ends_with("data"));
-    } else {
+    assert!(dir.is_absolute(), "data_dir should be absolute: {dir:?}");
+    // Only the platform default carries the app_name segment. Portable mode,
+    // either override variable, and the directory chosen in Settings all
+    // resolve somewhere else, so assert the segment only when it applies.
+    if !state_is_relocated() {
       assert!(
         dir.to_string_lossy().contains(app_name()),
-        "data_dir should contain app_name"
+        "data_dir should contain app_name: {dir:?}"
       );
     }
   }
@@ -608,12 +618,11 @@ mod tests {
   #[test]
   fn test_cache_dir_returns_path() {
     let dir = cache_dir();
-    if is_portable() {
-      assert!(dir.ends_with("cache"));
-    } else {
+    assert!(dir.is_absolute(), "cache_dir should be absolute: {dir:?}");
+    if !state_is_relocated() && cache_dir_env_override().is_none() {
       assert!(
         dir.to_string_lossy().contains(app_name()),
-        "cache_dir should contain app_name"
+        "cache_dir should contain app_name: {dir:?}"
       );
     }
   }

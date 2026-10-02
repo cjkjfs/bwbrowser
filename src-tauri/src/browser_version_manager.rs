@@ -451,7 +451,7 @@ mod tests {
       assert!(wayfern_info.is_archive);
     }
 
-    assert!(wayfern_info.url.contains("download.wayfern.com"));
+    assert!(wayfern_info.url.contains("yacm.xin/download"));
 
     let unsupported_result = service.get_download_info("testbrowser", "1.0.0");
     assert!(unsupported_result.is_err());

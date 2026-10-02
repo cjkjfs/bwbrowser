@@ -568,10 +568,11 @@ mod tests {
 
   #[test]
   fn rejects_missing_required_reality_values() {
+    // `security` and `flow` are both optional (a missing `security` means
+    // REALITY, a missing `flow` means no XTLS), so only the server name and the
+    // public key are genuinely required.
     let key = public_key();
     let cases = [
-      format!("vless://{ID}@vpn.example.com:443?flow=xtls-rprx-vision&sni=www.example.com&pbk={key}"),
-      format!("vless://{ID}@vpn.example.com:443?security=reality&sni=www.example.com&pbk={key}"),
       format!("vless://{ID}@vpn.example.com:443?flow=xtls-rprx-vision&security=reality&pbk={key}"),
       format!("vless://{ID}@vpn.example.com:443?flow=xtls-rprx-vision&security=reality&sni=www.example.com"),
     ];
@@ -581,11 +582,12 @@ mod tests {
   }
 
   #[test]
-  fn rejects_unsupported_security_transport_flow_and_encryption() {
+  fn rejects_unsupported_security_transport_encryption_and_fingerprint() {
+    // An empty `flow` is "no XTLS" rather than an unsupported value, so it is
+    // absent from this list on purpose.
     for (name, value) in [
       ("security", "none"),
       ("type", "ws"),
-      ("flow", ""),
       ("encryption", "auto"),
       ("headerType", "http"),
       ("fp", "unsafe"),

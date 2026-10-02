@@ -157,7 +157,10 @@ fn read_worker_state(path: &Path) -> Option<Vec<u8>> {
         attempt += 1;
         std::thread::sleep(TRANSIENT_IO_RETRY_DELAY);
       }
-      Err(_) => return None,
+      Err(error) => {
+        eprintln!("DIAG read_worker_state: {error:?}");
+        return None;
+      }
     }
   }
 }

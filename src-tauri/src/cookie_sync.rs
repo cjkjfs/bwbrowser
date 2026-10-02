@@ -2332,20 +2332,23 @@ mod tests {
 
   #[test]
   fn select_best_prefers_local_when_close() {
-    // 两边都可用，但分差小于 15 → 优先本地
+    // 两边都可用，但分差小于 MIN_SCORE_DIFF → 优先本地。
+    // 本地刻意用非登录类关键 Cookie：登录类会让本地直接落到 definite_logged_in 分支。
     let local = vec![
-      serde_json::json!({"name": "sessionid", "value": "a", "domain": ".tiktok.com", "path": "/", "expires": 9999999999.0}),
-      serde_json::json!({"name": "ttwid", "value": "b", "domain": ".tiktok.com", "path": "/", "expires": 9999999999.0}),
-      serde_json::json!({"name": "uid_tt", "value": "c", "domain": ".tiktok.com", "path": "/", "expires": 9999999999.0}),
+      serde_json::json!({"name": "s_v_web_id", "value": "a", "domain": ".tiktok.com", "path": "/", "expires": 9999999999.0}),
+      serde_json::json!({"name": "n_mh", "value": "b", "domain": ".tiktok.com", "path": "/", "expires": 9999999999.0}),
     ];
     let server = vec![
-      serde_json::json!({"name": "sessionid", "value": "x", "domain": ".tiktok.com", "path": "/", "expires": 9999999999.0}),
-      serde_json::json!({"name": "ttwid", "value": "y", "domain": ".tiktok.com", "path": "/", "expires": 9999999999.0}),
+      serde_json::json!({"name": "s_v_web_id", "value": "x", "domain": ".tiktok.com", "path": "/", "expires": 9999999999.0}),
+      serde_json::json!({"name": "n_mh", "value": "y", "domain": ".tiktok.com", "path": "/", "expires": 9999999999.0}),
+      serde_json::json!({"name": "device_id", "value": "z", "domain": ".tiktok.com", "path": "/"}),
     ];
     let local_score = score_cookies(&local, "tiktok");
     let server_score = score_cookies(&server, "tiktok");
+    assert!(local_score.usable && server_score.usable);
+    assert!(!local_score.definite_logged_in && !server_score.definite_logged_in);
+    assert!(server_score.total <= local_score.total + MIN_SCORE_DIFF);
     let result = select_best_cookie_set(&local_score, &server_score);
-    // 两边都可用，分差不大 → LocalBetter
     assert_eq!(result, CookieSelection::LocalBetter);
   }
 

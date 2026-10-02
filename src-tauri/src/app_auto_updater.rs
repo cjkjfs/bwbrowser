@@ -347,6 +347,12 @@ impl AppAutoUpdater {
       "Comparing versions: current={current_version}, new={new_version}, is_nightly={is_nightly}"
     );
 
+    // A dev build is a developer's own working copy; replacing it with a
+    // release would silently discard their checkout.
+    if current_version.starts_with("dev-") {
+      return false;
+    }
+
     if is_nightly {
       // For nightly builds, always update if there's a newer nightly
       if let (Some(current_hash), Some(new_hash)) = (

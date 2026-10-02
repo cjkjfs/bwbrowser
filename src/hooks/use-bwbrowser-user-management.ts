@@ -19,7 +19,22 @@ export interface ManagementUser {
   email?: string | null;
   created_at?: string | null;
   last_login_at?: string | null;
+  permission_profile_id?: number | null;
   permissions?: Record<string, boolean>;
+}
+
+export interface PermissionProfile {
+  id: number;
+  company_id: number;
+  name: string;
+  description?: string | null;
+  permissions: Record<string, boolean>;
+}
+
+export interface PermissionProfilesResponse {
+  success: boolean;
+  profiles?: PermissionProfile[];
+  fields?: Record<string, string>;
 }
 
 export interface ManagementRoleOption {
@@ -59,6 +74,12 @@ export function useBwbrowserUserManagement() {
     useState<CurrentManagementUser | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [permissionProfiles, setPermissionProfiles] = useState<
+    PermissionProfile[]
+  >([]);
+  const [permissionProfileFields, setPermissionProfileFields] = useState<
+    Record<string, string>
+  >({});
 
   const currentUserId = currentManagementUser?.id ?? null;
   const canManageUsers =
@@ -79,28 +100,32 @@ export function useBwbrowserUserManagement() {
   }, [isLoggedIn]);
 
   // 加载用户列表
-  const loadUsers = useCallback(async () => {
-    if (!isLoggedIn) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const result = await invoke<ManagementUsersListResponse>(
-        "bwbrowser_list_management_users",
-      );
-      if (!result.success) {
-        throw new Error("获取用户列表失败");
+  const loadUsers = useCallback(
+    async (companyId?: number | null) => {
+      if (!isLoggedIn) return;
+      setIsLoading(true);
+      setError(null);
+      try {
+        const result = await invoke<ManagementUsersListResponse>(
+          "bwbrowser_list_management_users",
+          { companyId: companyId ?? null },
+        );
+        if (!result.success) {
+          throw new Error("获取用户列表失败");
+        }
+        setUsers(result.users || []);
+        setIsSuperAdmin(result.is_super_admin || false);
+        setPermissionLabels(result.permission_labels || {});
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(msg);
+        toast.error(msg);
+      } finally {
+        setIsLoading(false);
       }
-      setUsers(result.users || []);
-      setIsSuperAdmin(result.is_super_admin || false);
-      setPermissionLabels(result.permission_labels || {});
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isLoggedIn]);
+    },
+    [isLoggedIn],
+  );
 
   // 加载角色列表
   const loadRoles = useCallback(async () => {
@@ -208,14 +233,95 @@ export function useBwbrowserUserManagement() {
     [loadUsers],
   );
 
+  // 加载权限组列表（companyId 可选，超管指定公司；留空则用登录账号所在公司）
+  const loadPermissionProfiles = useCallback(
+    async (companyId?: number | null) => {
+      if (!isLoggedIn) return;
+      try {
+        const result = await invoke<PermissionProfilesResponse>(
+          "bwbrowser_list_permission_profiles",
+          { companyId: companyId ?? null },
+        );
+        if (!result.success) {
+          throw new Error("获取权限组列表失败");
+        }
+        setPermissionProfiles(result.profiles || []);
+        setPermissionProfileFields(result.fields || {});
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn("[UserManagement] 加载权限组失败:", msg);
+        toast.error(msg);
+      }
+    },
+    [isLoggedIn],
+  );
+
+  // 保存权限组（id 为 null 时创建）
+  const savePermissionProfile = useCallback(
+    async (data: {
+      id: number | null;
+      name: string;
+      description: string;
+      permissions: Record<string, boolean>;
+      companyId?: number | null;
+    }) => {
+      await invoke<void>("bwbrowser_save_permission_profile", {
+        id: data.id,
+        name: data.name,
+        description: data.description,
+        permissions: data.permissions,
+        companyId: data.companyId ?? null,
+      });
+      toast.success(data.id ? "权限组已更新" : "权限组已创建");
+      await loadPermissionProfiles(data.companyId);
+      await loadUsers(data.companyId);
+    },
+    [loadPermissionProfiles, loadUsers],
+  );
+
+  // 删除权限组
+  const deletePermissionProfile = useCallback(
+    async (id: number, name: string, companyId?: number | null) => {
+      await invoke<void>("bwbrowser_delete_permission_profile", {
+        id,
+        companyId: companyId ?? null,
+      });
+      toast.success(`权限组 ${name} 已删除`);
+      await loadPermissionProfiles(companyId);
+      await loadUsers(companyId);
+    },
+    [loadPermissionProfiles, loadUsers],
+  );
+
+  // 给用户套用权限组（profileId 为 0 时解除）
+  const applyPermissionProfile = useCallback(
+    async (user_id: number, profile_id: number, companyId?: number | null) => {
+      await invoke<void>("bwbrowser_apply_permission_profile", {
+        userId: user_id,
+        profileId: profile_id,
+        companyId: companyId ?? null,
+      });
+      toast.success("权限已套用");
+      await loadUsers(companyId);
+    },
+    [loadUsers],
+  );
+
   // 初始加载
   useEffect(() => {
     if (isLoggedIn) {
       loadCurrentUser();
       loadUsers();
       loadRoles();
+      loadPermissionProfiles();
     }
-  }, [isLoggedIn, loadCurrentUser, loadUsers, loadRoles]);
+  }, [
+    isLoggedIn,
+    loadCurrentUser,
+    loadUsers,
+    loadRoles,
+    loadPermissionProfiles,
+  ]);
 
   return {
     users,
@@ -225,6 +331,8 @@ export function useBwbrowserUserManagement() {
     currentUserId,
     canManageUsers,
     currentManagementUser,
+    permissionProfiles,
+    permissionProfileFields,
     isLoading,
     error,
     loadUsers,
@@ -233,5 +341,9 @@ export function useBwbrowserUserManagement() {
     togglePermission,
     toggleStatus,
     deleteUser,
+    loadPermissionProfiles,
+    savePermissionProfile,
+    deletePermissionProfile,
+    applyPermissionProfile,
   };
 }

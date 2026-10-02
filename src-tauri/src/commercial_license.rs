@@ -106,8 +106,9 @@ mod tests {
 
   #[test]
   fn test_trial_duration() {
-    // 2 weeks = 14 * 24 * 60 * 60 = 1,209,600 seconds
-    assert_eq!(TRIAL_DURATION_SECONDS, 1_209_600);
+    // 36500 days = 100 years: this fork ships lifetime access, so the trial
+    // window is deliberately far longer than any real subscription period.
+    assert_eq!(TRIAL_DURATION_SECONDS, 36_500 * 24 * 60 * 60);
   }
 
   #[test]

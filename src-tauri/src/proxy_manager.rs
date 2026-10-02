@@ -4141,7 +4141,7 @@ mod tests {
     assert!(normalized.password.is_none());
     assert_eq!(normalized.vless_uri.as_deref(), Some(uri.as_str()));
 
-    let invalid = uri.replace("security=reality", "security=tls");
+    let invalid = uri.replace("security=reality", "security=none");
     let error = ProxyManager::normalize_proxy_settings(ProxySettings {
       proxy_type: "vless".to_string(),
       host: "127.0.0.1".to_string(),

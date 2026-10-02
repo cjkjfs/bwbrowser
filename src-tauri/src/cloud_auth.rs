@@ -1849,37 +1849,22 @@ pub async fn restart_sync_service(app_handle: tauri::AppHandle) -> Result<(), St
 mod tests {
   use super::*;
 
-  fn active_solo() -> Entitlements {
-    derive_entitlements("solo", Some("monthly"), "active", 20)
-  }
-
   #[test]
-  fn solo_is_active_without_browser_automation() {
-    let solo = active_solo();
-    assert!(solo.active, "solo is a paid, active plan");
-    assert!(solo.cloud_backup, "solo buys cloud profile backups");
-    assert!(solo.cookie_bot, "solo buys the nightly cookie bot");
-    assert!(
-      !solo.browser_automation,
-      "solo is sold without browser automation"
-    );
-    assert!(
-      !solo.cross_os_fingerprints,
-      "solo is sold without fingerprint editing"
-    );
-  }
-
-  #[test]
-  fn the_agent_follows_browser_automation_and_is_never_derived_from_it() {
-    // Solo funds a nightly bot and nothing that drives a browser by hand, so
-    // it does not get the agent either.
-    assert!(!active_solo().agent_automation);
-    for plan in ["pro", "team", "enterprise", "some-comped-plan"] {
-      let derived = derive_entitlements(plan, Some("monthly"), "active", 50);
-      assert!(derived.agent_automation, "{plan} should get the agent");
+  fn every_plan_unlocks_every_capability() {
+    // This fork ships every capability on every plan, so the derived
+    // entitlements never gate on the plan name or its period.
+    for plan in ["free", "solo", "pro", "team", "enterprise"] {
+      let e = derive_entitlements(plan, Some("monthly"), "active", 3);
+      assert!(e.active, "{plan} should be active");
+      assert!(
+        e.browser_automation,
+        "{plan} should allow browser automation"
+      );
+      assert!(e.agent_automation, "{plan} should allow the agent");
+      assert!(e.cross_os_fingerprints, "{plan} should allow fingerprints");
+      assert!(e.cloud_backup && e.team_collaboration && e.cookie_bot);
+      assert!(e.remote_interactive && e.remote_control);
     }
-    // An inactive subscription buys nothing, whatever the plan says.
-    assert!(!derive_entitlements("pro", Some("monthly"), "canceled", 50).agent_automation);
   }
 
   #[test]
@@ -1898,12 +1883,20 @@ mod tests {
   #[test]
   fn wayfern_token_is_gated_on_automation_not_on_being_paid() {
     // The regression this guards: gating the mint on `active` asked for a token
-    // on behalf of a Solo account, which the backend answers with a 403.
-    let solo = active_solo();
-    assert!(!(solo.active && solo.browser_automation));
-
-    let pro = derive_entitlements("pro", Some("monthly"), "active", 50);
-    assert!(pro.active && pro.browser_automation);
+    // on behalf of an account the backend sells without automation, which the
+    // backend answers with a 403. This fork unlocks every capability on every
+    // plan, so the two only disagree when the backend sends the entitlements
+    // object itself; the gate is asserted where it lives.
+    let source = include_str!("cloud_auth.rs");
+    let gate = source
+      .split("pub async fn is_entitled_to_wayfern_token(")
+      .nth(1)
+      .expect("is_entitled_to_wayfern_token must exist");
+    let body = &gate[..gate.find("\n  }").unwrap_or(gate.len())];
+    assert!(
+      body.contains("e.active && e.browser_automation"),
+      "the token mint must gate on browser_automation, not on being paid"
+    );
   }
 
   #[test]

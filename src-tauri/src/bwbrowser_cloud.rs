@@ -2317,6 +2317,34 @@ where
   }
 }
 
+/// 反序列化权限等布尔映射：兼容 value 为整数（0/1）或布尔/字符串，逐个归一化。
+/// PHP 的 permission_profiles.permissions 以 0/1 整数下发。
+fn deserialize_bool_map<'de, D>(
+  deserializer: D,
+) -> Result<std::collections::BTreeMap<String, bool>, D::Error>
+where
+  D: serde::Deserializer<'de>,
+{
+  let raw = std::collections::BTreeMap::<String, serde_json::Value>::deserialize(deserializer)
+    .map_err(serde::de::Error::custom)?;
+  Ok(
+    raw
+      .into_iter()
+      .map(|(k, v)| {
+        let b = match v {
+          serde_json::Value::Bool(b) => b,
+          serde_json::Value::Number(n) => n.as_i64().is_some_and(|i| i != 0),
+          serde_json::Value::String(s) => {
+            matches!(s.to_lowercase().as_str(), "1" | "true" | "yes" | "on")
+          }
+          _ => false,
+        };
+        (k, b)
+      })
+      .collect(),
+  )
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct BwbrowserAccount {
   pub id: i64,
@@ -6050,6 +6078,69 @@ fn non_us_coords_to_timezone(lon: f64, country: &str) -> String {
 /// 对于 node: 前缀的 proxy_id，直接解析 proxy_node 提取 host，从云端查找时区。
 /// 对于本地 UUID，优先读本地DB；本地DB无时区时从云端同步。
 /// 云端也无时区时，自动通过代理 IP 在线查询 geoip。
+/// 启动时把解析到的代理时区回传云端（仅更新已有云端代理记录，不新建；失败不影响启动）。
+/// 结束后 emit proxy-geo-updated 通知前端刷新账号列表（前端仅将 account_id 用于清除 pending，refresh 无条件执行）。
+async fn sync_proxy_timezone_to_cloud(app_handle: &tauri::AppHandle, host: &str, timezone: &str) {
+  if host.is_empty() || timezone.is_empty() {
+    return;
+  }
+  match BWBROWSER_AUTH.list_cloud_proxies(None).await {
+    Ok(cloud_proxies) => {
+      let matching = cloud_proxies.iter().find(|p| p.host == host);
+      if let Some(cp) = matching {
+        log_bwbrowser(
+          "launch_account",
+          &format!(
+            "  → 回传时区到云端代理: cloud_id={}, timezone={}",
+            cp.proxy_id, timezone
+          ),
+        );
+        match BWBROWSER_AUTH
+          .sync_cloud_proxy(
+            Some(cp.proxy_id),
+            &cp.proxy_name.clone().unwrap_or_default(),
+            &cp.proxy_type,
+            &cp.host,
+            cp.port,
+            cp.username.as_deref(),
+            cp.password.as_deref(),
+            cp.country.as_deref(),
+            cp.city.as_deref(),
+            Some(timezone),
+            cp.protocol_config.as_deref(),
+          )
+          .await
+        {
+          Ok(_) => log_bwbrowser(
+            "launch_account",
+            &format!("  ✓ 时区已回传到服务器: timezone={}", timezone),
+          ),
+          Err(e) => log_bwbrowser(
+            "launch_account",
+            &format!("  ⚠ 时区回传失败（不影响启动）: {}", e),
+          ),
+        }
+      } else {
+        log_bwbrowser(
+          "launch_account",
+          &format!(
+            "  → 云端无此代理(host={})，跳过时区回传（不自动新建）",
+            host
+          ),
+        );
+      }
+    }
+    Err(e) => log_bwbrowser(
+      "launch_account",
+      &format!("  ⚠ 拉取云端代理列表失败，跳过时区回传: {}", e),
+    ),
+  }
+  let _ = app_handle.emit(
+    "proxy-geo-updated",
+    serde_json::json!({ "host": host, "timezone": timezone }),
+  );
+}
+
 async fn resolve_geo_from_proxy(proxy_id: Option<&str>) -> Option<ProxyGeoInfo> {
   let proxy_id = proxy_id?;
   log_bwbrowser(
@@ -6788,50 +6879,6 @@ async fn launch_account_impl(
   let local_proxy_id = match process_proxy_node(&app_handle, server_proxy_node.clone()).await {
     Ok(Some(id)) => {
       log_bwbrowser("launch_account", &format!("  代理: proxy_id={}", id));
-      let settings = if let Some(node) = id.strip_prefix(crate::cloud_proxy_manager::NODE_PREFIX) {
-        crate::cloud_proxy_manager::parse_proxy_node(node)
-      } else {
-        crate::proxy_manager::PROXY_MANAGER.get_proxy_settings_by_id(&id)
-      };
-      if let Some(settings) = settings {
-        log_bwbrowser(
-          "launch_account",
-          &format!(
-            "  正在验证代理可用性: {}:{}...",
-            settings.host, settings.port
-          ),
-        );
-        match crate::proxy_manager::PROXY_MANAGER
-          .check_proxy_validity(&id, &settings)
-          .await
-        {
-          Ok(result) if result.is_valid => {
-            log_bwbrowser(
-              "launch_account",
-              &format!(
-                "  ✓ 代理可用: IP={}, country={}",
-                result.ip,
-                result.country.as_deref().unwrap_or("")
-              ),
-            );
-          }
-          Ok(_) => {
-            log_bwbrowser_error("launch_account", "  ✗ 代理不可用，拒绝启动浏览器");
-            return Err(serde_json::json!({ "code": "PROXY_NOT_WORKING" }).to_string());
-          }
-          Err(e) => {
-            let err_str = e.to_string();
-            log_bwbrowser_error(
-              "launch_account",
-              &format!("  ✗ 代理验证失败: {}，拒绝启动浏览器", err_str),
-            );
-            if err_str.contains("402") {
-              return Err(serde_json::json!({ "code": "PROXY_PAYMENT_REQUIRED" }).to_string());
-            }
-            return Err(serde_json::json!({ "code": "PROXY_NOT_WORKING" }).to_string());
-          }
-        }
-      }
       Some(id)
     }
     Ok(None) => {
@@ -6865,6 +6912,23 @@ async fn launch_account_impl(
         geo.timezone, geo.language
       ),
     );
+    // 回传时区到云端（异步，不阻塞启动；仅更新已有云端代理，不自动新建）
+    let sync_host = local_proxy_id.as_deref().and_then(|id| {
+      if let Some(node) = id.strip_prefix(crate::cloud_proxy_manager::NODE_PREFIX) {
+        crate::cloud_proxy_manager::parse_proxy_node(node).map(|s| s.host)
+      } else {
+        crate::proxy_manager::PROXY_MANAGER
+          .get_proxy_settings_by_id(id)
+          .map(|s| s.host)
+      }
+    });
+    if let Some(host) = sync_host {
+      let tz = geo.timezone.clone();
+      let sync_app = app_handle.clone();
+      tauri::async_runtime::spawn(async move {
+        sync_proxy_timezone_to_cloud(&sync_app, &host, &tz).await;
+      });
+    }
   } else {
     log_bwbrowser("launch_account", "  ⚠️ 无法获取代理 geoip");
   }
@@ -9008,6 +9072,8 @@ pub struct UserManagementUser {
   #[serde(default)]
   pub last_login_at: Option<String>,
   #[serde(default)]
+  pub permission_profile_id: Option<i64>,
+  #[serde(default)]
   pub permissions: Option<std::collections::BTreeMap<String, bool>>,
 }
 
@@ -9033,6 +9099,29 @@ pub struct UserManagementRolesResponse {
   pub success: bool,
   #[serde(default)]
   pub roles: Option<Vec<UserManagementRoleOption>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PermissionProfile {
+  #[serde(default)]
+  pub id: i64,
+  #[serde(default)]
+  pub company_id: i64,
+  #[serde(default)]
+  pub name: String,
+  #[serde(default)]
+  pub description: Option<String>,
+  #[serde(default, deserialize_with = "deserialize_bool_map")]
+  pub permissions: std::collections::BTreeMap<String, bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PermissionProfilesResponse {
+  pub success: bool,
+  #[serde(default)]
+  pub profiles: Option<Vec<PermissionProfile>>,
+  #[serde(default)]
+  pub fields: Option<std::collections::BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -9141,8 +9230,16 @@ impl BwbrowserAuthManager {
   }
 
   /// 获取用户列表
-  pub async fn list_management_users(&self) -> Result<UserManagementListResponse, String> {
-    let body = self.call_users_api("list", &[]).await?;
+  pub async fn list_management_users(
+    &self,
+    company_id: Option<i64>,
+  ) -> Result<UserManagementListResponse, String> {
+    let company_param = company_id.map(|c| c.to_string());
+    let mut params: Vec<(&str, &str)> = vec![];
+    if let Some(cp) = company_param.as_ref() {
+      params.push(("company_id", cp.as_str()));
+    }
+    let body = self.call_users_api("list", &params).await?;
     let result: UserManagementListResponse = parse_body("users_list", &body)?;
     Ok(result)
   }
@@ -9418,6 +9515,114 @@ impl BwbrowserAuthManager {
     }
     Ok(())
   }
+
+  /// 获取权限组列表（超管可传 company_id 指定公司，否则限定登录账号所在公司）
+  pub async fn list_permission_profiles(
+    &self,
+    company_id: Option<i64>,
+  ) -> Result<PermissionProfilesResponse, String> {
+    let company_param = company_id.map(|c| c.to_string());
+    let mut params: Vec<(&str, &str)> = vec![];
+    if let Some(cp) = company_param.as_ref() {
+      params.push(("company_id", cp.as_str()));
+    }
+    let body = self.call_users_api("permission_profiles", &params).await?;
+    let result: PermissionProfilesResponse = parse_body("permission_profiles", &body)?;
+    Ok(result)
+  }
+
+  /// 保存权限组（id 为 None 时创建，否则更新）
+  pub async fn save_permission_profile(
+    &self,
+    id: Option<i64>,
+    name: &str,
+    description: &str,
+    permissions: &std::collections::BTreeMap<String, bool>,
+    company_id: Option<i64>,
+  ) -> Result<(), String> {
+    let mut params: Vec<(String, String)> = vec![
+      ("name".to_string(), name.to_string()),
+      ("description".to_string(), description.to_string()),
+    ];
+    if let Some(pid) = id {
+      params.push(("id".to_string(), pid.to_string()));
+    }
+    if let Some(cid) = company_id {
+      params.push(("company_id".to_string(), cid.to_string()));
+    }
+    for (col, enabled) in permissions {
+      if *enabled {
+        params.push((format!("permissions[{}]", col), "1".to_string()));
+      }
+    }
+    let param_refs: Vec<(&str, &str)> = params
+      .iter()
+      .map(|(k, v)| (k.as_str(), v.as_str()))
+      .collect();
+    let body = self
+      .call_users_api("permission_profile_save", &param_refs)
+      .await?;
+    let result: serde_json::Value = parse_body("permission_profile_save", &body)?;
+    if !result["success"].as_bool().unwrap_or(false) {
+      let msg = result["message"].as_str().unwrap_or("保存失败").to_string();
+      return Err(msg);
+    }
+    Ok(())
+  }
+
+  /// 删除权限组
+  pub async fn delete_permission_profile(
+    &self,
+    id: i64,
+    company_id: Option<i64>,
+  ) -> Result<(), String> {
+    let mut params: Vec<(String, String)> = vec![("id".to_string(), id.to_string())];
+    if let Some(cid) = company_id {
+      params.push(("company_id".to_string(), cid.to_string()));
+    }
+    let param_refs: Vec<(&str, &str)> = params
+      .iter()
+      .map(|(k, v)| (k.as_str(), v.as_str()))
+      .collect();
+    let body = self
+      .call_users_api("permission_profile_delete", &param_refs)
+      .await?;
+    let result: serde_json::Value = parse_body("permission_profile_delete", &body)?;
+    if !result["success"].as_bool().unwrap_or(false) {
+      let msg = result["message"].as_str().unwrap_or("删除失败").to_string();
+      return Err(msg);
+    }
+    Ok(())
+  }
+
+  /// 给用户套用权限组（profile_id 为 0 时解除权限组）
+  pub async fn apply_permission_profile(
+    &self,
+    user_id: i64,
+    profile_id: i64,
+    company_id: Option<i64>,
+  ) -> Result<(), String> {
+    let mut params: Vec<(String, String)> = vec![
+      ("user_id".to_string(), user_id.to_string()),
+      ("profile_id".to_string(), profile_id.to_string()),
+    ];
+    if let Some(cid) = company_id {
+      params.push(("company_id".to_string(), cid.to_string()));
+    }
+    let param_refs: Vec<(&str, &str)> = params
+      .iter()
+      .map(|(k, v)| (k.as_str(), v.as_str()))
+      .collect();
+    let body = self
+      .call_users_api("permission_profile_apply", &param_refs)
+      .await?;
+    let result: serde_json::Value = parse_body("permission_profile_apply", &body)?;
+    if !result["success"].as_bool().unwrap_or(false) {
+      let msg = result["message"].as_str().unwrap_or("套用失败").to_string();
+      return Err(msg);
+    }
+    Ok(())
+  }
 }
 
 // ========== Tauri Commands - 用户管理 ==========
@@ -9468,8 +9673,10 @@ pub fn bwbrowser_write_local_bookmarks(
 }
 
 #[tauri::command]
-pub async fn bwbrowser_list_management_users() -> Result<UserManagementListResponse, String> {
-  let result = BWBROWSER_AUTH.list_management_users().await?;
+pub async fn bwbrowser_list_management_users(
+  company_id: Option<i64>,
+) -> Result<UserManagementListResponse, String> {
+  let result = BWBROWSER_AUTH.list_management_users(company_id).await?;
   Ok(result)
 }
 
@@ -9532,5 +9739,50 @@ pub async fn bwbrowser_toggle_management_user_status(
 #[tauri::command]
 pub async fn bwbrowser_delete_management_user(user_id: i64) -> Result<(), String> {
   BWBROWSER_AUTH.delete_management_user(user_id).await?;
+  Ok(())
+}
+
+#[tauri::command]
+pub async fn bwbrowser_list_permission_profiles(
+  company_id: Option<i64>,
+) -> Result<PermissionProfilesResponse, String> {
+  let result = BWBROWSER_AUTH.list_permission_profiles(company_id).await?;
+  Ok(result)
+}
+
+#[tauri::command]
+pub async fn bwbrowser_save_permission_profile(
+  id: Option<i64>,
+  name: String,
+  description: String,
+  permissions: std::collections::BTreeMap<String, bool>,
+  company_id: Option<i64>,
+) -> Result<(), String> {
+  BWBROWSER_AUTH
+    .save_permission_profile(id, &name, &description, &permissions, company_id)
+    .await?;
+  Ok(())
+}
+
+#[tauri::command]
+pub async fn bwbrowser_delete_permission_profile(
+  id: i64,
+  company_id: Option<i64>,
+) -> Result<(), String> {
+  BWBROWSER_AUTH
+    .delete_permission_profile(id, company_id)
+    .await?;
+  Ok(())
+}
+
+#[tauri::command]
+pub async fn bwbrowser_apply_permission_profile(
+  user_id: i64,
+  profile_id: i64,
+  company_id: Option<i64>,
+) -> Result<(), String> {
+  BWBROWSER_AUTH
+    .apply_permission_profile(user_id, profile_id, company_id)
+    .await?;
   Ok(())
 }

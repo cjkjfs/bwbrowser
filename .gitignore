@@ -107,3 +107,9 @@ kernel/
 build_error.txt
 check_error.txt
 src-tauri/rustc-ice-*.txt
+
+# Local scratchpad and debug dumps (never tracked)
+.scratch/
+scratch_patch_guard.py
+t-*.txt
+test-output.txt

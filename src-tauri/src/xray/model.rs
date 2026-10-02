@@ -512,7 +512,8 @@ mod tests {
       }
     });
     let config: VlessRealityConfig = serde_json::from_value(value).unwrap();
-    assert_eq!(config.flow, Some(VlessFlow::Vision));
+    // flow is optional: a config that never used XTLS Vision must not gain it.
+    assert_eq!(config.flow, None);
     assert_eq!(
       config.reality.as_ref().unwrap().fingerprint,
       RealityFingerprint::Chrome

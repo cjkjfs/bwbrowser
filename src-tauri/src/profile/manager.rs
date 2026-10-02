@@ -2050,13 +2050,19 @@ mod tests {
     let (manager, _temp_dir) = create_test_profile_manager();
     let profiles_dir = manager.get_profiles_dir();
 
+    let data_dir = crate::app_dirs::data_dir();
     assert!(
-      profiles_dir.to_string_lossy().contains("DonutBrowser"),
-      "Profiles dir should contain DonutBrowser"
+      profiles_dir.is_absolute(),
+      "Profiles dir should be absolute: {profiles_dir:?}"
+    );
+    assert_eq!(
+      profiles_dir.parent(),
+      Some(data_dir.as_path()),
+      "Profiles dir should sit directly inside the data directory"
     );
     assert!(
-      profiles_dir.to_string_lossy().contains("profiles"),
-      "Profiles dir should contain profiles"
+      profiles_dir.ends_with("profiles"),
+      "Profiles dir should end with profiles: {profiles_dir:?}"
     );
   }
 
@@ -2065,15 +2071,20 @@ mod tests {
     let (manager, _temp_dir) = create_test_profile_manager();
 
     let binaries_dir = manager.get_binaries_dir();
-    let path_str = binaries_dir.to_string_lossy();
 
+    let data_dir = crate::app_dirs::data_dir();
     assert!(
-      path_str.contains("DonutBrowser"),
-      "Binaries dir should contain DonutBrowser"
+      binaries_dir.is_absolute(),
+      "Binaries dir should be absolute: {binaries_dir:?}"
+    );
+    assert_eq!(
+      binaries_dir.parent(),
+      Some(data_dir.as_path()),
+      "Binaries dir should sit directly inside the data directory"
     );
     assert!(
-      path_str.contains("binaries"),
-      "Binaries dir should contain binaries"
+      binaries_dir.ends_with("binaries"),
+      "Binaries dir should end with binaries: {binaries_dir:?}"
     );
   }
 

@@ -130,7 +130,7 @@ jobs:
           cp "src-tauri/binaries/xray-${{ matrix.target }}.exe" "$PORTABLE_DIR/xray.exe" || echo "xray not found"
 
           mkdir -p "$PORTABLE_DIR/licenses"
-          cp "src-tauri/binaries/xray-LICENSE.txt" "$PORTABLE_DIR/licenses/" || echo "license not found"
+          cp "src-tauri/binaries/xray-LICENSE.txt" "$PORTABLE_DIR/licenses/Xray-core-LICENSE.txt" || echo "license not found"
 
           touch "$PORTABLE_DIR/.portable"
           7z a "Bwbrowser_${VERSION}_x64-portable.zip" "$PORTABLE_DIR"

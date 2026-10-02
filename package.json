@@ -2,7 +2,7 @@
   "name": "bwbrowser",
   "private": true,
   "license": "AGPL-3.0",
-  "version": "2.3.7",
+  "version": "2.3.8",
   "type": "module",
   "scripts": {
     "predev": "pnpm licenses:generate",
@@ -128,9 +128,7 @@
       "biome check --fix"
     ],
     "src-tauri/**/*.rs": [
-      "bash -c 'cd src-tauri && cargo fmt --all'",
-      "bash -c 'cd src-tauri && cargo clippy --all-targets -- -D warnings -D clippy::all'",
-      "bash -c 'cd src-tauri && cargo test --lib --no-run'"
+      "node scripts/lint-staged-rust.mjs"
     ],
     "**/*.{rs,ts,tsx,js,jsx,md}": [
       "typos"

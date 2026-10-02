@@ -80,35 +80,28 @@ fn main() {
   // Only run tauri_build if all external binaries exist
   // This allows building bwbrowser-proxy sidecar without the other binaries present
   if external_binaries_exist() {
-    tauri_build::build();
-
-    // tauri_build embeds the manifest for bin targets only (via resource file).
-    // Test binaries (including `cargo test --lib`) and cdylib also need the
-    // comctl32 v6 manifest or they crash with STATUS_ENTRYPOINT_NOT_FOUND
-    // (0xc0000139). Embed manifest via link args for tests and cdylib only.
-    //
-    // We avoid rustc-link-arg (which applies to bins too) because it would
-    // conflict with tauri_build's resource-embedded manifest on lld-link
-    // (lld-link is stricter than MSVC link.exe about /MANIFEST:EMBED +
-    // /MANIFEST:NO arg ordering).
-    #[cfg(target_os = "windows")]
-    {
-      let manifest_path = std::path::PathBuf::from("app.manifest");
-      if manifest_path.exists() {
-        let manifest_str = manifest_path.to_str().unwrap().replace('/', "\\");
-        println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
-        println!("cargo:rustc-link-arg-tests=/MANIFESTINPUT:{manifest_str}");
-        println!("cargo:rustc-cdylib-link-arg=/MANIFEST:EMBED");
-        println!("cargo:rustc-cdylib-link-arg=/MANIFESTINPUT:{manifest_str}");
-        println!("cargo:rerun-if-changed=app.manifest");
-      }
-    }
+    // tauri_build would otherwise embed its own comctl32 v6 manifest into the
+    // bin's resource lib. Its default manifest is identical to app.manifest, so
+    // suppress it and embed app.manifest through `rustc-link-arg` instead.
+    // `rustc-link-arg-tests` only reaches `[[test]]` targets, never the lib
+    // unit-test binary, so `cargo test --lib` used to link an exe with no
+    // manifest and die at load with STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139):
+    // comctl32 v5.82 has no TaskDialogIndirect. Linking two manifests at once is
+    // rejected by CVTRES (CVT1100: duplicate MANIFEST resource), hence the
+    // suppression.
+    tauri_build::try_build(
+      tauri_build::Attributes::new()
+        .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest()),
+    )
+    .expect("tauri_build failed");
   } else {
     println!("cargo:warning=Skipping tauri_build: external binaries not found. This is expected when building sidecar binaries.");
-
-    #[cfg(target_os = "windows")]
-    embed_windows_manifest();
   }
+
+  // Every linkable target needs the comctl32 v6 manifest: the app bins, the
+  // cdylib, integration tests and the lib unit-test binary alike.
+  #[cfg(target_os = "windows")]
+  embed_windows_manifest();
 }
 
 fn external_binaries_exist() -> bool {

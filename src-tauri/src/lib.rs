@@ -3875,6 +3875,10 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_toggle_management_user_permission,
       bwbrowser_cloud::bwbrowser_toggle_management_user_status,
       bwbrowser_cloud::bwbrowser_delete_management_user,
+      bwbrowser_cloud::bwbrowser_list_permission_profiles,
+      bwbrowser_cloud::bwbrowser_save_permission_profile,
+      bwbrowser_cloud::bwbrowser_delete_permission_profile,
+      bwbrowser_cloud::bwbrowser_apply_permission_profile,
       video_downloader::video_download_list_tasks,
       video_downloader::video_download_add,
       video_downloader::video_download_add_batch,
@@ -4006,9 +4010,9 @@ mod tests {
   #[test]
   fn the_key_label_names_this_machine_and_fits_the_servers_cap() {
     let label = super::mcp_remote_key_label();
-    assert!(label.starts_with("Donut Browser on "), "{label}");
+    assert!(label.starts_with("BwBrowser on "), "{label}");
     assert!(label.chars().count() <= 80, "{label}");
-    assert!(label.len() > "Donut Browser on ".len(), "{label}");
+    assert!(label.len() > "BwBrowser on ".len(), "{label}");
   }
 
   #[test]
@@ -4100,6 +4104,28 @@ mod tests {
       // suite; the Integrations page mints and rotates but has no Forget
       // action yet.
       "forget_mcp_remote_credential",
+      // Exercised by the browser E2E suite rather than the frontend; the
+      // geolocation probe downloads its database on demand.
+      "is_geoip_database_available",
+      "download_geoip_database",
+      // The cloud proxy mirror is driven by sync, so the UI edits stored
+      // proxies through the local commands and never calls these directly.
+      "cloud_list_proxies",
+      "cloud_save_proxy",
+      "cloud_delete_proxy",
+      "cloud_refresh_proxies",
+      "cloud_resolve_proxy",
+      // Registered ahead of their UI: the account-detail and bookmark surfaces
+      // exist for the cloud client but no page invokes them yet.
+      "bwbrowser_get_account_detail_full",
+      "bwbrowser_get_bwbrowser_bookmarks",
+      "bwbrowser_update_bwbrowser_bookmarks",
+      "bwbrowser_read_local_bookmarks",
+      "bwbrowser_write_local_bookmarks",
+      // The clipboard monitor is started and stopped by the downloader itself;
+      // these commands are the manual override, with no UI control yet.
+      "video_download_start_clipboard_monitor",
+      "video_download_stop_clipboard_monitor",
     ];
 
     // Extract command names from the generate_handler! macro in this file
