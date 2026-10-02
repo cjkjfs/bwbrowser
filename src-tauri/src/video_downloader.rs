@@ -1772,31 +1772,44 @@ async fn run_single_download<R: Runtime>(
 
     let actual_file = {
       // 优先用视频 ID 在输出目录中搜索最终文件（最可靠）
-      let video_id = extract_youtube_id(url);
+      // 支持 YouTube、B 站等能从 URL 提取 ID 的平台
+      let video_id = extract_video_id(url);
       if let Some(ref id) = video_id {
         if let Some(found) = find_final_video_file(&output_dir, id) {
           Some(found)
         } else {
-          // 没找到的话，fallback 到 filename
-          task_filename.as_ref().map(|fname| {
+          // ID 搜索没找到，fallback 到 filename
+          let from_filename = task_filename.as_ref().map(|fname| {
             let p = PathBuf::from(fname);
             if p.is_absolute() && p.exists() {
               p
             } else {
               output_dir.join(fname)
             }
-          })
+          });
+          // filename 也找不到的话，兜底：在目录中找最大的视频文件
+          if from_filename.as_ref().is_none_or(|p| !p.exists()) {
+            find_largest_video_file(&output_dir)
+          } else {
+            from_filename
+          }
         }
       } else {
-        // 非 YouTube，用 filename
-        task_filename.as_ref().map(|fname| {
+        // 无法提取视频 ID，先用 filename 尝试
+        let from_filename = task_filename.as_ref().map(|fname| {
           let p = PathBuf::from(fname);
           if p.is_absolute() && p.exists() {
             p
           } else {
             output_dir.join(fname)
           }
-        })
+        });
+        // filename 路径不存在，兜底：在目录中找最大的视频文件
+        if from_filename.as_ref().is_none_or(|p| !p.exists()) {
+          find_largest_video_file(&output_dir)
+        } else {
+          from_filename
+        }
       }
     };
 
@@ -2674,6 +2687,46 @@ fn extract_youtube_id(url: &str) -> Option<String> {
   None
 }
 
+/// 从 B 站 URL 提取 BV 号
+fn extract_bilibili_id(url: &str) -> Option<String> {
+  // 常见格式:
+  // - https://www.bilibili.com/video/BV1Xz421X7YQ
+  // - https://b23.tv/BV1Xz421X7YQ
+  // - https://www.bilibili.com/video/BV1Xz421X7YQ?p=1
+  let url_lower = url.to_lowercase();
+
+  if !url_lower.contains("bilibili.com") && !url_lower.contains("b23.tv") {
+    return None;
+  }
+
+  // 查找 BV 号（BV + 10 位字母数字）
+  let mut chars = url.chars();
+  while let Some(c) = chars.next() {
+    if c == 'B' || c == 'b' {
+      let rest: String = chars.clone().take(11).collect();
+      if rest.len() >= 11 {
+        let rest_lower = rest.to_lowercase();
+        if rest_lower.starts_with('v') {
+          let id_part: String = rest.chars().take(11).collect();
+          let id = format!("B{}", id_part);
+          // 验证：BV 后面跟 10 位字母数字
+          let after_bv: Vec<char> = id.chars().skip(2).collect();
+          if after_bv.len() == 10 && after_bv.iter().all(|c| c.is_ascii_alphanumeric()) {
+            return Some(id);
+          }
+        }
+      }
+    }
+  }
+
+  None
+}
+
+/// 从 URL 提取视频 ID（优先 YouTube，其次 B 站）
+fn extract_video_id(url: &str) -> Option<String> {
+  extract_youtube_id(url).or_else(|| extract_bilibili_id(url))
+}
+
 /// 在输出目录中查找包含视频 ID 的最大视频文件
 fn find_final_video_file(output_dir: &PathBuf, video_id: &str) -> Option<PathBuf> {
   let mut largest: Option<(PathBuf, u64)> = None;
@@ -2704,6 +2757,59 @@ fn find_final_video_file(output_dir: &PathBuf, video_id: &str) -> Option<PathBuf
       }
       if let Ok(meta) = std::fs::metadata(&path) {
         let size = meta.len();
+        match &largest {
+          Some((_, s)) if size > *s => {
+            largest = Some((path, size));
+          }
+          None => {
+            largest = Some((path, size));
+          }
+          _ => {}
+        }
+      }
+    }
+  }
+
+  largest.map(|(p, _)| p)
+}
+
+/// 在输出目录中查找最大的视频文件（兜底用，当 ID 和 filename 都找不到时）
+fn find_largest_video_file(output_dir: &PathBuf) -> Option<PathBuf> {
+  let mut largest: Option<(PathBuf, u64)> = None;
+
+  if let Ok(entries) = std::fs::read_dir(output_dir) {
+    for entry in entries.flatten() {
+      let path = entry.path();
+      if !path.is_file() {
+        continue;
+      }
+      let name = path.file_name()?.to_string_lossy().to_string();
+      let name_lower = name.to_lowercase();
+      // 视频格式（mp4, mkv, webm, mov, avi, m4v, flv, wmv）
+      let is_video = name_lower.ends_with(".mp4")
+        || name_lower.ends_with(".mkv")
+        || name_lower.ends_with(".webm")
+        || name_lower.ends_with(".mov")
+        || name_lower.ends_with(".avi")
+        || name_lower.ends_with(".m4v")
+        || name_lower.ends_with(".flv")
+        || name_lower.ends_with(".wmv");
+      if !is_video {
+        continue;
+      }
+      // 跳过临时文件（.part, .ytdl, .tmp）
+      if name_lower.ends_with(".part")
+        || name_lower.ends_with(".ytdl")
+        || name_lower.ends_with(".tmp")
+      {
+        continue;
+      }
+      if let Ok(meta) = std::fs::metadata(&path) {
+        let size = meta.len();
+        // 小于 100KB 的忽略（可能是残留的小文件）
+        if size < 100 * 1024 {
+          continue;
+        }
         match &largest {
           Some((_, s)) if size > *s => {
             largest = Some((path, size));

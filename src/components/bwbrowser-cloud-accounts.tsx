@@ -12,6 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { FiCheck, FiX } from "react-icons/fi";
 import {
   LuCheck,
   LuChevronDown,
@@ -28,6 +29,7 @@ import {
   LuNetwork,
   LuPencil,
   LuPlay,
+  LuPlus,
   LuRefreshCw,
   LuSearch,
   LuTrash2,
@@ -36,6 +38,7 @@ import {
   LuUsers,
   LuX,
 } from "react-icons/lu";
+import { ProxyFormDialog } from "@/components/proxy-form-dialog";
 import { AnimatedSwitch } from "@/components/ui/animated-switch";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -81,7 +84,7 @@ import {
 } from "@/lib/toast-utils";
 import { extractSecretFromUrl, generateTOTP } from "@/lib/totp";
 import { cn } from "@/lib/utils";
-import type { StoredProxy } from "@/types";
+import type { ProxyCheckResult, StoredProxy } from "@/types";
 
 // ==================== 类型定义 ====================
 
@@ -626,6 +629,21 @@ export function BwbrowserCloudAccountsDialog({
   const [cloudProxyOptions, setCloudProxyOptions] = useState<
     (StoredProxy & { country?: string | null; city?: string | null })[]
   >([]);
+  // 代理健康测试结果缓存
+  const [proxyCheckResults, setProxyCheckResults] = useState<
+    Map<
+      string,
+      {
+        checking: boolean;
+        result: ProxyCheckResult | null;
+        error: string | null;
+      }
+    >
+  >(new Map());
+  // 批量测试并发控制
+  const BATCH_TEST_CONCURRENCY = 5;
+  // 创建代理对话框
+  const [createProxyDialogOpen, setCreateProxyDialogOpen] = useState(false);
   const PROXY_PAGE_SIZE = 10;
 
   // VPS 登录代理设置
@@ -961,25 +979,30 @@ export function BwbrowserCloudAccountsDialog({
   );
 
   // 打开环境编辑弹窗
-  const handleOpenEnvDialog = useCallback(async (account: BwbrowserAccount) => {
-    setEnvDialogAccount(account);
-    setSelectedEnvUuid(account.env_uuid ?? null);
-    setEnvDialogOpen(true);
-    setEnvLoading(true);
-    try {
-      const envs = await invoke<
-        { env_uuid: string; name: string; browser_type: string }[]
-      >("bwbrowser_list_envs");
-      setCloudEnvs(envs || []);
-    } catch (e) {
-      showErrorToast(
-        `加载环境列表失败: ${e instanceof Error ? e.message : String(e)}`,
-      );
-      setCloudEnvs([]);
-    } finally {
-      setEnvLoading(false);
-    }
-  }, []);
+  const handleOpenEnvDialog = useCallback(
+    async (account: BwbrowserAccount) => {
+      setEnvDialogAccount(account);
+      setSelectedEnvUuid(account.env_uuid ?? null);
+      setEnvDialogOpen(true);
+      setEnvLoading(true);
+      try {
+        const envs = await invoke<
+          { env_uuid: string; name: string; browser_type: string }[]
+        >("bwbrowser_list_envs", {
+          companyId: selectedCompanyId ? selectedCompanyId : null,
+        });
+        setCloudEnvs(envs || []);
+      } catch (e) {
+        showErrorToast(
+          `加载环境列表失败: ${e instanceof Error ? e.message : String(e)}`,
+        );
+        setCloudEnvs([]);
+      } finally {
+        setEnvLoading(false);
+      }
+    },
+    [selectedCompanyId],
+  );
 
   // 保存环境绑定
   const handleSaveEnvBinding = useCallback(async () => {
@@ -1148,11 +1171,12 @@ export function BwbrowserCloudAccountsDialog({
       setProxyDialogLoading(true);
       try {
         // 直接拉云端代理列表（数据以云端为准，不读本地缓存、不同步到本地）
+        // 超级管理员切换公司时，使用当前选中的公司 ID 拉取对应公司的代理
         let proxies: StoredProxy[] = [];
         try {
           const cloud = await invoke<CloudProxyItem[]>(
             "bwbrowser_list_proxies",
-            { companyId: null },
+            { companyId: selectedCompanyId ? selectedCompanyId : null },
           );
           proxies = (cloud ?? []).map((item) => ({
             id: item.id,
@@ -1208,7 +1232,176 @@ export function BwbrowserCloudAccountsDialog({
         setProxyDialogLoading(false);
       }
     },
-    [],
+    [selectedCompanyId],
+  );
+
+  // 刷新云端代理列表（不重新打开弹窗）
+  const refreshCloudProxyList = useCallback(async () => {
+    setProxyDialogLoading(true);
+    try {
+      const cloud = await invoke<CloudProxyItem[]>("bwbrowser_list_proxies", {
+        companyId: selectedCompanyId ? selectedCompanyId : null,
+      });
+      const proxies = (cloud ?? []).map((item) => ({
+        id: item.id,
+        name: item.name,
+        proxy_settings: {
+          proxy_type: item.proxy_type,
+          host: item.host,
+          port: item.port,
+          username: item.username ?? undefined,
+          password: item.password ?? undefined,
+          vless_uri: item.vless_uri ?? undefined,
+        },
+        is_cloud_managed: item.is_cloud_managed,
+        country: item.country ?? undefined,
+        city: item.city ?? undefined,
+      }));
+      setCloudProxyOptions(proxies);
+    } catch (e) {
+      console.warn("刷新云端代理列表失败:", e);
+    } finally {
+      setProxyDialogLoading(false);
+    }
+  }, [selectedCompanyId]);
+
+  // 测试单个代理健康状态
+  const testSingleProxy = useCallback(async (proxy: StoredProxy) => {
+    setProxyCheckResults((prev) => {
+      const next = new Map(prev);
+      next.set(proxy.id, { checking: true, result: null, error: null });
+      return next;
+    });
+    try {
+      const result = await invoke<ProxyCheckResult>("check_proxy_validity", {
+        proxyId: proxy.id,
+        proxySettings: proxy.proxy_settings,
+      });
+      setProxyCheckResults((prev) => {
+        const next = new Map(prev);
+        next.set(proxy.id, { checking: false, result, error: null });
+        return next;
+      });
+      return result;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setProxyCheckResults((prev) => {
+        const next = new Map(prev);
+        next.set(proxy.id, {
+          checking: false,
+          result: {
+            ip: "",
+            timestamp: Math.floor(Date.now() / 1000),
+            is_valid: false,
+          },
+          error: msg,
+        });
+        return next;
+      });
+      throw e;
+    }
+  }, []);
+
+  // 批量测试代理（并发控制）
+  const batchTestProxies = useCallback(async (proxies: StoredProxy[]) => {
+    if (proxies.length === 0) return;
+
+    // 先全部标记为测试中
+    setProxyCheckResults((prev) => {
+      const next = new Map(prev);
+      for (const p of proxies) {
+        next.set(p.id, { checking: true, result: null, error: null });
+      }
+      return next;
+    });
+
+    // 并发控制：最多同时跑 BATCH_TEST_CONCURRENCY 个
+    let index = 0;
+    const results: Map<string, ProxyCheckResult | null> = new Map();
+    const errors: Map<string, string> = new Map();
+
+    async function worker() {
+      while (index < proxies.length) {
+        const currentIndex = index++;
+        const proxy = proxies[currentIndex];
+        try {
+          const result = await invoke<ProxyCheckResult>(
+            "check_proxy_validity",
+            {
+              proxyId: proxy.id,
+              proxySettings: proxy.proxy_settings,
+            },
+          );
+          results.set(proxy.id, result);
+          // 逐个更新 UI，显示进度
+          setProxyCheckResults((prev) => {
+            const next = new Map(prev);
+            next.set(proxy.id, { checking: false, result, error: null });
+            return next;
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          errors.set(proxy.id, msg);
+          setProxyCheckResults((prev) => {
+            const next = new Map(prev);
+            next.set(proxy.id, {
+              checking: false,
+              result: {
+                ip: "",
+                timestamp: Math.floor(Date.now() / 1000),
+                is_valid: false,
+              },
+              error: msg,
+            });
+            return next;
+          });
+        }
+      }
+    }
+
+    const workers = Array.from(
+      { length: Math.min(BATCH_TEST_CONCURRENCY, proxies.length) },
+      () => worker(),
+    );
+    await Promise.all(workers);
+  }, []);
+
+  // 创建新代理（云端）
+  const handleCreateCloudProxy = useCallback(
+    async (payload: {
+      name: string;
+      proxySettings: {
+        proxy_type: string;
+        host: string;
+        port: number;
+        username?: string;
+        password?: string;
+        vless_uri?: string;
+      };
+    }) => {
+      const isUriType =
+        payload.proxySettings.proxy_type === "vless" ||
+        payload.proxySettings.proxy_type === "trojan";
+      await invoke("bwbrowser_sync_proxy", {
+        proxyId: null,
+        proxyName: payload.name,
+        proxyType: payload.proxySettings.proxy_type,
+        host: payload.proxySettings.host,
+        port: payload.proxySettings.port,
+        username: payload.proxySettings.username ?? null,
+        password: payload.proxySettings.password ?? null,
+        country: null,
+        city: null,
+        timezone: null,
+        protocolConfig: isUriType
+          ? (payload.proxySettings.vless_uri ?? null)
+          : null,
+      });
+      showSuccessToast("代理创建成功");
+      // 创建成功后立即刷新列表
+      await refreshCloudProxyList();
+    },
+    [refreshCloudProxyList],
   );
 
   // 保存账号代理
@@ -2965,6 +3158,33 @@ export function BwbrowserCloudAccountsDialog({
               className="h-8 pl-7 text-xs"
             />
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1 text-xs"
+            onClick={() => void batchTestProxies(filteredProxies)}
+            disabled={filteredProxies.length === 0}
+          >
+            <LuPlay className="h-3 w-3" />
+            批量测试
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1 text-xs"
+            onClick={() => void refreshCloudProxyList()}
+          >
+            <LuRefreshCw className="h-3 w-3" />
+            刷新
+          </Button>
+          <Button
+            size="sm"
+            className="h-8 gap-1 text-xs"
+            onClick={() => setCreateProxyDialogOpen(true)}
+          >
+            <LuPlus className="h-3 w-3" />
+            创建节点
+          </Button>
           <span className="shrink-0 text-xs text-muted-foreground">
             共 {filteredProxies.length} 个
           </span>
@@ -2998,6 +3218,9 @@ export function BwbrowserCloudAccountsDialog({
                   </th>
                   <th className="w-20 px-2 py-2 text-left text-xs font-medium text-muted-foreground">
                     来源
+                  </th>
+                  <th className="w-16 px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                    状态
                   </th>
                   <th className="w-12 px-2 py-2 text-left text-xs font-medium text-muted-foreground">
                     操作
@@ -3097,6 +3320,82 @@ export function BwbrowserCloudAccountsDialog({
                         )}
                       </td>
                       <td className="px-2 py-2">
+                        {(() => {
+                          const check = proxyCheckResults.get(proxy.id);
+                          const checking = check?.checking ?? false;
+                          const result = check?.result ?? null;
+                          const error = check?.error ?? null;
+                          if (checking) {
+                            return (
+                              <div className="flex items-center gap-1.5">
+                                <span className="inline-block h-3 w-3 animate-spin rounded-full border border-muted-foreground/40 border-t-muted-foreground" />
+                                <span className="text-[11px] text-muted-foreground">
+                                  测试中
+                                </span>
+                              </div>
+                            );
+                          }
+                          if (result?.is_valid) {
+                            return (
+                              <div className="flex flex-col gap-0.5">
+                                <div className="flex items-center gap-1">
+                                  <FiCheck className="h-3 w-3 text-success" />
+                                  <span className="text-[11px] font-medium text-success">
+                                    可达
+                                  </span>
+                                  {typeof result.latency_ms === "number" && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {result.latency_ms}ms
+                                    </span>
+                                  )}
+                                </div>
+                                {result.ip && (
+                                  <span className="font-mono text-[10px] text-muted-foreground">
+                                    {result.ip}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          }
+                          if (result && !result.is_valid) {
+                            return (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void testSingleProxy(proxy);
+                                }}
+                                className="flex items-start gap-1 text-left hover:opacity-80"
+                                title={error ?? "不可达，点击重试"}
+                              >
+                                <FiX className="mt-0.5 h-3 w-3 text-destructive-text" />
+                                <div className="flex flex-col">
+                                  <span className="text-[11px] font-medium text-destructive-text">
+                                    不可达
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    点击重试
+                                  </span>
+                                </div>
+                              </button>
+                            );
+                          }
+                          return (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void testSingleProxy(proxy);
+                              }}
+                              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                            >
+                              <LuPlay className="h-3 w-3" />
+                              测试
+                            </button>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-2 py-2">
                         {isSelected && (
                           <LuCheck className="h-3.5 w-3.5 text-primary" />
                         )}
@@ -3173,6 +3472,15 @@ export function BwbrowserCloudAccountsDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+
+  const createProxyDialog = (
+    <ProxyFormDialog
+      isOpen={createProxyDialogOpen}
+      onClose={() => setCreateProxyDialogOpen(false)}
+      onSave={handleCreateCloudProxy}
+      saveLabel="创建到云端"
+    />
   );
 
   const vpsProxyDialog = (
@@ -4316,6 +4624,7 @@ export function BwbrowserCloudAccountsDialog({
       <div className="flex h-full min-h-0 w-full flex-col gap-0 overflow-hidden">
         {content}
         {proxyDialog}
+        {createProxyDialog}
         {vpsProxyDialog}
         {envDialog}
         {codeEditDialog}
@@ -4334,6 +4643,7 @@ export function BwbrowserCloudAccountsDialog({
         </DialogContent>
       </Dialog>
       {proxyDialog}
+      {createProxyDialog}
       {vpsProxyDialog}
       {envDialog}
       {codeEditDialog}

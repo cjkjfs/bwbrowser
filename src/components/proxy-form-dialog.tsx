@@ -44,6 +44,20 @@ interface ProxyFormDialogProps {
   isOpen: boolean;
   onClose: () => void;
   editingProxy?: StoredProxy | null;
+  /** 自定义保存逻辑，不传则使用本地存储（create/update_stored_proxy） */
+  onSave?: (payload: {
+    name: string;
+    proxySettings: {
+      proxy_type: string;
+      host: string;
+      port: number;
+      username?: string;
+      password?: string;
+      vless_uri?: string;
+    };
+  }) => Promise<void>;
+  /** 保存按钮文本，默认根据 editingProxy 自动选择"创建"/"更新" */
+  saveLabel?: string;
 }
 
 const DEFAULT_FORM: ProxyFormData = {
@@ -133,6 +147,8 @@ export function ProxyFormDialog({
   isOpen,
   onClose,
   editingProxy,
+  onSave,
+  saveLabel,
 }: ProxyFormDialogProps) {
   const { t } = useTranslation();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -221,7 +237,9 @@ export function ProxyFormDialog({
         },
       };
 
-      if (editingProxy) {
+      if (onSave) {
+        await onSave(payload);
+      } else if (editingProxy) {
         await invoke("update_stored_proxy", {
           proxyId: editingProxy.id,
           ...payload,
@@ -243,7 +261,7 @@ export function ProxyFormDialog({
     } finally {
       setIsSubmitting(false);
     }
-  }, [editingProxy, form, onClose, t, vlessUnsupported]);
+  }, [editingProxy, form, onClose, onSave, t, vlessUnsupported]);
 
   const handleClose = useCallback(() => {
     if (!isSubmitting) {
@@ -372,7 +390,46 @@ export function ProxyFormDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="@container grid gap-4 py-4">
+        <div className="grid gap-4 py-4">
+          {/* 一键粘贴按钮 */}
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const text = await navigator.clipboard.readText();
+                if (!text.trim()) return;
+                const results = await invoke<ProxyParseResult[]>(
+                  "parse_txt_proxies",
+                  { content: text },
+                );
+                const parsed = pickParsedProxy(results);
+                if (!parsed) {
+                  toast.error("未识别到有效的代理信息");
+                  return;
+                }
+                setForm((previous) => ({
+                  ...previous,
+                  name: previous.name.trim() || `${parsed.host}:${parsed.port}`,
+                  proxy_type: parsed.proxy_type,
+                  host: parsed.host,
+                  port: parsed.port,
+                  username: parsed.username ?? "",
+                  password: parsed.password ?? "",
+                  vless_uri: parsed.vless_uri ?? "",
+                }));
+                toast.success("已解析并填充代理信息");
+              } catch {
+                toast.error("读取剪贴板失败");
+              }
+            }}
+            disabled={isSubmitting}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-foreground text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
+          >
+            <span className="text-lg">⚡</span>
+            <span className="text-base font-medium">一键粘贴自动分析</span>
+          </button>
+
+          {/* 代理名称 */}
           <div className="grid gap-2">
             <Label htmlFor="proxy-name">{t("proxies.form.name")}</Label>
             <Input
@@ -384,65 +441,93 @@ export function ProxyFormDialog({
               onPaste={handleProxyPaste}
               placeholder={t("proxies.form.namePlaceholder")}
               disabled={isSubmitting}
+              className="h-11"
             />
           </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="proxy-type">{t("proxies.form.type")}</Label>
-            <Select
-              value={form.proxy_type}
-              onValueChange={(value) => {
-                setForm({ ...form, proxy_type: value });
-              }}
-              disabled={isSubmitting}
-            >
-              <SelectTrigger
-                id="proxy-type"
-                aria-describedby={
-                  canonicalType === "httpstls"
-                    ? "proxy-type-first-hop proxy-type-tls-hint"
-                    : "proxy-type-first-hop"
-                }
+          {/* 协议类型 + 端口 */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="proxy-type">{t("proxies.form.type")}</Label>
+              <Select
+                value={form.proxy_type}
+                onValueChange={(value) => {
+                  setForm({ ...form, proxy_type: value });
+                }}
+                disabled={isSubmitting}
               >
-                <SelectValue placeholder={t("proxies.form.selectType")} />
-              </SelectTrigger>
-              <SelectContent>
-                {TYPE_GROUPS.map((group) => (
-                  <SelectGroup key={group.labelKey}>
-                    <SelectLabel>{t(group.labelKey)}</SelectLabel>
-                    {group.types.map((type) => (
-                      <SelectItem key={type} value={typeItemValue(type)}>
-                        {t(`proxies.types.${type}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                ))}
-              </SelectContent>
-            </Select>
-            <p
-              id="proxy-type-first-hop"
-              className={
-                firstHopEncrypted
-                  ? "text-xs text-muted-foreground"
-                  : "text-xs text-warning-text"
-              }
-            >
-              {firstHopEncrypted
-                ? t("proxies.form.firstHopEncryptedNote")
-                : cipherUndecided
-                  ? t("proxies.form.firstHopCipherNote")
-                  : t("proxies.form.firstHopPlaintextNote")}
-            </p>
-            {canonicalType === "httpstls" && (
-              <p
-                id="proxy-type-tls-hint"
-                className="text-xs text-muted-foreground"
-              >
-                {t("proxies.form.httpsTlsHint")}
-              </p>
-            )}
+                <SelectTrigger
+                  id="proxy-type"
+                  className="h-11"
+                  aria-describedby={
+                    canonicalType === "httpstls"
+                      ? "proxy-type-first-hop proxy-type-tls-hint"
+                      : "proxy-type-first-hop"
+                  }
+                >
+                  <SelectValue placeholder={t("proxies.form.selectType")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {TYPE_GROUPS.map((group) => (
+                    <SelectGroup key={group.labelKey}>
+                      <SelectLabel>{t(group.labelKey)}</SelectLabel>
+                      {group.types.map((type) => (
+                        <SelectItem key={type} value={typeItemValue(type)}>
+                          {t(`proxies.types.${type}`)}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="proxy-port">{t("proxies.form.port")}</Label>
+              <Input
+                id="proxy-port"
+                type="number"
+                value={form.port}
+                onChange={(e) => {
+                  setForm({
+                    ...form,
+                    port: Number.parseInt(e.target.value, 10) || 0,
+                  });
+                }}
+                onPaste={handleProxyPaste}
+                placeholder={t("proxies.form.portPlaceholder")}
+                min="1"
+                max="65535"
+                disabled={isSubmitting}
+                className="h-11"
+              />
+            </div>
           </div>
 
+          {/* 首跳加密提示 */}
+          <p
+            id="proxy-type-first-hop"
+            className={
+              firstHopEncrypted
+                ? "text-xs text-muted-foreground"
+                : "text-xs text-warning-text"
+            }
+          >
+            {firstHopEncrypted
+              ? t("proxies.form.firstHopEncryptedNote")
+              : cipherUndecided
+                ? t("proxies.form.firstHopCipherNote")
+                : t("proxies.form.firstHopPlaintextNote")}
+          </p>
+          {canonicalType === "httpstls" && (
+            <p
+              id="proxy-type-tls-hint"
+              className="text-xs text-muted-foreground"
+            >
+              {t("proxies.form.httpsTlsHint")}
+            </p>
+          )}
+
+          {/* VLESS/Trojan URI 或 主机+账号密码 */}
           {isUriType ? (
             <div className="grid gap-2">
               <Label htmlFor="proxy-vless-uri">
@@ -480,43 +565,24 @@ export function ProxyFormDialog({
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="proxy-host">{t("proxies.form.host")}</Label>
-                  <Input
-                    id="proxy-host"
-                    value={form.host}
-                    onChange={(e) => {
-                      setForm({ ...form, host: e.target.value });
-                    }}
-                    onPaste={handleProxyPaste}
-                    placeholder={t("proxies.form.hostPlaceholder")}
-                    disabled={isSubmitting}
-                  />
-                </div>
-
-                <div className="grid gap-2">
-                  <Label htmlFor="proxy-port">{t("proxies.form.port")}</Label>
-                  <Input
-                    id="proxy-port"
-                    type="number"
-                    value={form.port}
-                    onChange={(e) => {
-                      setForm({
-                        ...form,
-                        port: Number.parseInt(e.target.value, 10) || 0,
-                      });
-                    }}
-                    onPaste={handleProxyPaste}
-                    placeholder={t("proxies.form.portPlaceholder")}
-                    min="1"
-                    max="65535"
-                    disabled={isSubmitting}
-                  />
-                </div>
+              {/* 主机地址 */}
+              <div className="grid gap-2">
+                <Label htmlFor="proxy-host">{t("proxies.form.host")}</Label>
+                <Input
+                  id="proxy-host"
+                  value={form.host}
+                  onChange={(e) => {
+                    setForm({ ...form, host: e.target.value });
+                  }}
+                  onPaste={handleProxyPaste}
+                  placeholder={t("proxies.form.hostPlaceholder")}
+                  disabled={isSubmitting}
+                  className="h-11"
+                />
               </div>
 
-              <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
+              {/* 用户名 + 密码 */}
+              <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="proxy-username">
                     {isShadowsocks
@@ -535,6 +601,7 @@ export function ProxyFormDialog({
                         : t("proxies.form.usernamePlaceholder")
                     }
                     disabled={isSubmitting}
+                    className="h-11"
                   />
                 </div>
 
@@ -551,6 +618,7 @@ export function ProxyFormDialog({
                     }}
                     placeholder={t("proxies.form.passwordPlaceholder")}
                     disabled={isSubmitting}
+                    className="h-11"
                   />
                 </div>
               </div>
@@ -586,7 +654,7 @@ export function ProxyFormDialog({
             onClick={handleSubmit}
             disabled={!canSubmit}
           >
-            {editingProxy ? t("proxies.edit") : t("proxies.add")}
+            {saveLabel ?? (editingProxy ? t("proxies.edit") : t("proxies.add"))}
           </LoadingButton>
         </DialogFooter>
       </DialogContent>
