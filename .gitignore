@@ -91,6 +91,9 @@ add_php_actions.py
 一键推送.ps1
 一键推送.bat
 
+# Local program backup snapshot (never tracked, never pushed)
+/bak/
+
 # Browser fingerprint analysis
 browser-fingerprint-macos-analysis/
 

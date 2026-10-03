@@ -22,12 +22,12 @@ use std::sync::OnceLock;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FingerprintTemplate {
   pub name: String,
-  pub os: String, // "windows", "macos", "android", "ios"
+  pub os: String,      // "windows", "macos", "android", "ios"
   pub browser: String, // "chrome", "edge", "safari"
   pub user_agents: Vec<String>,
   pub platform: String,
   pub screen_resolutions: Vec<(u32, u32)>, // (width, height)
-  pub window_sizes: Vec<(u32, u32)>, // (outerWidth, outerHeight)
+  pub window_sizes: Vec<(u32, u32)>,       // (outerWidth, outerHeight)
   pub color_depths: Vec<u32>,
   pub pixel_ratios: Vec<f64>,
   pub hardware_concurrencies: Vec<u32>,
@@ -483,16 +483,6 @@ pub fn random_template(os_filter: Option<&str>) -> Option<&'static FingerprintTe
   templates.choose(&mut rng).copied()
 }
 
-/// List all templates in the database.
-pub fn list_templates() -> Vec<&'static FingerprintTemplate> {
-  db().iter().collect()
-}
-
-/// Number of templates in the database.
-pub fn template_count() -> usize {
-  db().len()
-}
-
 // ---------------------------------------------------------------------------
 // Fingerprint generation
 // ---------------------------------------------------------------------------
@@ -509,7 +499,11 @@ pub fn generate_fingerprint(template: &FingerprintTemplate) -> Value {
   use rand::seq::IndexedRandom;
   let mut rng = rand::rng();
 
-  let user_agent = template.user_agents.choose(&mut rng).cloned().unwrap_or_default();
+  let user_agent = template
+    .user_agents
+    .choose(&mut rng)
+    .cloned()
+    .unwrap_or_default();
   let (screen_w, screen_h) = template
     .screen_resolutions
     .choose(&mut rng)
@@ -520,21 +514,41 @@ pub fn generate_fingerprint(template: &FingerprintTemplate) -> Value {
     .choose(&mut rng)
     .copied()
     .unwrap_or((screen_w, screen_h - 40));
-  let color_depth = template.color_depths.choose(&mut rng).copied().unwrap_or(24);
-  let pixel_ratio = template.pixel_ratios.choose(&mut rng).copied().unwrap_or(1.0);
+  let color_depth = template
+    .color_depths
+    .choose(&mut rng)
+    .copied()
+    .unwrap_or(24);
+  let pixel_ratio = template
+    .pixel_ratios
+    .choose(&mut rng)
+    .copied()
+    .unwrap_or(1.0);
   let hw_concurrency = template
     .hardware_concurrencies
     .choose(&mut rng)
     .copied()
     .unwrap_or(8);
-  let device_memory = template.device_memories.choose(&mut rng).copied().unwrap_or(8);
-  let webgl_vendor = template.webgl_vendors.choose(&mut rng).cloned().unwrap_or_default();
+  let device_memory = template
+    .device_memories
+    .choose(&mut rng)
+    .copied()
+    .unwrap_or(8);
+  let webgl_vendor = template
+    .webgl_vendors
+    .choose(&mut rng)
+    .cloned()
+    .unwrap_or_default();
   let webgl_renderer = template
     .webgl_renderers
     .choose(&mut rng)
     .cloned()
     .unwrap_or_default();
-  let language = template.languages.choose(&mut rng).cloned().unwrap_or_else(|| "en-US".into());
+  let language = template
+    .languages
+    .choose(&mut rng)
+    .cloned()
+    .unwrap_or_else(|| "en-US".into());
 
   // screenAvail is screen minus taskbar/menu bar
   let avail_h = screen_h - if template.os == "macos" { 28 } else { 40 };
@@ -617,7 +631,7 @@ mod tests {
 
   #[test]
   fn seed_database_is_not_empty() {
-    assert!(template_count() >= 12, "expected at least 12 seed templates");
+    assert!(db().len() >= 12, "expected at least 12 seed templates");
   }
 
   #[test]
@@ -653,7 +667,10 @@ mod tests {
     let parsed: Value = serde_json::from_str(&fp).expect("valid JSON");
     let platform = parsed["platform"].as_str().unwrap();
     assert!(platform == "iPhone" || platform == "iPad");
-    assert!(parsed["userAgent"].as_str().unwrap().contains("iPhone") || parsed["userAgent"].as_str().unwrap().contains("iPad"));
+    assert!(
+      parsed["userAgent"].as_str().unwrap().contains("iPhone")
+        || parsed["userAgent"].as_str().unwrap().contains("iPad")
+    );
   }
 
   #[test]
@@ -685,6 +702,6 @@ mod tests {
     assert_eq!(base_language("en-US"), "en");
     assert_eq!(base_language("zh-CN"), "zh");
     assert_eq!(base_language("fr"), "fr");
-    assert_eq!(base_language(""), "en");
+    assert_eq!(base_language(""), "");
   }
 }

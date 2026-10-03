@@ -75,6 +75,7 @@ mod extension_fetch;
 mod extension_manager;
 mod extraction;
 mod fingerprint_consistency;
+mod fingerprint_db;
 mod fs_secure;
 mod geoip_downloader;
 mod geolocation;

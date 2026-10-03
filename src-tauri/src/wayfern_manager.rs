@@ -2084,7 +2084,7 @@ impl WayfernManager {
       .map_err(|e| format!("Failed to get Wayfern executable path: {e}"))?;
 
     let port = Self::find_free_port().await?;
-    log::info!("Launching headless Wayfern on port {port} for fingerprint generation");
+    log::info!("Launching headless Wayfern on port {port} as an install sanity check (fingerprint generation is offline)");
 
     let temp_profile_dir =
       std::env::temp_dir().join(format!("wayfern_fingerprint_{}", uuid::Uuid::new_v4()));
@@ -2219,125 +2219,26 @@ impl WayfernManager {
       return Err(e);
     }
 
-    let targets = match self.get_cdp_targets(port).await {
-      Ok(t) => t,
-      Err(e) => {
-        cleanup().await;
-        return Err(e);
-      }
-    };
-
-    let page_target = targets
-      .iter()
-      .find(|t| t.target_type == "page" && t.websocket_debugger_url.is_some());
-
-    let ws_url = match page_target {
-      Some(target) => target.websocket_debugger_url.as_ref().unwrap().clone(),
-      None => {
-        cleanup().await;
-        return Err("No page target found for CDP".into());
-      }
-    };
-
     let host_os = crate::profile::types::get_host_os();
     let os = config.os.as_deref().unwrap_or(&host_os);
-
-    // Include wayfern token if available (enables cross-OS fingerprinting for paid users)
-    let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
-    let mut generate_params = json!({ "operatingSystem": os });
-    if let Some(ref token) = wayfern_token {
-      generate_params
-        .as_object_mut()
-        .unwrap()
-        .insert("wayfernToken".to_string(), json!(token));
-    }
 
     let use_identity_api = supports_identity_api(&profile.version);
     let mut fell_back_to_legacy = false;
 
     stage("正在生成设备指纹...");
 
-    // No geolocation override is passed here. Donut resolves the exit's
-    // location itself, below, through the profile's own proxy, because the
-    // browser cannot resolve it through an authenticated upstream.
-    let generate_result = if use_identity_api {
-      let identity_result = self
-        .send_cdp_command(&ws_url, "Wayfern.createIdentity", generate_params.clone())
-        .await;
-
-      match identity_result {
-        Ok(r) => Ok(r),
-        Err(e) => {
-          let err_str = e.to_string();
-          log::warn!(
-            "Wayfern.createIdentity failed: {} (checking for quota limit fallback)",
-            err_str
-          );
-          // 配额不足时自动降级
-          let is_limit_error = err_str.contains("limit reached")
-            || err_str.contains("generation limit")
-            || err_str.contains("quota")
-            || err_str.contains("LIMIT_REACHED")
-            || err_str.contains("limit");
-          if is_limit_error {
-            log::warn!("Quota limit detected; trying legacy refreshFingerprint fallback",);
-            fell_back_to_legacy = true;
-            // 第一步：试 legacy 的 refreshFingerprint
-            match self
-              .send_cdp_command(
-                &ws_url,
-                "Wayfern.refreshFingerprint",
-                generate_params.clone(),
-              )
-              .await
-            {
-              Ok(_) => {
-                log::info!("Legacy refreshFingerprint succeeded");
-                self
-                  .send_cdp_command(&ws_url, "Wayfern.getFingerprint", json!({}))
-                  .await
-              }
-              Err(refresh_err) => {
-                log::warn!(
-                  "Legacy refreshFingerprint also failed ({}); falling back to default fingerprint + location override",
-                  refresh_err
-                );
-                // 第二步：直接用默认指纹 + 手动覆盖时区（不消耗配额）
-                match self
-                  .send_cdp_command(&ws_url, "Wayfern.getFingerprint", json!({}))
-                  .await
-                {
-                  Ok(default_fp) => {
-                    log::info!("Got default Wayfern fingerprint; will apply location override");
-                    Ok(default_fp)
-                  }
-                  Err(get_err) => {
-                    log::error!("Even getFingerprint failed: {}", get_err);
-                    Err(e)
-                  }
-                }
-              }
-            }
-          } else {
-            Err(e)
-          }
+    // Pure offline mode: generate from the bundled template DB and never call
+    // the Wayfern generation backend — no quota, no outage dependency, and
+    // every profile gets its own locally-sampled device.
+    let generate_result: Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> =
+      match Self::local_fallback_fingerprint(os) {
+        Some(fp) => {
+          fell_back_to_legacy = true;
+          log::info!("Offline local fingerprint generated (setFingerprint mode)");
+          Ok(fp)
         }
-      }
-    } else {
-      match self
-        .send_cdp_command(&ws_url, "Wayfern.refreshFingerprint", generate_params)
-        .await
-      {
-        // The legacy pair is two commands: refresh mints the device, get reads
-        // it back. Only the identity API returns the device from one call.
-        Ok(_) => {
-          self
-            .send_cdp_command(&ws_url, "Wayfern.getFingerprint", json!({}))
-            .await
-        }
-        Err(e) => Err(e),
-      }
-    };
+        None => Err("No local fingerprint template available for the requested OS".into()),
+      };
 
     let (fingerprint, identity_id, geolocation_applied) = match generate_result {
       Ok(result) => {
@@ -2474,6 +2375,15 @@ impl WayfernManager {
       identity_id,
       geolocation_applied,
     })
+  }
+
+  /// Offline fingerprint generation for when the Wayfern generation backend is
+  /// unavailable (quota, outage, or an SDK error). Produces a legacy payload
+  /// stored in setFingerprint mode; never an identity.
+  fn local_fallback_fingerprint(os: &str) -> Option<serde_json::Value> {
+    crate::fingerprint_db::generate_fingerprint_for_os(os)
+      .or_else(crate::fingerprint_db::generate_random_fingerprint)
+      .and_then(|s| serde_json::from_str(&s).ok())
   }
 
   #[allow(clippy::too_many_arguments)]
