@@ -32,13 +32,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
 import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
+import {
+  type BwbrowserProxy,
+  useBwbrowserProxies,
+} from "@/hooks/use-bwbrowser-proxies";
 import { useInputModality } from "@/hooks/use-input-modality";
-import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { launchBwbrowserClone } from "@/lib/bwbrowser-physics";
 import { MOTION_SPRING_POSITION } from "@/lib/motion";
 import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import { cn } from "@/lib/utils";
-import type { StoredProxy } from "@/types";
 import { Logo } from "./icons/logo";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
@@ -397,7 +399,11 @@ export function RailNav({
   } = useLogoEasterEgg({ currentPage, onNavigate });
 
   // ===== VPS 登录相关 =====
-  const { storedProxies } = useProxyEvents();
+  const {
+    proxies: vpsCloudProxies,
+    isLoading: vpsCloudProxiesLoading,
+    refresh: refreshVpsCloudProxies,
+  } = useBwbrowserProxies();
   const [vpsProxyDialogOpen, setVpsProxyDialogOpen] = useState(false);
   const [vpsContextMenuOpen, setVpsContextMenuOpen] = useState(false);
   const [vpsContextMenuPos, setVpsContextMenuPos] = useState({ x: 0, y: 0 });
@@ -408,6 +414,10 @@ export function RailNav({
     null,
   );
   const [vpsSavingProxy, setVpsSavingProxy] = useState(false);
+  // 打开对话框时 profile 已存的代理（node: 前缀原始值），用于列表加载后高亮匹配
+  const [vpsPendingProxyId, setVpsPendingProxyId] = useState<string | null>(
+    null,
+  );
   const vpsMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const [vpsLaunchProgress, setVpsLaunchProgress] = useState<number | null>(
     null,
@@ -415,35 +425,92 @@ export function RailNav({
 
   const filteredVpsProxies = useMemo(() => {
     const q = vpsProxySearch.trim().toLowerCase();
-    if (!q) return storedProxies;
-    return storedProxies.filter(
+    if (!q) return vpsCloudProxies;
+    return vpsCloudProxies.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
-        p.proxy_settings.host.toLowerCase().includes(q) ||
-        p.proxy_settings.proxy_type.toLowerCase().includes(q),
+        p.host.toLowerCase().includes(q) ||
+        p.proxy_type.toLowerCase().includes(q),
     );
-  }, [storedProxies, vpsProxySearch]);
+  }, [vpsCloudProxies, vpsProxySearch]);
 
+  // 把云端代理转成 proxy_node 字符串（与云端账号设置代理同规则）
+  const cloudProxyToNode = useCallback((p: BwbrowserProxy): string | null => {
+    const type = p.proxy_type || "http";
+    if (type === "vless" || type === "trojan" || type === "ss") {
+      const uri = p.vless_uri?.trim();
+      if (!uri) return null;
+      return uri;
+    }
+    if (p.username && p.password) {
+      return `${type}:${p.host}:${p.port}:${p.username}:${p.password}`;
+    }
+    return `${type}:${p.host}:${p.port}`;
+  }, []);
+
+  // 打开对话框：记住当前代理，等云端列表加载后按 URI/host:port 匹配高亮
   const handleOpenVpsProxyDialog = useCallback(async () => {
-    // 先打开对话框，再异步加载数据
     setVpsProxySearch("");
+    setVpsPendingProxyId(null);
+    setVpsSelectedProxyId(null);
     setVpsProxyDialogOpen(true);
+    void refreshVpsCloudProxies();
     try {
       const info = await invoke<{ proxy_id: string | null } | null>(
         "bwbrowser_get_vps_profile_info",
       );
-      setVpsSelectedProxyId(info?.proxy_id ?? null);
+      setVpsPendingProxyId(info?.proxy_id ?? null);
     } catch {
-      setVpsSelectedProxyId(null);
+      setVpsPendingProxyId(null);
     }
-  }, []);
+  }, [refreshVpsCloudProxies]);
+
+  // 列表加载完成后，把 profile 当前代理匹配到列表项并高亮
+  useEffect(() => {
+    if (!vpsPendingProxyId || vpsCloudProxiesLoading) return;
+    const raw = vpsPendingProxyId;
+    let matched: BwbrowserProxy | undefined;
+    if (raw.startsWith("node:")) {
+      const node = raw.slice("node:".length);
+      if (node.startsWith("vless://") || node.startsWith("trojan://")) {
+        matched = vpsCloudProxies.find((p) => p.vless_uri?.trim() === node);
+      } else {
+        const parts = node.split(":");
+        const hostIdx = ["http", "socks5"].includes(parts[0].toLowerCase())
+          ? 1
+          : 0;
+        const host = parts[hostIdx];
+        const port =
+          parts.length >= hostIdx + 2 ? Number(parts[hostIdx + 1]) : 0;
+        matched = vpsCloudProxies.find(
+          (p) => p.host === host && p.port === port,
+        );
+      }
+    } else {
+      matched = vpsCloudProxies.find((p) => p.id === raw);
+    }
+    if (matched) setVpsSelectedProxyId(matched.id);
+    setVpsPendingProxyId(null);
+  }, [vpsCloudProxies, vpsCloudProxiesLoading, vpsPendingProxyId]);
 
   const handleSaveVpsProxy = useCallback(async () => {
     setVpsSavingProxy(true);
     try {
-      await invoke("bwbrowser_set_vps_proxy", {
-        proxyId: vpsSelectedProxyId,
-      });
+      let proxyId: string | null = null;
+      if (vpsSelectedProxyId) {
+        const proxy = vpsCloudProxies.find((p) => p.id === vpsSelectedProxyId);
+        if (proxy) {
+          const node = cloudProxyToNode(proxy);
+          if (!node) {
+            showErrorToast("该代理缺少协议 URI，请在代理管理中重新编辑");
+            return;
+          }
+          proxyId = `node:${node}`;
+        } else {
+          proxyId = vpsSelectedProxyId;
+        }
+      }
+      await invoke("bwbrowser_set_vps_proxy", { proxyId });
       showSuccessToast("代理设置成功");
       setVpsProxyDialogOpen(false);
     } catch (err) {
@@ -452,7 +519,7 @@ export function RailNav({
     } finally {
       setVpsSavingProxy(false);
     }
-  }, [vpsSelectedProxyId]);
+  }, [vpsSelectedProxyId, vpsCloudProxies, cloudProxyToNode]);
 
   const handleDeleteVpsData = useCallback(() => {
     const ok = window.confirm(
@@ -967,12 +1034,16 @@ export function RailNav({
               </div>
             </button>
 
-            {filteredVpsProxies.length === 0 ? (
+            {vpsCloudProxiesLoading ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                正在加载云端代理列表...
+              </div>
+            ) : filteredVpsProxies.length === 0 ? (
               <div className="p-8 text-center text-sm text-muted-foreground">
                 暂无可用代理，请先在代理中心添加
               </div>
             ) : (
-              filteredVpsProxies.map((p: StoredProxy) => (
+              filteredVpsProxies.map((p: BwbrowserProxy) => (
                 <button
                   key={p.id}
                   type="button"
@@ -987,15 +1058,22 @@ export function RailNav({
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="truncate text-xs font-medium text-foreground">
-                      {p.name}
+                    <div className="flex items-center gap-1">
+                      {p.country && (
+                        <span className="inline-flex shrink-0 rounded bg-muted px-1 py-px text-[10px] font-medium text-muted-foreground">
+                          {p.country}
+                        </span>
+                      )}
+                      <span className="truncate text-xs font-medium text-foreground">
+                        {p.name}
+                      </span>
                     </div>
                     <div className="truncate text-xs text-muted-foreground">
-                      {p.proxy_settings.host}:{p.proxy_settings.port}
+                      {p.host}:{p.port}
                     </div>
                   </div>
                   <div className="shrink-0 text-[10px] uppercase text-muted-foreground">
-                    {p.proxy_settings.proxy_type}
+                    {p.proxy_type}
                   </div>
                 </button>
               ))
