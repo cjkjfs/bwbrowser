@@ -495,21 +495,15 @@ impl BrowserRunner {
         );
       }
       let randomize_requested = wayfern_config.randomize_fingerprint_on_launch == Some(true);
-      let explicitly_non_randomizing =
-        wayfern_config.randomize_fingerprint_on_launch == Some(false);
-      let migrating_payload = wayfern_config.identity_id.is_none()
-        && wayfern_config.fingerprint.is_some()
-        && crate::wayfern_manager::supports_identity_api(&profile.version)
-        && !explicitly_non_randomizing;
-      let needs_device = migrating_payload
-        || (wayfern_config.fingerprint.is_none() && wayfern_config.identity_id.is_none());
+      // Offline generation: a stored fingerprint IS the profile's identity and
+      // is never rewritten at launch. The old identity-API migration
+      // regenerated a stored device on every launch (overwriting the synced
+      // one), which broke cross-machine identity; offline mode never mints an
+      // identity anyway, so the migration is gone.
+      let needs_device =
+        wayfern_config.fingerprint.is_none() && wayfern_config.identity_id.is_none();
       if randomize_requested || needs_device {
-        if migrating_payload && !randomize_requested {
-          log::info!(
-            "Migrating Wayfern profile {} from a stored device to an identity",
-            profile.name
-          );
-        } else if needs_device && !randomize_requested {
+        if needs_device && !randomize_requested {
           log::info!(
             "No stored device for Wayfern profile {}; generating one",
             profile.name

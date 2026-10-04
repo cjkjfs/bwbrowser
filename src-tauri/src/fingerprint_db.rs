@@ -96,7 +96,9 @@ fn seed_templates() -> Vec<FingerprintTemplate> {
       screen_resolutions: vec![(1920, 1080), (2560, 1440), (1920, 1200)],
       window_sizes: vec![(1920, 1040), (2560, 1400), (1920, 1160)],
       color_depths: vec![24],
-      pixel_ratios: vec![1.0, 1.25],
+      // Wayfern reports the claimed screen scaled by DPR while the window runs
+      // 1:1, so only 1.0 is self-consistent on a desktop host.
+      pixel_ratios: vec![1.0],
       hardware_concurrencies: vec![6, 8, 12],
       device_memories: vec![8, 16],
       webgl_vendors: vec![
@@ -132,7 +134,10 @@ fn seed_templates() -> Vec<FingerprintTemplate> {
       screen_resolutions: vec![(2560, 1440), (3840, 2160), (3440, 1440)],
       window_sizes: vec![(2560, 1400), (3840, 2120), (3440, 1400)],
       color_depths: vec![24, 30],
-      pixel_ratios: vec![1.0, 1.25, 1.5],
+      // See Windows Chrome Mid: Wayfern scales the claimed screen by DPR while
+      // the window runs 1:1, so a desktop claim other than 1.0 leaks the host
+      // display through screen.width/height.
+      pixel_ratios: vec![1.0],
       hardware_concurrencies: vec![12, 16, 20, 24],
       device_memories: vec![16, 32, 64],
       webgl_vendors: vec![
@@ -167,7 +172,9 @@ fn seed_templates() -> Vec<FingerprintTemplate> {
       screen_resolutions: vec![(1920, 1080), (2560, 1440)],
       window_sizes: vec![(1920, 1040), (2560, 1400)],
       color_depths: vec![24],
-      pixel_ratios: vec![1.0, 1.25],
+      // Wayfern scales the claimed screen by DPR while the window runs 1:1, so
+      // a desktop claim other than 1.0 leaks the host display.
+      pixel_ratios: vec![1.0],
       hardware_concurrencies: vec![8, 12],
       device_memories: vec![8, 16],
       webgl_vendors: vec![
@@ -404,7 +411,9 @@ fn seed_templates() -> Vec<FingerprintTemplate> {
       screen_resolutions: vec![(1920, 1080), (2560, 1440), (3840, 2160)],
       window_sizes: vec![(1920, 1000), (2560, 1360), (3840, 2080)],
       color_depths: vec![24, 30],
-      pixel_ratios: vec![1.0, 1.25, 1.5, 2.0],
+      // Wayfern scales the claimed screen by DPR while the window runs 1:1, so
+      // a desktop claim other than 1.0 leaks the host display.
+      pixel_ratios: vec![1.0],
       hardware_concurrencies: vec![4, 8, 12, 16, 24, 32],
       device_memories: vec![8, 16, 32, 64],
       webgl_vendors: vec![
@@ -440,7 +449,9 @@ fn seed_templates() -> Vec<FingerprintTemplate> {
       screen_resolutions: vec![(1920, 1080), (2560, 1440), (1920, 1200)],
       window_sizes: vec![(1920, 1000), (2560, 1360), (1920, 1120)],
       color_depths: vec![24],
-      pixel_ratios: vec![1.0, 1.25, 1.5],
+      // Wayfern scales the claimed screen by DPR while the window runs 1:1, so
+      // a desktop claim other than 1.0 leaks the host display.
+      pixel_ratios: vec![1.0],
       hardware_concurrencies: vec![4, 8, 12, 16],
       device_memories: vec![8, 16, 32],
       webgl_vendors: vec!["Mozilla".into()],

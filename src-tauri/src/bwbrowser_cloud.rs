@@ -5405,20 +5405,35 @@ fn env_fingerprint_to_wayfern_config(
       config.os = Some(os.to_string());
     }
 
-    // fingerprint 子对象处理：
-    // 云端 fingerprint_settings 的字段名（如 audioContext）和值格式（如 "random"）
-    // 与 Wayfern.setFingerprint 原生格式不兼容，直接发送会导致 CDP 拒绝。
-    // 因此有 fingerprint 但无 identity_id 的环境，暂不应用指纹（让 Wayfern 自
-    // 行生成），只应用 location（时区/语言/经纬度）。
-    // TODO: 建立云端 fingerprint_settings 到 Wayfern 原生字段的映射关系后再启用
-    if fc.get("fingerprint").is_some() && config.identity_id.is_none() {
-      log::debug!(
-        "Cloud env has fingerprint_settings but no identity_id; skipping fingerprint apply (Wayfern will auto-generate)"
-      );
+    // fingerprint 子对象处理。云端 fingerprint 字段有两种来源：
+    // 1. 本应用 wayfern_config_to_fingerprint_json 上传的 Wayfern 原生 payload
+    //    （含 userAgent/platform 等键）—— 原样恢复，跨机器指纹保持一致，
+    //    这是云端指纹同步的核心路径。
+    // 2. 旧爆文库/Simprint 格式的 fingerprint_settings（如 audioContext: "random"）
+    //    —— 字段名和值格式与 Wayfern.setFingerprint 原生格式不兼容，直接发送
+    //    会导致 CDP 拒绝，因此跳过应用（让 Wayfern 自行生成），只应用 location。
+    if let Some(fp) = fc.get("fingerprint") {
+      let fp_val = match fp {
+        serde_json::Value::String(s) => {
+          serde_json::from_str::<serde_json::Value>(s).unwrap_or(serde_json::Value::Null)
+        }
+        v => v.clone(),
+      };
+      let is_native = matches!(&fp_val, serde_json::Value::Object(m)
+        if m.contains_key("userAgent") || m.contains_key("platform"));
+      if is_native {
+        config.fingerprint = Some(serde_json::to_string(&fp_val).unwrap_or_default());
+      } else if fp_val.as_object().map(|m| m.is_empty()).unwrap_or(false) {
+        // 空对象表示"使用本机真实指纹"的 legacy 模式，原样保留
+        config.fingerprint = Some("{}".to_string());
+      } else if config.identity_id.is_none() {
+        log::debug!(
+          "Cloud env has legacy fingerprint_settings; skipping fingerprint apply (Wayfern will auto-generate)"
+        );
+      }
     }
 
     // identity 模式优先：有 identity_id 时清除 fingerprint
-    // （无 identity_id 时也不应用 fingerprint，见上方注释）
     if config.identity_id.is_some() {
       config.fingerprint = None;
     }
@@ -7667,17 +7682,36 @@ async fn launch_account_impl(
     }
   }
 
-  // 5.8 如果新生成了 identity_id，同步回云端环境（确保下次启动使用相同指纹）
+  // 5.8 指纹/身份同步回云端环境（确保换机后使用相同指纹）
+  //     之前只有"新生成 identity_id"分支会上传。离线指纹路径（永不生成
+  //     identity_id）生成的本地指纹永远不会回传云端，云端环境始终没有
+  //     fingerprint，换机后拉不到指纹又本地重新生成 → 每台机器指纹都不同。
+  //     现在补上离线分支：云端环境没有指纹且启动后 profile 已有指纹时回传。
   let identity_id_after = launched_profile
     .wayfern_config
     .as_ref()
     .and_then(|c| c.identity_id.clone());
   if identity_id_before.is_none() {
-    if let Some(new_identity_id) = identity_id_after.as_ref() {
-      log_bwbrowser(
-        "launch_account",
-        &format!("  新生成 identity_id={}，同步到云端环境", new_identity_id),
-      );
+    // 有本地指纹才回传（identity 路径：新生成了 identity_id；
+    // 离线路径：云端环境没有指纹且本次启动生成/保留了本地指纹）。
+    // 云端本来就有指纹时（has_fingerprint_config=true）不需要回传，
+    // 那正是要拉取的目标，回传只会用本地值覆盖它。
+    let has_local_fp = launched_profile
+      .wayfern_config
+      .as_ref()
+      .is_some_and(|c| c.fingerprint.is_some());
+    if identity_id_after.is_some() || (!has_fingerprint_config && has_local_fp) {
+      if let Some(new_identity_id) = identity_id_after.as_ref() {
+        log_bwbrowser(
+          "launch_account",
+          &format!("  新生成 identity_id={}，同步到云端环境", new_identity_id),
+        );
+      } else {
+        log_bwbrowser(
+          "launch_account",
+          "  新生成本地指纹（无 identity_id），同步到云端环境",
+        );
+      }
       let env_uuid_for_sync = new_env_uuid
         .as_deref()
         .or_else(|| server_env_uuid.as_deref().filter(|s| !s.is_empty()));
@@ -9785,4 +9819,82 @@ pub async fn bwbrowser_apply_permission_profile(
     .apply_permission_profile(user_id, profile_id, company_id)
     .await?;
   Ok(())
+}
+
+#[cfg(test)]
+mod fingerprint_sync_tests {
+  use super::*;
+
+  fn sample_wayfern_config() -> crate::wayfern_manager::WayfernConfig {
+    crate::wayfern_manager::WayfernConfig {
+      os: Some("windows".to_string()),
+      fingerprint: Some(
+        r#"{"userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36","platform":"Win32","screenWidth":1920,"webglVendor":"Google Inc.","audioContext":"noise","timezone":"Asia/Shanghai"}"#
+          .to_string(),
+      ),
+      location: Some(
+        r#"{"timezone":"Asia/Shanghai","language":"zh-CN","latitude":31.23,"longitude":121.47}"#
+          .to_string(),
+      ),
+      ..Default::default()
+    }
+  }
+
+  /// 上传 → 下载往返必须原样恢复 fingerprint，跨机器指纹才一致。
+  #[test]
+  fn round_trip_restores_native_fingerprint() {
+    let config = sample_wayfern_config();
+    let uploaded = wayfern_config_to_fingerprint_json(&config);
+    let fc: Option<serde_json::Value> = Some(serde_json::from_str(&uploaded).unwrap());
+    let restored = env_fingerprint_to_wayfern_config(&fc);
+
+    let orig: serde_json::Value =
+      serde_json::from_str(config.fingerprint.as_deref().unwrap()).unwrap();
+    let got: serde_json::Value =
+      serde_json::from_str(restored.fingerprint.as_deref().unwrap()).unwrap();
+    assert_eq!(
+      orig, got,
+      "native fingerprint must survive the cloud round trip"
+    );
+    assert_eq!(restored.os.as_deref(), Some("windows"));
+    let loc: serde_json::Value =
+      serde_json::from_str(restored.location.as_deref().unwrap()).unwrap();
+    assert_eq!(loc["timezone"], "Asia/Shanghai");
+  }
+
+  /// 旧爆文库格式（无 userAgent/platform 的 fingerprint_settings）仍跳过应用。
+  #[test]
+  fn legacy_fingerprint_settings_are_skipped() {
+    let fc: Option<serde_json::Value> = Some(serde_json::json!({
+      "os": "windows",
+      "fingerprint": { "audioContext": "random", "webRTC": "disabled" }
+    }));
+    let config = env_fingerprint_to_wayfern_config(&fc);
+    assert!(config.fingerprint.is_none());
+    assert!(config.identity_id.is_none());
+  }
+
+  /// 空对象指纹表示"使用本机真实指纹"，必须原样保留，避免重新生成。
+  #[test]
+  fn empty_fingerprint_is_preserved() {
+    let fc: Option<serde_json::Value> = Some(serde_json::json!({
+      "os": "windows",
+      "fingerprint": {}
+    }));
+    let config = env_fingerprint_to_wayfern_config(&fc);
+    assert_eq!(config.fingerprint.as_deref(), Some("{}"));
+  }
+
+  /// identity 模式优先：有 identity_id 时 fingerprint 被清除。
+  #[test]
+  fn identity_mode_wins_over_fingerprint() {
+    let fc: Option<serde_json::Value> = Some(serde_json::json!({
+      "os": "windows",
+      "identity_id": "ident-abc",
+      "fingerprint": { "userAgent": "Mozilla/5.0", "platform": "Win32" }
+    }));
+    let config = env_fingerprint_to_wayfern_config(&fc);
+    assert_eq!(config.identity_id.as_deref(), Some("ident-abc"));
+    assert!(config.fingerprint.is_none());
+  }
 }

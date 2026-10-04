@@ -204,11 +204,27 @@ impl ProfileManager {
       // freshly created identity below like any other profile's. A browser
       // without that API has nowhere to put the choices, so there it stays the
       // stored payload.
+      //
+      // A whole-device payload with no identity is the one exception: it is a
+      // fingerprint restored from the cloud (an offline upload carries the full
+      // payload but no identity_id). Turning it into field choices would
+      // discard it and mint a new device, which is exactly the cross-machine
+      // identity break cloud sync exists to prevent. Keep it verbatim so the
+      // browser reproduces it via setFingerprint on every machine.
       let supplied_device = if crate::wayfern_manager::supports_identity_api(version) {
-        config
-          .fingerprint
-          .take()
-          .and_then(|json| crate::wayfern_manager::WayfernManager::fingerprint_object(&json))
+        let whole_device_restore = config.identity_id.is_none()
+          && config
+            .fingerprint
+            .as_deref()
+            .is_some_and(crate::wayfern_manager::WayfernManager::is_whole_device_payload);
+        if whole_device_restore {
+          None
+        } else {
+          config
+            .fingerprint
+            .take()
+            .and_then(|json| crate::wayfern_manager::WayfernManager::fingerprint_object(&json))
+        }
       } else {
         None
       };

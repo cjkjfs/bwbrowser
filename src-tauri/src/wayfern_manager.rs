@@ -1082,6 +1082,17 @@ impl WayfernManager {
       .cloned()
   }
 
+  /// Whether a stored fingerprint is a whole device payload rather than a set
+  /// of explicit field choices. Whole payloads carry the native setFingerprint
+  /// shape (`userAgent`/`platform`); a cloud-synced offline fingerprint is one,
+  /// and `create_profile_with_group` must reproduce it verbatim instead of
+  /// turning it into identity overrides (which would discard it and mint a new
+  /// device, breaking cross-machine identity).
+  pub fn is_whole_device_payload(fingerprint_json: &str) -> bool {
+    Self::fingerprint_object(fingerprint_json)
+      .is_some_and(|object| object.contains_key("userAgent") || object.contains_key("platform"))
+  }
+
   /// The device this launch hands the browser, derived from what the profile
   /// stores. Pure, and the only place that payload is built, so what the
   /// browser is actually given can be asserted without one running.
@@ -1108,6 +1119,21 @@ impl WayfernManager {
       if let Some(serde_json::Value::String(s)) = obj.get("languages").cloned() {
         let arr: Vec<&str> = s.split(',').map(|l| l.trim()).collect();
         obj.insert("languages".to_string(), json!(arr));
+      }
+    }
+
+    // The Wayfern kernel reports the claimed screen scaled by devicePixelRatio
+    // (2560 CSS px at 1.25 reads as a 3200x1800 physical screen) while every
+    // other fingerprint field is injected verbatim. On a desktop host the
+    // browser is launched 1:1 (`--force-device-scale-factor=1`), so DPR 1.0 is
+    // the only self-consistent claim: a stored fingerprint that carries a
+    // higher DPR leaks the host's display through screen.width/height.
+    if let Some(obj) = payload.as_object_mut() {
+      if let Some(dpr) = obj.get("devicePixelRatio").and_then(|v| v.as_f64()) {
+        if dpr != 1.0 {
+          log::debug!("Normalizing devicePixelRatio {dpr} to 1.0 for setFingerprint");
+          obj.insert("devicePixelRatio".to_string(), json!(1.0));
+        }
       }
     }
 
@@ -4041,6 +4067,27 @@ mod tests {
   use super::*;
 
   #[test]
+  fn whole_device_payload_detection() {
+    // A cloud-synced offline fingerprint is a full native payload and must be
+    // restored verbatim (create_profile_with_group keeps it for setFingerprint).
+    assert!(WayfernManager::is_whole_device_payload(
+      r#"{"screenWidth":2560,"screenHeight":1440,"userAgent":"Mozilla/5.0","platform":"Win32"}"#
+    ));
+    // Legacy { "fingerprint": {...} } wrapper resolves to the same shape.
+    assert!(WayfernManager::is_whole_device_payload(
+      r#"{"fingerprint":{"platform":"Win32"}}"#
+    ));
+    // Partial field choices carry neither key: they stay identity overrides.
+    assert!(!WayfernManager::is_whole_device_payload(
+      r#"{"hardwareConcurrency":8}"#
+    ));
+    // "{}" means "use the host's real fingerprint", not a restorable payload.
+    assert!(!WayfernManager::is_whole_device_payload(r#"{}"#));
+    // Malformed JSON is never a whole device.
+    assert!(!WayfernManager::is_whole_device_payload("not json"));
+  }
+
+  #[test]
   fn remote_socks_url_detection() {
     // Remote socks upstreams (the hyper-util-affected case) are detected...
     assert!(WayfernManager::needs_local_worker_for_probe(
@@ -5174,6 +5221,31 @@ mod tests {
   #[test]
   fn the_launch_payload_refuses_unparsable_json() {
     assert!(WayfernManager::launch_fingerprint_payload("not json").is_err());
+  }
+
+  #[test]
+  fn the_launch_payload_clamps_device_pixel_ratio_to_one() {
+    // The regression: Wayfern reports the claimed screen scaled by DPR (2560
+    // CSS px at 1.25 reads as a 3200x1800 physical screen) while the window
+    // runs 1:1, so a stored DPR above 1.0 leaks the host display.
+    let payload = WayfernManager::launch_fingerprint_payload(
+      r#"{"platform": "Win32", "screenWidth": 2560, "screenHeight": 1440,
+          "devicePixelRatio": 1.25}"#,
+    )
+    .expect("a stored fingerprint parses");
+    assert_eq!(payload["screenWidth"], json!(2560));
+    assert_eq!(payload["screenHeight"], json!(1440));
+    assert_eq!(payload["devicePixelRatio"], json!(1.0));
+
+    // A DPR already at 1.0 (or absent) passes through untouched.
+    let already = WayfernManager::launch_fingerprint_payload(
+      r#"{"platform": "Win32", "devicePixelRatio": 1.0}"#,
+    )
+    .expect("a stored fingerprint parses");
+    assert_eq!(already["devicePixelRatio"], json!(1.0));
+    let absent = WayfernManager::launch_fingerprint_payload(r#"{"platform": "Win32"}"#)
+      .expect("a stored fingerprint parses");
+    assert!(absent.get("devicePixelRatio").is_none());
   }
 
   #[test]
