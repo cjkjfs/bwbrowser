@@ -94,6 +94,9 @@ add_php_actions.py
 # Local program backup snapshot (never tracked, never pushed)
 /bak/
 
+# Standalone Python remote-tool + PHP relay reference copy (reference only, never shipped)
+/remote/
+
 # Browser fingerprint analysis
 browser-fingerprint-macos-analysis/
 
@@ -109,6 +112,7 @@ kernel/
 # Build error / compiler crash logs
 build_error.txt
 check_error.txt
+check_out.txt
 src-tauri/rustc-ice-*.txt
 
 # Local scratchpad and debug dumps (never tracked)

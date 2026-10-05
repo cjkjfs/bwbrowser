@@ -148,6 +148,14 @@ export type BackendErrorCode =
   | "REMOTE_SESSION_CONFLICT"
   | "REMOTE_SYNC_IN_PROGRESS"
   | "REMOTE_HOURS_EXHAUSTED"
+  // Remote desktop controlled-end (被控端). The permission gate lives on the
+  // cloud side (`client_login` rejects without `allow_remote_desktop`); these
+  // codes name what the desktop agent refused or failed to reach.
+  | "NO_REMOTE_PERMISSION"
+  | "REMOTE_DESKTOP_UNREACHABLE"
+  | "REMOTE_DESKTOP_SERVER_REJECTED"
+  | "REMOTE_DESKTOP_BAD_PASSWORD"
+  | "REMOTE_DESKTOP_INTERNAL"
   | "PROFILE_RUNNING_REMOTELY"
   | "PROFILE_REMOTE_SYNC_PENDING"
   | "PROFILE_LOCKED_BY_MEMBER"
@@ -580,6 +588,28 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       return t("backendErrors.clearOnCloseUnavailable");
     case "CLOUD_NOT_SIGNED_IN":
       return t("backendErrors.cloudNotSignedIn");
+    case "NO_REMOTE_PERMISSION":
+      return t("backendErrors.noRemotePermission");
+    case "REMOTE_DESKTOP_UNREACHABLE": {
+      const detail = parsed.params?.detail?.trim();
+      return detail
+        ? t("backendErrors.remoteDesktopUnreachableDetail", { detail })
+        : t("backendErrors.remoteDesktopUnreachable");
+    }
+    case "REMOTE_DESKTOP_SERVER_REJECTED": {
+      const detail = parsed.params?.detail?.trim();
+      return detail
+        ? t("backendErrors.remoteDesktopServerRejectedDetail", { detail })
+        : t("backendErrors.remoteDesktopServerRejected");
+    }
+    case "REMOTE_DESKTOP_BAD_PASSWORD":
+      return t("backendErrors.remoteDesktopBadPassword");
+    case "REMOTE_DESKTOP_INTERNAL": {
+      const detail = parsed.params?.detail?.trim();
+      return detail
+        ? t("backendErrors.remoteDesktopInternalDetail", { detail })
+        : t("backendErrors.remoteDesktopInternal");
+    }
     case "CLOUD_UNREACHABLE":
       return t("backendErrors.cloudUnreachable");
     case "CLOUD_REQUEST_FAILED":

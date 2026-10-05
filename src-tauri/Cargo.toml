@@ -148,6 +148,9 @@ secret-service = { version = "5", default-features = false, features = ["rt-toki
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
+# Remote agent (被控端): CoreGraphics 截屏（CGDisplayCreateImage）+ CGEvent
+# 鼠标键盘注入；highsierra 打开 CGEventCreateScrollWheelEvent2（滚轮）。
+core-graphics = { version = "0.25", features = ["highsierra"] }
 # Reading the source browser's "<Brand> Safe Storage" Keychain item during
 # profile import, so its cookies and passwords can be re-encrypted for Wayfern.
 security-framework = "3"
@@ -178,6 +181,11 @@ windows = { version = "0.62", features = [
   # CryptUnprotectData, for unwrapping the source browser's os_crypt key from
   # `Local State` during profile import.
   "Win32_Security_Cryptography",
+  # Remote agent (被控端): GDI screen capture + cursor overlay
+  "Win32_Graphics_Gdi",
+  "Win32_UI_HiDpi",
+  # Remote agent: SendInput mouse/keyboard injection
+  "Win32_UI_Input_KeyboardAndMouse",
 ] }
 
 [dev-dependencies]

@@ -151,6 +151,10 @@ struct BwbrowserUser {
   #[serde(default, rename = "plan_name")]
   plan_name: Option<String>,
   #[serde(default)]
+  allow_remote_desktop: Option<i64>,
+  #[serde(default)]
+  allow_remote_management: Option<i64>,
+  #[serde(default)]
   stats: Option<serde_json::Value>,
 }
 
@@ -414,6 +418,9 @@ impl BwbrowserAuthManager {
     // 发送事件通知前端
     let _ = app.emit("cloud-auth-changed", ());
 
+    // 被控端无 UI 开关：登录后按云端权限组（users.php allow_remote_desktop）自动启停
+    let _ = crate::remote_agent::reconcile().await;
+
     Ok(CloudAuthState {
       user: cloud_user,
       logged_in_at: Utc::now().to_rfc3339(),
@@ -489,6 +496,8 @@ impl BwbrowserAuthManager {
     self.invalidate_all_cache();
     Self::clear_auth_state_from_disk();
     let _ = app.emit("cloud-auth-changed", ());
+    // 登出即停被控端
+    let _ = crate::remote_agent::reconcile().await;
   }
 
   /// 刷新用户信息
@@ -7501,9 +7510,14 @@ async fn launch_account_impl(
       shield_platform: server_platform.clone(),
       ..Default::default()
     };
-    crate::browser_runner::launch_browser_profile_impl(app_handle, profile, launch_url, options)
-      .await
-      .map_err(|e| format!("启动浏览器失败: {}", e))?
+    crate::browser_runner::launch_browser_profile_impl(
+      app_handle.clone(),
+      profile,
+      launch_url,
+      options,
+    )
+    .await
+    .map_err(|e| format!("启动浏览器失败: {}", e))?
   };
 
   // browser_runner 的 save_process_info 会覆盖 proxy_id，
@@ -7790,6 +7804,32 @@ async fn launch_account_impl(
     "success",
     "",
   );
+
+  // 7. 启动成功后打开环境配置的 start_urls（额外标签，如 browserscan.net）
+  if let Ok(envs) = BWBROWSER_AUTH.list_cloud_envs(None).await {
+    let start_urls = envs
+      .iter()
+      .find(|e| final_env_uuid.is_some_and(|u| e.env_uuid == u))
+      .and_then(|e| e.start_urls.clone())
+      .unwrap_or_default();
+    let runner = crate::browser_runner::BrowserRunner::instance();
+    for url in start_urls.iter().filter(|u| !u.trim().is_empty()) {
+      let url = url.trim();
+      if launch_url_for_cookie.as_deref() == Some(url) {
+        continue; // 已作为启动页打开，不重复开标签
+      }
+      match runner
+        .open_url_in_existing_browser(app_handle.clone(), &launched_profile, url, None)
+        .await
+      {
+        Ok(_) => log_bwbrowser("launch_account", &format!("  ✓ 已打开启动网址: {}", url)),
+        Err(e) => log_bwbrowser(
+          "launch_account",
+          &format!("  ⚠ 打开启动网址失败 {}: {}", url, e),
+        ),
+      }
+    }
+  }
 
   Ok("ok".to_string())
 }

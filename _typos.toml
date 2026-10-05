@@ -2,6 +2,9 @@
 extend-exclude = [
     "src-tauri/src/territory_info.xml",
     "src/i18n/locales/*.json",
+    # Vendored Python remote-tool reference (its Sphinx build output trips
+    # false positives like "datas"/"odf"/"maintenant").
+    "remote/",
     # Dependency names and SPDX expressions are generated verbatim.
     "src/generated/licenses.json",
     # Auto-generated from commit subjects by release.yml; typos here originate

@@ -1200,6 +1200,7 @@ test("offline cloud, update, team-lock, trial, and synchronizer contracts are de
 
       assert.equal(await app.invoke("check_for_app_updates"), null);
       assert.equal(await app.invoke("check_for_app_updates_manual"), null);
+
       await assertContract(
         app,
         "cloud_exchange_device_code",

@@ -803,6 +803,7 @@ dependencies = [
  "chrono-tz",
  "clap",
  "core-foundation 0.10.1",
+ "core-graphics",
  "crossbeam-channel",
  "directories",
  "dirs",

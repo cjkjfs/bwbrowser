@@ -127,6 +127,7 @@ mod login_autofill;
 mod mcp_integrations;
 mod mcp_remote;
 mod mcp_server;
+pub mod remote_agent;
 mod revenue_shield;
 mod tag_manager;
 mod team_lock;
@@ -2944,6 +2945,11 @@ pub fn run_with_builder(
           }
         }
       }
+
+      // Remote desktop controlled-end has no UI switch: it follows the cloud
+      // permission group (users.php allow_remote_desktop) on login/logout and
+      // on a 60-second watchdog, so revocations and grants converge on their own.
+      remote_agent::spawn_permission_watcher();
 
       // Clear stale process IDs from profiles (processes that died while app was closed)
       {
