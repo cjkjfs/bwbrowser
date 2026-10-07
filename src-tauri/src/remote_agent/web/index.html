@@ -84,6 +84,14 @@ body.readonly .mobile-bar { display:none !important; }
 .toolbar .btn-icon:hover { color:var(--primary); border-color:var(--primary); }
 .toolbar .btn-icon:active { transform:scale(0.95); }
 .toolbar .btn-icon.active { color:var(--primary); border-color:var(--primary); }
+/* 录屏：录制中按钮转红并呼吸，旁边显示计时 */
+.toolbar .btn-icon.recording {
+    color:#fff; background:var(--danger); border-color:var(--danger);
+    animation: recPulse 1.4s ease-in-out infinite;
+}
+@keyframes recPulse { 0%,100% { opacity:1; } 50% { opacity:.55; } }
+.toolbar .status.rec { background:rgba(231,76,60,0.15); color:var(--danger); display:none; }
+.toolbar .status.rec.active { display:inline-block; }
 
 .screen-wrap {
     flex:1; position:relative; overflow:hidden; background:#000;
@@ -149,6 +157,7 @@ body.files-mode .file-panel {
     flex:1; min-height:0;
 }
 body.files-mode .desktop-only { display:none; }
+body.files-mode #btnRecord { display:none; }
 body.files-mode .file-panel .btn-close { display:none; }
 .file-panel .panel-header {
     display:flex; align-items:center; gap:8px; padding:8px 12px;
@@ -296,12 +305,14 @@ body.files-mode .file-panel .btn-close { display:none; }
         </div>
         <div class="status" id="connStatus">已连接</div>
         <div class="status mode" id="modeBadge" style="display:none;"></div>
+        <div class="status rec" id="recBadge"></div>
         <button class="btn-icon desktop-only" id="btnFiles" onclick="toggleFiles()">文件</button>
         <button class="btn-icon desktop-only" id="btnTrackpad" onclick="toggleTrackpad()">触控板</button>
         <button class="btn-icon desktop-only" onclick="toggleLandscape()">横屏</button>
         <button class="btn-icon" onclick="toggleFullscreen()">全屏</button>
         <button class="btn-icon desktop-only" onclick="resetZoom()">重置</button>
         <button class="btn-icon desktop-only" onclick="toggleSettings()">设置</button>
+        <button class="btn-icon" id="btnRecord" onclick="toggleRecording()">录制</button>
         <button class="btn-icon" onclick="disconnect()">断开</button>
     </div>
     <div class="screen-wrap" id="screenWrap">

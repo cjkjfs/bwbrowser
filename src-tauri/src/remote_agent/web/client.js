@@ -21,6 +21,29 @@ const viewMode = viewParams.get("mode") || "full";
 const readOnly = viewMode === "view" || viewMode === "files";
 const autoFiles = viewMode === "files";
 
+// 连接密码记忆：viewer 的源就是被控端自身（http://<ip>:<port>），localStorage
+// 按源隔离，天然只作用于这一台被控端。完全控制/仅查看/文件传输是三个独立窗口，
+// 靠它免去每开一个窗口就重输一次密码。
+const PWD_STORAGE_KEY = "bwbrowser.viewer.pwd";
+let attemptedPwd = "";
+
+function readStoredPwd() {
+  try {
+    return localStorage.getItem(PWD_STORAGE_KEY) || "";
+  } catch (e) {
+    return "";
+  }
+}
+
+function writeStoredPwd(pwd) {
+  try {
+    if (pwd) localStorage.setItem(PWD_STORAGE_KEY, pwd);
+    else localStorage.removeItem(PWD_STORAGE_KEY);
+  } catch (e) {
+    /* 禁用 localStorage 时静默降级为每次手输 */
+  }
+}
+
 // ==================== 视图变换 ====================
 let baseScale = 1.0;
 let userZoom = 1.0;
@@ -136,11 +159,13 @@ window.onload = async () => {
   });
 
   // 控制端把连接密码放在 URL（pwd）里带过来：直接鉴权，免手输；随后把 pwd 从
-  // 地址栏抹掉，避免密码留在浏览器历史里。
-  const autoPwd = viewParams.get("pwd");
+  // 地址栏抹掉，避免密码留在浏览器历史里。URL 没带时回退到上次记住的密码，
+  // 这样重新打开窗口、或换一个模式（完全控制/仅查看）都不必再输。
+  const urlPwd = viewParams.get("pwd");
+  if (urlPwd) stripPwdFromUrl();
+  const autoPwd = urlPwd || readStoredPwd();
   if (autoPwd) {
     document.getElementById("pwdInput").value = autoPwd;
-    stripPwdFromUrl();
     doConnect(autoPwd);
   } else {
     document.getElementById("pwdInput").focus();
@@ -190,6 +215,7 @@ function doConnect(pwdOverride) {
     showError("请输入密码");
     return;
   }
+  attemptedPwd = pwd;
   const btn = document.getElementById("connectBtn");
   btn.disabled = true;
   btn.textContent = "连接中...";
@@ -203,6 +229,8 @@ function doConnect(pwdOverride) {
     else handleBinaryFrame(e.data);
   };
   ws.onclose = () => {
+    // 连接断了画面不再更新：收尾录制，把已录到的部分落盘，别让用户白录
+    if (isRecording()) stopRecording();
     if (connected) {
       showDesktop(false);
       showLogin(true);
@@ -228,6 +256,7 @@ function handleTextMessage(msg) {
   switch (msg.type) {
     case "auth_ok":
       connected = true;
+      writeStoredPwd(attemptedPwd);
       screenW = msg.screen_width;
       screenH = msg.screen_height;
       document.getElementById("hostName").textContent =
@@ -241,6 +270,8 @@ function handleTextMessage(msg) {
       if (!autoFiles) startStreaming();
       break;
     case "auth_fail":
+      // 密码可能已被改过：清掉记忆，避免下次又自动拿旧密码撞失败
+      writeStoredPwd("");
       showError(msg.message || "密码错误");
       ws.close();
       break;
@@ -957,6 +988,333 @@ function toggleModifier(key) {
   } else {
     sendMsg({ type: "key_up", key: key });
   }
+}
+
+// ==================== 录屏 ====================
+// 录的是 viewer 画布上的远程画面：MediaRecorder 直接对 canvas.captureStream()
+// 编码，不依赖被控端，也不需要额外解码库。保存位置按可用能力逐级降级：
+//   1) 应用内窗口（Tauri）：原生「另存为」对话框，选中后边录边写入所选文件；
+//   2) 浏览器安全上下文：File System Access API 的 showSaveFilePicker；
+//   3) 其余情况（http://<局域网IP> 既不是安全上下文、也没有 IPC）：分块缓存在
+//      内存，录制结束后由浏览器下载。
+// viewer 是远程源（被控端自己的 http 页面），Tauri 仍会注入 IPC，能调哪些命令
+// 由 capabilities/remote-viewer.json 授权。
+let mediaRecorder = null;
+let recChunks = [];
+let recWritable = null;
+let recWriteQueue = Promise.resolve();
+let recMime = "";
+let recFileName = "";
+let recFilePath = "";
+let recFileOk = false;
+let recWroteAny = false;
+let recStarting = false;
+let recStartAt = 0;
+let recTimer = null;
+let recBytes = 0;
+let recSizeWarned = false;
+
+// 只能缓存在内存时，长录制会吃光内存；到上限就自动收尾
+const REC_MAX_BYTES = 1536 * 1024 * 1024;
+
+function pickRecordingMime() {
+  if (typeof MediaRecorder === "undefined") return "";
+  const candidates = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+    "video/mp4",
+  ];
+  for (const m of candidates) {
+    if (MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return "";
+}
+
+function recordingFileName(ext) {
+  const host = (
+    document.getElementById("hostName").textContent || "remote"
+  ).trim();
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const stamp =
+    d.getFullYear() +
+    pad(d.getMonth() + 1) +
+    pad(d.getDate()) +
+    "-" +
+    pad(d.getHours()) +
+    pad(d.getMinutes()) +
+    pad(d.getSeconds());
+  return host.replace(/[\\/:*?"<>|]/g, "_") + "-" + stamp + "." + ext;
+}
+
+// 应用内窗口里被控端页面是远程源，Tauri 会把 IPC 注进来；命令是否放行由
+// capabilities/remote-viewer.json 决定，不在授权范围时 invoke 会直接 reject。
+function tauriInvoke() {
+  const internals = window.__TAURI_INTERNALS__;
+  return internals && typeof internals.invoke === "function"
+    ? internals.invoke.bind(internals)
+    : null;
+}
+
+// 选保存位置。返回 null 表示用户取消；其余返回 { kind, ... }：
+//   tauri   -> { path }      边录边写入该文件
+//   fsapi   -> { writable }  边录边写入浏览器文件句柄
+//   download -> {}           无可用落盘方式，录制结束后下载
+async function pickRecordingTarget(name, ext) {
+  const inv = tauriInvoke();
+  if (inv) {
+    try {
+      const path = await inv("plugin:dialog|save", {
+        options: {
+          title: "选择录屏保存位置",
+          defaultPath: name,
+          filters: [
+            ext === "mp4"
+              ? { name: "MP4 视频", extensions: ["mp4"] }
+              : { name: "WebM 视频", extensions: ["webm"] },
+          ],
+        },
+      });
+      if (!path) return null;
+      return { kind: "tauri", path };
+    } catch (e) {
+      console.warn("原生另存为对话框不可用，改用浏览器保存", e);
+    }
+  }
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: name,
+        types: [
+          ext === "mp4"
+            ? { description: "MP4 视频", accept: { "video/mp4": [".mp4"] } }
+            : { description: "WebM 视频", accept: { "video/webm": [".webm"] } },
+        ],
+      });
+      return { kind: "fsapi", writable: await handle.createWritable() };
+    } catch (e) {
+      if (e && e.name === "AbortError") return null;
+      console.warn("浏览器另存为不可用，录制结束后下载", e);
+    }
+  }
+  return { kind: "download" };
+}
+
+// 把一帧分块写进原生对话框选定的文件。首块截断覆盖，之后追加；
+// 路径由 dialog 插件登记进 fs scope，所以这里能直接写。
+async function writeRecordingChunk(path, blob, append) {
+  const inv = tauriInvoke();
+  if (!inv) throw new Error("Tauri IPC unavailable");
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  await inv("plugin:fs|write_file", buf, {
+    headers: {
+      path: encodeURIComponent(path),
+      options: JSON.stringify({ append: !!append, create: true }),
+    },
+  });
+}
+
+// 分块落盘一律串到同一条队列上：写是异步的，并发调用会互相覆盖。写失败的判定
+// 也放在队列里按序执行，这样一旦某块写失败，之后的分块就连续缓存在内存里，
+// 录制结束后再整段补写到文件末尾，顺序不会乱。
+function enqueueRecordingChunk(chunk) {
+  recWriteQueue = recWriteQueue.then(async () => {
+    if (recFilePath && recFileOk) {
+      try {
+        await writeRecordingChunk(recFilePath, chunk, recWroteAny);
+        recWroteAny = true;
+        return;
+      } catch (err) {
+        recFileOk = false;
+        console.warn("录屏写入文件失败，改为内存缓存", err);
+      }
+    }
+    if (recWritable) {
+      try {
+        await recWritable.write(chunk);
+        return;
+      } catch (err) {
+        recWritable = null;
+        console.warn("录屏写入文件失败，改为内存缓存", err);
+      }
+    }
+    recChunks.push(chunk);
+    if (!recSizeWarned && recBytes >= REC_MAX_BYTES) {
+      recSizeWarned = true;
+      alert(
+        "录制已达 1.5 GB，自动停止。当前环境无法边录边写文件，只能缓存在内存中。",
+      );
+      stopRecording();
+    }
+  });
+}
+
+function isRecording() {
+  return mediaRecorder !== null && mediaRecorder.state !== "inactive";
+}
+
+function toggleRecording() {
+  if (isRecording()) stopRecording();
+  else startRecording();
+}
+
+async function startRecording() {
+  if (recStarting || isRecording()) return;
+  if (!connected || !canvas || !canvas.width) {
+    alert("尚未连接远程桌面，无法开始录制");
+    return;
+  }
+  const mime = pickRecordingMime();
+  if (!mime) {
+    alert("当前浏览器不支持录屏");
+    return;
+  }
+  const ext = mime.indexOf("mp4") >= 0 ? "mp4" : "webm";
+  recFileName = recordingFileName(ext);
+
+  // 先选保存位置，选定后才开始录制
+  recStarting = true;
+  let target;
+  try {
+    target = await pickRecordingTarget(recFileName, ext);
+  } catch (e) {
+    alert("无法选择保存位置：" + (e && e.message ? e.message : e));
+    return;
+  } finally {
+    recStarting = false;
+  }
+  if (!target) return; // 用户取消了保存位置选择
+
+  recMime = mime;
+  recChunks = [];
+  recBytes = 0;
+  recSizeWarned = false;
+  recWriteQueue = Promise.resolve();
+  recWroteAny = false;
+  recWritable = target.kind === "fsapi" ? target.writable : null;
+  recFilePath = target.kind === "tauri" ? target.path : "";
+  recFileOk = target.kind === "tauri";
+
+  let stream;
+  try {
+    stream = canvas.captureStream(30);
+  } catch (e) {
+    alert("无法捕获远程画面：" + (e && e.message ? e.message : e));
+    return;
+  }
+
+  try {
+    mediaRecorder = new MediaRecorder(stream, {
+      mimeType: mime,
+      videoBitsPerSecond: 6000000,
+    });
+  } catch (e) {
+    stream.getTracks().forEach((t) => t.stop());
+    alert("无法启动录制：" + (e && e.message ? e.message : e));
+    return;
+  }
+
+  mediaRecorder.ondataavailable = (e) => {
+    if (!e.data || !e.data.size) return;
+    recBytes += e.data.size;
+    enqueueRecordingChunk(e.data);
+  };
+  mediaRecorder.onstop = finishRecording;
+  mediaRecorder.onerror = (e) => {
+    console.error("录制出错", e.error || e);
+  };
+
+  mediaRecorder.start(1000);
+  recStartAt = Date.now();
+  setRecordingUI(true);
+  recTimer = setInterval(updateRecordingBadge, 1000);
+  updateRecordingBadge();
+}
+
+function stopRecording() {
+  if (isRecording()) mediaRecorder.stop();
+}
+
+async function finishRecording() {
+  if (recTimer) {
+    clearInterval(recTimer);
+    recTimer = null;
+  }
+  const recorder = mediaRecorder;
+  mediaRecorder = null;
+  if (recorder && recorder.stream) {
+    recorder.stream.getTracks().forEach((t) => t.stop());
+  }
+  setRecordingUI(false);
+
+  const path = recFilePath;
+  const writable = recWritable;
+  recFilePath = "";
+  recWritable = null;
+  recFileOk = false;
+
+  // 队列内部已吞掉各自的写失败，这里不会被 reject
+  await recWriteQueue;
+
+  // 写入中途失败时，内存里留下的是连续的一段尾部，补写到文件末尾即可接上
+  if (path && recChunks.length) {
+    const tail = recChunks;
+    recChunks = [];
+    try {
+      await writeRecordingChunk(path, new Blob(tail, { type: recMime }), true);
+    } catch (e) {
+      recChunks = tail;
+      console.warn("补写录屏尾部失败，改为下载保存", e);
+    }
+  }
+  if (writable) {
+    try {
+      await writable.close();
+    } catch (e) {
+      console.warn("关闭录屏文件失败", e);
+    }
+  }
+
+  if (!recChunks.length) return;
+  // 兜底：没有可落盘的目标，或边录边写失败，交给浏览器下载
+  const blob = new Blob(recChunks, { type: recMime });
+  recChunks = [];
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = recFileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function setRecordingUI(on) {
+  const btn = document.getElementById("btnRecord");
+  if (btn) {
+    btn.classList.toggle("recording", on);
+    btn.textContent = on ? "停止" : "录制";
+  }
+  const badge = document.getElementById("recBadge");
+  if (badge) badge.classList.toggle("active", on);
+}
+
+function updateRecordingBadge() {
+  const badge = document.getElementById("recBadge");
+  if (!badge) return;
+  const total = Math.floor((Date.now() - recStartAt) / 1000);
+  const mm = String(Math.floor(total / 60)).padStart(2, "0");
+  const ss = String(total % 60).padStart(2, "0");
+  const toDownload = !recFileOk && !recWritable;
+  badge.textContent =
+    "● 录制中 " +
+    mm +
+    ":" +
+    ss +
+    " · " +
+    formatSize(recBytes) +
+    (toDownload ? "（完成后下载）" : "");
 }
 
 // ==================== 文件管理 ====================

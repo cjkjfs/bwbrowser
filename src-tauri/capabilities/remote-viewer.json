@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-viewer",
+  "description": "Grants the in-app remote viewer windows (the controlled machine's page, served over http) the native save dialog and file writes it needs to record the remote screen.",
+  "windows": ["remote-*"],
+  "webviews": ["remote-*"],
+  "remote": {
+    "urls": ["http://*:*", "https://*:*"]
+  },
+  "permissions": ["dialog:allow-save", "fs:allow-write-file"]
+}
