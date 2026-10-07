@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useInputModality } from "@/hooks/use-input-modality";
+import { CLOUD_DOMAIN } from "@/lib/cloud-config";
 import { MOTION_EASE_OUT, MOTION_SPRING_POSITION } from "@/lib/motion";
 import { isMacOS } from "@/lib/platform";
 import {
@@ -121,7 +122,7 @@ export function TipsDialog({
       className="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto p-5"
     >
       <DialogTitle className="pr-6 text-lg font-semibold tracking-tight text-balance">
-        {t(keys.title, { mod })}
+        {t(keys.title, { mod, domain: CLOUD_DOMAIN })}
       </DialogTitle>
 
       <div

@@ -273,7 +273,7 @@ pub async fn start_remote_session(
   // One key for this user action: a retry inside api_call_with_retry must
   // de-duplicate rather than open a second browser on the same profile.
   let key = idempotency_key(&profile_id, &uuid::Uuid::new_v4().to_string());
-  let endpoint = format!("{}/api/remote-sessions", crate::cloud_auth::CLOUD_API_URL);
+  let endpoint = format!("{}/api/remote-sessions", crate::cloud_domain::CLOUD_API_URL);
 
   let outcome = crate::cloud_auth::CLOUD_AUTH
     .api_call_with_retry(|token| {
@@ -361,7 +361,7 @@ pub async fn end_remote_session(
 ) -> Result<EndRemoteSessionOutcome, RemoteSessionError> {
   let endpoint = format!(
     "{}/api/remote-sessions/{}",
-    crate::cloud_auth::CLOUD_API_URL,
+    crate::cloud_domain::CLOUD_API_URL,
     urlencoding::encode(session_id)
   );
 
@@ -461,7 +461,7 @@ struct RemoteSessionListResponse {
 
 /// Every session the caller currently owns.
 pub async fn list_remote_sessions() -> Result<Vec<RemoteSessionState>, RemoteSessionError> {
-  let endpoint = format!("{}/api/remote-sessions", crate::cloud_auth::CLOUD_API_URL);
+  let endpoint = format!("{}/api/remote-sessions", crate::cloud_domain::CLOUD_API_URL);
   let response: RemoteSessionListResponse = get_json(endpoint).await?;
   Ok(response.sessions)
 }
@@ -476,7 +476,7 @@ pub async fn get_remote_session(
 ) -> Result<RemoteSessionState, RemoteSessionError> {
   let endpoint = format!(
     "{}/api/remote-sessions/{}",
-    crate::cloud_auth::CLOUD_API_URL,
+    crate::cloud_domain::CLOUD_API_URL,
     urlencoding::encode(session_id)
   );
   get_json(endpoint).await
@@ -554,7 +554,7 @@ pub async fn cdp_endpoint(session_id: &str) -> Result<CdpEndpoint, RemoteSession
 
   let endpoint = format!(
     "{}/api/remote-sessions/{}/cdp",
-    crate::cloud_auth::CLOUD_API_URL,
+    crate::cloud_domain::CLOUD_API_URL,
     urlencoding::encode(session_id)
   );
   let mut resolved: CdpEndpoint = get_json(endpoint).await?;
@@ -1075,7 +1075,7 @@ async fn connect_session_events(
 ) -> Result<reqwest::Response, RemoteSessionError> {
   let endpoint = format!(
     "{}/api/remote-sessions/events",
-    crate::cloud_auth::CLOUD_API_URL
+    crate::cloud_domain::CLOUD_API_URL
   );
 
   crate::cloud_auth::CLOUD_AUTH

@@ -3,8 +3,7 @@
 use serde_json::{json, Value};
 
 use crate::bwbrowser_cloud::BWBROWSER_AUTH;
-
-pub const VPS_API_URL: &str = "http://yacm.xin/tk/remote_api.php";
+use crate::cloud_domain::REMOTE_API_URL;
 
 /// client_login 成功后的身份信息
 #[derive(Debug, Clone, Default)]
@@ -13,7 +12,7 @@ pub struct VpsIdentity {
   pub company_id: i64,
 }
 
-fn http_client() -> Result<reqwest::Client, String> {
+pub(crate) fn http_client() -> Result<reqwest::Client, String> {
   reqwest::Client::builder()
     .timeout(std::time::Duration::from_secs(10))
     .build()
@@ -21,7 +20,7 @@ fn http_client() -> Result<reqwest::Client, String> {
 }
 
 /// reqwest 0.13 没有 .form()，手写 x-www-form-urlencoded（与 bwbrowser_cloud.rs 同风格）
-fn form_body(pairs: &[(&str, &str)]) -> String {
+pub(crate) fn form_body(pairs: &[(&str, &str)]) -> String {
   pairs
     .iter()
     .map(|(k, v)| format!("{}={}", urlencode(k), urlencode(v)))
@@ -43,7 +42,7 @@ fn urlencode(s: &str) -> String {
 
 fn form_post(client: &reqwest::Client, pairs: &[(&str, &str)]) -> reqwest::RequestBuilder {
   client
-    .post(VPS_API_URL)
+    .post(REMOTE_API_URL)
     .header("content-type", "application/x-www-form-urlencoded")
     .body(form_body(pairs))
 }

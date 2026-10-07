@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 
-use crate::cloud_auth::{CloudAuthManager, CLOUD_API_URL, CLOUD_AUTH};
+use crate::cloud_auth::{CloudAuthManager, CLOUD_AUTH};
+use crate::cloud_domain::CLOUD_API_URL;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileLockInfo {

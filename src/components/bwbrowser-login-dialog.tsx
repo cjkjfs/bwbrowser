@@ -17,6 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
+import { CLOUD_ROOT } from "@/lib/cloud-config";
 import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import { cn } from "@/lib/utils";
 
@@ -476,7 +477,7 @@ export function BwbrowserLoginDialog({
                 没有账号？
                 <button
                   type="button"
-                  onClick={() => void openUrl("https://yacm.xin/")}
+                  onClick={() => void openUrl(`${CLOUD_ROOT}/`)}
                   className="text-primary hover:underline ml-1"
                 >
                   立即注册

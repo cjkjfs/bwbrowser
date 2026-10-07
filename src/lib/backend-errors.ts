@@ -156,6 +156,15 @@ export type BackendErrorCode =
   | "REMOTE_DESKTOP_SERVER_REJECTED"
   | "REMOTE_DESKTOP_BAD_PASSWORD"
   | "REMOTE_DESKTOP_INTERNAL"
+  // Remote management control side (控制端). Same PHP API as the controlled
+  // end, but the failures are about listing and reaching other people's
+  // machines, so they carry their own codes rather than borrowing the ones
+  // above (which mean "this machine could not be driven").
+  | "REMOTE_MANAGEMENT_UNREACHABLE"
+  | "REMOTE_MANAGEMENT_LOGIN_FAILED"
+  | "REMOTE_MANAGEMENT_MULTIPLE_ACCOUNTS"
+  | "REMOTE_MANAGEMENT_SERVER_REJECTED"
+  | "REMOTE_MANAGEMENT_NO_LAN_RANGE"
   | "PROFILE_RUNNING_REMOTELY"
   | "PROFILE_REMOTE_SYNC_PENDING"
   | "PROFILE_LOCKED_BY_MEMBER"
@@ -610,6 +619,28 @@ export function translateBackendError(t: TFunction, err: unknown): string {
         ? t("backendErrors.remoteDesktopInternalDetail", { detail })
         : t("backendErrors.remoteDesktopInternal");
     }
+    case "REMOTE_MANAGEMENT_UNREACHABLE": {
+      const detail = parsed.params?.detail?.trim();
+      return detail
+        ? t("backendErrors.remoteManagementUnreachableDetail", { detail })
+        : t("backendErrors.remoteManagementUnreachable");
+    }
+    case "REMOTE_MANAGEMENT_LOGIN_FAILED": {
+      const detail = parsed.params?.detail?.trim();
+      return detail
+        ? t("backendErrors.remoteManagementLoginFailedDetail", { detail })
+        : t("backendErrors.remoteManagementLoginFailed");
+    }
+    case "REMOTE_MANAGEMENT_MULTIPLE_ACCOUNTS":
+      return t("backendErrors.remoteManagementMultipleAccounts");
+    case "REMOTE_MANAGEMENT_SERVER_REJECTED": {
+      const detail = parsed.params?.detail?.trim();
+      return detail
+        ? t("backendErrors.remoteManagementServerRejectedDetail", { detail })
+        : t("backendErrors.remoteManagementServerRejected");
+    }
+    case "REMOTE_MANAGEMENT_NO_LAN_RANGE":
+      return t("backendErrors.remoteManagementNoLanRange");
     case "CLOUD_UNREACHABLE":
       return t("backendErrors.cloudUnreachable");
     case "CLOUD_REQUEST_FAILED":

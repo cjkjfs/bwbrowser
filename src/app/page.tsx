@@ -49,6 +49,7 @@ import { ProxyAssignmentDialog } from "@/components/proxy-assignment-dialog";
 import { ProxyDistributionDialog } from "@/components/proxy-distribution-dialog";
 import { ProxyManagementDialog } from "@/components/proxy-management-dialog";
 import { type AppPage, RailNav } from "@/components/rail-nav";
+import { RemoteManagementPage } from "@/components/remote-management-page";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { ShortcutsPage } from "@/components/shortcuts-page";
 import { SyncAllDialog } from "@/components/sync-all-dialog";
@@ -2483,6 +2484,13 @@ export default function Home() {
                 {currentPage === "userManagement" && isBwbrowserLogin && (
                   <div className="flex min-h-0 flex-1 flex-col">
                     <UserManagementPage />
+                  </div>
+                )}
+
+                {/* 远程管理（控制端）- 嵌入式页面 */}
+                {currentPage === "remoteManagement" && isBwbrowserLogin && (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <RemoteManagementPage />
                   </div>
                 )}
 

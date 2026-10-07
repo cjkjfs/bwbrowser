@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>远程控制</title>
+<style>
+:root {
+    --bg: #1a1a2e;
+    --bg-card: #16213e;
+    --accent: #0f3460;
+    --accent-light: #16548d;
+    --primary: #00b4d8;
+    --primary-dark: #0096c7;
+    --text: #e8e8e8;
+    --text-dim: #8892b0;
+    --danger: #e74c3c;
+    --success: #2ecc71;
+    --border: #233;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { width:100%; height:100%; overflow:hidden; background:var(--bg); color:var(--text); font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif; user-select:none; -webkit-tap-highlight-color:transparent; }
+
+#loginPage {
+    display:flex; align-items:center; justify-content:center;
+    width:100%; height:100%; flex-direction:column;
+    background: linear-gradient(135deg, #0f3460 0%, #16213e 50%, #1a1a2e 100%);
+}
+.login-card {
+    background: var(--bg-card); border:1px solid var(--border);
+    border-radius:16px; padding:40px 36px; width:360px; max-width:90vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.login-card .logo { text-align:center; margin-bottom:28px; }
+.login-card .logo svg { width:56px; height:56px; }
+.login-card h1 { font-size:22px; text-align:center; margin-bottom:6px; }
+.login-card .subtitle { text-align:center; color:var(--text-dim); font-size:13px; margin-bottom:28px; }
+.login-card .info-row {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:8px 0; border-bottom:1px solid var(--border); font-size:13px;
+}
+.login-card .info-row .label { color:var(--text-dim); }
+.login-card .info-row .value { color:var(--primary); }
+.input-group { margin-bottom:20px; }
+.input-group label { display:block; font-size:13px; color:var(--text-dim); margin-bottom:8px; }
+.input-group input {
+    width:100%; padding:12px 16px; font-size:16px;
+    background: var(--bg); border:1px solid var(--border); border-radius:8px;
+    color:var(--text); outline:none; transition:border-color .2s;
+}
+.input-group input:focus { border-color:var(--primary); }
+.btn {
+    width:100%; padding:13px; font-size:16px; border:none; border-radius:8px;
+    cursor:pointer; transition:all .2s; font-weight:600;
+}
+.btn-primary { background:var(--primary); color:#fff; }
+.btn-primary:hover { background:var(--primary-dark); }
+.btn-primary:active { transform:scale(0.98); }
+.btn:disabled { opacity:0.5; cursor:not-allowed; }
+.error-msg { color:var(--danger); font-size:13px; text-align:center; margin-top:12px; min-height:18px; }
+
+#desktopPage { display:none; width:100%; height:100%; flex-direction:column; }
+#desktopPage.active { display:flex; }
+
+.toolbar {
+    display:flex; align-items:center; gap:8px; padding:6px 12px;
+    background:var(--bg-card); border-bottom:1px solid var(--border);
+    height:44px; flex-shrink:0;
+}
+.toolbar .host-info { font-size:13px; color:var(--text-dim); margin-right:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.toolbar .host-info .name { color:var(--primary); font-weight:600; }
+.toolbar .status { font-size:12px; padding:3px 10px; border-radius:12px; background:rgba(46,204,113,0.15); color:var(--success); white-space:nowrap; }
+.toolbar .status.disconnected { background:rgba(231,76,60,0.15); color:var(--danger); }
+.toolbar .status.mode { background:rgba(0,180,216,0.15); color:var(--primary); }
+/* 仅查看 / 文件传输：不注入输入，隐藏控制类入口并恢复光标 */
+body.readonly #remoteCanvas { cursor:default; }
+body.readonly #btnTrackpad { display:none; }
+body.readonly .mobile-bar { display:none !important; }
+.toolbar .btn-icon {
+    background:none; border:1px solid var(--border); border-radius:6px;
+    color:var(--text-dim); padding:6px 10px; font-size:13px; cursor:pointer;
+    transition:all .2s; white-space:nowrap;
+}
+.toolbar .btn-icon:hover { color:var(--primary); border-color:var(--primary); }
+.toolbar .btn-icon:active { transform:scale(0.95); }
+.toolbar .btn-icon.active { color:var(--primary); border-color:var(--primary); }
+
+.screen-wrap {
+    flex:1; position:relative; overflow:hidden; background:#000;
+    display:flex; align-items:center; justify-content:center;
+}
+#remoteCanvas {
+    position:absolute; top:0; left:0;
+    transform-origin:0 0; cursor:none; image-rendering:auto;
+    will-change:transform;
+}
+.zoom-indicator {
+    position:absolute; bottom:12px; right:12px; z-index:15;
+    background:rgba(0,0,0,0.6); color:var(--primary);
+    padding:4px 12px; border-radius:12px; font-size:12px;
+    opacity:0; transition:opacity .3s; pointer-events:none;
+}
+.zoom-indicator.show { opacity:1; }
+#touchLayer {
+    position:absolute; top:0; left:0; width:100%; height:100%;
+    z-index:10; touch-action:none;
+}
+
+.overlay {
+    position:absolute; top:0; left:0; width:100%; height:100%;
+    display:flex; align-items:center; justify-content:center; flex-direction:column;
+    background:rgba(0,0,0,0.7); z-index:20;
+}
+.overlay .spinner {
+    width:44px; height:44px; border:3px solid var(--border);
+    border-top-color:var(--primary); border-radius:50%;
+    animation: spin 0.8s linear infinite; margin-bottom:16px;
+}
+.overlay .text { color:var(--text-dim); font-size:14px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+.settings-panel {
+    position:absolute; top:44px; right:0; bottom:0; width:280px;
+    background:var(--bg-card); border-left:1px solid var(--border);
+    z-index:30; display:none; flex-direction:column; padding:20px; gap:16px;
+}
+.settings-panel.active { display:flex; }
+.settings-panel h3 { font-size:15px; margin-bottom:4px; }
+.settings-panel .setting-item { display:flex; flex-direction:column; gap:6px; }
+.settings-panel .setting-item label { font-size:13px; color:var(--text-dim); }
+.settings-panel .setting-item input[type=range] { width:100%; accent-color:var(--primary); }
+.settings-panel .setting-item .val { font-size:12px; color:var(--primary); text-align:right; }
+.settings-panel select, .settings-panel input[type=number] {
+    background:var(--bg); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); padding:8px 10px; font-size:13px; outline:none;
+}
+
+/* 文件管理面板 */
+.file-panel {
+    position:absolute; top:44px; right:0; bottom:0; width:440px; max-width:96vw;
+    background:var(--bg-card); border-left:1px solid var(--border);
+    z-index:35; display:none; flex-direction:column;
+}
+.file-panel.active { display:flex; }
+/* 文件传输模式：不显示远程桌面，文件管理铺满整个窗口（也不推流） */
+body.files-mode .screen-wrap { display:none; }
+body.files-mode .file-panel {
+    position:static; width:100%; max-width:none; border-left:none;
+    flex:1; min-height:0;
+}
+body.files-mode .desktop-only { display:none; }
+body.files-mode .file-panel .btn-close { display:none; }
+.file-panel .panel-header {
+    display:flex; align-items:center; gap:8px; padding:8px 12px;
+    border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.file-panel .panel-header .path {
+    flex:1; font-size:12px; color:var(--primary); white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; direction:rtl; text-align:left;
+}
+.file-panel .panel-header .btn-close {
+    background:none; border:none; color:var(--text-dim); font-size:20px; cursor:pointer; padding:2px 6px;
+}
+.file-actions { display:flex; flex-wrap:wrap; gap:6px; padding:8px 12px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.file-actions button {
+    background:var(--accent); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); padding:6px 12px; font-size:12px; cursor:pointer;
+}
+.file-actions button:hover { background:var(--accent-light); }
+.file-actions button:disabled { opacity:.45; cursor:not-allowed; }
+.file-list { flex:1; overflow-y:auto; padding:4px 0; }
+.file-row {
+    display:flex; align-items:center; gap:8px; padding:7px 12px; font-size:13px;
+    cursor:pointer; white-space:nowrap;
+}
+.file-row:hover { background:rgba(0,180,216,0.08); }
+.file-row.selected { background:rgba(0,180,216,0.18); }
+.file-row .ico { width:18px; text-align:center; flex-shrink:0; }
+.file-row .fname { flex:1; overflow:hidden; text-overflow:ellipsis; }
+.file-row .fsize { color:var(--text-dim); font-size:11px; flex-shrink:0; }
+.file-empty { padding:24px 12px; text-align:center; color:var(--text-dim); font-size:13px; }
+.file-progress { padding:8px 12px; border-top:1px solid var(--border); font-size:12px; color:var(--primary); display:none; flex-shrink:0; }
+.file-progress.active { display:block; }
+.file-progress .bar { height:5px; background:var(--border); border-radius:3px; margin-top:6px; overflow:hidden; }
+.file-progress .bar > i { display:block; height:100%; width:0; background:var(--primary); transition:width .15s; }
+
+.mobile-bar {
+    display:none; padding:5px 8px; gap:6px; justify-content:center;
+    background:var(--bg-card); border-top:1px solid var(--border);
+    overflow-x:auto; -webkit-overflow-scrolling:touch; flex-wrap:nowrap;
+}
+.mobile-bar .btn-key {
+    background:var(--accent); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); padding:8px 12px; font-size:13px; cursor:pointer;
+    white-space:nowrap; flex-shrink:0;
+}
+.mobile-bar .btn-key:active { background:var(--accent-light); }
+.mobile-bar .btn-key.active { background:var(--primary); color:#fff; }
+
+.input-panel {
+    position:fixed; bottom:0; left:0; right:0; z-index:40;
+    background:var(--bg-card); border-top:2px solid var(--primary);
+    transform:translateY(100%); transition:transform .3s ease;
+    max-height:45vh; display:flex; flex-direction:column;
+}
+.input-panel.active { transform:translateY(0); }
+.input-panel .panel-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:8px 14px; border-bottom:1px solid var(--border);
+}
+.input-panel .panel-header span { font-size:14px; color:var(--primary); font-weight:600; }
+.input-panel .panel-header .btn-close {
+    background:none; border:none; color:var(--text-dim); font-size:20px; cursor:pointer; padding:4px 8px;
+}
+.input-row { display:flex; gap:8px; padding:10px 14px; }
+.input-row input[type=text] {
+    flex:1; padding:10px 14px; font-size:16px;
+    background:var(--bg); border:1px solid var(--border); border-radius:8px;
+    color:var(--text); outline:none;
+}
+.input-row input[type=text]:focus { border-color:var(--primary); }
+.input-row .btn-send {
+    padding:10px 20px; font-size:14px; font-weight:600;
+    background:var(--primary); color:#fff; border:none; border-radius:8px; cursor:pointer;
+}
+.input-row .btn-send:active { background:var(--primary-dark); }
+.key-grid {
+    display:flex; flex-wrap:wrap; gap:6px; padding:0 14px 12px; justify-content:center;
+}
+.key-grid .btn-key {
+    background:var(--accent); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); padding:10px 14px; font-size:14px; cursor:pointer; min-width:42px;
+}
+.key-grid .btn-key:active { background:var(--accent-light); }
+
+.trackpad-overlay {
+    display:none; position:absolute; top:0; left:0; right:0; bottom:0; z-index:12;
+    flex-direction:column;
+}
+.trackpad-overlay.active { display:flex; }
+.trackpad-area {
+    flex:1; background:rgba(0,180,216,0.05); border:2px dashed rgba(0,180,216,0.2);
+    margin:8px; border-radius:12px; position:relative; overflow:hidden;
+    touch-action:none;
+}
+.trackpad-area .hint {
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    color:var(--text-dim); font-size:14px; pointer-events:none; text-align:center;
+}
+.trackpad-btns { display:flex; gap:8px; padding:8px 14px 12px; justify-content:center; }
+.trackpad-btns .btn-mouse {
+    flex:1; max-width:120px; padding:14px; font-size:15px; font-weight:600;
+    border:1px solid var(--border); border-radius:10px; cursor:pointer;
+    background:var(--accent); color:var(--text); transition:all .1s;
+}
+.trackpad-btns .btn-mouse:active, .trackpad-btns .btn-mouse.pressed {
+    background:var(--primary); color:#fff; transform:scale(0.97);
+}
+
+@media (max-width: 768px) {
+    .toolbar .host-info { font-size:11px; }
+    .toolbar .btn-icon { padding:5px 7px; font-size:12px; }
+    .mobile-bar { display:flex; }
+    .file-panel { width:100%; }
+}
+</style>
+</head>
+<body>
+
+<div id="loginPage">
+    <div class="login-card">
+        <div class="logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.5">
+                <rect x="2" y="3" width="20" height="14" rx="2"/>
+                <path d="M8 21h8M12 17v4"/>
+                <path d="M6 7l3 3-3 3M14 13h4" stroke-width="1.5"/>
+            </svg>
+        </div>
+        <h1>远程控制</h1>
+        <p class="subtitle">局域网直连</p>
+        <div id="serverInfo" style="margin-bottom:20px;"></div>
+        <div class="input-group">
+            <label>连接密码</label>
+            <input type="password" id="pwdInput" placeholder="请输入密码" autocomplete="off">
+        </div>
+        <button class="btn btn-primary" id="connectBtn" onclick="doConnect()">连接</button>
+        <div class="error-msg" id="errorMsg"></div>
+    </div>
+</div>
+
+<div id="desktopPage">
+    <div class="toolbar">
+        <div class="host-info">
+            <span class="name" id="hostName"></span>
+            <span id="hostOs"></span>
+        </div>
+        <div class="status" id="connStatus">已连接</div>
+        <div class="status mode" id="modeBadge" style="display:none;"></div>
+        <button class="btn-icon desktop-only" id="btnFiles" onclick="toggleFiles()">文件</button>
+        <button class="btn-icon desktop-only" id="btnTrackpad" onclick="toggleTrackpad()">触控板</button>
+        <button class="btn-icon desktop-only" onclick="toggleLandscape()">横屏</button>
+        <button class="btn-icon" onclick="toggleFullscreen()">全屏</button>
+        <button class="btn-icon desktop-only" onclick="resetZoom()">重置</button>
+        <button class="btn-icon desktop-only" onclick="toggleSettings()">设置</button>
+        <button class="btn-icon" onclick="disconnect()">断开</button>
+    </div>
+    <div class="screen-wrap" id="screenWrap">
+        <canvas id="remoteCanvas"></canvas>
+        <div id="touchLayer"></div>
+        <div class="zoom-indicator" id="zoomIndicator">100%</div>
+        <div class="trackpad-overlay" id="trackpadOverlay">
+            <div class="trackpad-area" id="trackpadArea">
+                <div class="hint">滑动手指移动鼠标<br>双指滑动 = 滚动</div>
+            </div>
+            <div class="trackpad-btns">
+                <button class="btn-mouse" id="trackpadLeft">左键</button>
+                <button class="btn-mouse" id="trackpadMiddle">中键</button>
+                <button class="btn-mouse" id="trackpadRight">右键</button>
+            </div>
+        </div>
+        <div class="overlay" id="loadingOverlay">
+            <div class="spinner"></div>
+            <div class="text">正在连接远程桌面...</div>
+        </div>
+    </div>
+    <div class="mobile-bar">
+        <button class="btn-key" id="mobileTrackpad" onclick="toggleTrackpad()">触控板</button>
+        <button class="btn-key" id="mobileKeyboard" onclick="openInputPanel()">键盘</button>
+        <button class="btn-key" onclick="sendKey('Escape')">ESC</button>
+        <button class="btn-key" onclick="sendKey('win')">Win</button>
+        <button class="btn-key" id="mobileCtrl" onclick="toggleModifier('ctrl')">Ctrl</button>
+        <button class="btn-key" id="mobileAlt" onclick="toggleModifier('alt')">Alt</button>
+        <button class="btn-key" onclick="sendKey('tab')">Tab</button>
+        <button class="btn-key" onclick="sendKey('enter')">回车</button>
+        <button class="btn-key" onclick="sendKey('backspace')">退格</button>
+        <button class="btn-key" onclick="sendKey('space')">空格</button>
+        <button class="btn-key" onclick="sendKey('up')">↑</button>
+        <button class="btn-key" onclick="sendKey('down')">↓</button>
+        <button class="btn-key" onclick="sendKey('left')">←</button>
+        <button class="btn-key" onclick="sendKey('right')">→</button>
+    </div>
+
+    <div class="input-panel" id="inputPanel">
+        <div class="panel-header">
+            <span>键盘输入（支持拼音/英文）</span>
+            <button class="btn-close" onclick="closeInputPanel()">&times;</button>
+        </div>
+        <div class="input-row">
+            <input type="text" id="textInput" placeholder="输入文字，自动发送到远程..." autocomplete="off" autocapitalize="off" autocorrect="off">
+            <button class="btn-send" onclick="sendInputText()">发送</button>
+        </div>
+        <div class="key-grid">
+            <button class="btn-key" onclick="sendKey('enter')">回车</button>
+            <button class="btn-key" onclick="sendKey('backspace')">退格</button>
+            <button class="btn-key" onclick="sendKey('space')">空格</button>
+            <button class="btn-key" onclick="sendKey('tab')">Tab</button>
+            <button class="btn-key" onclick="sendKey('up')">↑</button>
+            <button class="btn-key" onclick="sendKey('down')">↓</button>
+            <button class="btn-key" onclick="sendKey('left')">←</button>
+            <button class="btn-key" onclick="sendKey('right')">→</button>
+            <button class="btn-key" onclick="sendKey('esc')">ESC</button>
+            <button class="btn-key" onclick="sendKey('delete')">Del</button>
+            <button class="btn-key" onclick="sendKey('home')">Home</button>
+            <button class="btn-key" onclick="sendKey('end')">End</button>
+        </div>
+    </div>
+
+    <div class="settings-panel" id="settingsPanel">
+        <h3>画面设置</h3>
+        <div class="setting-item">
+            <label>画质 <span class="val" id="qualityVal">65</span></label>
+            <input type="range" id="qualitySlider" min="10" max="100" value="65" oninput="onQualityChange(this.value)">
+        </div>
+        <div class="setting-item">
+            <label>帧率 <span class="val" id="fpsVal">30</span> fps</label>
+            <input type="range" id="fpsSlider" min="5" max="60" value="30" oninput="onFpsChange(this.value)">
+        </div>
+        <div class="setting-item">
+            <label>缩放比例 <span class="val" id="scaleVal">100%</span></label>
+            <input type="range" id="scaleSlider" min="25" max="100" value="100" step="5" oninput="onScaleChange(this.value)">
+        </div>
+        <div class="setting-item">
+            <label>鼠标模式</label>
+            <select id="mouseMode" onchange="onMouseModeChange(this.value)">
+                <option value="absolute">绝对定位（默认）</option>
+                <option value="relative">相对移动</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="file-panel" id="filePanel">
+        <div class="panel-header">
+            <span style="font-size:14px;color:var(--primary);font-weight:600;">文件管理</span>
+            <span class="path" id="filePath" title=""></span>
+            <button class="btn-close" onclick="toggleFiles()">&times;</button>
+        </div>
+        <div class="file-actions">
+            <button id="fileUpBtn" onclick="fileGoUp()">上级</button>
+            <button onclick="fileRefresh()">刷新</button>
+            <button onclick="fileMkdir()">新建文件夹</button>
+            <button onclick="filePickUpload()">上传文件</button>
+            <button id="fileDownloadBtn" onclick="fileDownloadSelected()" disabled>下载</button>
+            <button id="fileRenameBtn" onclick="fileRenameSelected()" disabled>重命名</button>
+            <button id="fileDeleteBtn" onclick="fileDeleteSelected()" disabled>删除</button>
+            <input type="file" id="fileUploadInput" style="display:none">
+        </div>
+        <div class="file-list" id="fileList">
+            <div class="file-empty">正在加载...</div>
+        </div>
+        <div class="file-progress" id="fileProgress">
+            <span id="fileProgressText"></span>
+            <div class="bar"><i id="fileProgressBar"></i></div>
+        </div>
+    </div>
+</div>
+
+<script src="client.js"></script>
+</body>
+</html>

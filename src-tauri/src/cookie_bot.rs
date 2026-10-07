@@ -801,7 +801,7 @@ fn error(code: &str, params: &[(&str, &str)]) -> String {
 // --- Routes -----------------------------------------------------------------
 
 fn base() -> String {
-  format!("{}/api/cookie-bot", crate::cloud_auth::CLOUD_API_URL)
+  format!("{}/api/cookie-bot", crate::cloud_domain::CLOUD_API_URL)
 }
 
 /// Every enrolment the caller can see.
@@ -1276,7 +1276,7 @@ pub async fn remote_hours_quota() -> Result<RemoteHoursQuota, CookieBotError> {
     reqwest::Method::GET,
     format!(
       "{}/api/remote-sessions/quota",
-      crate::cloud_auth::CLOUD_API_URL
+      crate::cloud_domain::CLOUD_API_URL
     ),
     Vec::new(),
     None,

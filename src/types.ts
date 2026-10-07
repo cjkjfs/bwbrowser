@@ -150,7 +150,7 @@ export interface Entitlements {
    */
   remoteInteractive: boolean;
   /**
-   * May drive this desktop from yacm.xin, the remote MCP endpoint and
+   * May drive this desktop from the cloud website, the remote MCP endpoint and
    * the API in front of it. Enterprise only.
    *
    * Read by the UI to explain why a connected desktop cannot be driven. The

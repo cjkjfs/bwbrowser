@@ -69,7 +69,7 @@ impl SyncSubscription {
   ) -> Result<Option<Self>, String> {
     // Cloud auth takes priority
     if crate::cloud_auth::CLOUD_AUTH.is_logged_in().await {
-      let url = crate::cloud_auth::CLOUD_SYNC_URL.to_string();
+      let url = crate::cloud_domain::CLOUD_SYNC_URL.to_string();
       let token = crate::cloud_auth::CLOUD_AUTH
         .get_or_refresh_sync_token()
         .await

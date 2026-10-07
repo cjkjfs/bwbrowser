@@ -10,12 +10,10 @@ use std::path::{Path, PathBuf};
 use tokio::sync::Mutex;
 
 use crate::browser::ProxySettings;
+use crate::cloud_domain::CLOUD_API_URL;
 use crate::proxy_manager::PROXY_MANAGER;
 use crate::settings_manager::{SettingsManager, StoredMcpRemoteKey};
 use crate::sync;
-
-pub const CLOUD_API_URL: &str = "https://api.yacm.xin";
-pub const CLOUD_SYNC_URL: &str = "https://sync.yacm.xin";
 
 /// Default per-hour cap on local automation API / MCP requests, used when the
 /// cloud API has not sent one.

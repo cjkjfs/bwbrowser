@@ -74,6 +74,7 @@ import { useBwbrowserCompany } from "@/hooks/use-bwbrowser-company";
 import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { translateBackendError } from "@/lib/backend-errors";
+import { CLOUD_HTTP_ROOT, CLOUD_ROOT } from "@/lib/cloud-config";
 import {
   dismissToast,
   showErrorToast,
@@ -114,7 +115,7 @@ function resolveAvatarUrl(raw?: string): string | undefined {
   const v = raw.trim();
   if (!v) return undefined;
   if (/^(https?:|data:|blob:)/i.test(v)) return v;
-  if (v.startsWith("/")) return `http://yacm.xin${v}`;
+  if (v.startsWith("/")) return `${CLOUD_HTTP_ROOT}${v}`;
   return v;
 }
 
@@ -4576,7 +4577,7 @@ export function BwbrowserCloudAccountsDialog({
             <Input
               value={editSafeLink}
               onChange={(e) => setEditSafeLink(e.target.value)}
-              placeholder="https://yacm.xin/tk/2fa.php?secret=..."
+              placeholder={`${CLOUD_ROOT}/tk/2fa.php?secret=...`}
               className="h-8 text-xs"
             />
             <p className="text-[11px] text-muted-foreground">

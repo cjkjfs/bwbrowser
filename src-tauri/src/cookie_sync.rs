@@ -1295,7 +1295,7 @@ pub async fn current_page_is_login(profile: &BrowserProfile) -> Result<Option<bo
   }
 
   let h = href.trim();
-  if h.is_empty() || h.starts_with("about:") || !h.contains("yacm.xin") {
+  if h.is_empty() || h.starts_with("about:") || !h.contains(crate::cloud_domain::CLOUD_DOMAIN) {
     // 页面未就绪或已离开爆文库站内，无法确认登录，保守视为"未登录"
     return Ok(None);
   }
@@ -1497,7 +1497,7 @@ fn is_text_selector(s: &str) -> bool {
 /// Fetch platform login_check config from the backend API.
 /// Returns `None` if the platform has no login_check config or the API is unreachable.
 pub async fn fetch_login_check_config(platform: &str) -> Option<LoginCheckConfig> {
-  let url = crate::bwbrowser_cloud::PLATFORM_CONFIG_API_URL;
+  let url = crate::cloud_domain::PLATFORM_CONFIG_API_URL;
   let resp = match reqwest::get(url).await {
     Ok(r) => r,
     Err(e) => {

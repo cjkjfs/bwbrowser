@@ -298,7 +298,7 @@ impl BrowserVersionManager {
 
     match browser {
       "wayfern" => {
-        // Wayfern downloads from https://www.yacm.xin/download/
+        // Wayfern downloads from https://yacm.xin/download/
         // File naming: wayfern-{chromium_version}-{platform}-{arch}.{ext}
         // Platform/arch format: linux-x64, macos-arm64, etc.
         let platform_key = format!("{os}-{arch}");
@@ -317,7 +317,7 @@ impl BrowserVersionManager {
 
         // Note: The actual URL will be resolved dynamically from version.json in downloader.rs
         Ok(DownloadInfo {
-          url: format!("https://www.yacm.xin/download/{filename}"),
+          url: format!("{}/{filename}", crate::cloud_domain::BROWSER_DOWNLOAD_URL),
           filename,
           is_archive,
         })

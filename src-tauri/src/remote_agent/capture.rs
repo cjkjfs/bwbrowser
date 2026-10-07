@@ -100,6 +100,13 @@ mod imp {
     }
   }
 
+  /// 虚拟屏幕尺寸，不截图。供 /discover 免密上报，避免每次探测都抓一整帧。
+  pub fn screen_size() -> (u32, u32) {
+    let w = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) };
+    let h = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) };
+    (w.max(0) as u32, h.max(0) as u32)
+  }
+
   /// 捕获整个虚拟屏幕（含多显示器），合成当前光标
   pub fn capture_screen() -> Result<Frame, String> {
     let vx = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
@@ -292,6 +299,12 @@ mod imp {
     pub bgra: Vec<u8>,
   }
 
+  /// 主显示器尺寸，不截图。供 /discover 免密上报。
+  pub fn screen_size() -> (u32, u32) {
+    let d = CGDisplay::main();
+    (d.pixels_wide() as u32, d.pixels_high() as u32)
+  }
+
   /// 捕获主显示器（CGDisplayCreateImage，像素分辨率）。
   ///
   /// 两点与 Windows 端的差异：
@@ -344,9 +357,13 @@ mod imp {
     pub bgra: Vec<u8>,
   }
 
+  pub fn screen_size() -> (u32, u32) {
+    (0, 0)
+  }
+
   pub fn capture_screen() -> Result<Frame, String> {
     Err("仅支持 Windows / macOS".to_string())
   }
 }
 
-pub use imp::capture_screen;
+pub use imp::{capture_screen, screen_size};

@@ -59,7 +59,8 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::handshake::client::Request as WsRequest;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::cloud_auth::{CLOUD_API_URL, CLOUD_AUTH};
+use crate::cloud_auth::CLOUD_AUTH;
+use crate::cloud_domain::CLOUD_API_URL;
 use crate::mcp_server::{McpOutcome, McpServer};
 
 /// The wire contract's version. Bumped only for a change a current desktop
@@ -983,10 +984,14 @@ fn result_frame(cid: &str, outcome: McpOutcome) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::cloud_domain::CLOUD_DOMAIN;
 
   #[test]
   fn bridge_url_is_the_websocket_scheme_of_the_cloud_api() {
-    assert_eq!(bridge_url(), "wss://api.yacm.xin/api/mcp-bridge");
+    let url = bridge_url();
+    assert!(url.starts_with("wss://api."), "{url}");
+    assert!(url.contains(CLOUD_DOMAIN), "{url}");
+    assert!(url.ends_with("/api/mcp-bridge"), "{url}");
   }
 
   #[test]

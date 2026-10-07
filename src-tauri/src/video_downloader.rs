@@ -1998,7 +1998,7 @@ fn log_video_download_to_server(
 
       let client = reqwest::Client::new();
       let _ = client
-        .post(crate::bwbrowser_cloud::BWBROWSER_API_URL)
+        .post(crate::cloud_domain::BWBROWSER_API_URL)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(form_data)
         .send()

@@ -375,7 +375,7 @@ fn fleet_platform(
 // --- Routes -----------------------------------------------------------------
 
 fn base() -> String {
-  format!("{}/api/agent", crate::cloud_auth::CLOUD_API_URL)
+  format!("{}/api/agent", crate::cloud_domain::CLOUD_API_URL)
 }
 
 /// Start a run. Answers the created run, normally `queued`.

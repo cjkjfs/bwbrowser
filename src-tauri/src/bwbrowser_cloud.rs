@@ -3,7 +3,7 @@
 //! Bwbrowser Cloud Authentication
 //! 对接 bwbrowser_sync.php 的账号密码登录系统
 //!
-//! API 文档见：https://www.yacm.xin/tk/bwbrowser_sync.php
+//! API 文档见：https://yacm.xin/tk/bwbrowser_sync.php
 //! 认证方式：username + password (POST action=login)
 
 use chrono::Utc;
@@ -16,6 +16,10 @@ use std::sync::Mutex;
 use tauri::{Emitter, Runtime};
 
 use crate::cloud_auth::{CloudAuthState, CloudUser, Entitlements};
+use crate::cloud_domain::{
+  BAOWENKU_URL, BWBROWSER_API_URL, BWBROWSER_USERS_API_URL, LOGIN_URL, PLATFORM_CONFIG_API_URL,
+  SIMPRINT_ACCOUNTS_URL, WAYFERN_TOKEN_API_URL,
+};
 use crate::settings_manager::SettingsManager;
 
 /// Deserialize either an integer or a string into Option<String>.
@@ -91,21 +95,8 @@ where
 
 // ========== 配置 ==========
 
-/// Bwbrowser 云端 API 地址（登录/同步用）
-pub const BWBROWSER_API_URL: &str = "http://yacm.xin/tk/bwbrowser_sync.php";
-
-/// 平台配置 API 地址（获取平台 creator_url）
-pub const PLATFORM_CONFIG_API_URL: &str = "http://yacm.xin/tk/api_get_platform_config.php";
-
-/// Wayfern Token 接口地址
-pub const WAYFERN_TOKEN_API_URL: &str = "http://yacm.xin/tk/api_auth_wayfern_start.php";
-
-/// Simprint 云端账号 API 地址列表（带 fallback，与 Simprint 保持一致）
-const SIMPRINT_ACCOUNTS_URLS: &[&str] = &[
-  "http://47.93.197.114/tk/simprint_accounts.php",
-  "http://www.yacm.xin/tk/simprint_accounts.php",
-  "http://www.yacm.xin/tk/simprint_accounts.php",
-];
+/// Simprint 云端账号 API（域名已统一为裸域，切片形态供既有重试循环使用）
+const SIMPRINT_ACCOUNTS_URLS: &[&str] = &[SIMPRINT_ACCOUNTS_URL];
 
 // ========== 响应类型 ==========
 
@@ -935,7 +926,7 @@ fn build_baowenku_account_detail_url(account_name: &str, platform: &str) -> Stri
   // 过滤昵称中的 @，避免被 urlencode 成 %40 导致搜索失败
   let clean_name = account_name.replace('@', "");
   format!(
-    "https://yacm.xin/tk/baowenku.php?tab=account&video_sort=play_desc&visibility=all&platform={}&owner_id=0&search={}",
+    "{BAOWENKU_URL}?tab=account&video_sort=play_desc&visibility=all&platform={}&owner_id=0&search={}",
     urlencode(&platform.to_lowercase()),
     urlencode(&clean_name),
   )
@@ -965,7 +956,7 @@ pub async fn bwbrowser_open_vps_login(
 
   let redirect = redirect.unwrap_or_else(|| "baowenku.php".to_string());
   let url = format!(
-    "http://yacm.xin/tk/login.php?auto_login=1&username={}&password={}&redirect={}",
+    "{LOGIN_URL}?auto_login=1&username={}&password={}&redirect={}",
     urlencode(&username),
     urlencode(&password),
     urlencode(&redirect),
@@ -1971,10 +1962,8 @@ impl BwbrowserAuthManager {
 
     // 优先用 simprint_accounts.php（有正确的 JOIN 和筛选逻辑），
     // 全部失败时才回退到 bwbrowser_sync.php
-    let endpoints: [(&str, &str); 4] = [
+    let endpoints: [(&str, &str); 2] = [
       (SIMPRINT_ACCOUNTS_URLS[0], form_data.as_str()),
-      (SIMPRINT_ACCOUNTS_URLS[1], form_data.as_str()),
-      (SIMPRINT_ACCOUNTS_URLS[2], form_data.as_str()),
       (BWBROWSER_API_URL, bwbrowser_form_data.as_str()),
     ];
 
@@ -4147,6 +4136,9 @@ impl BwbrowserAuthManager {
   pub fn invalidate_all_cache(&self) {
     self.invalidate_env_cache();
     self.invalidate_proxy_cache();
+    // 远程管理控制端的 token 按账号签发，换账号后必须重签，否则会拿上一个
+    // 账号的身份去拉公司机器列表。
+    crate::remote_agent::control::clear_token();
   }
 
   /// 列出云端环境（带内存缓存，同一会话内复用）
@@ -9119,8 +9111,6 @@ async fn sync_cookies_to_cloud(
 }
 
 // ==================== 用户管理（users.php API）====================
-
-const BWBROWSER_USERS_API_URL: &str = "http://yacm.xin/tk/users.php";
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UserManagementUser {

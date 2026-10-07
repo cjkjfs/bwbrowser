@@ -44,7 +44,7 @@ import { OperationFlow } from "@/components/ui/operation-flow";
 import { useCloudAuth } from "@/hooks/use-cloud-auth";
 import { useWayfernTerms } from "@/hooks/use-wayfern-terms";
 import { translateBackendError } from "@/lib/backend-errors";
-import { CLOUD_API_URL } from "@/lib/cloud-config";
+import { CLOUD_API_URL, CLOUD_DOMAIN } from "@/lib/cloud-config";
 import { canUseRemoteControl } from "@/lib/entitlements";
 import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import { cn } from "@/lib/utils";
@@ -1061,7 +1061,9 @@ export function IntegrationsDialog({
                               {t("integrations.remote.enableLabel")}
                             </Label>
                             <p className="text-xs text-muted-foreground">
-                              {t("integrations.remote.enableDescription")}
+                              {t("integrations.remote.enableDescription", {
+                                domain: CLOUD_DOMAIN,
+                              })}
                             </p>
                           </div>
                         </div>

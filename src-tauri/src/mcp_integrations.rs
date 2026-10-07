@@ -37,7 +37,7 @@ const REMOTE_MCP_PATH: &str = "/api/mcp";
 pub const FX_TOKEN_ENV: &str = "BWBROWSER_MCP_TOKEN";
 
 pub fn remote_mcp_url() -> String {
-  format!("{}{REMOTE_MCP_PATH}", crate::cloud_auth::CLOUD_API_URL)
+  format!("{}{REMOTE_MCP_PATH}", crate::cloud_domain::CLOUD_API_URL)
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -1815,7 +1815,13 @@ mod tests {
     assert_eq!(endpoint_of_url("http://127.0.0.1:51080/api"), None);
     assert_eq!(endpoint_of_url("https://api.githubcopilot.com/mcp/"), None);
     assert_eq!(endpoint_of_url("http://evil.example/mcp/tok"), None);
-    assert_eq!(endpoint_of_url("https://api.yacm.xin/api/mcp-bridge"), None);
+    assert_eq!(
+      endpoint_of_url(&format!(
+        "{}/api/mcp-bridge",
+        crate::cloud_domain::CLOUD_API_URL
+      )),
+      None
+    );
     assert_eq!(McpEndpoint::parse("remote"), Some(McpEndpoint::Remote));
     assert_eq!(McpEndpoint::parse("local"), Some(McpEndpoint::Local));
     assert_eq!(McpEndpoint::parse("cloud"), None);

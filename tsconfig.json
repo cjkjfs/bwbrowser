@@ -37,6 +37,7 @@
     "node_modules",
     "nodecar",
     "src-tauri/target",
+    "e2e/app/target",
     "bwbrowser-sync",
     "bak"
   ]

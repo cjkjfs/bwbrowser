@@ -360,6 +360,33 @@ export const commandCoverage = {
       "bwbrowser_cloud::bwbrowser_write_local_bookmarks",
     ],
   },
+  remoteManagement: {
+    suite: "integrations",
+    level: "contract",
+    commands: [
+      "bwbrowser_remote_management_machines",
+      "bwbrowser_remote_management_target",
+      "bwbrowser_remote_management_scan_lan",
+    ],
+  },
+  remoteFileTransfer: {
+    suite: "integrations",
+    level: "contract",
+    commands: [
+      "bwbrowser_remote_files_target",
+      "bwbrowser_remote_files_list",
+      "bwbrowser_remote_files_mkdir",
+      "bwbrowser_remote_files_rename",
+      "bwbrowser_remote_files_delete",
+      "bwbrowser_remote_files_download",
+      "bwbrowser_remote_files_upload",
+      "bwbrowser_local_files_home",
+      "bwbrowser_local_files_list",
+      "bwbrowser_local_files_mkdir",
+      "bwbrowser_local_files_rename",
+      "bwbrowser_local_files_delete",
+    ],
+  },
   cloudProxy: {
     suite: "integrations",
     level: "contract",

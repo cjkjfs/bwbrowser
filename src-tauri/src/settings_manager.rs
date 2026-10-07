@@ -843,7 +843,7 @@ pub async fn get_sync_settings(app_handle: tauri::AppHandle) -> Result<SyncSetti
       .await
       .map_err(|e| format!("Failed to get cloud sync token: {e}"))?;
     return Ok(SyncSettings {
-      sync_server_url: Some(crate::cloud_auth::CLOUD_SYNC_URL.to_string()),
+      sync_server_url: Some(crate::cloud_domain::CLOUD_SYNC_URL.to_string()),
       sync_token,
     });
   }

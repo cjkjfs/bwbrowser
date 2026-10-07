@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { withApp } from "../lib/app.mjs";
@@ -1426,6 +1427,124 @@ test("offline cloud, update, team-lock, trial, and synchronizer contracts are de
         await app.invokeError("get_remote_hours_quota"),
         notSignedIn,
       );
+      // The remote-management control side (控制端) rides the same Bwbrowser
+      // token: signed out, listing a company's machines and resolving a
+      // LAN-first target must refuse as a translatable code rather than reach
+      // the network or invent an empty list.
+      assert.match(
+        await app.invokeError("bwbrowser_remote_management_machines", {}),
+        notSignedIn,
+      );
+      assert.match(
+        await app.invokeError("bwbrowser_remote_management_target", {
+          clientId: 1,
+        }),
+        notSignedIn,
+      );
+      // The LAN scan is the remote_duli-style subnet sweep: signed out it must
+      // stop at the auth gate instead of probing the local network.
+      assert.match(
+        await app.invokeError("bwbrowser_remote_management_scan_lan", {}),
+        notSignedIn,
+      );
+      // The control-side file transfer resolves its cloud target over the same
+      // token, so a signed-out resolve must refuse as a translatable code.
+      assert.match(
+        await app.invokeError("bwbrowser_remote_files_target", { clientId: 1 }),
+        notSignedIn,
+      );
+      // Remote file ops open a viewer socket to the resolved target. Aimed at a
+      // closed loopback port they must reach the transport and refuse as
+      // unreachable rather than hang or fabricate a listing.
+      const closedTarget = {
+        method: "lan",
+        host: "127.0.0.1",
+        port: 1,
+        password: "",
+        uuid: "",
+        relay_url: "",
+        hostname: "",
+      };
+      const unreachable = /"code":"REMOTE_DESKTOP_UNREACHABLE"/;
+      assert.match(
+        await app.invokeError("bwbrowser_remote_files_list", {
+          target: closedTarget,
+          path: "",
+        }),
+        unreachable,
+      );
+      assert.match(
+        await app.invokeError("bwbrowser_remote_files_mkdir", {
+          target: closedTarget,
+          path: "",
+          name: "e2e-dir",
+        }),
+        unreachable,
+      );
+      assert.match(
+        await app.invokeError("bwbrowser_remote_files_rename", {
+          target: closedTarget,
+          path: "a",
+          newName: "b",
+        }),
+        unreachable,
+      );
+      assert.match(
+        await app.invokeError("bwbrowser_remote_files_delete", {
+          target: closedTarget,
+          path: "a",
+        }),
+        unreachable,
+      );
+      assert.match(
+        await app.invokeError("bwbrowser_remote_files_download", {
+          target: closedTarget,
+          remotePath: "a",
+          localDir: os.tmpdir(),
+        }),
+        unreachable,
+      );
+      // Upload stats its source first, so the fixture must be a real file for
+      // the body to reach the socket and fail there.
+      assert.match(
+        await app.invokeError("bwbrowser_remote_files_upload", {
+          target: closedTarget,
+          localPath: path.join(import.meta.dirname, "integrations.test.mjs"),
+          remoteDir: "",
+        }),
+        unreachable,
+      );
+      // Local-side browsing is the control machine's own disk and needs no
+      // session: home resolves to a path, and a listing comes back in the same
+      // viewer-shaped result the two panes render.
+      const localHome = await app.invoke("bwbrowser_local_files_home");
+      assert.equal(typeof localHome, "string");
+      const localList = await app.invoke("bwbrowser_local_files_list", {
+        path: localHome,
+      });
+      assert.equal(localList.success, true);
+      assert.ok(Array.isArray(localList.entries));
+      const scratch = await mkdtemp(
+        path.join(os.tmpdir(), "bwbrowser-e2e-files-"),
+      );
+      try {
+        const made = await app.invoke("bwbrowser_local_files_mkdir", {
+          path: scratch,
+          name: "sub",
+        });
+        assert.equal(made.success, true);
+        const renamed = await app.invoke("bwbrowser_local_files_rename", {
+          path: path.join(scratch, "sub"),
+          newName: "sub2",
+        });
+        assert.equal(renamed.success, true);
+        const removed = await app.invoke("bwbrowser_local_files_delete", {
+          path: path.join(scratch, "sub2"),
+        });
+        assert.equal(removed.success, true);
+      } finally {
+        await rm(scratch, { recursive: true, force: true });
+      }
       assert.match(
         await app.invokeError("get_cookie_bot_usage", { period: "2026-01" }),
         notSignedIn,

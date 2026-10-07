@@ -46,12 +46,16 @@ export function useBwbrowserPermissions() {
     isSuperAdmin || (permissions.allow_user_management ?? false);
   const canDownloadVideos =
     isSuperAdmin || (permissions.allow_video_download ?? false);
+  // 远程管理（控制端）：决定左侧「远程管理」菜单是否出现。
+  const canManageRemote =
+    isSuperAdmin || (permissions.allow_remote_management ?? false);
 
   return {
     permissions,
     isSuperAdmin,
     canManageUsers,
     canDownloadVideos,
+    canManageRemote,
     currentManagementUserId,
   };
 }

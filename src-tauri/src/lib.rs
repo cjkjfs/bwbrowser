@@ -114,6 +114,7 @@ mod window_decorations;
 mod agent;
 pub mod bwbrowser_cloud;
 pub mod cloud_auth;
+pub mod cloud_domain;
 mod cloud_errors;
 pub mod cloud_proxy_manager;
 mod commercial_license;
@@ -2139,6 +2140,133 @@ fn get_remote_session_events_status() -> bool {
   remote_session::session_events_running()
 }
 
+// --- Remote management (control side) ---------------------------------------
+
+/// 公司内电脑列表（远程管理控制端，来源 remote_api.php 的 clients）。
+#[tauri::command]
+async fn bwbrowser_remote_management_machines(
+  company_id: Option<i64>,
+) -> Result<remote_agent::control::RemoteMachinesResult, String> {
+  remote_agent::control::list_machines(company_id).await
+}
+
+/// 解析连接目标：局域网优先，失败回退中继。`mode` 为操作列按钮：full/view/files。
+#[tauri::command]
+async fn bwbrowser_remote_management_target(
+  client_id: i64,
+  mode: Option<String>,
+) -> Result<remote_agent::control::RemoteTarget, String> {
+  remote_agent::control::connect_target(client_id, mode).await
+}
+
+/// 扫描局域网发现被控端（移植 remote_duli 控制端的 IP 段扫描）。
+/// `ranges` 为空时自动取本机各私网网段的 /24；`port` 为空时用被控端默认端口。
+#[tauri::command]
+async fn bwbrowser_remote_management_scan_lan(
+  ranges: Option<String>,
+  port: Option<u16>,
+) -> Result<Vec<remote_agent::control::LanMachine>, String> {
+  remote_agent::control::scan_lan(ranges, port).await
+}
+
+// --- Remote file transfer (control side) ------------------------------------
+
+/// 解析文件传输目标：云端机器由后端给出局域网/中继 + 连接密码，局域网发现的机器用传入地址。
+#[tauri::command]
+async fn bwbrowser_remote_files_target(
+  client_id: Option<i64>,
+  host: Option<String>,
+  port: Option<u16>,
+  password: Option<String>,
+) -> Result<remote_agent::file_transfer::FileTarget, String> {
+  remote_agent::control::file_target(client_id, host, port, password).await
+}
+
+/// 远程目录列表（被控端磁盘）。
+#[tauri::command]
+async fn bwbrowser_remote_files_list(
+  target: remote_agent::file_transfer::FileTarget,
+  path: String,
+) -> Result<serde_json::Value, String> {
+  remote_agent::file_transfer::remote_list(target, path).await
+}
+
+#[tauri::command]
+async fn bwbrowser_remote_files_mkdir(
+  target: remote_agent::file_transfer::FileTarget,
+  path: String,
+  name: String,
+) -> Result<serde_json::Value, String> {
+  remote_agent::file_transfer::remote_mkdir(target, path, name).await
+}
+
+#[tauri::command]
+async fn bwbrowser_remote_files_rename(
+  target: remote_agent::file_transfer::FileTarget,
+  path: String,
+  new_name: String,
+) -> Result<serde_json::Value, String> {
+  remote_agent::file_transfer::remote_rename(target, path, new_name).await
+}
+
+#[tauri::command]
+async fn bwbrowser_remote_files_delete(
+  target: remote_agent::file_transfer::FileTarget,
+  path: String,
+) -> Result<serde_json::Value, String> {
+  remote_agent::file_transfer::remote_delete(target, path).await
+}
+
+/// 远程 → 本机：把被控端文件下载到本机目录。
+#[tauri::command]
+async fn bwbrowser_remote_files_download(
+  target: remote_agent::file_transfer::FileTarget,
+  remote_path: String,
+  local_dir: String,
+) -> Result<serde_json::Value, String> {
+  remote_agent::file_transfer::remote_download(target, remote_path, local_dir).await
+}
+
+/// 本机 → 远程：把本机文件上传到被控端目录。
+#[tauri::command]
+async fn bwbrowser_remote_files_upload(
+  target: remote_agent::file_transfer::FileTarget,
+  local_path: String,
+  remote_dir: String,
+) -> Result<serde_json::Value, String> {
+  remote_agent::file_transfer::remote_upload(target, local_path, remote_dir).await
+}
+
+/// 本机文件浏览的起始目录（用户主目录）。
+#[tauri::command]
+fn bwbrowser_local_files_home() -> String {
+  remote_agent::file_transfer::local_home()
+}
+
+/// 本机目录列表（控制端自己的磁盘）。
+#[tauri::command]
+fn bwbrowser_local_files_list(path: String) -> Result<serde_json::Value, String> {
+  remote_agent::file_transfer::local_list(path)
+}
+
+#[tauri::command]
+fn bwbrowser_local_files_mkdir(path: String, name: String) -> Result<serde_json::Value, String> {
+  remote_agent::file_transfer::local_mkdir(path, name)
+}
+
+#[tauri::command]
+fn bwbrowser_local_files_rename(
+  path: String,
+  new_name: String,
+) -> Result<serde_json::Value, String> {
+  remote_agent::file_transfer::local_rename(path, new_name)
+}
+
+#[tauri::command]
+fn bwbrowser_local_files_delete(path: String) -> Result<serde_json::Value, String> {
+  remote_agent::file_transfer::local_delete(path)
+}
+
 // --- Cookie bot -------------------------------------------------------------
 
 /// Turn a cookie-bot failure into the code the frontend translates.
@@ -3781,6 +3909,23 @@ pub fn run_with_builder(
       start_remote_session_events,
       stop_remote_session_events,
       get_remote_session_events_status,
+      // Remote management (control side)
+      bwbrowser_remote_management_machines,
+      bwbrowser_remote_management_target,
+      bwbrowser_remote_management_scan_lan,
+      // Remote file transfer (control side)
+      bwbrowser_remote_files_target,
+      bwbrowser_remote_files_list,
+      bwbrowser_remote_files_mkdir,
+      bwbrowser_remote_files_rename,
+      bwbrowser_remote_files_delete,
+      bwbrowser_remote_files_download,
+      bwbrowser_remote_files_upload,
+      bwbrowser_local_files_home,
+      bwbrowser_local_files_list,
+      bwbrowser_local_files_mkdir,
+      bwbrowser_local_files_rename,
+      bwbrowser_local_files_delete,
       // Cookie bot commands
       get_cookie_bot_schedules,
       get_cookie_bot_schedule,

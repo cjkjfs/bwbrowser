@@ -14,6 +14,7 @@ import {
   LuDownload,
   LuGlobe,
   LuInfo,
+  LuMonitorSmartphone,
   LuNetwork,
   LuPuzzle,
   LuSearch,
@@ -57,6 +58,7 @@ export type AppPage =
   | "integrations"
   | "account"
   | "userManagement"
+  | "remoteManagement"
   | "videoDownload"
   | "import"
   | "shortcuts"
@@ -80,6 +82,7 @@ const RAIL_LABELS_ZH: Record<AppPage, string> = {
   integrations: "集成服务",
   account: "账号中心",
   userManagement: "用户管理",
+  remoteManagement: "远程管理",
   videoDownload: "视频下载",
   import: "导入配置",
   shortcuts: "快捷键",
@@ -278,6 +281,11 @@ const TOP_ITEMS: RailItem[] = [
   { page: "proxies", Icon: FiWifi, labelKey: "rail.network" },
   { page: "cloudAccounts", Icon: LuGlobe, labelKey: "rail.cloudAccounts" },
   { page: "userManagement", Icon: LuUsers, labelKey: "rail.userManagement" },
+  {
+    page: "remoteManagement",
+    Icon: LuMonitorSmartphone,
+    labelKey: "rail.remoteManagement",
+  },
   { page: "videoDownload", Icon: LuDownload, labelKey: "rail.videoDownload" },
   { page: "extensions", Icon: LuPuzzle, labelKey: "rail.extensions" },
   { page: "account", Icon: LuCloud, labelKey: "rail.account" },
@@ -377,11 +385,13 @@ export function RailNav({
 }: RailNavProps) {
   const { t } = useTranslation();
   const { user } = useBwbrowserAuth();
-  const { canManageUsers, canDownloadVideos } = useBwbrowserPermissions();
+  const { canManageUsers, canDownloadVideos, canManageRemote } =
+    useBwbrowserPermissions();
   const isAdmin = !!user?.teamRole && ADMIN_ROLES.includes(user.teamRole);
   const visibleTopItems = TOP_ITEMS.filter((item) => {
     if (ADMIN_ONLY_PAGES.includes(item.page) && !isAdmin) return false;
     if (item.page === "userManagement" && !canManageUsers) return false;
+    if (item.page === "remoteManagement" && !canManageRemote) return false;
     if (item.page === "videoDownload" && !canDownloadVideos) return false;
     return true;
   });

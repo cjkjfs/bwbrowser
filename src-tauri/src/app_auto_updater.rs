@@ -225,8 +225,11 @@ impl AppAutoUpdater {
     let arch = std::env::consts::ARCH; // "x86_64" | "aarch64" | ...
                                        // VPS returns the installer matching the requesting platform
     let url = format!(
-      "https://www.yacm.xin/tk/bwbrowser_updates.php?action=check&version={}&os={}&arch={}",
-      current_version, os, arch
+      "{}?action=check&version={}&os={}&arch={}",
+      crate::cloud_domain::UPDATE_CHECK_URL,
+      current_version,
+      os,
+      arch
     );
 
     log::info!("Checking VPS for updates: {url}");

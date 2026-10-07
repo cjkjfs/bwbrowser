@@ -9,7 +9,10 @@
 //! 无权限账号注册被拒 → 被控端无法上线（远程桌面关闭）。
 
 mod capture;
+pub mod control;
 mod encode;
+pub mod file_transfer;
+mod files;
 mod input;
 mod protocol;
 mod relay;
@@ -138,6 +141,26 @@ fn hostname() -> String {
       }
     }
     std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string())
+  }
+}
+
+/// 人类可读的系统名（viewer 登录页与局域网发现列表展示）
+pub(crate) fn os_name() -> String {
+  #[cfg(target_os = "windows")]
+  {
+    "Windows".to_string()
+  }
+  #[cfg(target_os = "macos")]
+  {
+    "macOS".to_string()
+  }
+  #[cfg(target_os = "linux")]
+  {
+    "Linux".to_string()
+  }
+  #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+  {
+    std::env::consts::OS.to_string()
   }
 }
 
