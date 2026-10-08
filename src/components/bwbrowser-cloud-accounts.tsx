@@ -38,6 +38,7 @@ import {
   LuUsers,
   LuX,
 } from "react-icons/lu";
+import { EnvFormDialog } from "@/components/bwbrowser-env-management";
 import { ProxyFormDialog } from "@/components/proxy-form-dialog";
 import { AnimatedSwitch } from "@/components/ui/animated-switch";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -71,6 +73,7 @@ import {
 } from "@/hooks/use-bwbrowser-accounts";
 import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
 import { useBwbrowserCompany } from "@/hooks/use-bwbrowser-company";
+import type { BwbrowserEnvironment } from "@/hooks/use-bwbrowser-environments";
 import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { translateBackendError } from "@/lib/backend-errors";
@@ -667,6 +670,11 @@ export function BwbrowserCloudAccountsDialog({
   const [selectedEnvUuid, setSelectedEnvUuid] = useState<string | null>(null);
   const [envLoading, setEnvLoading] = useState(false);
 
+  // 环境列下拉：直接编辑/删除该账号已绑定的环境
+  const [boundEnvFormOpen, setBoundEnvFormOpen] = useState(false);
+  const [boundEnvTarget, setBoundEnvTarget] =
+    useState<BwbrowserEnvironment | null>(null);
+
   // 2FA/短信编辑弹窗
   const [codeEditOpen, setCodeEditOpen] = useState(false);
   const [codeEditAccount, setCodeEditAccount] =
@@ -1023,6 +1031,66 @@ export function BwbrowserCloudAccountsDialog({
       setCodeSaving(false);
     }
   }, [envDialogAccount, selectedEnvUuid, refresh]);
+
+  // 环境列下拉：编辑该账号已绑定的环境
+  const handleEditBoundEnv = useCallback(
+    async (account: BwbrowserAccount) => {
+      const envUuid = account.env_uuid;
+      if (!envUuid) return;
+      try {
+        const envs = await invoke<BwbrowserEnvironment[]>(
+          "bwbrowser_list_envs",
+          { companyId: selectedCompanyId ? selectedCompanyId : null },
+        );
+        const target = (envs || []).find((env) => env.env_uuid === envUuid);
+        if (!target) {
+          showErrorToast("未找到该环境，可能已被删除");
+          return;
+        }
+        setBoundEnvTarget(target);
+        setBoundEnvFormOpen(true);
+      } catch (e) {
+        showErrorToast(
+          `加载环境失败: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    },
+    [selectedCompanyId],
+  );
+
+  // 环境列下拉：删除该账号已绑定的环境，并解绑该账号
+  const handleDeleteBoundEnv = useCallback(
+    async (account: BwbrowserAccount) => {
+      const envUuid = account.env_uuid;
+      if (!envUuid) return;
+      if (
+        !confirm(`确定删除环境「${envUuid}」吗？绑定该环境的账号会被解绑。`)
+      ) {
+        return;
+      }
+      try {
+        await invoke("bwbrowser_delete_env", { envUuid });
+      } catch (e) {
+        showErrorToast(
+          `删除环境失败: ${e instanceof Error ? e.message : String(e)}`,
+        );
+        return;
+      }
+      try {
+        await invoke("bwbrowser_update_account_env", {
+          accountId: account.id,
+          envUuid: null,
+        });
+        showSuccessToast("环境已删除并解绑");
+      } catch (e) {
+        showErrorToast(
+          `环境已删除，但解绑失败: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+      void refresh();
+    },
+    [refresh],
+  );
 
   // 打开 2FA/短信编辑弹窗
   const _handleOpenCodeEdit = useCallback((account: BwbrowserAccount) => {
@@ -2290,25 +2358,64 @@ export function BwbrowserCloudAccountsDialog({
           const account = row.original;
           const envUuid = account.env_uuid;
           return (
-            <button
-              type="button"
-              onClick={() => {
-                if (envUuid && onNavigateToEnvManagement) {
-                  onNavigateToEnvManagement(envUuid);
-                } else {
-                  void handleOpenEnvDialog(account);
-                }
-              }}
-              className={cn(
-                "inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-medium transition-colors",
-                envUuid
-                  ? "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80",
-              )}
-              title={envUuid ? `已绑定: ${envUuid} · 点击编辑` : "点击绑定环境"}
-            >
-              {envUuid ? "已绑定" : "设置"}
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium transition-colors",
+                    envUuid
+                      ? "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80",
+                  )}
+                  title={envUuid ? `已绑定: ${envUuid}` : "点击绑定环境"}
+                >
+                  {envUuid ? "已绑定" : "设置"}
+                  <LuChevronDown className="h-3 w-3 opacity-60" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-40">
+                {envUuid ? (
+                  <>
+                    <DropdownMenuItem
+                      onClick={() => void handleEditBoundEnv(account)}
+                    >
+                      <LuPencil className="h-4 w-4 mr-2" />
+                      编辑本环境
+                    </DropdownMenuItem>
+                    {onNavigateToEnvManagement ? (
+                      <DropdownMenuItem
+                        onClick={() => onNavigateToEnvManagement(envUuid)}
+                      >
+                        <LuMonitor className="h-4 w-4 mr-2" />
+                        在环境中心打开
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuItem
+                      onClick={() => void handleOpenEnvDialog(account)}
+                    >
+                      <LuMonitor className="h-4 w-4 mr-2" />
+                      重新绑定
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => void handleDeleteBoundEnv(account)}
+                    >
+                      <LuTrash2 className="h-4 w-4 mr-2" />
+                      删除环境
+                    </DropdownMenuItem>
+                  </>
+                ) : (
+                  <DropdownMenuItem
+                    onClick={() => void handleOpenEnvDialog(account)}
+                  >
+                    <LuMonitor className="h-4 w-4 mr-2" />
+                    绑定环境
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           );
         },
         size: 60,
@@ -2625,6 +2732,8 @@ export function BwbrowserCloudAccountsDialog({
     onNavigateToEnvManagement,
     handleOpenEdit,
     handleOpenAccountInVps,
+    handleEditBoundEnv,
+    handleDeleteBoundEnv,
     healthStates,
     healthLoadingIds,
     isManager,
@@ -3711,6 +3820,19 @@ export function BwbrowserCloudAccountsDialog({
     </Dialog>
   );
 
+  // 环境列下拉：编辑该账号已绑定环境的表单弹窗
+  const boundEnvDialog = (
+    <EnvFormDialog
+      isOpen={boundEnvFormOpen}
+      onClose={() => setBoundEnvFormOpen(false)}
+      editingEnv={boundEnvTarget}
+      onSaved={() => {
+        setBoundEnvFormOpen(false);
+        void refresh();
+      }}
+    />
+  );
+
   // 编辑账号对话框
   const editAccountDialog = (
     <Dialog
@@ -4628,6 +4750,7 @@ export function BwbrowserCloudAccountsDialog({
         {createProxyDialog}
         {vpsProxyDialog}
         {envDialog}
+        {boundEnvDialog}
         {codeEditDialog}
         {editAccountDialog}
         {addAccountDialog}
@@ -4647,6 +4770,7 @@ export function BwbrowserCloudAccountsDialog({
       {createProxyDialog}
       {vpsProxyDialog}
       {envDialog}
+      {boundEnvDialog}
       {codeEditDialog}
       {editAccountDialog}
       {addAccountDialog}

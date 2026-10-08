@@ -138,7 +138,7 @@ function showWipToast(featureName: string) {
 // 环境表单对话框（创建/编辑）
 // ============================================================
 
-function EnvFormDialog({
+export function EnvFormDialog({
   isOpen,
   onClose,
   editingEnv,

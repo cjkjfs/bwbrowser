@@ -545,15 +545,22 @@ pub fn generate_fingerprint(template: &FingerprintTemplate) -> Value {
     .choose(&mut rng)
     .copied()
     .unwrap_or(8);
-  let webgl_vendor = template
-    .webgl_vendors
-    .choose(&mut rng)
-    .cloned()
-    .unwrap_or_default();
+  // The vendor has to come from the renderer's own GPU family. A real browser
+  // reports the two as one pair — `Google Inc. (NVIDIA)` never arrives with an
+  // Intel renderer — and anti-bot fingerprinting (PayPal's DataDome, for one)
+  // reads that pair, so an impossible combination is an automation signal.
+  // Drawing the two independently is what produced such combinations.
   let webgl_renderer = template
     .webgl_renderers
     .choose(&mut rng)
     .cloned()
+    .unwrap_or_default();
+  let webgl_vendor = template
+    .webgl_vendors
+    .iter()
+    .find(|vendor| vendor_family(vendor) == renderer_family(&webgl_renderer))
+    .cloned()
+    .or_else(|| template.webgl_vendors.first().cloned())
     .unwrap_or_default();
   let language = template
     .languages
@@ -611,6 +618,51 @@ pub fn generate_fingerprint(template: &FingerprintTemplate) -> Value {
 /// Derive the base language from a locale tag, e.g. "en-US" → "en".
 fn base_language(lang: &str) -> String {
   lang.split('-').next().unwrap_or("en").to_string()
+}
+
+/// The GPU family a WebGL renderer string belongs to.
+///
+/// Exists so `webglVendor` can be kept in the same family as `webglRenderer`;
+/// see the comment where the pair is chosen.
+fn renderer_family(renderer: &str) -> Option<&'static str> {
+  if renderer.contains("NVIDIA") {
+    Some("NVIDIA")
+  } else if renderer.contains("AMD") || renderer.contains("Radeon") {
+    Some("AMD")
+  } else if renderer.contains("Intel") {
+    Some("Intel")
+  } else if renderer.contains("Apple") {
+    Some("Apple")
+  } else if renderer.contains("Mali") {
+    Some("ARM")
+  } else if renderer.contains("Adreno") {
+    Some("Qualcomm")
+  } else if renderer.contains("SwiftShader") {
+    Some("Google")
+  } else {
+    None
+  }
+}
+
+/// The GPU family a WebGL vendor string names.
+fn vendor_family(vendor: &str) -> Option<&'static str> {
+  if vendor.contains("NVIDIA") {
+    Some("NVIDIA")
+  } else if vendor.contains("AMD") {
+    Some("AMD")
+  } else if vendor.contains("Intel") {
+    Some("Intel")
+  } else if vendor.contains("Apple") {
+    Some("Apple")
+  } else if vendor.contains("ARM") {
+    Some("ARM")
+  } else if vendor.contains("Qualcomm") {
+    Some("Qualcomm")
+  } else if vendor.contains("Google") {
+    Some("Google")
+  } else {
+    None
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -714,5 +766,45 @@ mod tests {
     assert_eq!(base_language("zh-CN"), "zh");
     assert_eq!(base_language("fr"), "fr");
     assert_eq!(base_language(""), "");
+  }
+
+  #[test]
+  fn every_renderer_has_a_same_family_vendor() {
+    // The pairing step needs a vendor of the renderer's family in every
+    // template; a missing one would silently fall back to an unrelated vendor
+    // and rebuild the very mismatch this exists to prevent.
+    for template in db() {
+      for renderer in &template.webgl_renderers {
+        let family = renderer_family(renderer);
+        assert!(
+          template
+            .webgl_vendors
+            .iter()
+            .any(|vendor| vendor_family(vendor) == family),
+          "{}: renderer {renderer} (family {family:?}) has no matching vendor",
+          template.name
+        );
+      }
+    }
+  }
+
+  #[test]
+  fn generated_webgl_vendor_stays_in_the_renderer_family() {
+    // A site reads (webglVendor, webglRenderer) as one pair and a real browser
+    // never mixes families. An impossible pair is the automation signal that
+    // got PayPal's security challenge blocked.
+    for template in db() {
+      for _ in 0..32 {
+        let fp = generate_fingerprint(template);
+        let vendor = fp["webglVendor"].as_str().unwrap();
+        let renderer = fp["webglRenderer"].as_str().unwrap();
+        assert_eq!(
+          vendor_family(vendor),
+          renderer_family(renderer),
+          "{}: {vendor} paired with {renderer}",
+          template.name
+        );
+      }
+    }
   }
 }
