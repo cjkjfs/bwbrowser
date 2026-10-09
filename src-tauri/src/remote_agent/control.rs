@@ -317,6 +317,46 @@ fn lan_viewer_url(host: &str, port: u16, mode: &str, password: &str) -> String {
   format!("http://{host}:{port}/?{}", form_body(&query))
 }
 
+/// 中继控制页（remote_app.php）走主系统会话鉴权，App 打开的裸地址没有会话会停在
+/// login.php。URL 里带上两样东西：
+/// - `remote_token`：App 已持有的 remote_api token，页面用它免登入建会话
+///   （服务端 `$_GET['remote_token']`）；
+/// - `target_uuid` + `mode`：目标设备与模式，页面加载完直接进入该设备的会话，
+///   而不是停在设备列表让用户再点一次。
+///
+/// 拿不到 token（未登录）时仍带上目标设备，页面登录后也能直达。
+fn relay_url_with_token(token: Option<&str>, uuid: &str, mode: &str) -> String {
+  let mut query: Vec<(&str, &str)> = Vec::new();
+  if let Some(t) = token.filter(|t| !t.is_empty()) {
+    query.push(("remote_token", t));
+  }
+  if !uuid.is_empty() {
+    query.push(("target_uuid", uuid));
+    query.push(("mode", relay_mode(mode)));
+  }
+  if query.is_empty() {
+    return RELAY_CONTROL_URL.to_string();
+  }
+  format!("{RELAY_CONTROL_URL}?{}", form_body(&query))
+}
+
+/// remote_app.php 的模式取值是单数 `file`，与客户端操作列的 `files` 不同
+fn relay_mode(mode: &str) -> &'static str {
+  match mode {
+    MODE_VIEW => MODE_VIEW,
+    MODE_FILES => "file",
+    _ => MODE_FULL,
+  }
+}
+
+async fn relay_control_url(uuid: &str, mode: &str) -> String {
+  let Ok(client) = http_client() else {
+    return relay_url_with_token(None, uuid, mode);
+  };
+  let t = token(&client).await.ok();
+  relay_url_with_token(t.as_deref(), uuid, mode)
+}
+
 /// 从云端解析出的被控端信息（连接目标与文件传输共用）
 struct ResolvedClient {
   hostname: String,
@@ -391,7 +431,7 @@ pub async fn connect_target(client_id: i64, mode: Option<String>) -> Result<Remo
   crate::remote_agent::log_remote(&format!("远程管理：{} 局域网不可达，回退中继", r.hostname));
   Ok(RemoteTarget {
     method: "relay".to_string(),
-    url: RELAY_CONTROL_URL.to_string(),
+    url: relay_control_url(&r.uuid, mode).await,
     host: String::new(),
     port: r.port,
     hostname: r.hostname,
@@ -769,5 +809,29 @@ mod tests {
       lan_viewer_url("10.0.0.2", 8765, "view", "a b&c"),
       "http://10.0.0.2:8765/?mode=view&pwd=a+b%26c"
     );
+  }
+
+  /// 中继控制页 URL：带 token 免登入，并带目标设备（uuid + 模式）直达会话；
+  /// `files` 要映射成 remote_app.php 的单数 `file`。
+  #[test]
+  fn relay_url_carries_token_and_target() {
+    assert_eq!(
+      relay_url_with_token(Some("abc123"), "uuid-1", MODE_VIEW),
+      format!("{RELAY_CONTROL_URL}?remote_token=abc123&target_uuid=uuid-1&mode=view")
+    );
+    // 未登录仍带目标设备，登录后也能直达
+    assert_eq!(
+      relay_url_with_token(None, "uuid-1", MODE_FILES),
+      format!("{RELAY_CONTROL_URL}?target_uuid=uuid-1&mode=file")
+    );
+    // 既无 token 也无 uuid 才退回裸地址
+    assert_eq!(relay_url_with_token(None, "", MODE_FULL), RELAY_CONTROL_URL);
+  }
+
+  #[test]
+  fn relay_mode_maps_files_to_singular_file() {
+    assert_eq!(relay_mode(MODE_FULL), "full");
+    assert_eq!(relay_mode(MODE_VIEW), "view");
+    assert_eq!(relay_mode(MODE_FILES), "file");
   }
 }

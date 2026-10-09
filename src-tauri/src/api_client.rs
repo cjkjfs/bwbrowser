@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::cloud_domain::{CLOUD_ROOT, CLOUD_ROOT_HTTP, WAYFERN_JSON_URL};
+use crate::cloud_domain::WAYFERN_JSON_URL;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VersionComponent {
@@ -92,7 +92,7 @@ pub struct BrowserRelease {
   pub date: String,
 }
 
-/// Wayfern version info from http://yacm.xin/tk/download/kernel/wayfern.json
+/// Wayfern version info from https://yacm.xin/tk/download/kernel/wayfern.json
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WayfernVersionInfo {
   pub version: String,
@@ -252,7 +252,7 @@ impl ApiClient {
     Ok(())
   }
 
-  /// Fetch Wayfern version info from http://yacm.xin/tk/download/kernel/wayfern.json
+  /// Fetch Wayfern version info from https://yacm.xin/tk/download/kernel/wayfern.json
   pub async fn fetch_wayfern_version_with_caching(
     &self,
     no_caching: bool,
@@ -283,13 +283,7 @@ impl ApiClient {
             last_err = Some(format!("HTTP {}", response.status().as_u16()));
           } else {
             match response.json::<WayfernVersionInfo>().await {
-              Ok(mut info) => {
-                // Rewrite HTTPS download URLs to HTTP to avoid SSL trust issues
-                for url in info.downloads.values_mut().flatten() {
-                  if url.starts_with(CLOUD_ROOT) {
-                    *url = url.replacen(CLOUD_ROOT, CLOUD_ROOT_HTTP, 1);
-                  }
-                }
+              Ok(info) => {
                 version_info = Some(info);
                 break;
               }

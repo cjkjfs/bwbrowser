@@ -1289,7 +1289,7 @@ impl CloudAuthManager {
       .api_call_with_retry(|access_token| {
         let url = format!("{CLOUD_API_URL}/api/auth/wayfern-start");
         // Bound the request: without a timeout, an unreachable
-        // api.yacm.xin hangs the background fetch indefinitely,
+        // yacm.xin hangs the background fetch indefinitely,
         // which in turn forces wayfern_manager's launch-time wait to
         // exhaust its full polling budget every time.
         let client = reqwest::Client::builder()

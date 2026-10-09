@@ -1860,7 +1860,7 @@ mod tests {
     // decode step, and the desktop reports a live session as undrivable.
     let endpoint: CdpEndpoint = serde_json::from_str(
       r#"{"session_id":"sess-1",
-          "ws_url":"wss://api.yacm.xin/api/remote-sessions/cdp?session_id=sess-1",
+          "ws_url":"wss://yacm.xin/api/remote-sessions/cdp?session_id=sess-1",
           "protocol":"cdp-relay/1","auth":"bearer"}"#,
     )
     .expect("the backend's CDP descriptor must deserialize");

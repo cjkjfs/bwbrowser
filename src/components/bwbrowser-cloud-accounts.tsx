@@ -77,7 +77,7 @@ import type { BwbrowserEnvironment } from "@/hooks/use-bwbrowser-environments";
 import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { translateBackendError } from "@/lib/backend-errors";
-import { CLOUD_HTTP_ROOT, CLOUD_ROOT } from "@/lib/cloud-config";
+import { CLOUD_ROOT } from "@/lib/cloud-config";
 import {
   dismissToast,
   showErrorToast,
@@ -118,7 +118,7 @@ function resolveAvatarUrl(raw?: string): string | undefined {
   const v = raw.trim();
   if (!v) return undefined;
   if (/^(https?:|data:|blob:)/i.test(v)) return v;
-  if (v.startsWith("/")) return `${CLOUD_HTTP_ROOT}${v}`;
+  if (v.startsWith("/")) return `${CLOUD_ROOT}${v}`;
   return v;
 }
 

@@ -1210,7 +1210,7 @@ test("offline cloud, update, team-lock, trial, and synchronizer contracts are de
           // layer, which is what the evidence is for. Pinning only the server's
           // "invalid or expired login code" sentence made a test named
           // "offline ... deterministic" depend on a live round-trip to
-          // api.yacm.xin: red offline, behind a proxy, when the
+          // the cloud host: red offline, behind a proxy, when the
           // unauthenticated challenge is rate-limited, or the day the backend
           // rewords it, with no signal that the desktop is fine.
           refusedWith:
