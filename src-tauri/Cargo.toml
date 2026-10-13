@@ -1,6 +1,6 @@
 [package]
 name = "bwbrowser"
-version = "2.4.7"
+version = "2.4.8"
 description = "Simple Yet Powerful Anti-Detect Browser"
 authors = ["zhom@github"]
 edition = "2021"
@@ -49,7 +49,7 @@ log = "0.4"
 env_logger = "0.11"
 
 directories = "6"
-reqwest = { version = "0.13", default-features = false, features = ["native-tls", "json", "stream", "socks", "charset", "http2", "system-proxy"] }
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "json", "stream", "socks", "charset", "http2", "system-proxy", "multipart"] }
 # The `httpstls` upstream type wraps the hop to the proxy in TLS before a single
 # byte of CONNECT or Proxy-Authorization is written. native-tls (not rustls) on
 # purpose: reqwest above already terminates its proxy TLS through native-tls, so
@@ -135,6 +135,14 @@ crossbeam-channel = "0.5"
 sys-locale = "0.3"
 jsonc-parser = { version = "0.33", features = ["cst", "serde_json"] }
 toml_edit = "0.25"
+
+# AI Agent（rig）：LLM 编排 + 多轮工具调用；HTTP 层走项目自身的 reqwest 0.13（可注入代理）
+rig-core = { version = "0.44", default-features = false, features = ["reqwest", "native-tls"] }
+rig-agent = { version = "0.44", default-features = false }
+rig-reqwest = { version = "0.44", default-features = false, features = ["native-tls"] }
+# AI 助手的 VPS 工具（vps_exec）：用户在对话里提供连接信息后执行远程命令。
+# ring 后端避开 aws-lc-rs 的 CMake/NASM 构建依赖。
+russh = { version = "0.64", default-features = false, features = ["ring", "flate2", "rsa"] }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31", features = ["signal", "process"] }

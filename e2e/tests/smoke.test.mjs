@@ -198,6 +198,53 @@ test("two isolated sessions run concurrently and do not share frontend or backen
   }
 });
 
+test("ai rewrite api config commands fail cleanly without a gateway session", async () => {
+  await withApp("smoke-ai-api-config", async (app) => {
+    // 配置数据只存服务器（云端后台与本程序共用一份）；离线时两个命令都必须
+    // 在网关登录一步干净失败，而不是 panic 或返回半套数据。
+    const getErr = await app.invokeError("ai_rewrite_get_api_config");
+    assert.match(getErr, /登录/, "get names the missing gateway session");
+    const saveErr = await app.invokeError("ai_rewrite_save_api_config", {
+      config: {},
+    });
+    assert.match(saveErr, /登录/, "save names the missing gateway session");
+  });
+});
+
+test("ai agent chat fails cleanly without a gateway session", async () => {
+  await withApp("smoke-ai-agent", async (app) => {
+    // 端点配置只存服务器；离线时对话命令必须在网关登录一步干净失败，
+    // 返回 backend error code JSON，而不是 panic 或绕过代理直连外网。
+    const err = await app.invokeError("ai_agent_chat", {
+      messages: [{ role: "user", content: "你好" }],
+    });
+    let code = "";
+    let message = "";
+    try {
+      const parsed = JSON.parse(err);
+      code = parsed.code ?? "";
+      message = parsed.params?.message ?? "";
+    } catch {
+      // 兼容非 JSON 的原始错误文本
+    }
+    if (code) {
+      assert.equal(code, "AI_AGENT_CONFIG_UNAVAILABLE");
+      assert.match(message, /登录/, "error names the missing gateway session");
+    } else {
+      assert.match(err, /登录/, "error names the missing gateway session");
+    }
+  });
+});
+
+test("ai rewrite running tasks reads the local runtime table without a session", async () => {
+  await withApp("smoke-ai-running-tasks", async (app) => {
+    // 进度表是本机内存状态：不依赖网关会话，冷启动必须返回空表而不是报错。
+    const res = await app.invoke("ai_rewrite_running_tasks");
+    assert.equal(res.success, true);
+    assert.deepEqual(res.tasks, []);
+  });
+});
+
 test("keyboard command palette and major navigation surfaces are operable through native WebDriver", async () => {
   await withApp("smoke-ui", async (app) => {
     const modifier =

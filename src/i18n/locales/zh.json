@@ -2378,13 +2378,21 @@
     "syncArrangeFailed": "没有窗口被移动。",
     "extensionPathInvalid": "该路径不允许使用：它包含“..”。",
     "loginCredentialsIncomplete": "请同时输入邮箱和密码。",
-    "remoteManagementNoLanRange": "未能确定可扫描的局域网网段。"
+    "remoteManagementNoLanRange": "未能确定可扫描的局域网网段。",
+    "aiAgentNotConfigured": "AI 助手未配置模型端点，请先在 AI 洗稿设置中填写。",
+    "aiAgentConfigUnavailable": "无法获取 AI 助手配置：{{message}}",
+    "aiAgentEmptyConversation": "对话内容为空，请先输入问题。",
+    "aiAgentProxyFailed": "AI 助手的代理线路不可用：{{message}}",
+    "aiAgentLlmFailed": "AI 助手请求模型失败：{{message}}",
+    "aiAgentProviderUnsupported": "AI 助手不支持该模型提供商：{{message}}"
   },
   "rail": {
     "cloudAccounts": "云端账号",
     "userManagement": "用户管理",
     "remoteManagement": "远程管理",
     "videoDownload": "视频下载",
+    "aiRewrite": "AI 洗稿",
+    "aiAssistant": "AI 助手",
     "profiles": "配置文件",
     "extensions": "扩展",
     "groups": "分组",
@@ -2409,7 +2417,8 @@
     "cookieBot": "Cookie Bot",
     "trash": "回收站",
     "agent": "智能体",
-    "cloudAccounts": "云端账号"
+    "cloudAccounts": "云端账号",
+    "aiRewrite": "AI 洗稿"
   },
   "encryption": {
     "required": {
@@ -3575,5 +3584,25 @@
     "selectLocalFolder": "请先打开本地目录",
     "uploadSuccess": "已上传 {{name}}",
     "downloadSuccess": "已下载 {{name}}"
+  },
+  "aiAssistant": {
+    "title": "AI 助手",
+    "description": "用自然语言查询视频、洗稿成果与代理线路",
+    "emptyTitle": "和 AI 助手聊聊",
+    "emptyBody": "询问视频数据、洗稿成果或代理线路，助手会先查数据再回答。",
+    "placeholder": "输入问题，Enter 发送，Shift+Enter 换行",
+    "send": "发送",
+    "thinking": "思考中…",
+    "clear": "清空对话",
+    "clearTitle": "清空对话？",
+    "clearBody": "将删除本地保存的全部对话记录，且无法恢复。",
+    "cleared": "对话已清空",
+    "pickFolder": "选择文件夹",
+    "removeFolder": "移除文件夹",
+    "newSession": "新建对话",
+    "deleteSession": "删除对话",
+    "deleteSessionTitle": "删除这个对话？",
+    "deleteSessionBody": "该对话及其本地保存的消息将被删除，无法恢复。",
+    "defaultSessionTitle": "新对话"
   }
 }

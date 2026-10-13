@@ -89,7 +89,7 @@ fn ensure_xray_binary() -> Result<std::path::PathBuf, Box<dyn std::error::Error>
   Ok(executable)
 }
 
-async fn authenticated_socks_ready(config: &XrayWorkerConfig) -> bool {
+pub(crate) async fn authenticated_socks_ready(config: &XrayWorkerConfig) -> bool {
   if !config
     .xray_pid
     .is_some_and(|pid| process_identity_matches(pid, config.xray_pid_start_time))

@@ -46,6 +46,8 @@ export function useBwbrowserPermissions() {
     isSuperAdmin || (permissions.allow_user_management ?? false);
   const canDownloadVideos =
     isSuperAdmin || (permissions.allow_video_download ?? false);
+  // AI 洗稿：独立权限（users.php allow_ai_rewrite），决定左侧「AI 洗稿」菜单是否出现。
+  const canAiRewrite = isSuperAdmin || (permissions.allow_ai_rewrite ?? false);
   // 远程管理（控制端）：决定左侧「远程管理」菜单是否出现。
   const canManageRemote =
     isSuperAdmin || (permissions.allow_remote_management ?? false);
@@ -55,6 +57,7 @@ export function useBwbrowserPermissions() {
     isSuperAdmin,
     canManageUsers,
     canDownloadVideos,
+    canAiRewrite,
     canManageRemote,
     currentManagementUserId,
   };

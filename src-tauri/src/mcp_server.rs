@@ -4534,6 +4534,10 @@ impl McpServer {
     ]
   }
 
+  // serde_json/preserve_order (pulled in by rig-core) grows `Value` past the
+  // clippy result_large_err threshold for this pre-existing tuple; boxing the
+  // error would churn every handle_* signature for no runtime gain.
+  #[allow(clippy::result_large_err)]
   async fn handle_initialize(
     &self,
     request: McpRequest,

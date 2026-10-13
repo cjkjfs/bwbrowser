@@ -18,6 +18,7 @@ import {
   LuNetwork,
   LuPuzzle,
   LuSearch,
+  LuSparkles,
   LuTrash2,
   LuUser,
   LuUsers,
@@ -60,6 +61,7 @@ export type AppPage =
   | "userManagement"
   | "remoteManagement"
   | "videoDownload"
+  | "aiRewrite"
   | "import"
   | "shortcuts"
   | "trash";
@@ -84,6 +86,7 @@ const RAIL_LABELS_ZH: Record<AppPage, string> = {
   userManagement: "用户管理",
   remoteManagement: "远程管理",
   videoDownload: "视频下载",
+  aiRewrite: "AI 洗稿",
   import: "导入配置",
   shortcuts: "快捷键",
   trash: "回收站",
@@ -287,6 +290,7 @@ const TOP_ITEMS: RailItem[] = [
     labelKey: "rail.remoteManagement",
   },
   { page: "videoDownload", Icon: LuDownload, labelKey: "rail.videoDownload" },
+  { page: "aiRewrite", Icon: LuSparkles, labelKey: "rail.aiRewrite" },
   { page: "extensions", Icon: LuPuzzle, labelKey: "rail.extensions" },
   { page: "account", Icon: LuCloud, labelKey: "rail.account" },
 ];
@@ -385,7 +389,7 @@ export function RailNav({
 }: RailNavProps) {
   const { t } = useTranslation();
   const { user } = useBwbrowserAuth();
-  const { canManageUsers, canDownloadVideos, canManageRemote } =
+  const { canManageUsers, canDownloadVideos, canAiRewrite, canManageRemote } =
     useBwbrowserPermissions();
   const isAdmin = !!user?.teamRole && ADMIN_ROLES.includes(user.teamRole);
   const visibleTopItems = TOP_ITEMS.filter((item) => {
@@ -393,6 +397,7 @@ export function RailNav({
     if (item.page === "userManagement" && !canManageUsers) return false;
     if (item.page === "remoteManagement" && !canManageRemote) return false;
     if (item.page === "videoDownload" && !canDownloadVideos) return false;
+    if (item.page === "aiRewrite" && !canAiRewrite) return false;
     return true;
   });
   const {

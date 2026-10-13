@@ -346,7 +346,6 @@ export const commandCoverage = {
       "bwbrowser_cloud::bwbrowser_update_account_info",
       "bwbrowser_cloud::bwbrowser_get_account_detail_full",
       "bwbrowser_cloud::bwbrowser_create_account",
-      "bwbrowser_cloud::bwbrowser_sync_users_to_accounts",
       "bwbrowser_cloud::bwbrowser_get_account_cookies",
       "bwbrowser_cloud::bwbrowser_delete_cloud_cookies",
       "bwbrowser_cloud::bwbrowser_delete_local_cookies",
@@ -447,6 +446,24 @@ export const commandCoverage = {
       "bwbrowser_cloud::bwbrowser_delete_permission_profile",
       "bwbrowser_cloud::bwbrowser_apply_permission_profile",
     ],
+  },
+  aiRewriteApiConfig: {
+    suite: "smoke",
+    level: "contract",
+    commands: [
+      "ai_rewrite::ai_rewrite_get_api_config",
+      "ai_rewrite::ai_rewrite_save_api_config",
+    ],
+  },
+  aiRewriteRunningTasks: {
+    suite: "smoke",
+    level: "contract",
+    commands: ["ai_rewrite::ai_rewrite_running_tasks"],
+  },
+  aiAgentChat: {
+    suite: "smoke",
+    level: "contract",
+    commands: ["ai_agent::ai_agent_chat"],
   },
   remoteSessions: {
     suite: "integrations",

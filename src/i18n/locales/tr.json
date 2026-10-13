@@ -2378,13 +2378,21 @@
     "syncArrangeFailed": "Hiçbir pencere taşınamadı.",
     "extensionPathInvalid": "Bu yol kullanılamaz: '..' içeriyor.",
     "loginCredentialsIncomplete": "E-posta ve şifre girin.",
-    "remoteManagementNoLanRange": "Taranacak bir LAN alt ağı belirlenemedi."
+    "remoteManagementNoLanRange": "Taranacak bir LAN alt ağı belirlenemedi.",
+    "aiAgentNotConfigured": "Yapay zekâ asistanında model uç noktası yapılandırılmamış. Önce AI yeniden yazım ayarlarından bir tane ayarlayın.",
+    "aiAgentConfigUnavailable": "Yapay zekâ asistanı yapılandırması yüklenemedi: {{message}}",
+    "aiAgentEmptyConversation": "Sohbet boş. Önce bir soru yazın.",
+    "aiAgentProxyFailed": "Yapay zekâ asistanının proxy hattı kullanılamıyor: {{message}}",
+    "aiAgentLlmFailed": "Yapay zekâ asistanının model isteği başarısız oldu: {{message}}",
+    "aiAgentProviderUnsupported": "Yapay zekâ asistanı bu model sağlayıcısını desteklemiyor: {{message}}"
   },
   "rail": {
     "cloudAccounts": "Bulut hesapları",
     "userManagement": "Kullanıcı yönetimi",
     "remoteManagement": "Uzaktan yönetim",
     "videoDownload": "Video indirme",
+    "aiRewrite": "AI Yeniden Yazma",
+    "aiAssistant": "Yapay Zekâ Asistanı",
     "profiles": "Profiller",
     "extensions": "Uzantılar",
     "groups": "Gruplar",
@@ -2409,7 +2417,8 @@
     "cookieBot": "Cookie Bot",
     "trash": "Çöp Kutusu",
     "agent": "Ajan",
-    "cloudAccounts": "Bulut Hesaplar"
+    "cloudAccounts": "Bulut Hesaplar",
+    "aiRewrite": "AI Yeniden Yazma"
   },
   "encryption": {
     "required": {
@@ -3575,5 +3584,25 @@
     "selectLocalFolder": "Önce bir yerel klasör açın",
     "uploadSuccess": "{{name}} yüklendi",
     "downloadSuccess": "{{name}} indirildi"
+  },
+  "aiAssistant": {
+    "title": "Yapay Zekâ Asistanı",
+    "description": "Videolar, yeniden yazım sonuçları ve proxy hatlarını doğal dille sorun",
+    "emptyTitle": "Yapay zekâ asistanınıza sorun",
+    "emptyBody": "Video istatistikleri, yeniden yazım sonuçları veya proxy hatları hakkında sorun — asistan cevaplamadan önce verileri kontrol eder.",
+    "placeholder": "Bir soru yazın — göndermek için Enter, yeni satır için Shift+Enter",
+    "send": "Gönder",
+    "thinking": "Düşünüyor…",
+    "clear": "Sohbeti temizle",
+    "clearTitle": "Bu sohbet temizlensin mi?",
+    "clearBody": "Yerel olarak kaydedilen tüm mesajlar silinecek ve kurtarılamayacak.",
+    "cleared": "Sohbet temizlendi",
+    "pickFolder": "Klasör seç",
+    "removeFolder": "Klasörü kaldır",
+    "newSession": "Yeni sohbet",
+    "deleteSession": "Sohbeti sil",
+    "deleteSessionTitle": "Bu sohbet silinsin mi?",
+    "deleteSessionBody": "Bu sohbet ve yerel olarak kaydedilen mesajları silinecek, geri alınamaz.",
+    "defaultSessionTitle": "Yeni sohbet"
   }
 }

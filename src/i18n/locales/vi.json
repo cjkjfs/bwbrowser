@@ -2378,13 +2378,21 @@
     "syncArrangeFailed": "Không cửa sổ nào được di chuyển.",
     "extensionPathInvalid": "Đường dẫn đó không được phép: nó chứa '..'.",
     "loginCredentialsIncomplete": "Vui lòng nhập email và mật khẩu.",
-    "remoteManagementNoLanRange": "Không xác định được dải mạng LAN để quét."
+    "remoteManagementNoLanRange": "Không xác định được dải mạng LAN để quét.",
+    "aiAgentNotConfigured": "Trợ lý AI chưa được cấu hình endpoint mô hình. Hãy thiết lập trong cài đặt viết lại bằng AI trước.",
+    "aiAgentConfigUnavailable": "Không thể tải cấu hình trợ lý AI: {{message}}",
+    "aiAgentEmptyConversation": "Cuộc trò chuyện đang trống. Hãy nhập câu hỏi trước.",
+    "aiAgentProxyFailed": "Tuyến proxy của trợ lý AI không khả dụng: {{message}}",
+    "aiAgentLlmFailed": "Yêu cầu tới mô hình của trợ lý AI thất bại: {{message}}",
+    "aiAgentProviderUnsupported": "Trợ lý AI không hỗ trợ nhà cung cấp mô hình này: {{message}}"
   },
   "rail": {
     "cloudAccounts": "Tài khoản đám mây",
     "userManagement": "Quản lý người dùng",
     "remoteManagement": "Quản lý từ xa",
     "videoDownload": "Tải video",
+    "aiRewrite": "Viết lại bằng AI",
+    "aiAssistant": "Trợ lý AI",
     "profiles": "Profile",
     "extensions": "Tiện ích",
     "groups": "Nhóm",
@@ -2409,7 +2417,8 @@
     "cookieBot": "Cookie Bot",
     "trash": "Thùng rác",
     "agent": "Tác nhân",
-    "cloudAccounts": "Tài khoản đám mây"
+    "cloudAccounts": "Tài khoản đám mây",
+    "aiRewrite": "Viết lại bằng AI"
   },
   "encryption": {
     "required": {
@@ -3575,5 +3584,25 @@
     "selectLocalFolder": "Hãy mở thư mục cục bộ trước",
     "uploadSuccess": "Đã tải lên {{name}}",
     "downloadSuccess": "Đã tải xuống {{name}}"
+  },
+  "aiAssistant": {
+    "title": "Trợ lý AI",
+    "description": "Hỏi về video, kết quả viết lại và tuyến proxy bằng ngôn ngữ tự nhiên",
+    "emptyTitle": "Trò chuyện với trợ lý AI của bạn",
+    "emptyBody": "Hỏi về số liệu video, kết quả viết lại hoặc tuyến proxy — trợ lý sẽ kiểm tra dữ liệu trước khi trả lời.",
+    "placeholder": "Nhập câu hỏi — Enter để gửi, Shift+Enter để xuống dòng",
+    "send": "Gửi",
+    "thinking": "Đang suy nghĩ…",
+    "clear": "Xóa cuộc trò chuyện",
+    "clearTitle": "Xóa cuộc trò chuyện này?",
+    "clearBody": "Tất cả tin nhắn được lưu cục bộ sẽ bị xóa và không thể khôi phục.",
+    "cleared": "Đã xóa cuộc trò chuyện",
+    "pickFolder": "Chọn thư mục",
+    "removeFolder": "Xóa thư mục",
+    "newSession": "Hội thoại mới",
+    "deleteSession": "Xóa hội thoại",
+    "deleteSessionTitle": "Xóa hội thoại này?",
+    "deleteSessionBody": "Hội thoại này và các tin nhắn đã lưu trên máy sẽ bị xóa và không thể khôi phục.",
+    "defaultSessionTitle": "Hội thoại mới"
   }
 }

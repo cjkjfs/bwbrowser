@@ -2378,13 +2378,21 @@
     "syncArrangeFailed": "옮겨진 창이 없습니다.",
     "extensionPathInvalid": "그 경로는 사용할 수 없습니다. '..'이 포함되어 있습니다.",
     "loginCredentialsIncomplete": "이메일과 비밀번호를 모두 입력하세요.",
-    "remoteManagementNoLanRange": "검색할 LAN 서브넷을 확인할 수 없습니다."
+    "remoteManagementNoLanRange": "검색할 LAN 서브넷을 확인할 수 없습니다.",
+    "aiAgentNotConfigured": "AI 어시스턴트에 모델 엔드포인트가 설정되지 않았습니다. 먼저 AI 리라이트 설정에서 설정하세요.",
+    "aiAgentConfigUnavailable": "AI 어시스턴트 설정을 불러올 수 없습니다: {{message}}",
+    "aiAgentEmptyConversation": "대화가 비어 있습니다. 먼저 질문을 입력하세요.",
+    "aiAgentProxyFailed": "AI 어시스턴트의 프록시 회선을 사용할 수 없습니다: {{message}}",
+    "aiAgentLlmFailed": "AI 어시스턴트의 모델 요청이 실패했습니다: {{message}}",
+    "aiAgentProviderUnsupported": "AI 어시스턴트는 이 모델 공급자를 지원하지 않습니다: {{message}}"
   },
   "rail": {
     "cloudAccounts": "클라우드 계정",
     "userManagement": "사용자 관리",
     "remoteManagement": "원격 관리",
     "videoDownload": "동영상 다운로드",
+    "aiRewrite": "AI 재작성",
+    "aiAssistant": "AI 어시스턴트",
     "profiles": "프로필",
     "extensions": "확장 프로그램",
     "groups": "그룹",
@@ -2409,7 +2417,8 @@
     "cookieBot": "Cookie Bot",
     "trash": "휴지통",
     "agent": "에이전트",
-    "cloudAccounts": "클라우드 계정"
+    "cloudAccounts": "클라우드 계정",
+    "aiRewrite": "AI 재작성"
   },
   "encryption": {
     "required": {
@@ -3575,5 +3584,25 @@
     "selectLocalFolder": "먼저 로컬 폴더를 여세요",
     "uploadSuccess": "{{name}} 업로드 완료",
     "downloadSuccess": "{{name}} 다운로드 완료"
+  },
+  "aiAssistant": {
+    "title": "AI 어시스턴트",
+    "description": "영상, 리라이트 결과, 프록시 회선을 자연어로 물어보세요",
+    "emptyTitle": "AI 어시스턴트에게 물어보세요",
+    "emptyBody": "영상 통계, 리라이트 결과, 프록시 회선을 물어보세요. 어시스턴트는 답변 전에 데이터를 확인합니다.",
+    "placeholder": "질문을 입력하세요 — Enter로 전송, Shift+Enter로 줄바꿈",
+    "send": "보내기",
+    "thinking": "생각 중…",
+    "clear": "대화 지우기",
+    "clearTitle": "이 대화를 지울까요?",
+    "clearBody": "로컬에 저장된 모든 메시지가 삭제되며 복구할 수 없습니다.",
+    "cleared": "대화를 지웠습니다",
+    "pickFolder": "폴더 선택",
+    "removeFolder": "폴더 제거",
+    "newSession": "새 대화",
+    "deleteSession": "대화 삭제",
+    "deleteSessionTitle": "이 대화를 삭제할까요?",
+    "deleteSessionBody": "이 대화와 로컬에 저장된 메시지가 삭제되며 복구할 수 없습니다.",
+    "defaultSessionTitle": "새 대화"
   }
 }

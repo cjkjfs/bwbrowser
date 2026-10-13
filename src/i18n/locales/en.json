@@ -2378,13 +2378,21 @@
     "syncArrangeFailed": "No window could be moved.",
     "extensionPathInvalid": "That path is not allowed: it contains '..'.",
     "loginCredentialsIncomplete": "Enter both an email and a password.",
-    "remoteManagementNoLanRange": "Could not determine a LAN subnet to scan."
+    "remoteManagementNoLanRange": "Could not determine a LAN subnet to scan.",
+    "aiAgentNotConfigured": "The AI assistant has no model endpoint configured. Set one in the AI rewrite settings first.",
+    "aiAgentConfigUnavailable": "Could not load the AI assistant configuration: {{message}}",
+    "aiAgentEmptyConversation": "The conversation is empty. Type a question first.",
+    "aiAgentProxyFailed": "The AI assistant's proxy line is unavailable: {{message}}",
+    "aiAgentLlmFailed": "The AI assistant's model request failed: {{message}}",
+    "aiAgentProviderUnsupported": "The AI assistant doesn't support this model provider: {{message}}"
   },
   "rail": {
     "cloudAccounts": "Cloud Accounts",
     "userManagement": "User Management",
     "remoteManagement": "Remote Management",
     "videoDownload": "Video Download",
+    "aiRewrite": "AI Rewrite",
+    "aiAssistant": "AI Assistant",
     "profiles": "Profiles",
     "extensions": "Extensions",
     "groups": "Groups",
@@ -2409,7 +2417,8 @@
     "cookieBot": "Cookie Bot",
     "trash": "Trash",
     "agent": "Agent",
-    "cloudAccounts": "Cloud Accounts"
+    "cloudAccounts": "Cloud Accounts",
+    "aiRewrite": "AI Rewrite"
   },
   "encryption": {
     "required": {
@@ -3575,5 +3584,25 @@
     "selectLocalFolder": "Open a local folder first",
     "uploadSuccess": "Uploaded {{name}}",
     "downloadSuccess": "Downloaded {{name}}"
+  },
+  "aiAssistant": {
+    "title": "AI Assistant",
+    "description": "Ask about videos, rewrite results and proxy lines in plain language",
+    "emptyTitle": "Talk to your AI assistant",
+    "emptyBody": "Ask about video stats, rewrite results or proxy lines — the assistant checks the data before answering.",
+    "placeholder": "Type a question — Enter to send, Shift+Enter for a new line",
+    "send": "Send",
+    "thinking": "Thinking…",
+    "clear": "Clear chat",
+    "clearTitle": "Clear this chat?",
+    "clearBody": "All locally saved messages will be deleted and cannot be recovered.",
+    "cleared": "Chat cleared",
+    "pickFolder": "Pick a folder",
+    "removeFolder": "Remove folder",
+    "newSession": "New chat",
+    "deleteSession": "Delete chat",
+    "deleteSessionTitle": "Delete this chat?",
+    "deleteSessionBody": "This chat and its locally saved messages will be deleted and cannot be recovered.",
+    "defaultSessionTitle": "New chat"
   }
 }

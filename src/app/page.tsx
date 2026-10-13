@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { AboutDialog } from "@/components/about-dialog";
 import { AccountPage } from "@/components/account-page";
 import { AgentPage, type AgentTab } from "@/components/agent-page";
+import { AiRewritePage } from "@/components/ai-rewrite-page";
 import { BwbrowserCloudAccountsDialog } from "@/components/bwbrowser-cloud-accounts";
 import { BwbrowserEnvManagementDialog } from "@/components/bwbrowser-env-management";
 import { BwbrowserLoginDialog } from "@/components/bwbrowser-login-dialog";
@@ -2498,6 +2499,17 @@ export default function Home() {
                 {currentPage === "videoDownload" && isBwbrowserLogin && (
                   <div className="flex min-h-0 flex-1 flex-col">
                     <VideoDownloadPage
+                      open={true}
+                      onOpenChange={() => {}}
+                      embedded={true}
+                    />
+                  </div>
+                )}
+
+                {/* AI 洗稿 - 嵌入式页面 */}
+                {currentPage === "aiRewrite" && isBwbrowserLogin && (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <AiRewritePage
                       open={true}
                       onOpenChange={() => {}}
                       embedded={true}

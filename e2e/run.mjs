@@ -106,8 +106,14 @@ function log(message) {
 }
 
 function run(command, args, cwd, env = process.env) {
-  log(`${command} ${args.join(" ")}`);
-  const result = spawnSync(command, args, { cwd, env, stdio: "inherit" });
+  // cmd.exe applies PATHEXT, so "pnpm" resolves to pnpm.cmd there; libuv
+  // refuses .cmd targets without a shell since the batch-injection fix.
+  const result = spawnSync(command, args, {
+    cwd,
+    env,
+    stdio: "inherit",
+    shell: isWindows,
+  });
   if (result.error) {
     throw result.error;
   }

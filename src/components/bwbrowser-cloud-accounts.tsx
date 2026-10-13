@@ -9,6 +9,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { invoke } from "@tauri-apps/api/core";
+import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -24,6 +25,7 @@ import {
   LuEye,
   LuEyeOff,
   LuGlobe,
+  LuHeartPulse,
   LuLoaderCircle,
   LuMonitor,
   LuNetwork,
@@ -36,6 +38,7 @@ import {
   LuUnplug,
   LuUserPlus,
   LuUsers,
+  LuWrench,
   LuX,
 } from "react-icons/lu";
 import { EnvFormDialog } from "@/components/bwbrowser-env-management";
@@ -225,6 +228,18 @@ function formatDateShort(dateStr: string): string {
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${y}-${m}-${day} ${hh}:${mm}`;
+}
+
+/** 不带年份的短格式（表格列内省宽度），完整年份用 title 悬停展示 */
+function formatDateNoYear(dateStr: string): string {
+  if (!dateStr) return "-";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr.slice(0, 10);
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${m}-${day} ${hh}:${mm}`;
 }
 
 function getPlatformColor(platform: string): string {
@@ -724,9 +739,6 @@ export function BwbrowserCloudAccountsDialog({
   const [cookieViewLoading, setCookieViewLoading] = useState(false);
   const [cookieViewData, setCookieViewData] = useState<any>(null);
 
-  // 用户账号同步
-  const [syncingUsers, setSyncingUsers] = useState(false);
-
   // 2FA / 短信验证码状态
   const [twoFACodes, setTwoFACodes] = useState<
     Record<number, { code: string; loading: boolean; time: number }>
@@ -782,27 +794,6 @@ export function BwbrowserCloudAccountsDialog({
     });
     setAddDialogOpen(true);
   }, []);
-
-  const handleSyncUsersToAccounts = useCallback(async () => {
-    setSyncingUsers(true);
-    try {
-      const result = await invoke<{
-        total_users: number;
-        created: number;
-        already_existed: number;
-        failed: number;
-        message: string;
-      }>("bwbrowser_sync_users_to_accounts");
-      showSuccessToast(result.message);
-      // 同步完成后刷新账号列表
-      void handleRefresh();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      showErrorToast(`同步失败: ${msg}`);
-    } finally {
-      setSyncingUsers(false);
-    }
-  }, [handleRefresh]);
 
   const handleSaveNewAccount = useCallback(async () => {
     if (!addForm.account_name.trim()) {
@@ -1694,13 +1685,28 @@ export function BwbrowserCloudAccountsDialog({
 
   // 正在进行后台时区解析的账号 id 集合（不阻塞 UI）
   const [geoPendingIds, setGeoPendingIds] = useState<Set<number>>(new Set());
-  // 正在 VPS 登录浏览器中打开账号详情的账号 id 及进度（显示在昵称上方）
-  const [vpsLaunchingIds, setVpsLaunchingIds] = useState<Set<number>>(
-    new Set(),
-  );
-  const [vpsLaunchProgress, setVpsLaunchProgress] = useState<
-    Record<number, { pct: number; label: string }>
-  >({});
+
+  // 浏览器关闭后清除「已启动」状态（昵称进度行 + 操作列按钮回原样）
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen<{ account_id: number }>("account-browser-closed", (event) => {
+          const id = event.payload.account_id;
+          setLaunchProgress((prev) => {
+            if (!(id in prev)) return prev;
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          });
+        }),
+      )
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch((e) => console.warn("failed to listen account-browser-closed", e));
+    return () => unlisten?.();
+  }, []);
 
   const handleLaunchAccount = useCallback(
     async (account: BwbrowserAccount) => {
@@ -1770,96 +1776,92 @@ export function BwbrowserCloudAccountsDialog({
     [t],
   );
 
-  // 平台级批量打开：打开当前筛选平台下的所有账号（复用账号级打开逻辑）
+  // 平台级批量打开：本地启动浏览器打开当前筛选平台下的所有账号（复用账号级启动逻辑）
+  const [batchLaunching, setBatchLaunching] = useState(false);
   const openAllForPlatform = () => {
+    if (batchLaunching) return;
     const targets = accounts.filter(
       (a) => platformFilter === "all" || (a.platform ?? "") === platformFilter,
     );
     if (targets.length === 0) return;
+    setBatchLaunching(true);
     const run = async () => {
-      for (const acc of targets) {
-        await handleOpenAccountInVps(acc);
-        await new Promise((resolve) => setTimeout(resolve, 250));
+      try {
+        for (const acc of targets) {
+          await handleLaunchAccount(acc);
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+      } finally {
+        setBatchLaunching(false);
       }
     };
     void run();
   };
 
-  // 在 VPS 登录浏览器中打开该账号的爆文库详情页
-  const handleOpenAccountInVps = useCallback(
-    async (account: BwbrowserAccount) => {
-      const accountName = account.account_name || account.nickname || "";
-      if (!accountName) {
-        showErrorToast("该账号没有可用名称，无法打开爆文库详情");
-        return;
-      }
-      const accountId = account.id;
-      const platform = account.platform || null;
-
-      setVpsLaunchingIds((prev) => new Set(prev).add(accountId));
-      setVpsLaunchProgress((prev) => ({
-        ...prev,
-        [accountId]: { pct: 0, label: "正在启动爆文库..." },
-      }));
-
-      let unlistenProgress: (() => void) | undefined;
-      import("@tauri-apps/api/event")
-        .then(({ listen }) =>
-          listen<{ pct: number; label: string }>(
-            "vps-launch-progress",
-            (event) => {
-              const pct = Math.min(100, Math.max(0, event.payload.pct));
-              setVpsLaunchProgress((prev) => ({
-                ...prev,
-                [accountId]: {
-                  pct,
-                  label: event.payload.label || "正在启动爆文库...",
-                },
-              }));
-            },
-          ),
-        )
-        .then((fn) => {
-          unlistenProgress = fn;
-        })
-        .catch((e) => {
-          console.warn("failed to listen vps launch progress", e);
-        });
-
-      try {
-        const result = await invoke<string>(
-          "bwbrowser_open_account_detail_in_vps",
-          { accountName, platform },
-        );
-        setVpsLaunchProgress((prev) => ({
-          ...prev,
-          [accountId]: { pct: 100, label: "已打开" },
-        }));
-        if (result === "started_browser") {
-          showSuccessToast("已打开 VPS 登录浏览器，正在跳转账号详情...");
+  // 平台级批量健康检测：当前筛选平台下的全部账号，5 路并发
+  const [healthBatchRunning, setHealthBatchRunning] = useState(false);
+  const checkAllHealthForPlatform = () => {
+    if (healthBatchRunning) return;
+    const targets = accounts.filter(
+      (a) => platformFilter === "all" || (a.platform ?? "") === platformFilter,
+    );
+    if (targets.length === 0) return;
+    setHealthBatchRunning(true);
+    const run = async () => {
+      let valid = 0;
+      let invalid = 0;
+      let failed = 0;
+      let idx = 0;
+      const worker = async () => {
+        while (idx < targets.length) {
+          const acc = targets[idx++];
+          setHealthLoadingIds((prev) => new Set(prev).add(acc.id));
+          try {
+            const result = await invoke<{
+              account_id: number;
+              status: string;
+              message: string;
+              checked_at: number;
+            }>("bwbrowser_check_account_cookie_health", {
+              accountId: acc.id,
+              accountName: acc.account_name,
+            });
+            setHealthStates((prev) => ({
+              ...prev,
+              [result.account_id]: {
+                status: result.status,
+                message: result.message,
+                checked_at: result.checked_at,
+              },
+            }));
+            if (result.status === "valid") {
+              valid++;
+            } else {
+              invalid++;
+            }
+          } catch {
+            failed++;
+          } finally {
+            setHealthLoadingIds((prev) => {
+              const next = new Set(prev);
+              next.delete(acc.id);
+              return next;
+            });
+          }
         }
-        await handleRefresh();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        showErrorToast(`打开账号详情失败: ${translateBackendError(t, msg)}`);
-      } finally {
-        unlistenProgress?.();
-        setVpsLaunchingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(accountId);
-          return next;
-        });
-        setTimeout(() => {
-          setVpsLaunchProgress((prev) => {
-            const next = { ...prev };
-            delete next[accountId];
-            return next;
-          });
-        }, 1200);
-      }
-    },
-    [t, handleRefresh],
-  );
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(5, targets.length) }, () => worker()),
+      );
+      setHealthBatchRunning(false);
+      showSuccessToast(
+        `健康检测完成：${valid} 正常 / ${invalid} 需重新登录${
+          failed ? ` / ${failed} 失败` : ""
+        }`,
+      );
+    };
+    void run();
+  };
 
   // 平台统计：始终用 summary 数据（来自 API 的全量统计，不依赖当前页）
   const platformStats = useMemo(() => {
@@ -1986,8 +1988,47 @@ export function BwbrowserCloudAccountsDialog({
     return ownerStats.filter((o) => o.sectors.includes(sectorFilter));
   }, [ownerStats, sectorFilter]);
 
+  // 一键修复：删除本地数据 + 服务器 Cookie（无法登录时使用）
+  const handleRepairAccount = useCallback(async (account: BwbrowserAccount) => {
+    // WebView2 会吞掉原生 confirm()，必须用 plugin-dialog 的原生对话框
+    const ok = await dialogConfirm(
+      `确定一键修复账号「${account.account_name || account.id}」吗？\n\n` +
+        `将执行以下操作：\n` +
+        `1. 删除本机的浏览数据（Cookie、缓存、登录状态）\n` +
+        `2. 删除服务器上保存的该账号 Cookie\n\n` +
+        `适用于账号无法登录的情况。修复后请重新点击「启动浏览器」，会打开全新的登录页面，需要重新登录一次账号。`,
+      {
+        kind: "warning",
+        title: "一键修复",
+        okLabel: "确定修复",
+        cancelLabel: "取消",
+      },
+    ).catch(() => false);
+    if (!ok) return;
+    try {
+      await invoke("bwbrowser_delete_local_cookies", {
+        accountName: account.account_name || String(account.id),
+        accountId: account.id,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showErrorToast(`删除本地数据失败: ${msg}`);
+      return;
+    }
+    try {
+      await invoke("bwbrowser_delete_cloud_cookies", { accountId: account.id });
+      showSuccessToast("修复完成：本地数据与服务器 Cookie 已清除");
+      setIsRefreshing(true);
+      setTimeout(() => setIsRefreshing(false), 500);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showErrorToast(`本地数据已清除，但删除服务器 Cookie 失败: ${msg}`);
+    }
+  }, []);
+
   // 表格列定义
   const columns = useMemo<ColumnDef<BwbrowserAccount>[]>(() => {
+    const isAdmin = isManager || isSuperAdmin;
     const cols: ColumnDef<BwbrowserAccount>[] = [
       {
         id: "select",
@@ -2046,22 +2087,46 @@ export function BwbrowserCloudAccountsDialog({
         ),
         cell: ({ row }) => {
           const account = row.original;
-          const vp = vpsLaunchProgress[account.id];
-          const vpsBusy =
-            vpsLaunchingIds.has(account.id) || (vp && vp.pct < 100);
           const avatarUrl = resolveAvatarUrl(account.avatar_url);
           const displayName = account.account_name || account.nickname;
+          // 健康检测：图标颜色即结果（绿=健康，黄=需重新登录，灰=未检测）
+          const h = healthStates[account.id];
+          const hStatus = h?.status ?? "unknown";
+          const hLoading = healthLoadingIds.has(account.id);
+          // 点击昵称启动浏览器的进度（与操作列按钮同源）
+          const lp = launchProgress[account.id];
+          const launching = launchingIds.has(account.id);
           return (
-            <div className="flex max-w-[180px] flex-col gap-1">
-              {vpsBusy && (
-                <div className="flex items-center gap-1 text-[10px] leading-none text-emerald-600">
-                  <LuLoaderCircle className="h-3 w-3 shrink-0 animate-spin" />
-                  <span className="truncate">
-                    {vp ? `${vp.label} ${Math.floor(vp.pct)}%` : "启动中..."}
-                  </span>
-                </div>
-              )}
+            <div className="flex max-w-[200px] flex-col gap-1">
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleCheckHealth(account)}
+                  disabled={hLoading}
+                  className={cn(
+                    "shrink-0 rounded p-1 transition-colors hover:bg-muted disabled:opacity-50",
+                    hStatus === "valid"
+                      ? "text-success"
+                      : hStatus === "unknown"
+                        ? "text-muted-foreground/60"
+                        : "text-warning",
+                  )}
+                  title={`Cookie健康${
+                    hStatus === "valid"
+                      ? "：正常"
+                      : hStatus === "unknown"
+                        ? "：未检测，点击检测"
+                        : "：需重新登录，点击重新检测"
+                  }${
+                    h?.message ? `（${h.message}` : ""
+                  }${h?.checked_at ? ` · ${formatDateShort(new Date(h.checked_at * 1000).toISOString())}）` : h?.message ? "）" : ""}`}
+                >
+                  {hLoading ? (
+                    <LuLoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <LuHeartPulse className="h-3.5 w-3.5" />
+                  )}
+                </button>
                 {avatarUrl ? (
                   <span
                     role="img"
@@ -2076,13 +2141,28 @@ export function BwbrowserCloudAccountsDialog({
                 )}
                 <button
                   type="button"
-                  onClick={() => void handleOpenAccountInVps(account)}
-                  title="在 VPS 登录浏览器中打开该账号的爆文库详情"
+                  onClick={() => void handleLaunchAccount(account)}
+                  title="点击启动浏览器"
                   className="truncate text-left text-xs font-medium transition-colors hover:text-primary hover:underline"
                 >
                   {displayName || "-"}
                 </button>
               </div>
+              {lp && (launching || lp.pct >= 100) && (
+                <div className="flex items-center gap-1 text-[10px] leading-none text-emerald-600">
+                  <LuLoaderCircle
+                    className={cn(
+                      "h-3 w-3 shrink-0",
+                      lp.pct < 100 && "animate-spin",
+                    )}
+                  />
+                  <span className="truncate tabular-nums">
+                    {lp.pct >= 100
+                      ? "已启动"
+                      : `${lp.label} ${Math.floor(lp.pct)}%`}
+                  </span>
+                </div>
+              )}
             </div>
           );
         },
@@ -2294,132 +2374,90 @@ export function BwbrowserCloudAccountsDialog({
         ),
         size: 80,
       },
-      {
-        id: "health",
-        header: "健康检测",
-        cell: ({ row }) => {
-          const account = row.original;
-          const h = healthStates[account.id];
-          const status = h?.status ?? "unknown";
-          const loading = healthLoadingIds.has(account.id);
-          const isAdmin = isManager || isSuperAdmin;
-          return (
-            <div
-              className="flex items-center gap-1.5"
-              title={`${
-                h?.message || (status === "unknown" ? "未检测" : "")
-              }${h?.checked_at ? ` · ${formatDateShort(new Date(h.checked_at * 1000).toISOString())}` : ""}`}
-            >
-              <span
-                className={cn(
-                  "size-2.5 shrink-0 rounded-full",
-                  status === "valid"
-                    ? "bg-success"
-                    : status === "unknown"
-                      ? "bg-muted-foreground/40"
-                      : "bg-warning",
-                )}
-              />
-              {isAdmin && (
-                <button
-                  type="button"
-                  onClick={() => void handleCheckHealth(account)}
-                  disabled={loading}
-                  className="text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-                  title="手动检测Cookie健康"
-                >
-                  {loading ? (
-                    <LuLoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <LuRefreshCw className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              )}
-            </div>
-          );
-        },
-        size: 86,
-        enableSorting: false,
-      },
-      {
-        accessorKey: "owner_name",
-        header: "归属",
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground">
-            {row.getValue("owner_name") || "-"}
-          </span>
-        ),
-        size: 70,
-      },
-      {
-        accessorKey: "env_uuid",
-        header: "环境",
-        cell: ({ row }) => {
-          const account = row.original;
-          const envUuid = account.env_uuid;
-          return (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className={cn(
-                    "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium transition-colors",
-                    envUuid
-                      ? "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80",
-                  )}
-                  title={envUuid ? `已绑定: ${envUuid}` : "点击绑定环境"}
-                >
-                  {envUuid ? "已绑定" : "设置"}
-                  <LuChevronDown className="h-3 w-3 opacity-60" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-40">
-                {envUuid ? (
-                  <>
-                    <DropdownMenuItem
-                      onClick={() => void handleEditBoundEnv(account)}
-                    >
-                      <LuPencil className="h-4 w-4 mr-2" />
-                      编辑本环境
-                    </DropdownMenuItem>
-                    {onNavigateToEnvManagement ? (
-                      <DropdownMenuItem
-                        onClick={() => onNavigateToEnvManagement(envUuid)}
+      // 归属 / 环境列仅管理员可见
+      ...(isAdmin
+        ? [
+            {
+              accessorKey: "owner_name",
+              header: "归属",
+              cell: ({ row }: { row: { original: BwbrowserAccount } }) => (
+                <span className="text-xs text-muted-foreground">
+                  {row.original.owner_name || "-"}
+                </span>
+              ),
+              size: 70,
+            },
+            {
+              accessorKey: "env_uuid",
+              header: "环境",
+              cell: ({ row }: { row: { original: BwbrowserAccount } }) => {
+                const account = row.original;
+                const envUuid = account.env_uuid;
+                return (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn(
+                          "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium transition-colors",
+                          envUuid
+                            ? "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80",
+                        )}
+                        title={envUuid ? `已绑定: ${envUuid}` : "点击绑定环境"}
                       >
-                        <LuMonitor className="h-4 w-4 mr-2" />
-                        在环境中心打开
-                      </DropdownMenuItem>
-                    ) : null}
-                    <DropdownMenuItem
-                      onClick={() => void handleOpenEnvDialog(account)}
-                    >
-                      <LuMonitor className="h-4 w-4 mr-2" />
-                      重新绑定
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => void handleDeleteBoundEnv(account)}
-                    >
-                      <LuTrash2 className="h-4 w-4 mr-2" />
-                      删除环境
-                    </DropdownMenuItem>
-                  </>
-                ) : (
-                  <DropdownMenuItem
-                    onClick={() => void handleOpenEnvDialog(account)}
-                  >
-                    <LuMonitor className="h-4 w-4 mr-2" />
-                    绑定环境
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          );
-        },
-        size: 60,
-      },
+                        {envUuid ? "已绑定" : "设置"}
+                        <LuChevronDown className="h-3 w-3 opacity-60" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-40">
+                      {envUuid ? (
+                        <>
+                          <DropdownMenuItem
+                            onClick={() => void handleEditBoundEnv(account)}
+                          >
+                            <LuPencil className="h-4 w-4 mr-2" />
+                            编辑本环境
+                          </DropdownMenuItem>
+                          {onNavigateToEnvManagement ? (
+                            <DropdownMenuItem
+                              onClick={() => onNavigateToEnvManagement(envUuid)}
+                            >
+                              <LuMonitor className="h-4 w-4 mr-2" />
+                              在环境中心打开
+                            </DropdownMenuItem>
+                          ) : null}
+                          <DropdownMenuItem
+                            onClick={() => void handleOpenEnvDialog(account)}
+                          >
+                            <LuMonitor className="h-4 w-4 mr-2" />
+                            重新绑定
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => void handleDeleteBoundEnv(account)}
+                          >
+                            <LuTrash2 className="h-4 w-4 mr-2" />
+                            删除环境
+                          </DropdownMenuItem>
+                        </>
+                      ) : (
+                        <DropdownMenuItem
+                          onClick={() => void handleOpenEnvDialog(account)}
+                        >
+                          <LuMonitor className="h-4 w-4 mr-2" />
+                          绑定环境
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                );
+              },
+              size: 60,
+            },
+          ]
+        : []),
       {
         accessorKey: "proxy_node",
         header: "节点IP",
@@ -2517,9 +2555,10 @@ export function BwbrowserCloudAccountsDialog({
                 <button
                   type="button"
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  title={val ? `更新于 ${formatDateShort(val)}` : undefined}
                 >
                   <LuClock className="h-3 w-3" />
-                  {val ? formatDateShort(val) : "-"}
+                  {val ? formatDateNoYear(val) : "-"}
                   <LuChevronDown className="h-3 w-3 opacity-50" />
                 </button>
               </DropdownMenuTrigger>
@@ -2621,12 +2660,12 @@ export function BwbrowserCloudAccountsDialog({
           const remark = account.remark ?? "";
           return (
             <div className="flex items-start gap-1.5">
-              <div className="flex min-w-0 flex-col gap-0.5">
+              <div className="flex min-w-0 max-w-[140px] flex-col gap-0.5">
                 {tagsArr.length > 0 &&
                   tagsArr.map((tag) => (
                     <span
                       key={tag}
-                      className="text-[11px] text-purple-600 dark:text-purple-400 break-all leading-tight"
+                      className="truncate text-[11px] text-purple-600 dark:text-purple-400 leading-tight"
                       title={tag}
                     >
                       {tag}
@@ -2634,7 +2673,7 @@ export function BwbrowserCloudAccountsDialog({
                   ))}
                 {remark && (
                   <span
-                    className="text-[11px] text-amber-600 dark:text-amber-500 break-all leading-tight"
+                    className="truncate text-[11px] text-amber-600 dark:text-amber-500 leading-tight"
                     title={remark}
                   >
                     {remark}
@@ -2665,48 +2704,60 @@ export function BwbrowserCloudAccountsDialog({
           const progress = launchProgress[account.id];
           const pct = progress ? Math.floor(progress.pct) : 0;
           return (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 max-w-[180px] px-2"
-              onClick={() => void handleLaunchAccount(account)}
-              disabled={isLaunching || geoPending}
-              title={geoPending ? "正在获取时区信息" : "启动浏览器"}
-            >
-              {geoPending ? (
-                <>
-                  <LuLoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-500" />
-                  <span className="ml-1 truncate text-xs text-amber-600">
-                    正在获取时区信息
-                  </span>
-                </>
-              ) : isLaunching ? (
-                progress && progress.pct >= 100 ? (
-                  <LuCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 max-w-[180px] px-2"
+                onClick={() => void handleLaunchAccount(account)}
+                disabled={isLaunching || geoPending}
+                title={geoPending ? "正在获取时区信息" : "启动浏览器"}
+              >
+                {geoPending ? (
+                  <>
+                    <LuLoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-500" />
+                    <span className="ml-1 truncate text-xs text-amber-600">
+                      正在获取时区信息
+                    </span>
+                  </>
+                ) : isLaunching ? (
+                  progress && progress.pct >= 100 ? (
+                    <LuCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                  ) : (
+                    <LuLoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin text-emerald-500" />
+                  )
                 ) : (
-                  <LuLoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin text-emerald-500" />
-                )
-              ) : (
-                <LuPlay className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-              )}
-              {!geoPending &&
-                (isLaunching && progress && progress.pct < 100 ? (
-                  <span className="ml-1 truncate text-xs tabular-nums text-emerald-600">
-                    {progress.label} {pct}%
-                  </span>
-                ) : (
-                  <span className="ml-1 text-xs">
-                    {isLaunching
-                      ? progress
-                        ? "已启动"
-                        : "启动中"
-                      : "启动浏览器"}
-                  </span>
-                ))}
-            </Button>
+                  <LuPlay className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                )}
+                {!geoPending &&
+                  (isLaunching && progress && progress.pct < 100 ? (
+                    <span className="ml-1 truncate text-xs tabular-nums text-emerald-600">
+                      {progress.label} {pct}%
+                    </span>
+                  ) : (
+                    <span className="ml-1 text-xs">
+                      {isLaunching
+                        ? progress
+                          ? "已启动"
+                          : "启动中"
+                        : "启动浏览器"}
+                    </span>
+                  ))}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 shrink-0 px-2"
+                onClick={() => void handleRepairAccount(account)}
+                title="删除本地数据和服务器 Cookie（无法登录时使用）"
+              >
+                <LuWrench className="h-3.5 w-3.5 shrink-0" />
+                <span className="ml-1 text-xs">一键修复</span>
+              </Button>
+            </div>
           );
         },
-        size: 180,
+        size: 260,
         enableSorting: false,
       },
     ];
@@ -2716,8 +2767,6 @@ export function BwbrowserCloudAccountsDialog({
     launchingIds,
     launchProgress,
     geoPendingIds,
-    vpsLaunchingIds,
-    vpsLaunchProgress,
     handleOpenProxyDialog,
     smsCodes,
     handleOpenEnvDialog,
@@ -2731,7 +2780,6 @@ export function BwbrowserCloudAccountsDialog({
     copiedPasswordId,
     onNavigateToEnvManagement,
     handleOpenEdit,
-    handleOpenAccountInVps,
     handleEditBoundEnv,
     handleDeleteBoundEnv,
     healthStates,
@@ -2739,6 +2787,7 @@ export function BwbrowserCloudAccountsDialog({
     isManager,
     isSuperAdmin,
     handleCheckHealth,
+    handleRepairAccount,
   ]);
 
   const table = useReactTable({
@@ -2843,20 +2892,6 @@ export function BwbrowserCloudAccountsDialog({
               <LuRefreshCw className="h-3.5 w-3.5" />
             )}
             刷新
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void handleSyncUsersToAccounts()}
-            className="h-8 gap-1.5 px-3 text-xs"
-            disabled={syncingUsers || isLoading}
-          >
-            {syncingUsers ? (
-              <LuRefreshCw className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <LuUsers className="h-3.5 w-3.5" />
-            )}
-            同步用户
           </Button>
           <Button
             variant="default"
@@ -3041,16 +3076,35 @@ export function BwbrowserCloudAccountsDialog({
             size="sm"
             variant="outline"
             className="h-7 gap-1 text-xs"
-            onClick={() => void openAllForPlatform()}
+            onClick={() => openAllForPlatform()}
+            disabled={batchLaunching}
             title={
-              "打开当前平台（" +
+              "本地启动浏览器打开当前平台（" +
               getPlatformLabel(platformFilter) +
-              "）下的全部账号"
+              "）的全部账号"
             }
           >
+            {batchLaunching ? (
+              <LuLoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            ) : null}
             {platformFilter === "all"
               ? "打开全部账号"
               : `打开全部 ${getPlatformLabel(platformFilter)}`}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 text-xs"
+            onClick={() => checkAllHealthForPlatform()}
+            disabled={healthBatchRunning}
+            title="检测当前平台全部账号的 Cookie 健康，结果由各账号行的心跳图标颜色显示"
+          >
+            {healthBatchRunning ? (
+              <LuLoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <LuHeartPulse className="h-3.5 w-3.5" />
+            )}
+            一键检测健康
           </Button>
         </div>
       </div>

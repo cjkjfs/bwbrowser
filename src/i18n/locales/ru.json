@@ -2398,13 +2398,21 @@
     "syncArrangeFailed": "Ни одно окно не удалось переместить.",
     "extensionPathInvalid": "Этот путь недопустим: он содержит «..».",
     "loginCredentialsIncomplete": "Введите email и пароль.",
-    "remoteManagementNoLanRange": "Не удалось определить подсеть LAN для сканирования."
+    "remoteManagementNoLanRange": "Не удалось определить подсеть LAN для сканирования.",
+    "aiAgentNotConfigured": "У ИИ-ассистента не настроена модель. Сначала укажите её в настройках ИИ-рерайта.",
+    "aiAgentConfigUnavailable": "Не удалось загрузить конфигурацию ИИ-ассистента: {{message}}",
+    "aiAgentEmptyConversation": "Разговор пуст. Сначала введите вопрос.",
+    "aiAgentProxyFailed": "Прокси-линия ИИ-ассистента недоступна: {{message}}",
+    "aiAgentLlmFailed": "Запрос к модели ИИ-ассистента не удался: {{message}}",
+    "aiAgentProviderUnsupported": "ИИ-ассистент не поддерживает этого поставщика моделей: {{message}}"
   },
   "rail": {
     "cloudAccounts": "Облачные аккаунты",
     "userManagement": "Управление пользователями",
     "remoteManagement": "Удалённое управление",
     "videoDownload": "Загрузка видео",
+    "aiRewrite": "ИИ-рерайт",
+    "aiAssistant": "ИИ-ассистент",
     "profiles": "Профили",
     "extensions": "Расширения",
     "groups": "Группы",
@@ -2429,7 +2437,8 @@
     "cookieBot": "Cookie Bot",
     "trash": "Корзина",
     "agent": "Агент",
-    "cloudAccounts": "Облачные аккаунты"
+    "cloudAccounts": "Облачные аккаунты",
+    "aiRewrite": "ИИ-рерайт"
   },
   "encryption": {
     "required": {
@@ -3641,5 +3650,25 @@
     "selectLocalFolder": "Сначала откройте локальную папку",
     "uploadSuccess": "{{name}} загружен",
     "downloadSuccess": "{{name}} скачан"
+  },
+  "aiAssistant": {
+    "title": "ИИ-ассистент",
+    "description": "Спрашивайте о видео, результатах рерайта и прокси-линиях обычным языком",
+    "emptyTitle": "Поговорите с ИИ-ассистентом",
+    "emptyBody": "Спросите о статистике видео, результатах рерайта или прокси-линиях — ассистент проверяет данные, прежде чем ответить.",
+    "placeholder": "Введите вопрос — Enter для отправки, Shift+Enter для новой строки",
+    "send": "Отправить",
+    "thinking": "Думаю…",
+    "clear": "Очистить чат",
+    "clearTitle": "Очистить этот чат?",
+    "clearBody": "Все локально сохранённые сообщения будут удалены без возможности восстановления.",
+    "cleared": "Чат очищен",
+    "pickFolder": "Выбрать папку",
+    "removeFolder": "Убрать папку",
+    "newSession": "Новый чат",
+    "deleteSession": "Удалить чат",
+    "deleteSessionTitle": "Удалить этот чат?",
+    "deleteSessionBody": "Этот чат и сохранённые в нём сообщения будут удалены без возможности восстановления.",
+    "defaultSessionTitle": "Новый чат"
   }
 }

@@ -44,6 +44,8 @@
     "deep-link:allow-get-current",
     "dialog:allow-open",
     "dialog:allow-save",
+    "dialog:allow-confirm",
+    "dialog:allow-message",
     "macos-permissions:allow-request-microphone-permission",
     "macos-permissions:allow-request-camera-permission",
     "macos-permissions:allow-check-microphone-permission",

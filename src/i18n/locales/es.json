@@ -2388,13 +2388,21 @@
     "syncArrangeFailed": "No se pudo mover ninguna ventana.",
     "extensionPathInvalid": "Esa ruta no está permitida: contiene '..'.",
     "loginCredentialsIncomplete": "Introduce un correo y una contraseña.",
-    "remoteManagementNoLanRange": "No se pudo determinar una subred LAN para escanear."
+    "remoteManagementNoLanRange": "No se pudo determinar una subred LAN para escanear.",
+    "aiAgentNotConfigured": "El asistente de IA no tiene un endpoint de modelo configurado. Configúralo primero en los ajustes de reescritura con IA.",
+    "aiAgentConfigUnavailable": "No se pudo cargar la configuración del asistente de IA: {{message}}",
+    "aiAgentEmptyConversation": "La conversación está vacía. Escribe una pregunta primero.",
+    "aiAgentProxyFailed": "La línea de proxy del asistente de IA no está disponible: {{message}}",
+    "aiAgentLlmFailed": "La solicitud al modelo del asistente de IA falló: {{message}}",
+    "aiAgentProviderUnsupported": "El asistente de IA no es compatible con este proveedor de modelos: {{message}}"
   },
   "rail": {
     "cloudAccounts": "Cuentas en la nube",
     "userManagement": "Gestión de usuarios",
     "remoteManagement": "Gestión remota",
     "videoDownload": "Descarga de vídeos",
+    "aiRewrite": "Reescritura con IA",
+    "aiAssistant": "Asistente de IA",
     "profiles": "Perfiles",
     "extensions": "Extensiones",
     "groups": "Grupos",
@@ -2419,7 +2427,8 @@
     "cookieBot": "Cookie Bot",
     "trash": "Papelera",
     "agent": "Agente",
-    "cloudAccounts": "Cuentas en la nube"
+    "cloudAccounts": "Cuentas en la nube",
+    "aiRewrite": "Reescritura con IA"
   },
   "encryption": {
     "required": {
@@ -3608,5 +3617,25 @@
     "selectLocalFolder": "Abre primero una carpeta local",
     "uploadSuccess": "{{name}} subido",
     "downloadSuccess": "{{name}} descargado"
+  },
+  "aiAssistant": {
+    "title": "Asistente de IA",
+    "description": "Consulta vídeos, resultados de reescritura y líneas de proxy en lenguaje natural",
+    "emptyTitle": "Habla con tu asistente de IA",
+    "emptyBody": "Pregunta por estadísticas de vídeos, resultados de reescritura o líneas de proxy: el asistente consulta los datos antes de responder.",
+    "placeholder": "Escribe una pregunta: Enter para enviar, Shift+Enter para un salto de línea",
+    "send": "Enviar",
+    "thinking": "Pensando…",
+    "clear": "Borrar conversación",
+    "clearTitle": "¿Borrar esta conversación?",
+    "clearBody": "Se eliminarán todos los mensajes guardados localmente y no se podrán recuperar.",
+    "cleared": "Conversación borrada",
+    "pickFolder": "Elegir una carpeta",
+    "removeFolder": "Quitar carpeta",
+    "newSession": "Nuevo chat",
+    "deleteSession": "Eliminar chat",
+    "deleteSessionTitle": "¿Eliminar este chat?",
+    "deleteSessionBody": "Este chat y sus mensajes guardados localmente se eliminarán y no se podrán recuperar.",
+    "defaultSessionTitle": "Nuevo chat"
   }
 }

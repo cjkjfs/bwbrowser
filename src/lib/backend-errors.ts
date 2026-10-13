@@ -275,6 +275,15 @@ export type BackendErrorCode =
   | "SYNC_DISPLAY_UNAVAILABLE"
   | "SYNC_DISPLAY_TOO_SMALL"
   | "SYNC_ARRANGE_FAILED"
+  // AI 助手（agent loop）。配置类失败各自成码，因为修复动作不同：填端点、
+  // 重新登录、修代理；LLM 请求失败则把上游的原话透传出来。`params.message`
+  // 统一携带底层原因（PROVIDER_UNSUPPORTED 携带的是 provider 名）。
+  | "AI_AGENT_NOT_CONFIGURED"
+  | "AI_AGENT_CONFIG_UNAVAILABLE"
+  | "AI_AGENT_EMPTY_CONVERSATION"
+  | "AI_AGENT_PROXY_FAILED"
+  | "AI_AGENT_LLM_FAILED"
+  | "AI_AGENT_PROVIDER_UNSUPPORTED"
   | "INTERNAL_ERROR";
 
 export interface BackendError {
@@ -907,6 +916,26 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       });
     case "SYNC_ARRANGE_FAILED":
       return t("backendErrors.syncArrangeFailed");
+    case "AI_AGENT_NOT_CONFIGURED":
+      return t("backendErrors.aiAgentNotConfigured");
+    case "AI_AGENT_CONFIG_UNAVAILABLE":
+      return t("backendErrors.aiAgentConfigUnavailable", {
+        message: parsed.params?.message ?? "",
+      });
+    case "AI_AGENT_EMPTY_CONVERSATION":
+      return t("backendErrors.aiAgentEmptyConversation");
+    case "AI_AGENT_PROXY_FAILED":
+      return t("backendErrors.aiAgentProxyFailed", {
+        message: parsed.params?.message ?? "",
+      });
+    case "AI_AGENT_LLM_FAILED":
+      return t("backendErrors.aiAgentLlmFailed", {
+        message: parsed.params?.message ?? "",
+      });
+    case "AI_AGENT_PROVIDER_UNSUPPORTED":
+      return t("backendErrors.aiAgentProviderUnsupported", {
+        message: parsed.params?.message ?? "",
+      });
     case "INTERNAL_ERROR":
       return t("backendErrors.internal", {
         detail: parsed.params?.detail ?? "",

@@ -112,6 +112,8 @@ mod wayfern_terms;
 mod window_decorations;
 // mod theme_detector; // removed: theme detection handled in webview via CSS prefers-color-scheme
 mod agent;
+mod ai_agent;
+mod ai_rewrite;
 pub mod bwbrowser_cloud;
 pub mod cloud_auth;
 pub mod cloud_domain;
@@ -4006,7 +4008,6 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_update_account_info,
       bwbrowser_cloud::bwbrowser_get_account_detail_full,
       bwbrowser_cloud::bwbrowser_create_account,
-      bwbrowser_cloud::bwbrowser_sync_users_to_accounts,
       bwbrowser_cloud::bwbrowser_get_account_cookies,
       bwbrowser_cloud::bwbrowser_delete_cloud_cookies,
       bwbrowser_cloud::bwbrowser_delete_local_cookies,
@@ -4062,6 +4063,20 @@ pub fn run_with_builder(
       video_downloader::video_download_delete_all,
       video_downloader::video_download_start_clipboard_monitor,
       video_downloader::video_download_stop_clipboard_monitor,
+      ai_rewrite::ai_rewrite_status,
+      ai_rewrite::ai_rewrite_list_videos,
+      ai_rewrite::ai_rewrite_results,
+      ai_rewrite::ai_rewrite_result,
+      ai_rewrite::ai_rewrite_run_links,
+      ai_rewrite::ai_rewrite_build_srt,
+      ai_rewrite::ai_rewrite_load_tasks,
+      ai_rewrite::ai_rewrite_save_tasks,
+      ai_rewrite::ai_rewrite_clear_tasks,
+      ai_rewrite::ai_rewrite_get_api_config,
+      ai_rewrite::ai_rewrite_test_endpoint,
+      ai_rewrite::ai_rewrite_save_api_config,
+      ai_rewrite::ai_rewrite_running_tasks,
+      ai_agent::ai_agent_chat,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
@@ -4238,6 +4253,8 @@ mod tests {
     // Commands that are intentionally not used in the frontend
     // but are used via MCP server or other programmatic APIs
     let mcp_only_commands = [
+      // The AI assistant's progress tool reads this table in-process.
+      "ai_rewrite_running_tasks",
       "connect_vpn",
       "disconnect_vpn",
       "get_vpn_status",
@@ -4278,6 +4295,12 @@ mod tests {
       // these commands are the manual override, with no UI control yet.
       "video_download_start_clipboard_monitor",
       "video_download_stop_clipboard_monitor",
+      // AI rewrite REST-style history list / single-detail endpoints; the
+      // frontend drives rewrite via run_links + persistent local tasks.json,
+      // and history is browsed through the server-side `results` endpoint,
+      // so these two Tauri commands have no UI caller yet.
+      "ai_rewrite_results",
+      "ai_rewrite_result",
     ];
 
     // Extract command names from the generate_handler! macro in this file

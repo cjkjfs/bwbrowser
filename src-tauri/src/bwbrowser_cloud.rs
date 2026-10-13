@@ -4794,155 +4794,6 @@ pub async fn bwbrowser_create_account(
   Ok(id)
 }
 
-// ========== 用户 → 账号同步 ==========
-
-/// 用户账号同步结果
-#[derive(Debug, Serialize)]
-pub struct UserAccountSyncResult {
-  pub total_users: usize,
-  pub created: usize,
-  pub already_existed: usize,
-  pub failed: usize,
-  pub message: String,
-}
-
-/// 同步团队用户到账号列表：
-/// - 每个用户自动对应一个 TikTok 账号
-/// - 账号昵称 = 姓名(用户名)
-/// - 已存在的账号跳过（按 owner_id 匹配）
-/// - Cookies 通过现有机制正常同步
-impl BwbrowserAuthManager {
-  pub async fn sync_users_to_accounts(&self) -> Result<UserAccountSyncResult, String> {
-    let (username, password) = self
-      .get_credentials()
-      .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
-
-    // 1. 获取用户列表
-    let users_resp = self.list_cloud_users(None).await?;
-    let users = users_resp.users.unwrap_or_default();
-    if users.is_empty() {
-      return Ok(UserAccountSyncResult {
-        total_users: 0,
-        created: 0,
-        already_existed: 0,
-        failed: 0,
-        message: "用户列表为空".to_string(),
-      });
-    }
-
-    // 2. 获取全部账号（第一页，page_size 尽量大）
-    let accounts_resp = self
-      .list_cloud_accounts(1, 500, None, None, None, None)
-      .await?;
-    let accounts = accounts_resp.accounts.unwrap_or_default();
-
-    // 3. 按 owner_id 建立已有账号索引
-    use std::collections::HashSet;
-    let existing_owner_ids: HashSet<i64> = accounts.iter().filter_map(|a| a.owner_id).collect();
-
-    let mut created = 0usize;
-    let mut already_existed = 0usize;
-    let mut failed = 0usize;
-
-    // 4. 为每个用户检查并创建账号
-    for user in &users {
-      if existing_owner_ids.contains(&user.id) {
-        already_existed += 1;
-        continue;
-      }
-
-      // 构造账号名称：姓名(用户名)
-      let real_name = user.real_name.clone().unwrap_or_default();
-      let user_name = user.username.clone().unwrap_or_default();
-      let account_name = if !real_name.is_empty() && !user_name.is_empty() {
-        format!("{}({})", real_name, user_name)
-      } else if !real_name.is_empty() {
-        real_name
-      } else {
-        user_name
-      };
-
-      if account_name.is_empty() {
-        failed += 1;
-        continue;
-      }
-
-      // 创建账号
-      let params: Vec<String> = vec![
-        "action=create_account".to_string(),
-        format!("username={}", urlencode(&username)),
-        format!("password={}", urlencode(&password)),
-        format!("account_name={}", urlencode(&account_name)),
-        "platform=tiktok".to_string(),
-        format!("owner_id={}", user.id),
-        format!("nickname={}", urlencode(&account_name)),
-      ];
-      let form_data = params.join("&");
-
-      match self
-        .client
-        .post(BWBROWSER_API_URL)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(form_data)
-        .send()
-        .await
-      {
-        Ok(resp) => match resp.text().await {
-          Ok(body) => match serde_json::from_str::<serde_json::Value>(&body) {
-            Ok(json) => {
-              if json["success"].as_bool().unwrap_or(false) {
-                created += 1;
-                log_bwbrowser(
-                  "sync_users_to_accounts",
-                  &format!("  ✓ 已创建账号: {} (owner_id={})", account_name, user.id),
-                );
-              } else {
-                failed += 1;
-                let msg = json["message"].as_str().unwrap_or("未知错误").to_string();
-                log_bwbrowser(
-                  "sync_users_to_accounts",
-                  &format!("  ✗ 创建失败: {} - {}", account_name, msg),
-                );
-              }
-            }
-            Err(_) => {
-              failed += 1;
-            }
-          },
-          Err(_) => {
-            failed += 1;
-          }
-        },
-        Err(_) => {
-          failed += 1;
-        }
-      }
-    }
-
-    let message = format!(
-      "同步完成：共 {} 个用户，新建 {} 个账号，已存在 {} 个，失败 {} 个",
-      users.len(),
-      created,
-      already_existed,
-      failed
-    );
-    log_bwbrowser("sync_users_to_accounts", &message);
-
-    Ok(UserAccountSyncResult {
-      total_users: users.len(),
-      created,
-      already_existed,
-      failed,
-      message,
-    })
-  }
-}
-
-#[tauri::command]
-pub async fn bwbrowser_sync_users_to_accounts() -> Result<UserAccountSyncResult, String> {
-  BWBROWSER_AUTH.sync_users_to_accounts().await
-}
-
 // ========== Cookie 管理 ==========
 
 /// 查看服务器端 Cookie
@@ -5052,7 +4903,13 @@ pub async fn bwbrowser_delete_local_cookies(
     .collect();
 
   if matching.is_empty() {
-    return Err(format!("未找到本地账号: {account_name}"));
+    // 账号从未在本机启动过、没有本地 profile：没有本地数据可删，视为已清空，
+    // 让一键修复继续走删除服务器 Cookie 的流程。
+    log_bwbrowser(
+      "delete_local_cookies",
+      &format!("  本地无 profile（账号未在本机启动过），跳过本地删除: {account_name}"),
+    );
+    return Ok(());
   }
 
   let mut total_deleted = 0;
@@ -6689,7 +6546,7 @@ pub async fn bwbrowser_launch_account(
   let result = tokio::time::timeout(
     std::time::Duration::from_secs(70),
     launch_account_impl(
-      app_handle,
+      app_handle.clone(),
       account_id,
       account_name.clone(),
       env_uuid.clone(),
@@ -6716,7 +6573,84 @@ pub async fn bwbrowser_launch_account(
     );
   }
 
+  if result.is_ok() {
+    spawn_account_browser_close_watcher(app_handle.clone(), account_id, account_name.clone());
+  }
+
   result
+}
+
+/// 正在监视浏览器退出的账号 id 集合（避免同一账号重复挂监视任务）
+static CLOSE_WATCHERS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<i64>>> =
+  std::sync::OnceLock::new();
+
+fn close_watchers() -> &'static std::sync::Mutex<std::collections::HashSet<i64>> {
+  CLOSE_WATCHERS.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+/// 监视账号浏览器进程：退出后向前端发 `account-browser-closed`，用于清除「已启动」状态。
+fn spawn_account_browser_close_watcher(
+  app_handle: tauri::AppHandle,
+  account_id: i64,
+  account_name: String,
+) {
+  {
+    let mut set = close_watchers()
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if !set.insert(account_id) {
+      return; // 该账号已有监视任务在跑
+    }
+  }
+  tauri::async_runtime::spawn(async move {
+    watch_account_browser_close(app_handle, account_id, account_name).await;
+    close_watchers()
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .remove(&account_id);
+  });
+}
+
+async fn watch_account_browser_close(
+  app_handle: tauri::AppHandle,
+  account_id: i64,
+  account_name: String,
+) {
+  let pm = crate::profile::manager::ProfileManager::instance();
+  let lookup_name = account_profile_name(&account_name, account_id);
+  // 至少观察到一次「在运行」后，才把消失当作退出，避免启动瞬间进程列表
+  // 尚未稳定造成误报；最长盯 24 小时，3 秒一查。
+  let mut seen_running = false;
+  let deadline = std::time::Instant::now() + std::time::Duration::from_secs(24 * 3600);
+  loop {
+    if std::time::Instant::now() >= deadline {
+      return;
+    }
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let profile = match pm.list_profiles() {
+      Ok(profiles) => profiles
+        .into_iter()
+        .find(|p| p.name.to_lowercase() == lookup_name.to_lowercase()),
+      Err(_) => None,
+    };
+    let Some(profile) = profile else {
+      return; // profile 被删除，无需再盯
+    };
+    match pm.check_browser_status(app_handle.clone(), &profile).await {
+      Ok(running) => {
+        if running {
+          seen_running = true;
+        } else if seen_running {
+          let _ = app_handle.emit(
+            "account-browser-closed",
+            serde_json::json!({ "account_id": account_id }),
+          );
+          return;
+        }
+      }
+      Err(_) => return,
+    }
+  }
 }
 
 /// 上报云端账号启动记录到服务器（异步，不阻塞启动流程）

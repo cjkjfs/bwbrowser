@@ -37,6 +37,13 @@ pub const RELAY_CONTROL_URL: &str = concat!("https://", cloud_host!(), "/tk/remo
 /// Bwbrowser 云端 API（登录/同步）
 pub const BWBROWSER_API_URL: &str = concat!("https://", cloud_host!(), "/tk/bwbrowser_sync.php");
 
+/// AI 洗稿本地程序网关（密钥下发 / 查重 / 上报计费）
+pub const AI_REWRITE_API_URL: &str = concat!("https://", cloud_host!(), "/tk/ai_rewrite_api.php");
+
+/// AI 助手 cron 网关（平台数据更新触发/查询，同 ai_client_tokens 鉴权，按次计费）
+pub const AI_AGENT_CRON_API_URL: &str =
+  concat!("https://", cloud_host!(), "/tk/ai_agent_cron_api.php");
+
 /// 平台配置 API（平台 creator_url / login_check）
 pub const PLATFORM_CONFIG_API_URL: &str =
   concat!("https://", cloud_host!(), "/tk/api_get_platform_config.php");

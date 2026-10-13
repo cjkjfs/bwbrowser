@@ -2049,6 +2049,626 @@ fn is_cookie_error(error_msg: &str) -> bool {
     || lower.contains("unable to extract")
 }
 
+/// 音频下载实时回调载荷（供 AI 洗稿展示下载速度/进度/日志）。
+#[derive(Debug, Clone, Default)]
+pub struct AudioDlProgress {
+  /// 0-100；负数表示该行只是日志，没有进度
+  pub percent: f64,
+  /// 可读速度文本，如 "1.23 MB/s"
+  pub speed_text: String,
+  pub downloaded: u64,
+  pub total: u64,
+  /// yt-dlp 原始输出行（便于排查问题）
+  pub log: String,
+}
+
+/// 复用「视频下载」的 yt-dlp / 代理 / Cookie 逻辑，仅抽取音频。
+/// 供 AI 洗稿等模块调用，避免另建一套下载系统。
+/// `on_progress` 会随 yt-dlp 输出实时回调（下载速度 / 百分比 / 原始日志行）。
+///
+/// 策略：先按音频直取（`bestaudio` + `-x`）；若失败则回退为「视频下载」方式，
+/// 先下载视频再本地用 ffmpeg 抽取音频，保证拿到可转写的音频文件。
+pub async fn download_audio_for_asr<R: Runtime>(
+  app: &tauri::AppHandle<R>,
+  url: &str,
+  workdir: &std::path::Path,
+  mut on_progress: impl FnMut(AudioDlProgress) + Send,
+) -> Result<PathBuf, String> {
+  let url = url.trim();
+  if url.is_empty() {
+    return Err("视频链接为空".to_string());
+  }
+  let _ = std::fs::create_dir_all(workdir);
+
+  // yt-dlp 路径：优先使用「视频下载」页已保存的路径，其次 tools_dir 内的本地二进制
+  let dl = get_downloader();
+  let (saved_path, settings) = {
+    let inner = dl.inner.lock().await;
+    (inner.yt_dlp_path.clone(), inner.settings.clone())
+  };
+  let yt_dlp = saved_path.filter(|p| p.exists()).unwrap_or_else(|| {
+    let local = tools_dir().join(yt_dlp_filename());
+    if local.exists() {
+      local
+    } else {
+      PathBuf::from("yt-dlp")
+    }
+  });
+
+  // 公共参数（音频直取 / 视频回退两种方式共用）
+  let mut common: Vec<String> = vec![
+    "--no-playlist".to_string(),
+    "--no-warnings".to_string(),
+    "--newline".to_string(),
+    "--retries".to_string(),
+    "10".to_string(),
+    "--fragment-retries".to_string(),
+    "10".to_string(),
+    // TikTok 等平台偶发 403 / 连接重置，让 yt-dlp 自身也多重试页面抓取
+    "--extractor-retries".to_string(),
+    "10".to_string(),
+    "--socket-timeout".to_string(),
+    "30".to_string(),
+    "--add-header".to_string(),
+    "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36".to_string(),
+    "--add-header".to_string(),
+    "Accept-Language:zh-CN,zh;q=0.9,en;q=0.8".to_string(),
+  ];
+
+  // ffmpeg（抽取音频 / 合并音视频必需）
+  let ffmpeg_path = tools_dir().join(ffmpeg_filename());
+  if ffmpeg_path.exists() {
+    common.push("--ffmpeg-location".to_string());
+    common.push(ffmpeg_path.to_string_lossy().to_string());
+  }
+
+  // 代理：沿用「视频下载」页的代理设置
+  let proxy = build_proxy_url(&settings.proxy_id);
+  if let Some(ref proxy_url) = proxy {
+    common.push("--proxy".to_string());
+    common.push(proxy_url.clone());
+  }
+  log::info!(
+    "[ai_rewrite] 下载音频 url={} | yt-dlp={} | proxy={} | cookie_from_browser={}",
+    url,
+    yt_dlp.display(),
+    proxy.as_deref().unwrap_or("直连"),
+    settings.cookie_from_browser
+  );
+
+  let lower = url.to_lowercase();
+  let is_youtube = lower.contains("youtube.com") || lower.contains("youtu.be");
+  let is_tiktok = lower.contains("tiktok.com");
+  let is_douyin = lower.contains("douyin.com") || lower.contains("v.douyin.com");
+  if is_youtube {
+    common.push("--add-header".to_string());
+    common.push("Referer:https://www.youtube.com/".to_string());
+    common.push("--add-header".to_string());
+    common.push("Origin:https://www.youtube.com".to_string());
+  }
+  if is_douyin {
+    common.push("--add-header".to_string());
+    common.push("Referer:https://www.douyin.com/".to_string());
+  }
+
+  // Cookie：沿用「视频下载」的浏览器 Cookie 提取逻辑（抖音/YouTube 等需要）
+  if settings.cookie_from_browser && !is_tiktok {
+    match export_vps_cookies_to_file(true, dl, app, Some(url)).await {
+      Ok(cookie_file) => {
+        common.push("--cookies".to_string());
+        common.push(cookie_file.to_string_lossy().to_string());
+      }
+      Err(e) => {
+        log::warn!("[ai_rewrite] 浏览器 Cookie 提取失败，继续尝试下载: {}", e);
+      }
+    }
+  }
+
+  // TikTok 等平台会按 TLS 指纹 + JS 挑战做拦截，单次请求常偶发 403 / 连接重置，
+  // 因此整体重试多次；每次都是「先直取音频，失败再下载视频后本地抽音频」。
+  // 实测单次成功率约 3/5，重试 6 次后失败概率极低。
+  let max_attempts: usize = 6;
+  let mut use_impersonate = true;
+  let mut last_err = String::new();
+
+  for attempt in 1..=max_attempts {
+    if attempt > 1 {
+      on_progress(AudioDlProgress {
+        percent: -1.0,
+        log: format!("第 {} 次尝试失败：{}；3 秒后重试", attempt - 1, last_err),
+        ..Default::default()
+      });
+      tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+
+    // ---- 方式一：直接下载音频（bestaudio + 抽取 mp3） ----
+    let mut audio_args = common.clone();
+    if use_impersonate {
+      push_impersonate(&mut audio_args);
+    }
+    audio_args.extend([
+      "-f".to_string(),
+      "bestaudio/best".to_string(),
+      "-x".to_string(),
+      "--audio-format".to_string(),
+      "mp3".to_string(),
+      "-o".to_string(),
+      workdir.join("audio.%(ext)s").to_string_lossy().to_string(),
+    ]);
+    audio_args.push(url.to_string());
+
+    let audio_err = match run_ytdlp(&yt_dlp, &audio_args, &mut on_progress).await {
+      Ok(()) => match find_output(workdir, "audio.") {
+        Some(found) => return Ok(found),
+        None => "下载完成但未找到音频文件".to_string(),
+      },
+      Err(e) => {
+        if e.to_lowercase().contains("impersonate") {
+          use_impersonate = false;
+        }
+        e
+      }
+    };
+
+    // ---- 方式二（回退）：按「视频下载」方式下载视频，再本地用 ffmpeg 抽音频 ----
+    on_progress(AudioDlProgress {
+      percent: -1.0,
+      log: format!("音频下载失败：{audio_err}；改用视频方式下载后本地抽取音频"),
+      ..Default::default()
+    });
+
+    let mut video_args = common.clone();
+    if use_impersonate {
+      push_impersonate(&mut video_args);
+    }
+    video_args.extend([
+      "-f".to_string(),
+      "bv*+ba/bestvideo+bestaudio/best".to_string(),
+      "--merge-output-format".to_string(),
+      "mp4".to_string(),
+      "-o".to_string(),
+      workdir.join("video.%(ext)s").to_string_lossy().to_string(),
+    ]);
+    video_args.push(url.to_string());
+
+    match run_ytdlp(&yt_dlp, &video_args, &mut on_progress).await {
+      Ok(()) => {
+        if let Some(video) = find_output(workdir, "video.") {
+          on_progress(AudioDlProgress {
+            percent: -1.0,
+            log: "视频已下载，正在用 ffmpeg 抽取音频…".to_string(),
+            ..Default::default()
+          });
+          let audio_out = workdir.join("audio.mp3");
+          extract_audio_with_ffmpeg(&video, &audio_out).await?;
+          let _ = std::fs::remove_file(&video);
+          return Ok(audio_out);
+        }
+        last_err = "视频下载完成但未找到视频文件".to_string();
+      }
+      Err(e) => {
+        if e.to_lowercase().contains("impersonate") {
+          use_impersonate = false;
+        }
+        last_err = format!("视频方式下载也失败：{e}（音频方式失败：{audio_err}）");
+      }
+    }
+  }
+
+  Err(format!("下载失败（已重试 {max_attempts} 次）：{last_err}"))
+}
+
+/// 用 yt-dlp 拉取平台原生字幕（TikTok/YouTube 自带的自动 CC），解析为逐段时间轴
+/// （[{start,end,text}]，单位秒）。拿不到返回空 Vec（调用方回退语音转写），不报错。
+pub async fn fetch_native_subtitles<R: Runtime>(
+  app: &tauri::AppHandle<R>,
+  url: &str,
+  workdir: &std::path::Path,
+) -> Vec<serde_json::Value> {
+  let url = url.trim();
+  if url.is_empty() {
+    return Vec::new();
+  }
+  let _ = std::fs::create_dir_all(workdir);
+  let dl = get_downloader();
+  let (saved_path, settings) = {
+    let inner = dl.inner.lock().await;
+    (inner.yt_dlp_path.clone(), inner.settings.clone())
+  };
+  let yt_dlp = saved_path.filter(|p| p.exists()).unwrap_or_else(|| {
+    let local = tools_dir().join(yt_dlp_filename());
+    if local.exists() {
+      local
+    } else {
+      PathBuf::from("yt-dlp")
+    }
+  });
+
+  let mut args: Vec<String> = vec![
+    "--skip-download".to_string(),
+    "--write-auto-sub".to_string(),
+    "--write-sub".to_string(),
+    "--sub-langs".to_string(),
+    ".*".to_string(),
+    "--sub-format".to_string(),
+    "vtt/srt/best".to_string(),
+    "--no-warnings".to_string(),
+    "--no-playlist".to_string(),
+    "--socket-timeout".to_string(),
+    "20".to_string(),
+    "-o".to_string(),
+    workdir
+      .join("native_subs.%(ext)s")
+      .to_string_lossy()
+      .to_string(),
+  ];
+  if let Some(proxy_url) = build_proxy_url(&settings.proxy_id) {
+    args.push("--proxy".to_string());
+    args.push(proxy_url);
+  }
+  let lower = url.to_lowercase();
+  let is_youtube = lower.contains("youtube.com") || lower.contains("youtu.be");
+  if is_youtube {
+    args.push("--add-header".to_string());
+    args.push("User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36".to_string());
+    args.push("--add-header".to_string());
+    args.push("Referer:https://www.youtube.com/".to_string());
+  }
+  // Cookie：登录墙/年龄限制/会员视频的字幕也需要登录态，与「视频下载」同一套提取逻辑
+  let is_tiktok = lower.contains("tiktok.com");
+  if settings.cookie_from_browser && !is_tiktok {
+    match export_vps_cookies_to_file(true, dl, app, Some(url)).await {
+      Ok(cookie_file) => {
+        args.push("--cookies".to_string());
+        args.push(cookie_file.to_string_lossy().to_string());
+      }
+      Err(e) => log::warn!("[ai_rewrite] 字幕拉取的浏览器 Cookie 提取失败，继续尝试: {e}"),
+    }
+  }
+  args.push(url.to_string());
+
+  let mut noop = |_p: AudioDlProgress| {};
+  if let Err(e) = run_ytdlp(&yt_dlp, &args, &mut noop).await {
+    log::info!("[ai_rewrite] 平台原生字幕拉取失败（回退语音转写）：{e}");
+    return Vec::new();
+  }
+
+  // 解析命中的字幕文件（取最大的一个，通常就是主语言字幕）
+  let mut segs: Vec<serde_json::Value> = Vec::new();
+  let mut candidates: Vec<PathBuf> = std::fs::read_dir(workdir)
+    .map(|entries| {
+      entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+          p.file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.starts_with("native_subs.") && (n.ends_with(".vtt") || n.ends_with(".srt")))
+            .unwrap_or(false)
+        })
+        .collect()
+    })
+    .unwrap_or_default();
+  candidates.sort_by_key(|p| std::cmp::Reverse(std::fs::metadata(p).map(|m| m.len()).unwrap_or(0)));
+  if let Some(first) = candidates.first().cloned() {
+    match std::fs::read_to_string(&first) {
+      Ok(text) => {
+        segs = parse_subtitle_segments(&text);
+        log::info!(
+          "[ai_rewrite] 平台原生字幕命中：{}（{} 段）",
+          first
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("subtitle"),
+          segs.len()
+        );
+      }
+      Err(e) => log::info!("[ai_rewrite] 字幕文件读取失败：{e}"),
+    }
+  }
+  // 清理临时字幕文件
+  for p in candidates {
+    let _ = std::fs::remove_file(p);
+  }
+  segs
+}
+
+/// 解析 VTT/SRT 文本为逐段时间轴（秒）；去掉内嵌标签，合并自动字幕的滚动重复行。
+fn parse_subtitle_segments(text: &str) -> Vec<serde_json::Value> {
+  use serde_json::json;
+  let to_secs = |h: &str, m: &str, s: &str, ms: &str| -> f64 {
+    h.parse::<f64>().unwrap_or(0.0) * 3600.0
+      + m.parse::<f64>().unwrap_or(0.0) * 60.0
+      + s.parse::<f64>().unwrap_or(0.0)
+      + format!("0.{ms}").parse::<f64>().unwrap_or(0.0)
+  };
+  let Ok(re_time) = regex_lite::Regex::new(
+    r"(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})",
+  ) else {
+    return Vec::new();
+  };
+  let Ok(re_tag) = regex_lite::Regex::new(r"<[^>]*>|\{[^}]*\}") else {
+    return Vec::new();
+  };
+
+  let mut segs: Vec<(f64, f64, String)> = Vec::new();
+  let mut lines = text.lines().peekable();
+  while let Some(line) = lines.next() {
+    let Some(caps) = re_time.captures(line) else {
+      continue;
+    };
+    let start = to_secs(&caps[1], &caps[2], &caps[3], &caps[4]);
+    let end = to_secs(&caps[5], &caps[6], &caps[7], &caps[8]);
+    let mut buf = String::new();
+    while let Some(next) = lines.peek() {
+      let n = next.trim();
+      if n.is_empty() || re_time.is_match(n) || n.chars().all(|c| c.is_ascii_digit()) {
+        break;
+      }
+      if !buf.is_empty() {
+        buf.push(' ');
+      }
+      buf.push_str(n);
+      lines.next();
+    }
+    let t = re_tag.replace_all(&buf, "").trim().to_string();
+    if t.is_empty() || end <= start {
+      continue;
+    }
+    if let Some((_, last_end, last_t)) = segs.last_mut() {
+      if *last_t == t {
+        if end > *last_end {
+          *last_end = end;
+        }
+        continue;
+      }
+    }
+    segs.push((start, end, t));
+  }
+  segs
+    .into_iter()
+    .map(|(s, e, t)| json!({ "start": s, "end": e, "text": t }))
+    .collect()
+}
+
+/// 加浏览器指纹模拟参数（TikTok 等按 TLS 指纹拦截，需要伪装成真实浏览器）。
+fn push_impersonate(args: &mut Vec<String>) {
+  args.push("--impersonate".to_string());
+  args.push("chrome".to_string());
+}
+
+/// 运行一次 yt-dlp，实时把输出转成进度回调；失败时返回带 stderr 摘要的错误。
+async fn run_ytdlp(
+  yt_dlp: &std::path::Path,
+  args: &[String],
+  on_progress: &mut (impl FnMut(AudioDlProgress) + Send),
+) -> Result<(), String> {
+  use tokio::io::AsyncBufReadExt;
+
+  let mut cmd = tokio::process::Command::new(yt_dlp);
+  cmd
+    .args(args)
+    .env("PYTHONIOENCODING", "utf-8")
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped())
+    .kill_on_drop(true);
+  #[cfg(target_os = "windows")]
+  {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+  }
+
+  let mut child = cmd.spawn().map_err(|e| format!("启动 yt-dlp 失败：{e}"))?;
+  log::info!(
+    "[ai_rewrite] yt-dlp 启动: url={}",
+    args.last().map(|s| s.as_str()).unwrap_or("")
+  );
+  let stdout = child
+    .stdout
+    .take()
+    .ok_or_else(|| "无法读取 yt-dlp 输出".to_string())?;
+  let stderr = child
+    .stderr
+    .take()
+    .ok_or_else(|| "无法读取 yt-dlp 错误输出".to_string())?;
+
+  // stderr 用独立异步任务排空，避免管道写满阻塞子进程
+  let err_buf = Arc::new(tokio::sync::Mutex::new(String::new()));
+  {
+    let err_buf = err_buf.clone();
+    tokio::spawn(async move {
+      use tokio::io::AsyncBufReadExt;
+      let mut lines = tokio::io::BufReader::new(stderr).lines();
+      while let Ok(Some(line)) = lines.next_line().await {
+        let mut b = err_buf.lock().await;
+        if b.len() < 8000 {
+          b.push_str(&line);
+          b.push('\n');
+        }
+      }
+    });
+  }
+
+  // 实时读取 stdout：进度行解析出速度/百分比，其余行作为日志
+  let run = async move {
+    let mut lines = tokio::io::BufReader::new(stdout).lines();
+    let mut last_log = String::new();
+    while let Ok(Some(line)) = lines.next_line().await {
+      let trimmed = line.trim();
+      if trimmed.is_empty() {
+        continue;
+      }
+      // [download]  23.9% of 81.01MiB at 11.11MiB/s ETA 00:05
+      if trimmed.starts_with("[download]") && trimmed.contains("% of") {
+        if let Some((percent, total, speed)) = parse_download_line(trimmed) {
+          let downloaded = if total > 0 {
+            (total as f64 * percent / 100.0) as u64
+          } else {
+            0
+          };
+          on_progress(AudioDlProgress {
+            percent,
+            speed_text: format_size_per_sec(speed),
+            downloaded,
+            total,
+            log: trimmed.to_string(),
+          });
+          last_log.clear();
+          continue;
+        }
+      }
+      if trimmed != last_log {
+        let brief: String = trimmed.chars().take(300).collect();
+        log::info!("[ai_rewrite][yt-dlp] {brief}");
+        on_progress(AudioDlProgress {
+          percent: -1.0,
+          log: brief,
+          ..Default::default()
+        });
+        last_log = trimmed.to_string();
+      }
+    }
+    child
+      .wait()
+      .await
+      .map_err(|e| format!("等待 yt-dlp 结束失败：{e}"))
+  };
+
+  let status = match tokio::time::timeout(Duration::from_secs(900), run).await {
+    Ok(Ok(s)) => s,
+    Ok(Err(e)) => {
+      log::warn!("[ai_rewrite] yt-dlp 等待失败: {e}");
+      return Err(e);
+    }
+    Err(_) => {
+      log::warn!("[ai_rewrite] yt-dlp 下载超时（900 秒）");
+      return Err("下载超时（900 秒）".to_string());
+    }
+  };
+
+  if !status.success() {
+    let err = err_buf.lock().await.clone();
+    let brief: String = err.trim().chars().take(400).collect();
+    log::warn!(
+      "[ai_rewrite] yt-dlp 退出码={:?} 错误={}",
+      status.code(),
+      brief
+    );
+    return Err(format!("下载失败：{brief}"));
+  }
+  Ok(())
+}
+
+/// 在 workdir 中查找以 `prefix` 开头的产物文件。
+fn find_output(workdir: &std::path::Path, prefix: &str) -> Option<PathBuf> {
+  let rd = std::fs::read_dir(workdir).ok()?;
+  for entry in rd.flatten() {
+    let p = entry.path();
+    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+      if name.starts_with(prefix) {
+        return Some(p);
+      }
+    }
+  }
+  None
+}
+
+/// source_url 是否指向本地已存在的视频/音频文件（洗稿跳过下载与云端查重/补拉）。
+pub fn is_local_video(source_url: &str) -> bool {
+  let p = std::path::Path::new(source_url.trim());
+  if !p.is_file() {
+    return false;
+  }
+  matches!(
+    p.extension()
+      .and_then(|e| e.to_str())
+      .map(|e| e.to_lowercase())
+      .as_deref(),
+    Some(
+      "mp4"
+        | "mkv"
+        | "webm"
+        | "mov"
+        | "avi"
+        | "flv"
+        | "ts"
+        | "m4v"
+        | "wmv"
+        | "3gp"
+        | "mp3"
+        | "m4a"
+        | "wav"
+    )
+  )
+}
+
+/// 列出本地文件夹内全部视频/音频文件（洗稿批量入口，递归一层）。
+pub fn list_local_videos(dir: &str) -> Vec<String> {
+  let mut out: Vec<String> = Vec::new();
+  let Ok(entries) = std::fs::read_dir(dir) else {
+    return out;
+  };
+  for e in entries.flatten() {
+    let p = e.path();
+    if p.is_file() {
+      let name = p.to_string_lossy().to_string();
+      if is_local_video(&name) {
+        out.push(name);
+      }
+    }
+  }
+  out.sort();
+  out
+}
+
+/// 用 ffmpeg 从视频中抽取 mp3 音频（本地兜底，不依赖 yt-dlp 后处理）。
+pub(crate) async fn extract_audio_with_ffmpeg(
+  video: &std::path::Path,
+  out: &std::path::Path,
+) -> Result<(), String> {
+  let bundled = tools_dir().join(ffmpeg_filename());
+  let ffmpeg = if bundled.exists() {
+    bundled
+  } else {
+    PathBuf::from("ffmpeg")
+  };
+
+  let mut cmd = tokio::process::Command::new(&ffmpeg);
+  cmd
+    .arg("-y")
+    .arg("-i")
+    .arg(video)
+    .arg("-vn")
+    .arg("-acodec")
+    .arg("libmp3lame")
+    .arg("-q:a")
+    .arg("4")
+    .arg(out)
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::piped())
+    .kill_on_drop(true);
+  #[cfg(target_os = "windows")]
+  {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+  }
+
+  let output = tokio::time::timeout(Duration::from_secs(600), cmd.output())
+    .await
+    .map_err(|_| "ffmpeg 抽取音频超时（600 秒）".to_string())?
+    .map_err(|e| format!("启动 ffmpeg 失败：{e}"))?;
+
+  if !output.status.success() {
+    let err = String::from_utf8_lossy(&output.stderr);
+    let brief: String = err.trim().chars().take(400).collect();
+    return Err(format!("ffmpeg 抽取音频失败：{brief}"));
+  }
+  if !out.exists() {
+    return Err("ffmpeg 未生成音频文件".to_string());
+  }
+  Ok(())
+}
+
 /// 使用 yt-dlp --cookies-from-browser 从指定 Chrome 用户数据目录提取 Cookie
 /// 这种方式能拿到所有持久化在 SQLite 里的 cookie，比 CDP 更全面
 /// cookie_url 决定 yt-dlp 访问哪个网站提取对应域名的 cookie

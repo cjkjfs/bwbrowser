@@ -2378,13 +2378,21 @@
     "syncArrangeFailed": "動かせたウィンドウはありませんでした。",
     "extensionPathInvalid": "そのパスは使用できません。'..' が含まれています。",
     "loginCredentialsIncomplete": "メールアドレスとパスワードの両方を入力してください。",
-    "remoteManagementNoLanRange": "スキャン対象の LAN サブネットを特定できませんでした。"
+    "remoteManagementNoLanRange": "スキャン対象の LAN サブネットを特定できませんでした。",
+    "aiAgentNotConfigured": "AI アシスタントにモデルエンドポイントが設定されていません。先に AI リライト設定で設定してください。",
+    "aiAgentConfigUnavailable": "AI アシスタントの設定を読み込めませんでした：{{message}}",
+    "aiAgentEmptyConversation": "会話が空です。先に質問を入力してください。",
+    "aiAgentProxyFailed": "AI アシスタントのプロキシ回線が利用できません：{{message}}",
+    "aiAgentLlmFailed": "AI アシスタントのモデルリクエストに失敗しました：{{message}}",
+    "aiAgentProviderUnsupported": "AI アシスタントはこのモデルプロバイダーに対応していません：{{message}}"
   },
   "rail": {
     "cloudAccounts": "クラウドアカウント",
     "userManagement": "ユーザー管理",
     "remoteManagement": "リモート管理",
     "videoDownload": "動画ダウンロード",
+    "aiRewrite": "AIリライト",
+    "aiAssistant": "AI アシスタント",
     "profiles": "プロファイル",
     "extensions": "拡張機能",
     "groups": "グループ",
@@ -2409,7 +2417,8 @@
     "cookieBot": "Cookie Bot",
     "trash": "ゴミ箱",
     "agent": "エージェント",
-    "cloudAccounts": "クラウドアカウント"
+    "cloudAccounts": "クラウドアカウント",
+    "aiRewrite": "AIリライト"
   },
   "encryption": {
     "required": {
@@ -3575,5 +3584,25 @@
     "selectLocalFolder": "先にローカルフォルダを開いてください",
     "uploadSuccess": "{{name}} をアップロードしました",
     "downloadSuccess": "{{name}} をダウンロードしました"
+  },
+  "aiAssistant": {
+    "title": "AI アシスタント",
+    "description": "動画・リライト結果・プロキシ回線を自然な言葉で質問できます",
+    "emptyTitle": "AI アシスタントに話しかける",
+    "emptyBody": "動画の統計・リライト結果・プロキシ回線について質問できます。アシスタントは回答の前にデータを確認します。",
+    "placeholder": "質問を入力 — Enter で送信、Shift+Enter で改行",
+    "send": "送信",
+    "thinking": "考えています…",
+    "clear": "会話を消去",
+    "clearTitle": "この会話を消去しますか？",
+    "clearBody": "ローカルに保存されたすべてのメッセージが削除され、元に戻せません。",
+    "cleared": "会話を消去しました",
+    "pickFolder": "フォルダを選択",
+    "removeFolder": "フォルダを削除",
+    "newSession": "新しいチャット",
+    "deleteSession": "チャットを削除",
+    "deleteSessionTitle": "このチャットを削除しますか？",
+    "deleteSessionBody": "このチャットとローカルに保存されたメッセージは削除され、元に戻せません。",
+    "defaultSessionTitle": "新しいチャット"
   }
 }
