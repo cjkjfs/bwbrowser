@@ -1137,7 +1137,7 @@ pub async fn bwbrowser_open_vps_login(
     options,
   )
   .await
-  .map_err(|e| format!("启动浏览器失败: {}", e))?;
+  .map_err(passthrough_backend_error)?;
 
   log_bwbrowser("open_vps_login", "  ✓ Wayfern 浏览器已启动");
 
@@ -6588,6 +6588,17 @@ fn close_watchers() -> &'static std::sync::Mutex<std::collections::HashSet<i64>>
   CLOSE_WATCHERS.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
 }
 
+/// 后端错误码 JSON（{"code":...}）原样透传，让前端 translateBackendError 翻译；
+/// 普通错误才加「启动浏览器失败」前缀（包了前缀的 JSON 前端解析不了，会显示原文）
+fn passthrough_backend_error(e: String) -> String {
+  let s = e.trim_start();
+  if s.starts_with('{') && s.contains("\"code\"") {
+    e
+  } else {
+    format!("启动浏览器失败: {e}")
+  }
+}
+
 /// 监视账号浏览器进程：退出后向前端发 `account-browser-closed`，用于清除「已启动」状态。
 fn spawn_account_browser_close_watcher(
   app_handle: tauri::AppHandle,
@@ -7443,7 +7454,7 @@ async fn launch_account_impl(
       options,
     )
     .await
-    .map_err(|e| format!("启动浏览器失败: {}", e))?
+    .map_err(passthrough_backend_error)?
   };
 
   // browser_runner 的 save_process_info 会覆盖 proxy_id，
@@ -7618,7 +7629,22 @@ async fn launch_account_impl(
           ),
         );
       }
-      Err(e) => log_bwbrowser_error("launch_account", &format!("  指纹验证失败: {}", e)),
+      Err(e) => {
+        // 浏览器自动化闸门的付费套餐拒绝属预期情况（免费套餐下 CDP evaluate 一律被拒，
+        // 与 cookie_sync 的处理策略一致），打普通日志即可；其余失败才记 ERROR。
+        let msg = e.to_string();
+        if msg.contains("paid") || msg.contains("requires") || msg.contains("-32000") {
+          log_bwbrowser(
+            "launch_account",
+            &format!(
+              "  指纹复核被自动化闸门限制（免费套餐属预期），已跳过: {}",
+              msg
+            ),
+          );
+        } else {
+          log_bwbrowser_error("launch_account", &format!("  指纹验证失败: {}", msg));
+        }
+      }
     }
   }
 

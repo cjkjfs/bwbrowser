@@ -2,7 +2,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { confirm, save } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { confirm, open, save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -29,9 +30,12 @@ import {
   LuExternalLink,
   LuFileDown,
   LuFileText,
+  LuFolderOpen,
   LuHistory,
   LuLoader,
+  LuPaperclip,
   LuRefreshCw,
+  LuRotateCcw,
   LuSettings2,
   LuSparkles,
   LuTrash2,
@@ -223,6 +227,9 @@ function stageOrder(stage: TaskStage): number {
   const i = PIPELINE_STAGES.findIndex((s) => s.key === stage);
   return i < 0 ? 0 : i;
 }
+
+/** 本地视频扩展名（拖入/选择时过滤；无扩展名的路径视为文件夹放行） */
+const VIDEO_EXT = /\.(mp4|mkv|mov|avi|webm|flv|ts|m4v|wmv|mpg|mpeg|3gp)$/i;
 
 const PLATFORM_LABEL: Record<string, string> = {
   tiktok: "TikTok",
@@ -687,6 +694,151 @@ export function AiRewritePage({
     [tasks],
   );
 
+  /** 往粘贴框追加本地路径（去重、换行拼接） */
+  const appendLocalPaths = useCallback((paths: string[]) => {
+    const list = paths.filter(Boolean);
+    if (list.length === 0) return;
+    setCustomLinks((prev) => {
+      const have = new Set(
+        prev
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean),
+      );
+      const add = list.filter((p) => !have.has(p));
+      if (add.length === 0) return prev;
+      const base = prev.trimEnd();
+      return base ? `${base}\n${add.join("\n")}` : add.join("\n");
+    });
+  }, []);
+
+  const pickVideoFiles = useCallback(async () => {
+    try {
+      const res = await open({
+        multiple: true,
+        filters: [
+          {
+            name: "视频文件",
+            extensions: [
+              "mp4",
+              "mkv",
+              "mov",
+              "avi",
+              "webm",
+              "flv",
+              "ts",
+              "m4v",
+              "wmv",
+              "mpg",
+              "mpeg",
+              "3gp",
+            ],
+          },
+        ],
+      });
+      appendLocalPaths(Array.isArray(res) ? res : res ? [res] : []);
+    } catch {
+      // 用户取消
+    }
+  }, [appendLocalPaths]);
+
+  const pickVideoDir = useCallback(async () => {
+    try {
+      const res = await open({ directory: true });
+      if (res) appendLocalPaths([res]);
+    } catch {
+      // 用户取消
+    }
+  }, [appendLocalPaths]);
+
+  /** 把视频/文件夹直接拖进粘贴框（Tauri 原生拖放，落点限定在粘贴卡内） */
+  const dropZoneRef = useRef<HTMLDivElement | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    getCurrentWebview()
+      .onDragDropEvent((event) => {
+        const p = event.payload;
+        if (p.type === "leave") {
+          setDragOver(false);
+          return;
+        }
+        // Tauri 给物理像素坐标，DOM getBoundingClientRect 是逻辑像素
+        const rect = dropZoneRef.current?.getBoundingClientRect();
+        const scale = window.devicePixelRatio || 1;
+        const inside =
+          !!rect &&
+          p.position.x / scale >= rect.left &&
+          p.position.x / scale <= rect.right &&
+          p.position.y / scale >= rect.top &&
+          p.position.y / scale <= rect.bottom;
+        if (p.type === "enter" || p.type === "over") {
+          setDragOver(inside);
+          return;
+        }
+        // drop：只收视频文件和文件夹
+        setDragOver(false);
+        if (!inside) return;
+        const paths = p.paths.filter(
+          (f) => !/\.[^./\\]+$/.test(f) || VIDEO_EXT.test(f),
+        );
+        if (paths.length === 0) return;
+        appendLocalPaths(paths);
+        toast.info(`已添加 ${paths.length} 个本地视频/文件夹`);
+      })
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(() => {});
+    return () => unlisten?.();
+  }, [appendLocalPaths]);
+
+  /** 合并后端运行结果到任务列表（批量跑与单任务重试共用）；失败时保留已到达的阶段，便于看到卡在哪一步。
+   *  overwrite=true（重新洗稿）：成功的新结果覆盖旧的 分析/洗稿/打分，不再保留旧值 */
+  const applyRunResults = useCallback(
+    (results: RunResult[], overwrite?: boolean) => {
+      setTasks((prev) => {
+        const merged = prev.map((t) => ({ ...t }));
+        for (const r of results || []) {
+          let at = -1;
+          if (r.source_url)
+            at = merged.findIndex((t) => t.url === r.source_url);
+          if (at < 0 && r.video_id)
+            at = merged.findIndex((t) => t.key === r.video_id);
+          if (at < 0) continue;
+          const cur = merged[at];
+          const ow = overwrite && r.success;
+          merged[at] = {
+            ...cur,
+            stage: r.success ? "done" : cur.stage,
+            status: r.success ? "done" : "error",
+            percent: 100,
+            speedText: "",
+            message: r.success
+              ? r.reused
+                ? "复用历史结果"
+                : "完成"
+              : r.error || "失败",
+            error: r.success ? undefined : r.error,
+            result: r.success ? r : undefined,
+            transcript:
+              (ow ? r.transcript : cur.transcript) ??
+              (r.transcript as string | undefined),
+            transcriptSegments:
+              (ow ? r.transcript_segments : cur.transcriptSegments) ??
+              r.transcript_segments,
+            analyze: (ow ? r.analyze : cur.analyze) ?? r.analyze,
+            rewrite: (ow ? r.rewrite : cur.rewrite) ?? r.rewrite,
+            scoreJson: (ow ? r.score_json : cur.scoreJson) ?? r.score_json,
+          };
+        }
+        void persistTasks(merged);
+        return merged;
+      });
+    },
+    [persistTasks],
+  );
+
   const startRun = useCallback(
     async (mode?: "transcript") => {
       const items: Record<string, unknown>[] = [];
@@ -751,42 +903,7 @@ export function AiRewritePage({
           results: RunResult[];
         }>("ai_rewrite_run_links", { items, concurrency: 3 });
         setSummary({ total: res.total, done: res.done, failed: res.failed });
-        // 在 setTasks 函数式更新里合并结果，避免闭包陈旧 state bug
-        setTasks((prev) => {
-          const merged = prev.map((t) => ({ ...t }));
-          for (const r of res.results || []) {
-            let at = -1;
-            if (r.source_url)
-              at = merged.findIndex((t) => t.url === r.source_url);
-            if (at < 0 && r.video_id)
-              at = merged.findIndex((t) => t.key === r.video_id);
-            if (at < 0) continue;
-            const cur = merged[at];
-            merged[at] = {
-              ...cur,
-              stage: r.success ? "done" : "error",
-              status: r.success ? "done" : "error",
-              percent: 100,
-              speedText: "",
-              message: r.success
-                ? r.reused
-                  ? "复用历史结果"
-                  : "完成"
-                : r.error || "失败",
-              error: r.success ? undefined : r.error,
-              result: r.success ? r : undefined,
-              transcript:
-                cur.transcript ?? (r.transcript as string | undefined),
-              transcriptSegments:
-                cur.transcriptSegments ?? r.transcript_segments,
-              analyze: cur.analyze ?? r.analyze,
-              rewrite: cur.rewrite ?? r.rewrite,
-              scoreJson: cur.scoreJson ?? r.score_json,
-            };
-          }
-          void persistTasks(merged);
-          return merged;
-        });
+        applyRunResults(res.results);
         toast.success(`分析完成：成功 ${res.done}，失败 ${res.failed}`);
         void refreshStatus();
       } catch (e) {
@@ -796,11 +913,142 @@ export function AiRewritePage({
     [
       customLinks,
       refreshStatus,
-      persistTasks,
+      applyRunResults,
       runKick,
       throwRunner,
       reduceMotion,
     ],
+  );
+
+  /** 单任务重试：从失败处继续（云端会复用已完成的转写/分析/洗稿，不重复计费） */
+  const retryTask = useCallback(
+    async (task: TaskItem) => {
+      const cur = tasksRef.current.find((t) => t.key === task.key);
+      if (!cur || (cur.status !== "error" && cur.status !== "interrupted"))
+        return;
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.key === task.key
+            ? {
+                ...t,
+                stage: "pending",
+                status: "pending",
+                percent: 0,
+                message: "重试中",
+                speedText: "",
+                logs: [],
+                error: undefined,
+                result: undefined,
+              }
+            : t,
+        ),
+      );
+      try {
+        const res = await invoke<{
+          total: number;
+          done: number;
+          failed: number;
+          results: RunResult[];
+        }>("ai_rewrite_run_links", {
+          items: [{ source_url: task.url }],
+          concurrency: 1,
+        });
+        applyRunResults(res.results);
+        const r = res.results?.[0];
+        if (r?.success) {
+          setSummary((s) =>
+            s
+              ? { ...s, done: s.done + 1, failed: Math.max(0, s.failed - 1) }
+              : s,
+          );
+          toast.success("重试成功");
+        } else {
+          toast.error(`重试失败：${r?.error || "未知错误"}`);
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.key === task.key
+              ? {
+                  ...t,
+                  stage: "error",
+                  status: "error",
+                  message: msg,
+                  error: msg,
+                }
+              : t,
+          ),
+        );
+        toast.error(`重试失败：${msg}`);
+      }
+    },
+    [applyRunResults],
+  );
+
+  /** 重新洗稿：跳过云端「已完成」整体复用，重跑爆点分析/洗稿/打分（转写复用），最终结果覆盖旧结果 */
+  const rerunRewrite = useCallback(
+    async (task: TaskItem) => {
+      const cur = tasksRef.current.find((t) => t.key === task.key);
+      if (!cur || cur.status === "pending" || cur.status === "running") return;
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.key === task.key
+            ? {
+                ...t,
+                stage: "analyze",
+                status: "running",
+                percent: 45,
+                message: "重新洗稿中",
+                speedText: "",
+                logs: [],
+                error: undefined,
+                // 转写与其译文不会变，保留；分析及之后的结果清除，等重跑结果覆盖
+                analyze: undefined,
+                rewrite: undefined,
+                scoreJson: undefined,
+                rewriteRef: undefined,
+                result: undefined,
+              }
+            : t,
+        ),
+      );
+      try {
+        const res = await invoke<{
+          total: number;
+          done: number;
+          failed: number;
+          results: RunResult[];
+        }>("ai_rewrite_run_links", {
+          items: [{ source_url: task.url, force_rerun: true }],
+          concurrency: 1,
+        });
+        applyRunResults(res.results, true);
+        const r = res.results?.[0];
+        if (r?.success) {
+          toast.success("已重新洗稿，最终结果已覆盖");
+        } else {
+          toast.error(`重新洗稿失败：${r?.error || "未知错误"}`);
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.key === task.key
+              ? {
+                  ...t,
+                  stage: "error",
+                  status: "error",
+                  message: msg,
+                  error: msg,
+                }
+              : t,
+          ),
+        );
+        toast.error(`重新洗稿失败：${msg}`);
+      }
+    },
+    [applyRunResults],
   );
 
   const configReady = status?.config_ready === true;
@@ -953,22 +1201,48 @@ export function AiRewritePage({
             <ScrollArea className="min-h-0 flex-1">
               <div className="space-y-3 pr-2">
                 {/* 粘贴链接 / 本地视频 */}
-                <div className="rounded-lg border bg-card p-4">
+                <div
+                  ref={dropZoneRef}
+                  className={cn(
+                    "rounded-lg border bg-card p-4 transition-colors",
+                    dragOver &&
+                      "border-primary bg-primary/5 ring-1 ring-primary/40",
+                  )}
+                >
                   <div className="mb-3 flex items-center gap-2 text-sm font-medium">
                     <StepNo n={1} />
                     粘贴链接 / 本地视频
+                    <span className="flex-1" />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1 text-xs"
+                      onClick={() => void pickVideoFiles()}
+                    >
+                      <LuPaperclip className="size-3.5" />
+                      选择视频
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1 text-xs"
+                      onClick={() => void pickVideoDir()}
+                    >
+                      <LuFolderOpen className="size-3.5" />
+                      选择文件夹
+                    </Button>
                   </div>
                   <Textarea
                     value={customLinks}
                     onChange={(e) => setCustomLinks(e.target.value)}
                     placeholder={
-                      "每行一个：视频链接、本地视频文件路径或文件夹，例如：\nhttps://www.tiktok.com/@xxx/video/123\nD:\\videos\\movie.mp4\nD:\\videos  （文件夹自动展开其中全部视频）"
+                      "每行一个：视频链接、本地视频文件路径或文件夹，例如：\nhttps://www.tiktok.com/@xxx/video/123\nD:\\videos\\movie.mp4\nD:\\videos  （文件夹自动展开其中全部视频）\n也可直接把视频文件拖进这个输入框"
                     }
                     className="min-h-[440px] resize-y text-sm"
                   />
                   <div className="mt-1.5 text-xs text-muted-foreground">
                     已粘贴 {customCount} 条；本地文件不调下载与数据接口，仅转写
-                    + 洗稿
+                    + 洗稿；支持把视频拖进上方输入框
                   </div>
                 </div>
               </div>
@@ -1042,6 +1316,8 @@ export function AiRewritePage({
                         key={t.key}
                         task={t}
                         onDelete={() => deleteTask(t.key || t.url)}
+                        onRetry={() => void retryTask(t)}
+                        onRerun={() => void rerunRewrite(t)}
                       />
                     ))}
                   </div>
@@ -1122,9 +1398,13 @@ export function AiRewritePage({
 function TaskCard({
   task,
   onDelete,
+  onRetry,
+  onRerun,
 }: {
   task: TaskItem;
   onDelete?: () => void;
+  onRetry?: () => void;
+  onRerun?: () => void;
 }) {
   const [showLogs, setShowLogs] = useState(false);
   const order = stageOrder(task.stage);
@@ -1222,6 +1502,26 @@ function TaskCard({
         >
           {badge.text}
         </span>
+        {(isDone || isInterrupted || isError) && onRerun && (
+          <button
+            type="button"
+            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+            title="重新洗稿：重跑爆点分析 / 洗稿 / 打分（转写复用，最终结果覆盖旧结果）"
+            onClick={() => void onRerun()}
+          >
+            <LuRefreshCw className="size-3.5" />
+          </button>
+        )}
+        {(isError || isInterrupted) && onRetry && (
+          <button
+            type="button"
+            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+            title={`从失败处重试（已完成步骤自动复用，不重复计费）`}
+            onClick={() => void onRetry()}
+          >
+            <LuRotateCcw className="size-3.5" />
+          </button>
+        )}
         {onDelete && (
           <button
             type="button"
@@ -1239,28 +1539,42 @@ function TaskCard({
         {PIPELINE_STAGES.map((s, i) => {
           const stepDone = order > i;
           const active = order === i && !isDone && !isError;
+          const failedHere = isError && task.stage === s.key;
           return (
             <div
               key={s.key}
               className="flex flex-1 items-center last:flex-none"
             >
-              <div
-                className={cn(
-                  "flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px]",
-                  stepDone
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : active
-                      ? "bg-primary/10 font-medium text-primary"
-                      : "text-muted-foreground",
-                )}
-              >
-                {stepDone ? (
-                  <LuCircleCheck className="size-3" />
-                ) : (
-                  <span className="size-1.5 rounded-full bg-current" />
-                )}
-                {s.label}
-              </div>
+              {failedHere && onRetry ? (
+                <button
+                  type="button"
+                  onClick={() => void onRetry()}
+                  title="点击重试这一步（已完成步骤自动复用，不重复计费）"
+                  className="flex shrink-0 cursor-pointer items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive transition-colors hover:bg-destructive/20"
+                >
+                  <LuCircleX className="size-3" />
+                  {s.label}
+                  <LuRotateCcw className="size-3" />
+                </button>
+              ) : (
+                <div
+                  className={cn(
+                    "flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px]",
+                    stepDone
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : active
+                        ? "bg-primary/10 font-medium text-primary"
+                        : "text-muted-foreground",
+                  )}
+                >
+                  {stepDone ? (
+                    <LuCircleCheck className="size-3" />
+                  ) : (
+                    <span className="size-1.5 rounded-full bg-current" />
+                  )}
+                  {s.label}
+                </div>
+              )}
               {i < PIPELINE_STAGES.length - 1 && (
                 <div
                   className={cn(

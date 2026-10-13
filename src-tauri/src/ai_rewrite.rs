@@ -1411,6 +1411,11 @@ async fn process_video(
   }
   // transcript 模式：只提取文案（下载 + 转写），不做补拉/分析/洗稿/评分
   let transcript_only = video.get("mode").and_then(|v| v.as_str()) == Some("transcript");
+  // 重新洗稿：跳过「已完成」整体复用，强制重跑分析/洗稿/打分（转写仍复用），最终结果覆盖旧记录
+  let force_rerun = video
+    .get("force_rerun")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false);
   // 本地视频文件：不经下载，ffmpeg 直接抽音轨；跳过云端查重与播放量补拉
   let is_local = crate::video_downloader::is_local_video(&source_url);
   if transcript_only {
@@ -1455,7 +1460,8 @@ async fn process_video(
   }
 
   // 1.5) 命中「已完成」任务 → 直接复用全部结果，跳过下载与所有 API 调用
-  if done_task_id > 0 {
+  //      force_rerun（重新洗稿）时跳过整体复用：转写沿用查重复用值，重跑分析/洗稿/打分并覆盖
+  if done_task_id > 0 && !force_rerun {
     match AI_REWRITE.fetch_result(done_task_id).await {
       Ok(det) => {
         emit("done", 100, "复用历史结果", "");
@@ -1492,6 +1498,16 @@ async fn process_video(
       }
       Err(e) => log("warn", &format!("读取历史成果失败，改为重新处理：{e}")),
     }
+  }
+  if force_rerun {
+    log(
+      "info",
+      if done_task_id > 0 {
+        "重新洗稿模式：复用转写，重跑爆点分析 / 洗稿 / 打分（结果覆盖旧记录）"
+      } else {
+        "重新洗稿模式：重跑爆点分析 / 洗稿 / 打分"
+      },
+    );
   }
 
   // 1.8) 播放量缺失时实时补拉（按次计费的 fetch_video_data）：拉到的播放量 /
@@ -2543,7 +2559,7 @@ async fn translate_text(
   Ok(out.trim().to_string())
 }
 
-/// 从洗稿 JSON 中收集字幕条目（hook + body + cta）。
+/// 从洗稿 JSON 中收集字幕条目（hook + body + cta），逐句一条。
 fn cues_from_rewrite(rewrite: &Value) -> Vec<String> {
   let mut text = String::new();
   if let Some(hook) = rewrite.get("hook").and_then(|v| v.as_str()) {
@@ -2568,7 +2584,33 @@ fn cues_from_rewrite(rewrite: &Value) -> Vec<String> {
   if let Some(cta) = rewrite.get("cta").and_then(|v| v.as_str()) {
     text.push_str(cta);
   }
-  split_into_cues(&text)
+  split_cues_per_sentence(&text)
+}
+
+/// 把文案逐句切成字幕条目（洗稿导出用）：每句一条，不看行长。
+/// 英文句末标点须后跟空白或行尾才切（避免 3.5、U.S. 被误切）；中文句末标点直接切。
+fn split_cues_per_sentence(text: &str) -> Vec<String> {
+  let chars: Vec<char> = text.chars().collect();
+  let mut out: Vec<String> = Vec::new();
+  let mut cur = String::new();
+  for (i, &ch) in chars.iter().enumerate() {
+    cur.push(ch);
+    let is_end = matches!(ch, '。' | '！' | '？' | '；')
+      || (matches!(ch, '.' | '!' | '?' | ';')
+        && (i + 1 == chars.len() || chars[i + 1].is_whitespace()));
+    if is_end {
+      let t = cur.trim();
+      if !t.is_empty() {
+        out.push(t.to_string());
+      }
+      cur.clear();
+    }
+  }
+  let t = cur.trim();
+  if !t.is_empty() {
+    out.push(t.to_string());
+  }
+  out
 }
 
 /// 始终生成两份独立 SRT（原文 + 中文译文），剪映可直接分别导入。
@@ -2806,6 +2848,19 @@ pub async fn ai_rewrite_save_api_config(config: AiApiConfig) -> Result<Value, St
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn per_sentence_cues() {
+    let cues = split_cues_per_sentence(
+      "He painted it. No hesitation!\nWhat happened next? He sold 3.5 copies anyway",
+    );
+    assert_eq!(cues.len(), 4);
+    assert_eq!(cues[0], "He painted it.");
+    assert_eq!(cues[2], "What happened next?");
+    assert_eq!(cues[3], "He sold 3.5 copies anyway");
+    let zh = split_cues_per_sentence("你敢信吗？全校最凶的霸王，突然一见钟情！");
+    assert_eq!(zh.len(), 2);
+  }
 
   #[test]
   fn extract_plain_object() {

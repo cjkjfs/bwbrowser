@@ -111,6 +111,53 @@ const BROWSER_TYPES = [
   { value: "firefox", label: "Firefox" },
 ];
 
+/** 指纹操作系统选项；auto = 跟随启动电脑的真实系统（推荐） */
+const OS_OPTIONS = [
+  { value: "auto", label: "跟随本机（推荐）" },
+  { value: "windows", label: "Windows" },
+  { value: "macos", label: "macOS" },
+  { value: "linux", label: "Linux" },
+];
+
+/** 读取环境当前声称的操作系统（fingerprint_config 可能是对象或 JSON 字符串） */
+function storedOs(fc: unknown): string {
+  let v: unknown = fc;
+  if (typeof v === "string") {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      return "auto";
+    }
+  }
+  const os = (v as Record<string, unknown> | null)?.os;
+  return typeof os === "string" && os ? os : "auto";
+}
+
+/**
+ * 生成新的 fingerprint_config：设置所选系统并清空旧指纹/身份。
+ * 旧指纹与身份按旧系统生成，跨系统必须重置，下次启动按新系统重新生成，
+ * 否则浏览器拒绝「跨系统指纹」（免费套餐）。
+ */
+function buildFingerprintConfig(fc: unknown, nextOs: string): string {
+  let obj: Record<string, unknown> = {};
+  if (fc != null) {
+    let v: unknown = fc;
+    if (typeof v === "string") {
+      try {
+        v = JSON.parse(v);
+      } catch {
+        v = {};
+      }
+    }
+    if (v && typeof v === "object") obj = { ...(v as Record<string, unknown>) };
+  }
+  if (nextOs === "auto") delete obj.os;
+  else obj.os = nextOs;
+  delete obj.fingerprint;
+  delete obj.identity_id;
+  return JSON.stringify(obj);
+}
+
 const PAGE_SIZE = 26;
 
 // ============================================================
@@ -156,6 +203,7 @@ export function EnvFormDialog({
   const [description, setDescription] = useState("");
   const [remark, setRemark] = useState("");
   const [status, setStatus] = useState("ready");
+  const [osChoice, setOsChoice] = useState("auto");
 
   useEffect(() => {
     if (!isOpen) return;
@@ -165,12 +213,14 @@ export function EnvFormDialog({
       setDescription(editingEnv.description || "");
       setRemark(editingEnv.remark || "");
       setStatus(editingEnv.status);
+      setOsChoice(storedOs(editingEnv.fingerprint_config));
     } else {
       setName("");
       setBrowserType("chromium");
       setDescription("");
       setRemark("");
       setStatus("ready");
+      setOsChoice("auto");
     }
   }, [editingEnv, isOpen]);
 
@@ -184,10 +234,15 @@ export function EnvFormDialog({
       if (editingEnv) {
         const uuid = extractBwbrowserEnvUuid(editingEnv.id);
         if (!uuid) throw new Error("无效的环境 ID");
+        const stored = storedOs(editingEnv.fingerprint_config);
         await updateEnv(uuid, {
           name: name.trim(),
           description: description.trim() || undefined,
           browser_type: browserType,
+          fingerprint_config:
+            osChoice !== stored
+              ? buildFingerprintConfig(editingEnv.fingerprint_config, osChoice)
+              : undefined,
           remark: remark.trim() || undefined,
           status,
         });
@@ -197,6 +252,10 @@ export function EnvFormDialog({
           name: name.trim(),
           description: description.trim() || undefined,
           browser_type: browserType,
+          fingerprint_config:
+            osChoice !== "auto"
+              ? buildFingerprintConfig(null, osChoice)
+              : undefined,
           remark: remark.trim() || undefined,
           status,
         });
@@ -243,6 +302,24 @@ export function EnvFormDialog({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="env-os">操作系统（指纹）</Label>
+              <Select value={osChoice} onValueChange={setOsChoice}>
+                <SelectTrigger id="env-os">
+                  <SelectValue placeholder="选择操作系统" />
+                </SelectTrigger>
+                <SelectContent>
+                  {OS_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                切换系统会重置指纹，下次启动按新系统重新生成；与启动电脑的系统不一致时会被拒绝启动。
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="env-status">状态</Label>

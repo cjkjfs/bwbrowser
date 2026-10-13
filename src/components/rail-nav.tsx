@@ -419,6 +419,13 @@ export function RailNav({
     isLoading: vpsCloudProxiesLoading,
     refresh: refreshVpsCloudProxies,
   } = useBwbrowserProxies();
+  // 应用版本号（侧边栏底部显示 v2.4.8 之类）
+  const [appVersion, setAppVersion] = useState("");
+  useEffect(() => {
+    invoke<{ app_version: string }>("get_system_info")
+      .then((info) => setAppVersion(info.app_version))
+      .catch(() => {});
+  }, []);
   const [vpsProxyDialogOpen, setVpsProxyDialogOpen] = useState(false);
   const [vpsContextMenuOpen, setVpsContextMenuOpen] = useState(false);
   const [vpsContextMenuPos, setVpsContextMenuPos] = useState({ x: 0, y: 0 });
@@ -825,6 +832,14 @@ export function RailNav({
                 {currentPage === "settings" && <ActiveIndicator />}
                 <GoGear className="size-4 shrink-0" />
                 <span className="truncate text-sm font-medium">系统设置</span>
+                {appVersion && (
+                  <span
+                    className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground/70"
+                    title={`BW Browser v${appVersion}`}
+                  >
+                    v{appVersion}
+                  </span>
+                )}
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">{t("rail.settings")}</TooltipContent>
