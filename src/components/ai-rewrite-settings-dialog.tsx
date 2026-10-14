@@ -98,7 +98,14 @@ const PROVIDERS = [
   { value: "gemini", label: "Google Gemini" },
 ];
 
-const ENDPOINTS: { key: EndpointKey; title: string; hint: string }[] = [
+const ENDPOINTS: {
+  key: EndpointKey;
+  title: string;
+  hint: string;
+  modelPh?: string;
+  baseUrlPh?: string;
+  proxyLockedText?: string;
+}[] = [
   {
     key: "llm",
     title: "文案模型（洗稿 / 爆点分析 / 打分）",
@@ -197,6 +204,9 @@ interface EndpointSectionProps {
   proxies: CloudProxyLite[];
   savedProxy: AiProxyFields;
   proxyLocked?: boolean;
+  modelPh?: string;
+  baseUrlPh?: string;
+  proxyLockedText?: string;
   onEndpointChange: (ep: AiEndpointFields) => void;
   onOpenPicker: () => void;
 }
@@ -209,6 +219,9 @@ function EndpointSection({
   proxies,
   savedProxy,
   proxyLocked,
+  modelPh,
+  baseUrlPh,
+  proxyLockedText,
   onEndpointChange,
   onOpenPicker,
 }: EndpointSectionProps) {
@@ -248,7 +261,7 @@ function EndpointSection({
             className="h-8 text-xs"
             value={ep.model}
             onChange={(e) => patch({ model: e.target.value })}
-            placeholder="例：claude-sonnet-4-5"
+            placeholder={modelPh ?? "例：claude-sonnet-4-5"}
           />
         </div>
         <div className="col-span-2 space-y-1">
@@ -257,7 +270,7 @@ function EndpointSection({
             className="h-8 text-xs"
             value={ep.base_url}
             onChange={(e) => patch({ base_url: e.target.value })}
-            placeholder="例：https://api.anthropic.com"
+            placeholder={baseUrlPh ?? "例：https://api.anthropic.com"}
           />
           <p className="text-[11px] leading-4 text-muted-foreground">
             ChatGPT 官方：填 https://api.openai.com/v1；中转
@@ -278,7 +291,7 @@ function EndpointSection({
           <Label className="text-xs text-muted-foreground">代理线路</Label>
           {proxyLocked ? (
             <div className="flex h-8 items-center rounded-md border bg-muted/40 px-2 text-xs text-muted-foreground">
-              跟随语音识别（ASR）的代理线路
+              {proxyLockedText ?? "跟随语音识别（ASR）的代理线路"}
             </div>
           ) : (
             <button
@@ -715,7 +728,11 @@ export function AiRewriteSettingsDialog({
     setSaving(true);
     try {
       await invoke("ai_rewrite_save_api_config", {
-        config: { asr: cfg.asr, llm: cfg.llm, translate: cfg.translate },
+        config: {
+          asr: cfg.asr,
+          llm: cfg.llm,
+          translate: cfg.translate,
+        },
       });
       toast.success("已保存，云端后台与本程序同步更新");
       onOpenChange(false);
@@ -778,6 +795,9 @@ export function AiRewriteSettingsDialog({
                     proxies={proxies}
                     savedProxy={savedProxies[item.key]}
                     proxyLocked={item.key === "translate"}
+                    modelPh={item.modelPh}
+                    baseUrlPh={item.baseUrlPh}
+                    proxyLockedText={item.proxyLockedText}
                     onEndpointChange={(ep) => setEndpoint(item.key, ep)}
                     onOpenPicker={() => setPickerFor(item.key)}
                   />

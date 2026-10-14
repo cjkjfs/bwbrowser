@@ -277,11 +277,25 @@ export function RemoteManagementPage() {
         lanPort: m.port,
       }));
 
-    return [...cloudRows, ...lanRows].sort((a, b) => {
+    const merged = [...cloudRows, ...lanRows].sort((a, b) => {
       if (a.lanReachable !== b.lanReachable) return a.lanReachable ? -1 : 1;
       if (a.online !== b.online) return a.online ? -1 : 1;
       return 0;
     });
+
+    // 同一账号在多台电脑登录会产生多行：组内只要有在线的，
+    // 就用在线行替换掉离线行（全离线的组原样保留，避免账号直接消失）。
+    const onlineByAccount = new Map<string, boolean>();
+    for (const r of merged) {
+      if (!r.account) continue;
+      onlineByAccount.set(
+        r.account,
+        (onlineByAccount.get(r.account) ?? false) || r.online,
+      );
+    }
+    return merged.filter(
+      (r) => !r.account || r.online || !onlineByAccount.get(r.account),
+    );
   }, [machines, lanMachines]);
 
   // 连接：局域网发现的机器直接开被控端内置 viewer；云端机器交给后端解析
@@ -482,9 +496,16 @@ export function RemoteManagementPage() {
                   <TableCell className="font-medium">
                     <div>{row.hostname || "—"}</div>
                     {row.account && (
-                      <div className="text-xs font-normal text-muted-foreground">
+                      <button
+                        type="button"
+                        className="flex items-center gap-1 text-xs font-normal text-muted-foreground cursor-pointer hover:text-foreground hover:underline disabled:cursor-default disabled:hover:no-underline disabled:hover:text-muted-foreground"
+                        title={t("remoteManagement.viewOnly")}
+                        disabled={!row.online || connectingKey !== null}
+                        onClick={() => void handleConnect(row, "view")}
+                      >
+                        <LuEye className="w-3 h-3" />
                         {row.account}
-                      </div>
+                      </button>
                     )}
                     {row.note && (
                       <div className="text-xs font-normal text-muted-foreground">

@@ -1684,6 +1684,8 @@ function DetailView({
   const structure = asArray(analyze.structure) as Record<string, unknown>[];
   const points = toList(analyze.points);
   const keywords = toList(analyze.keywords);
+  const authorship = analyze.authorship as Record<string, unknown> | undefined;
+  const authorshipReasons = asArray(authorship?.reasons);
   const body = bodyParas(rewrite.body);
   const tags = toList(rewrite.tags);
   const kept = toList(rewrite.kept_points);
@@ -1799,6 +1801,38 @@ function DetailView({
             <KV k="主导情绪" v={analyze.emotion} />
             <KV k="可复用套路" v={analyze.reusable} />
             <KV k="一句话总结" v={analyze.summary} />
+            {typeof authorship?.verdict === "string" && (
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">
+                    原稿来源倾向（仅供参考）：
+                  </span>
+                  <span
+                    className={cn(
+                      "font-medium",
+                      authorship.verdict === "ai"
+                        ? "text-warning"
+                        : authorship.verdict === "human"
+                          ? "text-success"
+                          : "text-muted-foreground",
+                    )}
+                  >
+                    {authorship.verdict === "ai"
+                      ? "AI 痕迹偏重"
+                      : authorship.verdict === "human"
+                        ? "人工痕迹偏重"
+                        : "无法判断"}
+                  </span>
+                </div>
+                {authorshipReasons.length > 0 && (
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                    {authorshipReasons.map((r, i) => (
+                      <li key={i}>{String(r)}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             {keywords.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-muted-foreground">关键词：</span>

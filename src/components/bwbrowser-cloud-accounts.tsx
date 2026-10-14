@@ -15,6 +15,8 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { FiCheck, FiX } from "react-icons/fi";
 import {
+  LuArrowDown,
+  LuArrowUp,
   LuCheck,
   LuChevronDown,
   LuChevronLeft,
@@ -518,6 +520,8 @@ export function BwbrowserCloudAccountsDialog({
     platformFilter,
     ownerFilter,
     keyword,
+    serverSort,
+    setServerSort,
     isManager,
     isSuperAdmin,
     canViewPassword,
@@ -2074,6 +2078,49 @@ export function BwbrowserCloudAccountsDialog({
         size: 70,
       },
       {
+        accessorFn: (row) => row.followers ?? 0,
+        id: "followers",
+        enableSorting: false,
+        header: () => {
+          const active = serverSort?.by === "followers" ? serverSort : null;
+          return (
+            <button
+              type="button"
+              className="flex items-center gap-1 text-xs font-medium"
+              title="全量数据排序（服务端）"
+              onClick={() => {
+                const next =
+                  active && active.order === "desc"
+                    ? { by: "followers", order: "asc" as const }
+                    : { by: "followers", order: "desc" as const };
+                setServerSort(next);
+              }}
+            >
+              粉丝量
+              {active ? (
+                active.order === "desc" ? (
+                  <LuArrowDown className="h-3 w-3" />
+                ) : (
+                  <LuArrowUp className="h-3 w-3" />
+                )
+              ) : (
+                <LuChevronsUpDown className="h-3 w-3 opacity-50" />
+              )}
+            </button>
+          );
+        },
+        cell: ({ row }) => {
+          const followers = row.original.followers ?? 0;
+          return (
+            <div className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
+              <LuUsers className="h-3 w-3 shrink-0" />
+              {followers.toLocaleString()}
+            </div>
+          );
+        },
+        size: 80,
+      },
+      {
         accessorKey: "account_name",
         header: ({ column }) => (
           <button
@@ -2788,6 +2835,8 @@ export function BwbrowserCloudAccountsDialog({
     isSuperAdmin,
     handleCheckHealth,
     handleRepairAccount,
+    serverSort,
+    setServerSort,
   ]);
 
   const table = useReactTable({
@@ -2964,7 +3013,7 @@ export function BwbrowserCloudAccountsDialog({
 
       {/* ========== 赛道筛选栏（仅管理及以上角色可见） ========== */}
       {(isManager || isSuperAdmin) && (
-        <div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-background/50 px-4 py-1.5 overflow-x-auto">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border bg-background/50 px-4 py-1.5">
           <button
             type="button"
             onClick={() => setSectorFilter(null)}
@@ -3002,7 +3051,7 @@ export function BwbrowserCloudAccountsDialog({
 
       {/* ========== 人员过滤栏（仅管理及以上角色可见） ========== */}
       {(isManager || isSuperAdmin) && (
-        <div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-background/50 px-4 py-1.5 overflow-x-auto">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border bg-background/50 px-4 py-1.5">
           <button
             type="button"
             onClick={() => handleOwnerChange(null)}
@@ -3040,7 +3089,7 @@ export function BwbrowserCloudAccountsDialog({
       )}
 
       {/* ========== 平台过滤栏 ========== */}
-      <div className="flex shrink-0 items-center gap-1 border-b border-border bg-muted/30 px-4 py-1.5 overflow-x-auto">
+      <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border bg-muted/30 px-4 py-1.5">
         {platformStats.map((stat) => (
           <button
             type="button"
@@ -3071,7 +3120,23 @@ export function BwbrowserCloudAccountsDialog({
             </span>
           </button>
         ))}
-        <div className="ml-auto flex shrink-0 items-center gap-1 pl-2 border-l border-border/40">
+      </div>
+
+      {/* ========== 搜索栏 ========== */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-background/30 px-4 py-2">
+        <div className="relative flex-1 max-w-md">
+          <LuSearch className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="搜索账号昵称、登录账号、归属人..."
+            value={keyword}
+            onChange={handleSearchChange}
+            className="h-8 pl-8 text-xs"
+          />
+        </div>
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <span>共 {total} 条</span>
+        </div>
+        <div className="flex items-center gap-1">
           <Button
             size="sm"
             variant="outline"
@@ -3106,22 +3171,6 @@ export function BwbrowserCloudAccountsDialog({
             )}
             一键检测健康
           </Button>
-        </div>
-      </div>
-
-      {/* ========== 搜索栏 ========== */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-background/30 px-4 py-2">
-        <div className="relative flex-1 max-w-md">
-          <LuSearch className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="搜索账号昵称、登录账号、归属人..."
-            value={keyword}
-            onChange={handleSearchChange}
-            className="h-8 pl-8 text-xs"
-          />
-        </div>
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <span>共 {total} 条</span>
         </div>
       </div>
 

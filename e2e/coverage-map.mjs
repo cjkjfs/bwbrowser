@@ -328,7 +328,6 @@ export const commandCoverage = {
     suite: "integrations",
     level: "contract",
     commands: [
-      "bwbrowser_cloud::bwbrowser_open_account_detail_in_vps",
       "bwbrowser_cloud::bwbrowser_open_vps_login",
       "bwbrowser_cloud::bwbrowser_get_vps_profile_info",
       "bwbrowser_cloud::bwbrowser_set_vps_proxy",

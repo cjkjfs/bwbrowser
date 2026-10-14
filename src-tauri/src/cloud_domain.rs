@@ -59,9 +59,6 @@ pub const SIMPRINT_ACCOUNTS_URL: &str =
 /// 用户管理 API
 pub const BWBROWSER_USERS_API_URL: &str = concat!("https://", cloud_host!(), "/tk/users.php");
 
-/// 爆文库账号详情页
-pub const BAOWENKU_URL: &str = concat!("https://", cloud_host!(), "/tk/baowenku.php");
-
 /// VPS 自动登录页
 pub const LOGIN_URL: &str = concat!("https://", cloud_host!(), "/tk/login.php");
 

@@ -1700,6 +1700,7 @@ async fn process_video(
       emit("asr", 22, "正在转写（本地 ASR）", "");
       log("info", "开始 ASR 转写…");
       let (text, usage, segs) = asr_transcribe(&creds.asr, &audio).await?;
+
       let _ = std::fs::remove_file(&audio);
       log(
         "info",
@@ -1793,7 +1794,7 @@ async fn process_video(
     String::new()
   };
   let analyze_input = format!(
-    "{analyze_input}\n\n【输出要求补充】除按提示词要求的 JSON 结构输出外，请额外包含两个字段：\"work\"（作品名，从标题与文案识别，如动漫/影视剧名；无法判断则为空字符串）与 \"episode\"（集数，数字）。集数识别要点：从标题、话题标签、文案开头找 EP12、Episode 5、S3E5、第12集、第十二话、12集 等写法；系列连载的续集解说（如「接着上一集」）但未标明具体集数时填 0。这两个字段用于同作品同集的历史记录归档，务必尽力识别。{ep_note}"
+    "{analyze_input}\n\n【输出要求补充】除按提示词要求的 JSON 结构输出外，请额外包含三个字段：\"work\"（作品名，从标题与文案识别，如动漫/影视剧名；无法判断则为空字符串）与 \"episode\"（集数，数字）。集数识别要点：从标题、话题标签、文案开头找 EP12、Episode 5、S3E5、第12集、第十二话、12集 等写法；系列连载的续集解说（如「接着上一集」）但未标明具体集数时填 0。前两个字段用于同作品同集的历史记录归档，务必尽力识别。\"authorship\"（来源倾向判断，对象）：仅依据文案写作特征猜测原稿更像 AI 生成/洗稿还是人工写作——\"verdict\" 取 \"ai\"（AI 痕迹偏重）、\"human\"（人工痕迹偏重）、\"unclear\"（无法判断）三选一；\"reasons\" 为 2-4 条字符串依据，须引用文案中的具体特征（如：结构过于工整、句长均匀、叙事高度模板化 → AI 痕迹；口语跳针、节奏不均、细节琐碎不服务主线 → 人工痕迹）。注意：本输入是语音转写稿，语气词等口语现象本身不代表人工写作，重点看结构工整度与模板化程度；这是概率倾向不是检测结论，特征不足时必须选 \"unclear\"，禁止编造。{ep_note}"
   );
   let (analyze_raw, analyze_usage) =
     llm_chat(&creds.llm, &creds.prompts.analyze, &analyze_input).await?;
@@ -2180,29 +2181,6 @@ fn work_record_line(r: &Value) -> String {
     line.push_str(&format!(" · {url}"));
   }
   line
-}
-
-/// 拉取公司可见视频列表（自有账号 + 对标账号），供 AI 洗稿页面勾选。
-#[tauri::command]
-pub async fn ai_rewrite_list_videos(
-  platform: Option<String>,
-  keyword: Option<String>,
-  min_play: Option<i64>,
-  page: Option<u32>,
-  page_size: Option<u32>,
-  skip_done: Option<i32>,
-) -> Result<Value, String> {
-  AI_REWRITE.ensure_login().await?;
-  AI_REWRITE
-    .fetch_videos(json!({
-        "platform": platform.unwrap_or_default(),
-        "keyword": keyword.unwrap_or_default(),
-        "min_play": min_play.unwrap_or(0),
-        "page": page.unwrap_or(1).max(1),
-        "page_size": page_size.unwrap_or(20).clamp(1, 100),
-        "skip_done": skip_done.unwrap_or(0),
-    }))
-    .await
 }
 
 /// 已入库的洗稿成果列表（供页面「历史记录」浏览）。

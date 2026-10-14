@@ -17,7 +17,7 @@ use tauri::{Emitter, Runtime};
 
 use crate::cloud_auth::{CloudAuthState, CloudUser, Entitlements};
 use crate::cloud_domain::{
-  BAOWENKU_URL, BWBROWSER_API_URL, BWBROWSER_USERS_API_URL, LOGIN_URL, PLATFORM_CONFIG_API_URL,
+  BWBROWSER_API_URL, BWBROWSER_USERS_API_URL, LOGIN_URL, PLATFORM_CONFIG_API_URL,
   SIMPRINT_ACCOUNTS_URL, WAYFERN_TOKEN_API_URL,
 };
 use crate::settings_manager::SettingsManager;
@@ -862,74 +862,6 @@ pub async fn bwbrowser_logout<R: Runtime>(app: tauri::AppHandle<R>) -> Result<()
 #[tauri::command]
 pub fn bwbrowser_refresh_profile() -> Result<CloudUser, String> {
   BWBROWSER_AUTH.refresh_profile_sync()
-}
-
-/// 在 VPS 登录浏览器中打开爆文库账号详情页（已运行则新建标签，未运行则拉起 VPS 登录并跳转详情）
-#[tauri::command]
-pub async fn bwbrowser_open_account_detail_in_vps(
-  app_handle: tauri::AppHandle,
-  account_name: String,
-  platform: Option<String>,
-) -> Result<String, String> {
-  let plat = platform.as_deref().unwrap_or("tiktok");
-  let detail_url = build_baowenku_account_detail_url(&account_name, plat);
-  log_bwbrowser(
-    "open_account_in_vps",
-    &format!("  账号详情 URL: {}", detail_url),
-  );
-
-  let profiles = crate::profile::manager::ProfileManager::instance()
-    .list_profiles()
-    .map_err(|e| format!("获取本地 profile 列表失败: {}", e))?;
-  let vps_profile = profiles
-    .into_iter()
-    .find(|p| p.name.to_lowercase() == "vps登录");
-
-  let runner = crate::browser_runner::BrowserRunner::instance();
-  match vps_profile {
-    Some(profile) => {
-      let is_running = runner
-        .check_browser_status(app_handle.clone(), &profile)
-        .await
-        .map_err(|e| format!("检查 VPS 浏览器状态失败: {}", e))?;
-      if is_running {
-        runner
-          .open_url_in_existing_browser(app_handle.clone(), &profile, &detail_url, None)
-          .await
-          .map_err(|e| format!("在 VPS 浏览器中打开账号详情失败: {}", e))?;
-        log_bwbrowser(
-          "open_account_in_vps",
-          "  ✓ 已在 VPS 浏览器中新建标签打开账号详情",
-        );
-        return Ok("opened_tab".to_string());
-      }
-      bwbrowser_open_vps_login(app_handle, Some(detail_url.clone()))
-        .await
-        .map_err(|e| format!("启动 VPS 登录浏览器失败: {}", e))?;
-      log_bwbrowser(
-        "open_account_in_vps",
-        "  ✓ 已拉起 VPS 登录浏览器并跳转账号详情",
-      );
-      Ok("started_browser".to_string())
-    }
-    None => {
-      bwbrowser_open_vps_login(app_handle, Some(detail_url.clone()))
-        .await
-        .map_err(|e| format!("启动 VPS 登录浏览器失败: {}", e))?;
-      Ok("started_browser".to_string())
-    }
-  }
-}
-
-/// 构造爆文库账号详情页 URL
-fn build_baowenku_account_detail_url(account_name: &str, platform: &str) -> String {
-  // 过滤昵称中的 @，避免被 urlencode 成 %40 导致搜索失败
-  let clean_name = account_name.replace('@', "");
-  format!(
-    "{BAOWENKU_URL}?tab=account&video_sort=play_desc&visibility=all&platform={}&owner_id=0&search={}",
-    urlencode(&platform.to_lowercase()),
-    urlencode(&clean_name),
-  )
 }
 
 #[tauri::command]
@@ -1916,6 +1848,8 @@ impl BwbrowserAuthManager {
     keyword: Option<String>,
     owner_id: Option<i64>,
     company_id: Option<i64>,
+    sort_by: Option<String>,
+    sort_order: Option<String>,
   ) -> Result<BwbrowserAccountListResponse, String> {
     let (username, password) = self
       .get_credentials()
@@ -1954,6 +1888,15 @@ impl BwbrowserAuthManager {
     }
     if let Some(cid) = company_id {
       form_data.push_str(&format!("&company_id={}", cid));
+    }
+    // 服务端排序（全量排序而非当前页）：云端按 sort_by/sort_order 做 ORDER BY
+    if let Some(ref s) = sort_by {
+      let order = if sort_order.as_deref() == Some("asc") {
+        "asc"
+      } else {
+        "desc"
+      };
+      form_data.push_str(&format!("&sort_by={}&sort_order={}", urlencode(s), order));
     }
 
     let bwbrowser_form_data = form_data
@@ -2552,6 +2495,8 @@ pub async fn bwbrowser_list_accounts(
   keyword: Option<String>,
   owner_id: Option<i64>,
   company_id: Option<i64>,
+  sort_by: Option<String>,
+  sort_order: Option<String>,
 ) -> Result<BwbrowserAccountListResponse, String> {
   let mut result = BWBROWSER_AUTH
     .list_cloud_accounts(
@@ -2561,6 +2506,8 @@ pub async fn bwbrowser_list_accounts(
       keyword,
       owner_id,
       company_id,
+      sort_by,
+      sort_order,
     )
     .await?;
 
@@ -2604,7 +2551,7 @@ pub async fn bwbrowser_get_account_health_states() -> Result<serde_json::Value, 
   let profiles = pm.list_profiles().unwrap_or_default();
 
   let list = BWBROWSER_AUTH
-    .list_cloud_accounts(1, 500, None, None, None, None)
+    .list_cloud_accounts(1, 500, None, None, None, None, None, None)
     .await?;
   let mut views = Vec::new();
   if let Some(accounts) = list.accounts {

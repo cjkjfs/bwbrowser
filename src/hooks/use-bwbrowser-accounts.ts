@@ -123,10 +123,21 @@ interface UseBwbrowserAccountsReturn {
   keyword: string;
   currentPage: number;
   pageSize: number;
+  // 服务端排序（全量数据排序，非当前页）：null = 默认按创建时间倒序
+  serverSort: { by: string; order: "asc" | "desc" } | null;
+  setServerSort: (s: { by: string; order: "asc" | "desc" } | null) => void;
   // 操作
   refresh: () => Promise<void>;
   refreshSummary: () => Promise<void>;
-  fetchPage: (page: number, pageSize?: number) => Promise<void>;
+  fetchPage: (
+    page: number,
+    pageSize?: number,
+    platform?: string,
+    keyword?: string,
+    ownerId?: number | null,
+    sortBy?: string | null,
+    sortOrder?: "asc" | "desc" | null,
+  ) => Promise<void>;
   setPlatformFilter: (platform: string) => void;
   setOwnerFilter: (ownerId: number | null) => void;
   setKeyword: (keyword: string) => void;
@@ -165,6 +176,11 @@ export function useBwbrowserAccounts(
     return null;
   });
   const [keyword, setKeywordState] = useState("");
+  // 服务端排序：点击粉丝量表头时置位，云端 SQL ORDER BY 全量排序
+  const [serverSort, setServerSortState] = useState<{
+    by: string;
+    order: "asc" | "desc";
+  } | null>(null);
 
   // 汇总数据
   const [summary, setSummary] = useState<AccountSummary | null>(null);
@@ -183,6 +199,8 @@ export function useBwbrowserAccounts(
       platform = platformFilter,
       kw = keyword,
       ownerId = ownerFilter,
+      sortBy = serverSort?.by ?? null,
+      sortOrder = serverSort?.order ?? null,
       cid = companyId ?? null,
     ) => {
       if (!isLoggedIn) return;
@@ -200,6 +218,8 @@ export function useBwbrowserAccounts(
             keyword: kw || null,
             ownerId: ownerId ?? null,
             companyId: cid,
+            sortBy: sortBy || null,
+            sortOrder: sortOrder || null,
           },
         );
 
@@ -252,7 +272,15 @@ export function useBwbrowserAccounts(
         setIsLoading(false);
       }
     },
-    [isLoggedIn, pageSize, platformFilter, keyword, ownerFilter, companyId],
+    [
+      isLoggedIn,
+      pageSize,
+      platformFilter,
+      keyword,
+      ownerFilter,
+      serverSort,
+      companyId,
+    ],
   );
 
   const fetchSummary = useCallback(
@@ -329,6 +357,23 @@ export function useBwbrowserAccounts(
     setKeywordState(kw);
   }, []);
 
+  /** 切换服务端排序并回到第 1 页重新拉取 */
+  const setServerSort = useCallback(
+    (s: { by: string; order: "asc" | "desc" } | null) => {
+      setServerSortState(s);
+      void fetchPage(
+        1,
+        pageSize,
+        platformFilter,
+        keyword,
+        ownerFilter,
+        s?.by ?? null,
+        s?.order ?? null,
+      );
+    },
+    [fetchPage, pageSize, platformFilter, keyword, ownerFilter],
+  );
+
   // 登录状态变化时自动加载
   useEffect(() => {
     if (isLoggedIn) {
@@ -391,5 +436,7 @@ export function useBwbrowserAccounts(
     platformFilter,
     ownerFilter,
     keyword,
+    serverSort,
+    setServerSort,
   };
 }
