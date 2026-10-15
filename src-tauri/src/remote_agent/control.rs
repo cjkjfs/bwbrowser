@@ -7,8 +7,7 @@
 //! 机器列表来自 `remote_api.php` 的 `clients`（与 `remote_app.php` 同源），
 //! 超管可传 company_id 切换公司；非超管只能看到本公司。
 
-use std::net::{IpAddr, Ipv4Addr};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -438,255 +437,22 @@ pub async fn connect_target(client_id: i64, mode: Option<String>) -> Result<Remo
   })
 }
 
-/// 文件传输目标：云端机器由后端解析（局域网优先/中继 + 连接密码 + uuid）；
-/// 纯局域网发现的机器不在云端列表里，只有地址，密码由用户在前端输入。
-pub async fn file_target(
-  client_id: Option<i64>,
-  host: Option<String>,
-  port: Option<u16>,
-  password: Option<String>,
-) -> Result<FileTarget, String> {
-  if let Some(id) = client_id {
-    let r = resolve_client(id).await?;
-    let (method, host, uuid) = match r.lan_host {
-      Some(h) => ("lan".to_string(), h, String::new()),
-      None => ("relay".to_string(), String::new(), r.uuid),
-    };
-    return Ok(FileTarget {
-      method,
-      host,
-      port: r.port,
-      password: r.access_password,
-      uuid,
-      relay_url: r.relay_url,
-      hostname: r.hostname,
-    });
-  }
-
-  let host = host.unwrap_or_default();
-  if host.is_empty() {
-    return Err(err("REMOTE_MANAGEMENT_UNREACHABLE", "缺少目标地址"));
-  }
-  Ok(FileTarget {
-    method: "lan".to_string(),
-    host,
-    port: port.unwrap_or(LAN_SCAN_DEFAULT_PORT),
-    password: password.unwrap_or_default(),
-    uuid: String::new(),
-    relay_url: String::new(),
-    hostname: String::new(),
-  })
-}
-
-// ==================== 局域网网段扫描（remote_duli 控制端） ====================
-
-/// 单次扫描的主机上限，防止 CIDR 写太小（如 /0）时打出几十万并发探测
-const LAN_SCAN_MAX_HOSTS: usize = 1024;
-/// 并发探测数，与 remote_duli 的 50 线程同量级
-const LAN_SCAN_CONCURRENCY: usize = 64;
-/// 被控端默认端口（与 `RemoteAgentConfig::default().port` 一致）
-pub const LAN_SCAN_DEFAULT_PORT: u16 = 8765;
-
-/// 局域网里发现的一台被控端（`/discover` 返回）
-#[derive(Debug, Clone, Serialize)]
-pub struct LanMachine {
-  pub host: String,
-  pub name: String,
-  pub os: String,
-  pub width: u32,
-  pub height: u32,
-  pub port: u16,
-}
-
-/// 取一个私网 IPv4 的 /24 前缀（`192.168.1`）；非私网、回环、链路本地一律返回 None。
-/// 172.16-31 是本项目对 VPS 的 WireGuard 隧道段，扫它只会白等一轮超时。
-fn lan_prefix_of(v4: Ipv4Addr) -> Option<String> {
-  if v4.is_loopback() || v4.is_link_local() || !v4.is_private() {
-    return None;
-  }
-  let o = v4.octets();
-  if o[0] == 172 && (16..=31).contains(&o[1]) {
-    return None;
-  }
-  Some(format!("{}.{}.{}", o[0], o[1], o[2]))
-}
-
-/// 本机各网卡的局域网 /24 前缀，供控制端主动扫描。跳过隧道/虚拟网卡。
-fn local_lan_prefixes() -> Vec<String> {
-  let mut prefixes: Vec<String> = Vec::new();
-  let networks = sysinfo::Networks::new_with_refreshed_list();
-  for (name, data) in networks.list() {
-    let lower = name.to_ascii_lowercase();
-    if ["wg", "tun", "tap", "utun", "docker", "veth", "bridge"]
-      .iter()
-      .any(|p| lower.starts_with(p))
-    {
-      continue;
-    }
-    for ipn in data.ip_networks() {
-      if let IpAddr::V4(v4) = ipn.addr {
-        if let Some(prefix) = lan_prefix_of(v4) {
-          if !prefixes.contains(&prefix) {
-            prefixes.push(prefix);
-          }
-        }
-      }
-    }
-  }
-  prefixes
-}
-
-/// 没有可用私网网卡时的兜底：用默认出口的本地地址推 /24
-fn primary_lan_prefix() -> Option<String> {
-  let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
-  sock.connect("8.8.8.8:80").ok()?;
-  match sock.local_addr().ok()?.ip() {
-    IpAddr::V4(v4) => lan_prefix_of(v4),
-    IpAddr::V6(_) => None,
-  }
-}
-
-/// 解析扫描范围，与 remote_duli 控制端的 IP 段格式一致：
-/// CIDR（`192.168.1.0/24`）、末段范围（`192.168.1.1-254`）、逗号分隔 IP 或单个 IP。
-fn parse_scan_targets(text: &str) -> Vec<String> {
-  let mut hosts: Vec<String> = Vec::new();
-  for part in text.split(',') {
-    let part = part.trim();
-    if part.is_empty() {
-      continue;
-    }
-    if let Some((addr, bits)) = part.split_once('/') {
-      if let (Ok(base), Ok(bits)) = (addr.trim().parse::<Ipv4Addr>(), bits.trim().parse::<u32>()) {
-        if bits <= 32 {
-          let mask = if bits == 0 {
-            0
-          } else {
-            u32::MAX << (32 - bits)
-          };
-          let start = (u32::from(base) & mask) as u64;
-          let count = 1u64 << (32 - bits);
-          // /31、/32 没有网络号/广播地址的概念，整体当主机
-          let (first, last) = if bits < 31 {
-            (start + 1, start + count - 2)
-          } else {
-            (start, start + count - 1)
-          };
-          for value in first..=last {
-            hosts.push(Ipv4Addr::from(value as u32).to_string());
-            if hosts.len() >= LAN_SCAN_MAX_HOSTS {
-              return hosts;
-            }
-          }
-        }
-      }
-      continue;
-    }
-    if let Some((head, tail)) = part.rsplit_once('.') {
-      if let Some((start, end)) = tail.split_once('-') {
-        if let (Ok(start), Ok(end)) = (start.trim().parse::<u16>(), end.trim().parse::<u16>()) {
-          if start <= end && end <= 255 {
-            for i in start..=end {
-              hosts.push(format!("{head}.{i}"));
-              if hosts.len() >= LAN_SCAN_MAX_HOSTS {
-                return hosts;
-              }
-            }
-          }
-          continue;
-        }
-      }
-    }
-    if part.parse::<Ipv4Addr>().is_ok() {
-      hosts.push(part.to_string());
-      if hosts.len() >= LAN_SCAN_MAX_HOSTS {
-        return hosts;
-      }
-    }
-  }
-  hosts
-}
-
-fn ip_sort_key(host: &str) -> u32 {
-  host.parse::<Ipv4Addr>().map(u32::from).unwrap_or(u32::MAX)
-}
-
-async fn probe_discover(probe: &reqwest::Client, host: &str, port: u16) -> Option<LanMachine> {
-  let url = format!("http://{host}:{port}/discover");
-  let resp = probe.get(&url).send().await.ok()?;
-  if !resp.status().is_success() {
-    return None;
-  }
-  let body: Value = resp.json().await.ok()?;
-  if !body.get("online").and_then(Value::as_bool).unwrap_or(false) {
-    return None;
-  }
-  Some(LanMachine {
-    host: host.to_string(),
-    name: as_string(body.get("name")),
-    os: as_string(body.get("os")),
-    width: as_i64(body.get("width")).clamp(0, 100_000) as u32,
-    height: as_i64(body.get("height")).clamp(0, 100_000) as u32,
-    port: as_i64(body.get("port")).clamp(1, 65535) as u16,
-  })
-}
-
-/// 控制端扫描局域网发现被控端（移植 remote_duli 控制端的 IP 段扫描）。
-/// `ranges` 为空时自动取本机各私网网段的 /24。
-pub async fn scan_lan(
-  ranges: Option<String>,
-  port: Option<u16>,
-) -> Result<Vec<LanMachine>, String> {
-  if BWBROWSER_AUTH.get_credentials().is_none() {
-    return Err(json!({"code": "CLOUD_NOT_SIGNED_IN"}).to_string());
-  }
-  let port = port.unwrap_or(LAN_SCAN_DEFAULT_PORT);
-  let hosts = match ranges.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-    Some(text) => parse_scan_targets(text),
-    None => {
-      let mut prefixes = local_lan_prefixes();
-      if prefixes.is_empty() {
-        if let Some(prefix) = primary_lan_prefix() {
-          prefixes.push(prefix);
-        }
-      }
-      prefixes
-        .iter()
-        .flat_map(|prefix| (1..=254u16).map(move |i| format!("{prefix}.{i}")))
-        .collect()
-    }
+/// 文件传输目标：云端机器由后端解析（局域网优先/中继 + 连接密码 + uuid）。
+pub async fn file_target(client_id: i64, password: Option<String>) -> Result<FileTarget, String> {
+  let r = resolve_client(client_id).await?;
+  let (method, host, uuid) = match r.lan_host {
+    Some(h) => ("lan".to_string(), h, String::new()),
+    None => ("relay".to_string(), String::new(), r.uuid),
   };
-  if hosts.is_empty() {
-    return Err(err(
-      "REMOTE_MANAGEMENT_NO_LAN_RANGE",
-      "未能确定可扫描的局域网网段",
-    ));
-  }
-
-  let probe = reqwest::Client::builder()
-    .timeout(Duration::from_millis(900))
-    .connect_timeout(Duration::from_millis(600))
-    .build()
-    .map_err(|e| err("REMOTE_MANAGEMENT_UNREACHABLE", e))?;
-  let semaphore = Arc::new(tokio::sync::Semaphore::new(LAN_SCAN_CONCURRENCY));
-  let mut tasks = tokio::task::JoinSet::new();
-  for host in hosts {
-    let probe = probe.clone();
-    let semaphore = semaphore.clone();
-    tasks.spawn(async move {
-      let _permit = semaphore.acquire().await.ok()?;
-      probe_discover(&probe, &host, port).await
-    });
-  }
-
-  let mut found: Vec<LanMachine> = Vec::new();
-  while let Some(result) = tasks.join_next().await {
-    if let Ok(Some(machine)) = result {
-      found.push(machine);
-    }
-  }
-  found.sort_by_key(|m| ip_sort_key(&m.host));
-  crate::remote_agent::log_remote(&format!("远程管理：局域网扫描发现 {} 台设备", found.len()));
-  Ok(found)
+  Ok(FileTarget {
+    method,
+    host,
+    port: r.port,
+    password: password.unwrap_or(r.access_password),
+    uuid,
+    relay_url: r.relay_url,
+    hostname: r.hostname,
+  })
 }
 
 /// 登出/切换账号时清掉 token 缓存，避免用上一个账号的身份拉列表
@@ -739,46 +505,6 @@ mod tests {
     let anonymous = parse_machine(&json!({ "id": 8, "user_username": null }));
     assert_eq!(anonymous.user_username, "");
     assert_eq!(anonymous.user_real_name, "");
-  }
-
-  #[test]
-  fn scan_ranges_parse_cidr_range_and_list() {
-    assert_eq!(parse_scan_targets("192.168.1.5"), vec!["192.168.1.5"]);
-    assert_eq!(
-      parse_scan_targets("192.168.1.1-3"),
-      vec!["192.168.1.1", "192.168.1.2", "192.168.1.3"]
-    );
-    // /30 只有两个可用主机，网络号与广播地址要排除
-    assert_eq!(
-      parse_scan_targets("10.0.0.0/30"),
-      vec!["10.0.0.1", "10.0.0.2"]
-    );
-    assert_eq!(
-      parse_scan_targets("192.168.1.1, 10.0.0.1"),
-      vec!["192.168.1.1", "10.0.0.1"]
-    );
-    assert!(parse_scan_targets("not-an-ip").is_empty());
-    assert!(parse_scan_targets("").is_empty());
-    // 超大网段要被上限截断，不能真的铺开上亿个地址
-    assert_eq!(parse_scan_targets("10.0.0.0/8").len(), LAN_SCAN_MAX_HOSTS);
-  }
-
-  #[test]
-  fn lan_prefix_skips_tunnel_loopback_and_non_private() {
-    assert_eq!(
-      lan_prefix_of(Ipv4Addr::new(192, 168, 1, 20)).as_deref(),
-      Some("192.168.1")
-    );
-    assert_eq!(
-      lan_prefix_of(Ipv4Addr::new(10, 4, 5, 6)).as_deref(),
-      Some("10.4.5")
-    );
-    // 172.16-31 是 VPS 隧道段；回环/链路本地/公网都不是局域网候选
-    assert_eq!(lan_prefix_of(Ipv4Addr::new(172, 16, 0, 2)), None);
-    assert_eq!(lan_prefix_of(Ipv4Addr::new(172, 20, 0, 2)), None);
-    assert_eq!(lan_prefix_of(Ipv4Addr::new(127, 0, 0, 1)), None);
-    assert_eq!(lan_prefix_of(Ipv4Addr::new(169, 254, 10, 1)), None);
-    assert_eq!(lan_prefix_of(Ipv4Addr::new(203, 0, 113, 7)), None);
   }
 
   /// 操作列的三个按钮只认 full/view/files，其余（含前端漏传）一律当完全控制，

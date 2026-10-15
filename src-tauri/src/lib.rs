@@ -2161,27 +2161,15 @@ async fn bwbrowser_remote_management_target(
   remote_agent::control::connect_target(client_id, mode).await
 }
 
-/// 扫描局域网发现被控端（移植 remote_duli 控制端的 IP 段扫描）。
-/// `ranges` 为空时自动取本机各私网网段的 /24；`port` 为空时用被控端默认端口。
-#[tauri::command]
-async fn bwbrowser_remote_management_scan_lan(
-  ranges: Option<String>,
-  port: Option<u16>,
-) -> Result<Vec<remote_agent::control::LanMachine>, String> {
-  remote_agent::control::scan_lan(ranges, port).await
-}
-
 // --- Remote file transfer (control side) ------------------------------------
 
-/// 解析文件传输目标：云端机器由后端给出局域网/中继 + 连接密码，局域网发现的机器用传入地址。
+/// 解析文件传输目标：云端机器由后端给出局域网/中继 + 连接密码。
 #[tauri::command]
 async fn bwbrowser_remote_files_target(
-  client_id: Option<i64>,
-  host: Option<String>,
-  port: Option<u16>,
+  client_id: i64,
   password: Option<String>,
 ) -> Result<remote_agent::file_transfer::FileTarget, String> {
-  remote_agent::control::file_target(client_id, host, port, password).await
+  remote_agent::control::file_target(client_id, password).await
 }
 
 /// 远程目录列表（被控端磁盘）。
@@ -3914,7 +3902,6 @@ pub fn run_with_builder(
       // Remote management (control side)
       bwbrowser_remote_management_machines,
       bwbrowser_remote_management_target,
-      bwbrowser_remote_management_scan_lan,
       // Remote file transfer (control side)
       bwbrowser_remote_files_target,
       bwbrowser_remote_files_list,

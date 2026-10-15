@@ -55,10 +55,8 @@ interface RemoteFileTarget {
 /** 打开文件传输页所需的机器信息。 */
 export interface FileTransferTarget {
   hostName: string;
-  /** 云端机器 id；纯局域网发现的机器为 null */
-  clientId: number | null;
-  lanHost: string | null;
-  lanPort: number | null;
+  /** 云端机器 id（连接目标由后端解析：局域网优先/中继） */
+  clientId: number;
 }
 
 interface PaneState {
@@ -436,8 +434,6 @@ export function FileTransferPage({
           "bwbrowser_remote_files_target",
           {
             clientId: target.clientId,
-            host: target.lanHost,
-            port: target.lanPort,
             password: pwd || null,
           },
         );
@@ -564,7 +560,7 @@ export function FileTransferPage({
         </Button>
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate text-sm font-semibold">
-            {target.hostName || remote?.hostname || target.lanHost}
+            {target.hostName || remote?.hostname}
           </span>
           <Badge variant="secondary">{t("fileTransfer.title")}</Badge>
           {remote && <Badge variant="outline">{methodLabel}</Badge>}

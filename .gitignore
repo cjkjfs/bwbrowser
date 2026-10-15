@@ -120,3 +120,10 @@ src-tauri/rustc-ice-*.txt
 scratch_patch_guard.py
 t-*.txt
 test-output.txt
+
+# Local temp copies / probes of server files (never tracked)
+/_*.php
+/_*.py
+/_*.tgz
+/_pull/
+/__pycache__/

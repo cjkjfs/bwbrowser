@@ -54,7 +54,7 @@ pub const WAYFERN_TOKEN_API_URL: &str =
 
 /// Simprint 云端账号 API
 pub const SIMPRINT_ACCOUNTS_URL: &str =
-  concat!("https://", cloud_host!(), "/tk/simprint_accounts.php");
+  concat!("https://", cloud_host!(), "/tk/bwbrowser_accounts.php");
 
 /// 用户管理 API
 pub const BWBROWSER_USERS_API_URL: &str = concat!("https://", cloud_host!(), "/tk/users.php");

@@ -1441,12 +1441,6 @@ test("offline cloud, update, team-lock, trial, and synchronizer contracts are de
         }),
         notSignedIn,
       );
-      // The LAN scan is the remote_duli-style subnet sweep: signed out it must
-      // stop at the auth gate instead of probing the local network.
-      assert.match(
-        await app.invokeError("bwbrowser_remote_management_scan_lan", {}),
-        notSignedIn,
-      );
       // The control-side file transfer resolves its cloud target over the same
       // token, so a signed-out resolve must refuse as a translatable code.
       assert.match(

@@ -717,7 +717,7 @@ export function BwbrowserCloudAccountsDialog({
     tags: [] as string[],
     tagInput: "",
     category: "",
-    nickname: "",
+    pure_username: "",
     device_id: "",
     bind_phone: "",
     safe_link: "",
@@ -1119,7 +1119,7 @@ export function BwbrowserCloudAccountsDialog({
             : []),
         tagInput: "",
         category: account.category ?? "",
-        nickname: account.nickname ?? "",
+        pure_username: account.pure_username ?? "",
         device_id: account.device_id ?? account.phone_id ?? "",
         bind_phone: account.bind_phone ?? "",
         safe_link: account.safe_link ?? "",
@@ -1188,7 +1188,7 @@ export function BwbrowserCloudAccountsDialog({
           remark: detail.remark ?? prev.remark,
           tags,
           category: detail.category ?? prev.category,
-          nickname: detail.account_nickname ?? detail.nickname ?? prev.nickname,
+          pure_username: detail.pure_username ?? prev.pure_username,
           device_id: detail.device_id ?? detail.phone_id ?? prev.device_id,
           bind_phone: detail.bind_phone ?? prev.bind_phone,
           safe_link: detail.safe_link ?? prev.safe_link,
@@ -1714,6 +1714,11 @@ export function BwbrowserCloudAccountsDialog({
 
   const handleLaunchAccount = useCallback(
     async (account: BwbrowserAccount) => {
+      // 套餐启动配额：超出配额的账号不允许启动浏览器
+      if (account.launch_allowed === false) {
+        showErrorToast("该账号超出当前套餐的启动配额，无法启动浏览器");
+        return;
+      }
       const accountId = account.id;
       setLaunchingIds((prev) => new Set(prev).add(accountId));
       setLaunchProgress((prev) => ({
@@ -1788,10 +1793,20 @@ export function BwbrowserCloudAccountsDialog({
       (a) => platformFilter === "all" || (a.platform ?? "") === platformFilter,
     );
     if (targets.length === 0) return;
+    // 超出套餐启动配额的账号不能启动，直接跳过并提示
+    const launchable = targets.filter((a) => a.launch_allowed !== false);
+    const blocked = targets.length - launchable.length;
+    if (launchable.length === 0) {
+      showErrorToast("当前套餐启动配额已用完，无法批量打开");
+      return;
+    }
     setBatchLaunching(true);
     const run = async () => {
       try {
-        for (const acc of targets) {
+        if (blocked > 0) {
+          showErrorToast(`已跳过 ${blocked} 个超出套餐配额的账号`);
+        }
+        for (const acc of launchable) {
           await handleLaunchAccount(acc);
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
@@ -2135,7 +2150,8 @@ export function BwbrowserCloudAccountsDialog({
         cell: ({ row }) => {
           const account = row.original;
           const avatarUrl = resolveAvatarUrl(account.avatar_url);
-          const displayName = account.account_name || account.nickname;
+          const displayName =
+            account.pure_username || account.account_name || account.nickname;
           // 健康检测：图标颜色即结果（绿=健康，黄=需重新登录，灰=未检测）
           const h = healthStates[account.id];
           const hStatus = h?.status ?? "unknown";
@@ -2189,8 +2205,18 @@ export function BwbrowserCloudAccountsDialog({
                 <button
                   type="button"
                   onClick={() => void handleLaunchAccount(account)}
-                  title="点击启动浏览器"
-                  className="truncate text-left text-xs font-medium transition-colors hover:text-primary hover:underline"
+                  disabled={account.launch_allowed === false}
+                  title={
+                    account.launch_allowed === false
+                      ? "超出当前套餐的启动配额，无法启动"
+                      : "点击启动浏览器"
+                  }
+                  className={cn(
+                    "truncate text-left text-xs font-medium transition-colors",
+                    account.launch_allowed === false
+                      ? "cursor-not-allowed text-muted-foreground/40"
+                      : "hover:text-primary hover:underline",
+                  )}
                 >
                   {displayName || "-"}
                 </button>
@@ -2755,10 +2781,22 @@ export function BwbrowserCloudAccountsDialog({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 max-w-[180px] px-2"
+                className={cn(
+                  "h-6 max-w-[180px] px-2",
+                  account.launch_allowed === false &&
+                    "opacity-40 cursor-not-allowed",
+                )}
                 onClick={() => void handleLaunchAccount(account)}
-                disabled={isLaunching || geoPending}
-                title={geoPending ? "正在获取时区信息" : "启动浏览器"}
+                disabled={
+                  isLaunching || geoPending || account.launch_allowed === false
+                }
+                title={
+                  account.launch_allowed === false
+                    ? "超出当前套餐的启动配额，无法启动"
+                    : geoPending
+                      ? "正在获取时区信息"
+                      : "启动浏览器"
+                }
               >
                 {geoPending ? (
                   <>
@@ -4012,16 +4050,16 @@ export function BwbrowserCloudAccountsDialog({
                     />
                   </div>
                   <div className="space-y-1">
-                    <div className="text-xs font-medium">账号昵称</div>
+                    <div className="text-xs font-medium">平台用户名</div>
                     <Input
-                      value={editForm.nickname}
+                      value={editForm.pure_username}
                       onChange={(e) =>
                         setEditForm((p) => ({
                           ...p,
-                          nickname: e.target.value,
+                          pure_username: e.target.value,
                         }))
                       }
-                      placeholder="账号昵称"
+                      placeholder="平台用户名"
                       disabled={!editPerms.canEditAll}
                       className={cn(
                         !editPerms.canEditAll && "bg-muted opacity-70",
@@ -4406,7 +4444,7 @@ export function BwbrowserCloudAccountsDialog({
                   remark: editForm.remark || null,
                   tags: tagsStr || null,
                   category: editForm.category.trim() || null,
-                  nickname: editForm.nickname.trim() || null,
+                  pureUsername: editForm.pure_username.trim() || null,
                   phoneId: editPerms.canEditAll
                     ? editForm.device_id.trim() || null
                     : null,

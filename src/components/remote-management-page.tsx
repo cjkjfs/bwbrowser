@@ -3,7 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   LuEye,
@@ -13,7 +13,6 @@ import {
   LuMonitorSmartphone,
   LuMousePointerClick,
   LuRefreshCw,
-  LuWifi,
 } from "react-icons/lu";
 import { toast } from "sonner";
 import {
@@ -22,7 +21,6 @@ import {
 } from "@/components/file-transfer-page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -43,9 +41,6 @@ import { useBwbrowserCompany } from "@/hooks/use-bwbrowser-company";
 import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import { translateBackendError } from "@/lib/backend-errors";
 import { cn } from "@/lib/utils";
-
-/** 被控端默认端口（与后端 RemoteAgentConfig 默认值一致）。 */
-const DEFAULT_AGENT_PORT = 8765;
 
 /** 云端 remote_api.php 的 clients 记录（等同 remote_app.php 的机器列表）。 */
 interface RemoteMachine {
@@ -68,16 +63,6 @@ interface RemoteMachinesResult {
   relay_url: string;
 }
 
-/** 局域网 /discover 扫到的一台被控端（remote_duli 控制端的扫描结果）。 */
-interface LanMachine {
-  host: string;
-  name: string;
-  os: string;
-  width: number;
-  height: number;
-  port: number;
-}
-
 /** 后端解析出的连接目标：局域网优先，失败回退中继控制页。 */
 interface RemoteTarget {
   method: "lan" | "relay";
@@ -87,21 +72,17 @@ interface RemoteTarget {
   hostname: string;
 }
 
-/** 表格里的一行：云端机器与局域网发现的机器合并后的统一视图。 */
+/** 表格里的一行：云端机器列表的统一视图。 */
 interface MachineRow {
   key: string;
   hostname: string;
-  /** 该机登录的爆文库账号：姓名（账号），局域网直连发现的机器没有此信息 */
+  /** 该机登录的爆文库账号：姓名（账号） */
   account: string;
   os: string;
   address: string;
-  source: "lan" | "cloud";
-  lanReachable: boolean;
   online: boolean;
   note: string;
-  clientId: number | null;
-  lanHost: string | null;
-  lanPort: number | null;
+  clientId: number;
 }
 
 const ALL_COMPANIES = "all";
@@ -170,14 +151,10 @@ export function RemoteManagementPage() {
     useBwbrowserCompany(isSuperAdmin, isLoggedIn);
 
   const [machines, setMachines] = useState<RemoteMachine[]>([]);
-  const [lanMachines, setLanMachines] = useState<LanMachine[]>([]);
-  const [ranges, setRanges] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
   const [connectingKey, setConnectingKey] = useState<string | null>(null);
   /** 打开双栏文件传输页的目标；为 null 时显示机器列表 */
   const [fileTarget, setFileTarget] = useState<FileTransferTarget | null>(null);
-  const autoScanned = useRef(false);
 
   const loadMachines = useCallback(async () => {
     setIsLoading(true);
@@ -195,111 +172,12 @@ export function RemoteManagementPage() {
     }
   }, [selectedCompanyId, t]);
 
-  const scanLan = useCallback(
-    async (override?: string) => {
-      const text = (override ?? ranges).trim();
-      setIsScanning(true);
-      try {
-        const found = await invoke<LanMachine[]>(
-          "bwbrowser_remote_management_scan_lan",
-          { ranges: text || null, port: DEFAULT_AGENT_PORT },
-        );
-        setLanMachines(found);
-        toast.success(t("remoteManagement.scanFound", { n: found.length }));
-      } catch (e) {
-        toast.error(translateBackendError(t, e));
-      } finally {
-        setIsScanning(false);
-      }
-    },
-    [ranges, t],
-  );
-
   useEffect(() => {
     void loadMachines();
   }, [loadMachines]);
 
-  // 进页面自动扫一次局域网（remote_duli 的自动扫描），之后由按钮手动重扫。
-  useEffect(() => {
-    if (autoScanned.current) return;
-    autoScanned.current = true;
-    void scanLan("");
-    // 只在首次挂载时触发；scanLan 依赖变化不应重扫。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanLan]);
-
-  // 合并云端机器与局域网发现的机器：能局域网直连的排前面（局域网优先）。
-  const rows = useMemo<MachineRow[]>(() => {
-    const lanByHost = new Map(lanMachines.map((m) => [m.host, m]));
-    const matchedHosts = new Set<string>();
-
-    const cloudRows: MachineRow[] = machines.map((m) => {
-      const candidates = [m.connect_host, ...m.local_ips].filter(Boolean);
-      const lanHost = candidates.find((ip) => lanByHost.has(ip)) ?? null;
-      const lan = lanHost ? lanByHost.get(lanHost) : undefined;
-      if (lanHost) matchedHosts.add(lanHost);
-      const lanIps = m.local_ips.filter(Boolean);
-      return {
-        key: `cloud-${m.id}`,
-        hostname: m.hostname || lan?.name || "",
-        account:
-          m.user_real_name && m.user_username
-            ? `${m.user_real_name}（${m.user_username}）`
-            : m.user_real_name || m.user_username || "",
-        os: m.os_info || lan?.os || "",
-        address: lanHost
-          ? `${lanHost}:${lan?.port ?? m.port ?? DEFAULT_AGENT_PORT}`
-          : lanIps[0] || m.public_ip || "",
-        source: "cloud",
-        lanReachable: Boolean(lanHost),
-        online: m.status === "online",
-        note: m.note,
-        clientId: m.id,
-        lanHost,
-        lanPort: lan?.port ?? m.port ?? DEFAULT_AGENT_PORT,
-      };
-    });
-
-    const lanRows: MachineRow[] = lanMachines
-      .filter((m) => !matchedHosts.has(m.host))
-      .map((m) => ({
-        key: `lan-${m.host}`,
-        hostname: m.name || m.host,
-        account: "",
-        os: m.os,
-        address: `${m.host}:${m.port}`,
-        source: "lan",
-        lanReachable: true,
-        online: true,
-        note: "",
-        clientId: null,
-        lanHost: m.host,
-        lanPort: m.port,
-      }));
-
-    const merged = [...cloudRows, ...lanRows].sort((a, b) => {
-      if (a.lanReachable !== b.lanReachable) return a.lanReachable ? -1 : 1;
-      if (a.online !== b.online) return a.online ? -1 : 1;
-      return 0;
-    });
-
-    // 同一账号在多台电脑登录会产生多行：组内只要有在线的，
-    // 就用在线行替换掉离线行（全离线的组原样保留，避免账号直接消失）。
-    const onlineByAccount = new Map<string, boolean>();
-    for (const r of merged) {
-      if (!r.account) continue;
-      onlineByAccount.set(
-        r.account,
-        (onlineByAccount.get(r.account) ?? false) || r.online,
-      );
-    }
-    return merged.filter(
-      (r) => !r.account || r.online || !onlineByAccount.get(r.account),
-    );
-  }, [machines, lanMachines]);
-
-  // 连接：局域网发现的机器直接开被控端内置 viewer；云端机器交给后端解析
-  // （后端先探 /discover，可达即局域网直连，不可达才回退中继控制页）。
+  // 连接：交给后端解析（后端先探被控端的局域网地址 /discover，
+  // 可达即局域网直连，不可达才回退中继控制页）。
   // mode 决定 viewer 落到完全控制 / 仅查看 / 文件传输；viewer 在应用内窗口打开。
   const handleConnect = useCallback(
     async (row: MachineRow, mode: RemoteMode) => {
@@ -308,8 +186,6 @@ export function RemoteManagementPage() {
         setFileTarget({
           hostName: row.hostname,
           clientId: row.clientId,
-          lanHost: row.lanHost,
-          lanPort: row.lanPort,
         });
         return;
       }
@@ -319,21 +195,6 @@ export function RemoteManagementPage() {
           row.hostname || row.address
         }`;
         const label = viewerWindowLabel(row.key, mode);
-        if (row.source === "lan" && row.lanHost) {
-          const port = row.lanPort ?? DEFAULT_AGENT_PORT;
-          await openViewerWindow(
-            label,
-            `http://${row.lanHost}:${port}/?mode=${mode}`,
-            title,
-          );
-          toast.success(
-            t("remoteManagement.connectLanSuccess", {
-              host: row.hostname || row.lanHost,
-            }),
-          );
-          return;
-        }
-        if (row.clientId === null) return;
         const target = await invoke<RemoteTarget>(
           "bwbrowser_remote_management_target",
           { clientId: row.clientId, mode },
@@ -354,8 +215,41 @@ export function RemoteManagementPage() {
     [t],
   );
 
+  const rows = useMemo<MachineRow[]>(() => {
+    const merged: MachineRow[] = machines.map((m) => ({
+      key: `cloud-${m.id}`,
+      hostname: m.hostname || "",
+      account:
+        m.user_real_name && m.user_username
+          ? `${m.user_real_name}（${m.user_username}）`
+          : m.user_real_name || m.user_username || "",
+      os: m.os_info || "",
+      address: m.local_ips.filter(Boolean)[0] || m.public_ip || "",
+      online: m.status === "online",
+      note: m.note,
+      clientId: m.id,
+    }));
+    merged.sort((a, b) => {
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      return 0;
+    });
+
+    // 同一账号在多台电脑登录会产生多行：组内只要有在线的，
+    // 就用在线行替换掉离线行（全离线的组原样保留，避免账号直接消失）。
+    const onlineByAccount = new Map<string, boolean>();
+    for (const r of merged) {
+      if (!r.account) continue;
+      onlineByAccount.set(
+        r.account,
+        (onlineByAccount.get(r.account) ?? false) || r.online,
+      );
+    }
+    return merged.filter(
+      (r) => !r.account || r.online || !onlineByAccount.get(r.account),
+    );
+  }, [machines]);
+
   const onlineCount = rows.filter((r) => r.online).length;
-  const busy = isLoading || isScanning;
 
   // 文件传输：整页替换机器列表，返回时回到列表。
   if (fileTarget) {
@@ -414,7 +308,7 @@ export function RemoteManagementPage() {
             variant="ghost"
             size="sm"
             onClick={() => void loadMachines()}
-            disabled={busy}
+            disabled={isLoading}
           >
             <LuRefreshCw
               className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")}
@@ -422,33 +316,6 @@ export function RemoteManagementPage() {
             {t("remoteManagement.refresh")}
           </Button>
         </div>
-      </div>
-
-      {/* 局域网扫描工具条 */}
-      <div className="flex items-center gap-2 px-6 py-3 border-b border-border">
-        <Input
-          value={ranges}
-          onChange={(e) => setRanges(e.target.value)}
-          placeholder={t("remoteManagement.rangePlaceholder")}
-          className="h-8 max-w-xs text-xs"
-          disabled={isScanning}
-        />
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-8 text-xs"
-          onClick={() => void scanLan()}
-          disabled={busy}
-        >
-          {isScanning ? (
-            <LuLoaderCircle className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-          ) : (
-            <LuWifi className="w-3.5 h-3.5 mr-1.5" />
-          )}
-          {isScanning
-            ? t("remoteManagement.scanning")
-            : t("remoteManagement.scan")}
-        </Button>
       </div>
 
       {/* 机器列表 */}
@@ -460,7 +327,6 @@ export function RemoteManagementPage() {
               <TableHead>{t("remoteManagement.colHostname")}</TableHead>
               <TableHead>{t("remoteManagement.colOs")}</TableHead>
               <TableHead>{t("remoteManagement.colAddress")}</TableHead>
-              <TableHead>{t("remoteManagement.colSource")}</TableHead>
               <TableHead>{t("remoteManagement.colStatus")}</TableHead>
               <TableHead className="text-right">
                 {t("remoteManagement.colActions")}
@@ -471,7 +337,7 @@ export function RemoteManagementPage() {
             {isLoading && rows.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={6}
                   className="text-center py-12 text-muted-foreground"
                 >
                   <LuLoaderCircle className="w-6 h-6 animate-spin mx-auto mb-2" />
@@ -481,7 +347,7 @@ export function RemoteManagementPage() {
             ) : rows.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={6}
                   className="text-center py-12 text-muted-foreground"
                 >
                   {t("remoteManagement.empty")}
@@ -519,25 +385,12 @@ export function RemoteManagementPage() {
                   <TableCell className="text-sm">
                     {row.address ? (
                       <span className="inline-flex items-center gap-1.5">
-                        {row.lanReachable ? (
-                          <LuWifi className="w-3.5 h-3.5 text-success" />
-                        ) : (
-                          <LuGlobe className="w-3.5 h-3.5 text-muted-foreground" />
-                        )}
+                        <LuGlobe className="w-3.5 h-3.5 text-muted-foreground" />
                         {row.address}
                       </span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={row.source === "lan" ? "default" : "secondary"}
-                    >
-                      {row.source === "lan"
-                        ? t("remoteManagement.sourceLan")
-                        : t("remoteManagement.sourceCloud")}
-                    </Badge>
                   </TableCell>
                   <TableCell>
                     <span

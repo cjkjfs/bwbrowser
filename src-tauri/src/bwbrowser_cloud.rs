@@ -2376,6 +2376,9 @@ pub struct BwbrowserAccount {
   pub tags_list: Option<Vec<String>>,
   #[serde(default)]
   pub backup_email: Option<String>,
+  /// 套餐启动配额：false = 超出套餐配额，客户端置灰禁止启动浏览器
+  #[serde(default, deserialize_with = "deserialize_int_or_bool")]
+  pub launch_allowed: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -4485,7 +4488,7 @@ pub async fn bwbrowser_update_account_info(
   remark: Option<String>,
   tags: Option<String>,
   category: Option<String>,
-  nickname: Option<String>,
+  pure_username: Option<String>,
   owner_id: Option<i64>,
   status: Option<i32>,
   phone_id: Option<String>,
@@ -4522,8 +4525,8 @@ pub async fn bwbrowser_update_account_info(
   if let Some(v) = category {
     params.push(format!("category={}", urlencode(&v)));
   }
-  if let Some(v) = nickname {
-    params.push(format!("nickname={}", urlencode(&v)));
+  if let Some(v) = pure_username {
+    params.push(format!("pure_username={}", urlencode(&v)));
   }
   if let Some(v) = owner_id {
     params.push(format!("owner_id={}", v));

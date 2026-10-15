@@ -153,6 +153,7 @@ pub fn rule_for_platform(platform: &str) -> Option<&'static PlatformRule> {
     "youtube" | "yt" => "youtube",
     "douyincn" | "douyin" | "抖音" | "dy" | "douyin_hao" | "抖音号" => "douyin",
     "tiktok" | "tk" | "tiktok us" => "tiktok",
+    "tiktok_drama" | "tiktok短剧" => "tiktok_drama",
     "toutiao" | "头条" | "今日头条" | "tt" => "toutiao",
     "netease" | "网易" | "网易邮箱" | "mail_163" => "netease",
     "bilibili" | "b站" | "哔哩哔哩" => "bilibili",
@@ -257,6 +258,20 @@ fn platform_rules() -> Vec<PlatformRule> {
       session_cookies: &["sessionid", "sessionid_ss", "sid_tt", "uid_tt"],
       network_probe: false,
       loose: false,
+      session_indicators: &[],
+      login_indicators: &[],
+      ok_status_range: (200, 299),
+    },
+    // TikTok 短剧中心（tiktokdramacenter.com）— 登录 cookie 名未知，
+    // 走 loose：任意两个未过期的站点域 cookie 视为有会话。
+    // session_cookies 填 TikTok SSO 家族仅作备案，判定由 loose 分支负责。
+    PlatformRule {
+      key: "tiktok_drama",
+      url: "https://www.tiktokdramacenter.com/",
+      domains: &["tiktokdramacenter.com"],
+      session_cookies: &["sessionid", "sessionid_ss"],
+      network_probe: false,
+      loose: true,
       session_indicators: &[],
       login_indicators: &[],
       ok_status_range: (200, 299),

@@ -3,6 +3,11 @@ fn main() {
   let build_target = std::env::var("TARGET").expect("Cargo must provide TARGET");
   println!("cargo:rustc-env=BWBROWSER_BUILD_TARGET={build_target}");
 
+  // The cloud domain lives in two sources (Rust: src/cloud_domain.rs, frontend:
+  // src/lib/cloud-config.ts). Fail the build if they drift apart, so switching
+  // domains can never leave the two halves dialling different servers.
+  verify_cloud_domain_in_sync();
+
   // Ensure dist folder exists for tauri::generate_context!() macro
   // This allows running cargo test without building the frontend first
   ensure_dist_folder_exists();
@@ -102,6 +107,43 @@ fn main() {
   // cdylib, integration tests and the lib unit-test binary alike.
   #[cfg(target_os = "windows")]
   embed_windows_manifest();
+}
+
+/// The cloud domain must agree between `cloud_host!()` in src/cloud_domain.rs
+/// (the backend source of truth) and `CLOUD_DOMAIN` in src/lib/cloud-config.ts
+/// (the frontend copy). A mismatch means the desktop app and its web UI would
+/// dial different servers after a domain switch, so the build refuses it.
+fn verify_cloud_domain_in_sync() {
+  use std::fs;
+  use std::path::PathBuf;
+
+  let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+  let rust_src = fs::read_to_string(PathBuf::from(&manifest_dir).join("src/cloud_domain.rs"))
+    .expect("read src/cloud_domain.rs");
+  let rust_host = rust_src
+    .split("macro_rules! cloud_host")
+    .nth(1)
+    .and_then(|rest| rest.split('"').nth(1))
+    .filter(|h| !h.is_empty())
+    .expect("cloud_host!() must carry the cloud domain string")
+    .to_string();
+
+  let ts_path = PathBuf::from(&manifest_dir).join("../src/lib/cloud-config.ts");
+  println!("cargo:rerun-if-changed={}", ts_path.display());
+  println!("cargo:rerun-if-changed=src/cloud_domain.rs");
+  let ts = fs::read_to_string(&ts_path).expect("read src/lib/cloud-config.ts");
+  let ts_host = ts
+    .split("CLOUD_DOMAIN = \"")
+    .nth(1)
+    .and_then(|rest| rest.split('"').next())
+    .filter(|h| !h.is_empty())
+    .expect("cloud-config.ts must define CLOUD_DOMAIN = \"...\"");
+
+  assert_eq!(
+    rust_host, ts_host,
+    "cloud domain drift: cloud_domain.rs has {:?} but cloud-config.ts has {:?} — set both to the same domain",
+    rust_host, ts_host
+  );
 }
 
 fn external_binaries_exist() -> bool {

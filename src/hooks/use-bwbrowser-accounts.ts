@@ -50,6 +50,8 @@ export interface BwbrowserAccount {
   account_nickname?: string;
 
   backup_email?: string;
+  // 套餐启动配额：false = 超出套餐配额，启动浏览器按钮置灰
+  launch_allowed?: boolean;
 }
 
 export interface PlatformStat {

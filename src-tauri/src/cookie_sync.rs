@@ -28,6 +28,12 @@ pub fn platform_domains(platform: &str) -> Vec<&'static str> {
     "tiktok" | "tk" | "tiktok us" => {
       vec!["tiktok.com", "tiktokcdn.com", "tiktokv.com", "musical.ly"]
     }
+    "tiktok_drama" | "tiktok短剧" => vec![
+      "tiktokdramacenter.com",
+      "tiktok.com",
+      "tiktokcdn.com",
+      "tiktokv.com",
+    ],
     "youtube" | "yt" => vec![
       "youtube.com",
       "google.com",
@@ -444,6 +450,14 @@ pub fn has_login_cookies(browser_cookies: &[Value], platform: &str) -> bool {
       "uid_tt",
       "passport_csrf_token",
       "ttwid",
+    ],
+    "tiktok_drama" | "tiktok短剧" => &[
+      // TikTok SSO 家族（短剧中心复用 TikTok 登录态时命中）；
+      // 未命中时健康检查按 loose 域 cookie 判定兜底
+      "sessionid",
+      "sessionid_ss",
+      "sid_tt",
+      "uid_tt",
     ],
     "toutiao" | "头条" | "今日头条" | "tt" => &[
       "sessionid",
