@@ -1,4 +1,4 @@
-﻿name: Rolling Release
+name: Rolling Release
 
 on:
   push:
@@ -117,9 +117,10 @@ jobs:
           cache: "pnpm"
 
       - name: Setup Rust
+        # 2026-10-16 分发的 nightly 包损坏（缺 unwind/proc_macro rlib），钉到验证正常的版本
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 #master
         with:
-          toolchain: nightly
+          toolchain: nightly-2026-10-15
           targets: ${{ matrix.target }}
 
       - name: Install dependencies (Ubuntu only)
