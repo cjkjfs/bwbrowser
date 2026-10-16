@@ -2,7 +2,7 @@
   "name": "bwbrowser",
   "private": true,
   "license": "AGPL-3.0",
-  "version": "2.5.4",
+  "version": "2.5.5",
   "type": "module",
   "scripts": {
     "predev": "pnpm licenses:generate",
@@ -74,7 +74,7 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.14.10",
-    "@tauri-apps/api": "~2.11.1",
+    "@tauri-apps/api": "~2.12.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-deep-link": "^2.4.9",
     "@tauri-apps/plugin-dialog": "^2.7.2",
@@ -108,7 +108,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.10",
     "@tailwindcss/postcss": "^4.3.3",
-    "@tauri-apps/cli": "~2.11.4",
+    "@tauri-apps/cli": "~2.12.0",
     "@types/canvas-confetti": "^1.9.0",
     "@types/color": "^4.2.1",
     "@types/node": "^26.3.0",
