@@ -36,11 +36,12 @@ jobs:
           cache: "pnpm"
 
       - name: Setup Rust
-        # nightly 浮动引用：2026-10-16 当天分发的 nightly 包损坏（缺 unwind/proc_macro rlib，
-        # 三平台编译全挂），钉到本地已验证正常的版本，上游恢复后可解除
+        # nightly 浮动引用：2026-10-16 当天分发的 nightly 构建损坏（缺 unwind/proc_macro
+        # rlib，三平台编译全挂）。钉到本地已完整验证（fmt+check+release build）的构建，
+        # 上游恢复后可解除
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 #master
         with:
-          toolchain: nightly-2026-10-15
+          toolchain: nightly-2026-10-16
           targets: ${{ matrix.target }}
 
       - name: Install frontend dependencies

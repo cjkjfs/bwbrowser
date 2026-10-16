@@ -57,8 +57,9 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 #master
         with:
-          # 2026-10-16 分发的 nightly 包损坏（缺 unwind/proc_macro rlib），钉到验证正常的版本
-          toolchain: nightly-2026-10-15
+          # 2026-10-16 分发的 nightly 构建损坏；钉到本地完整验证过的构建
+          # （相邻 nightly 的 rustfmt 规则有差异，日期化存档比 channel 晚一天）
+          toolchain: nightly-2026-10-16
           components: rustfmt, clippy
 
       - name: Install cargo-audit

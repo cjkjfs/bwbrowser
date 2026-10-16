@@ -117,10 +117,11 @@ jobs:
           cache: "pnpm"
 
       - name: Setup Rust
-        # 2026-10-16 分发的 nightly 包损坏（缺 unwind/proc_macro rlib），钉到验证正常的版本
+        # 2026-10-16 分发的 nightly 构建损坏（缺 unwind/proc_macro rlib），
+        # 钉到本地完整验证过的构建（注意：日期化存档比 channel 晚一天）
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 #master
         with:
-          toolchain: nightly-2026-10-15
+          toolchain: nightly-2026-10-16
           targets: ${{ matrix.target }}
 
       - name: Install dependencies (Ubuntu only)
