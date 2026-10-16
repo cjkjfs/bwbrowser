@@ -993,7 +993,8 @@ export function BwbrowserCloudAccountsDialog({
         const envs = await invoke<
           { env_uuid: string; name: string; browser_type: string }[]
         >("bwbrowser_list_envs", {
-          companyId: selectedCompanyId ? selectedCompanyId : null,
+          // 环境按账号自己的公司查，页面公司筛选为空（超管默认查自己公司）时不至于查错
+          companyId: account.company_id ?? selectedCompanyId ?? null,
         });
         setCloudEnvs(envs || []);
       } catch (e) {
@@ -1028,30 +1029,28 @@ export function BwbrowserCloudAccountsDialog({
   }, [envDialogAccount, selectedEnvUuid, refresh]);
 
   // 环境列下拉：编辑该账号已绑定的环境
-  const handleEditBoundEnv = useCallback(
-    async (account: BwbrowserAccount) => {
-      const envUuid = account.env_uuid;
-      if (!envUuid) return;
-      try {
-        const envs = await invoke<BwbrowserEnvironment[]>(
-          "bwbrowser_list_envs",
-          { companyId: selectedCompanyId ? selectedCompanyId : null },
-        );
-        const target = (envs || []).find((env) => env.env_uuid === envUuid);
-        if (!target) {
-          showErrorToast("未找到该环境，可能已被删除");
-          return;
-        }
-        setBoundEnvTarget(target);
-        setBoundEnvFormOpen(true);
-      } catch (e) {
-        showErrorToast(
-          `加载环境失败: ${e instanceof Error ? e.message : String(e)}`,
-        );
-      }
-    },
-    [selectedCompanyId],
-  );
+  const handleEditBoundEnv = useCallback(async (account: BwbrowserAccount) => {
+    const envUuid = account.env_uuid;
+    if (!envUuid) return;
+    try {
+      // 按 uuid 直查环境（服务端不按公司过滤）。拉列表遍历会因公司过滤偏差
+      // 误报"未找到该环境"——绑定关系本身就是 uuid，不存在列表匹配问题。
+      const env = await invoke<
+        Omit<BwbrowserEnvironment, "id" | "is_cloud_managed">
+      >("bwbrowser_get_env", { envUuid });
+      const target: BwbrowserEnvironment = {
+        ...env,
+        id: `bwbrowser_env_${envUuid}`,
+        is_cloud_managed: true,
+      };
+      setBoundEnvTarget(target);
+      setBoundEnvFormOpen(true);
+    } catch (e) {
+      showErrorToast(
+        `加载环境失败: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }, []);
 
   // 环境列下拉：删除该账号已绑定的环境，并解绑该账号
   const handleDeleteBoundEnv = useCallback(

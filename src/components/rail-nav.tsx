@@ -1,6 +1,7 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
+import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -22,6 +23,7 @@ import {
   LuTrash2,
   LuUser,
   LuUsers,
+  LuWrench,
   LuX,
 } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
@@ -268,7 +270,7 @@ function ActiveIndicator() {
       initial={false}
       layoutId={animate ? "rail-indicator" : undefined}
       transition={animate ? MOTION_SPRING_POSITION : { duration: 0 }}
-      className="absolute inset-y-1.5 left-[-7px] w-[2px] rounded-full bg-foreground"
+      className="absolute inset-y-2 left-[-8px] w-[3px] rounded-full bg-gradient-to-b from-primary via-primary/70 to-primary/30 shadow-[0_0_10px_-1px_var(--primary)]"
     />
   );
 }
@@ -571,6 +573,39 @@ export function RailNav({
       });
   }, []);
 
+  // 一键修复：删除本地数据 + 服务器 Cookie（与云端账号一键修复相同，无法登录时使用）
+  const handleRepairVps = useCallback(async () => {
+    // WebView2 会吞掉原生 confirm()，必须用 plugin-dialog 的原生对话框
+    const ok = await dialogConfirm(
+      `确定一键修复爆文库吗？\n\n` +
+        `将执行以下操作：\n` +
+        `1. 删除本机的浏览数据（Cookie、缓存、登录状态）\n` +
+        `2. 删除云端保存的爆文库 Cookie\n\n` +
+        `适用于无法登录的情况。修复后请重新打开爆文库，会打开全新的登录页面，需要重新登录一次账号。`,
+      {
+        kind: "warning",
+        title: "一键修复",
+        okLabel: "确定修复",
+        cancelLabel: "取消",
+      },
+    ).catch(() => false);
+    if (!ok) return;
+    try {
+      await invoke("bwbrowser_delete_vps_data", { ignoreMissing: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showErrorToast(`删除本地数据失败: ${msg}`);
+      return;
+    }
+    try {
+      await invoke("bwbrowser_update_bwbrowser_cookies", { cookies: "" });
+      showSuccessToast("修复完成：本地数据与云端 Cookie 已清除");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showErrorToast(`本地数据已清除，但删除云端 Cookie 失败: ${msg}`);
+    }
+  }, []);
+
   const [cookieInfoDialogOpen, setCookieInfoDialogOpen] = useState(false);
   const [cookieInfo, setCookieInfo] = useState<{
     count: number;
@@ -702,7 +737,7 @@ export function RailNav({
             <button
               ref={vpsMenuTriggerRef}
               type="button"
-              className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
+              className="group flex w-full items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
               onClick={handleVpsLogoLeftClick}
               onContextMenu={handleVpsLogoContextMenu}
               title="左键打开爆文库，右键设置代理"
@@ -744,8 +779,8 @@ export function RailNav({
                   </span>
                 </span>
               </span>
-              <span className="text-sm font-semibold text-foreground">
-                爆文浏览器
+              <span className="bg-gradient-to-r from-primary via-foreground to-primary bg-clip-text text-[15px] font-bold text-transparent transition-all duration-300 group-hover:drop-shadow-[0_0_6px_var(--primary)]">
+                打开爆文库
               </span>
               {vpsLaunchProgress !== null && (
                 <span className="ml-auto flex items-center gap-1.5">
@@ -769,37 +804,62 @@ export function RailNav({
         <div className="my-1 mx-3 h-px shrink-0 bg-border" />
 
         <div className="flex min-h-0 w-full flex-1 flex-col gap-1 overflow-y-auto px-2 scrollbar-none [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-          {visibleTopItems.map(({ page, Icon, labelKey }) => {
+          {visibleTopItems.map(({ page, Icon, labelKey }, index) => {
             const active = currentPage === page;
             return (
               <Tooltip key={page} delayDuration={300}>
                 <TooltipTrigger asChild>
-                  <button
+                  <motion.button
                     type="button"
+                    initial={playfulMotion ? { opacity: 0, x: -10 } : false}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={
+                      playfulMotion
+                        ? {
+                            delay: index * 0.035,
+                            type: "spring",
+                            stiffness: 400,
+                            damping: 30,
+                          }
+                        : { duration: 0 }
+                    }
                     onClick={() => {
                       onNavigate(page);
                     }}
                     aria-label={t(labelKey)}
                     aria-current={active ? "page" : undefined}
                     className={cn(
-                      "relative flex w-full items-center gap-3 rounded-md px-2 py-2 transition-colors duration-100",
+                      "group relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2.5 transition-all duration-200",
                       active
-                        ? "bg-accent text-accent-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                        ? "bg-gradient-to-r from-blue-500/25 via-blue-500/10 to-transparent text-foreground"
+                        : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                     )}
                   >
                     {active && <ActiveIndicator />}
-                    <Icon className="size-4 shrink-0" />
-                    <span className="truncate text-sm font-medium">
+                    <Icon
+                      className={cn(
+                        "size-[18px] shrink-0 transition-transform duration-200 group-hover:scale-110 group-active:scale-95",
+                        active &&
+                          "text-primary drop-shadow-[0_0_5px_var(--primary)]",
+                      )}
+                    />
+                    <span
+                      key={active ? "on" : "off"}
+                      className={cn(
+                        "truncate text-[15px] font-semibold tracking-wide",
+                        active &&
+                          "animate-rail-text-pop bg-gradient-to-r from-primary to-foreground bg-clip-text text-transparent",
+                      )}
+                    >
                       {RAIL_LABELS_ZH[page]}
                     </span>
                     {page === "cookieBot" && cookieBotRunning && (
                       <span
                         aria-hidden="true"
-                        className="ml-auto size-2 shrink-0 rounded-full bg-success"
+                        className="ml-auto size-2 shrink-0 rounded-full bg-success shadow-[0_0_6px_var(--success)]"
                       />
                     )}
-                  </button>
+                  </motion.button>
                 </TooltipTrigger>
                 <TooltipContent side="right">
                   {page === "cookieBot" && cookieBotRunning
@@ -823,15 +883,30 @@ export function RailNav({
                 aria-label={t("rail.settings")}
                 aria-current={currentPage === "settings" ? "page" : undefined}
                 className={cn(
-                  "relative flex w-full items-center gap-3 rounded-md px-2 py-2 transition-colors duration-100",
+                  "group relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2.5 transition-all duration-200",
                   currentPage === "settings"
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    ? "bg-gradient-to-r from-blue-500/25 via-blue-500/10 to-transparent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                 )}
               >
                 {currentPage === "settings" && <ActiveIndicator />}
-                <GoGear className="size-4 shrink-0" />
-                <span className="truncate text-sm font-medium">系统设置</span>
+                <GoGear
+                  className={cn(
+                    "size-[18px] shrink-0 transition-transform duration-200 group-hover:scale-110 group-active:scale-95",
+                    currentPage === "settings" &&
+                      "text-primary drop-shadow-[0_0_5px_var(--primary)]",
+                  )}
+                />
+                <span
+                  key={currentPage === "settings" ? "on" : "off"}
+                  className={cn(
+                    "truncate text-[15px] font-semibold tracking-wide",
+                    currentPage === "settings" &&
+                      "animate-rail-text-pop bg-gradient-to-r from-primary to-foreground bg-clip-text text-transparent",
+                  )}
+                >
+                  系统设置
+                </span>
                 {appVersion && (
                   <span
                     className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground/70"
@@ -943,6 +1018,18 @@ export function RailNav({
                 </div>
               )}
             </div>
+            <div className="my-1 h-px bg-border" />
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
+              onClick={() => {
+                setVpsContextMenuOpen(false);
+                void handleRepairVps();
+              }}
+            >
+              <LuWrench className="h-3.5 w-3.5" />
+              一键修复
+            </button>
           </div>,
           document.body,
         )}

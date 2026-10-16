@@ -191,6 +191,9 @@ mod imp {
       (0, 0)
     }
   }
+
+  /// Windows 捕获整块虚拟屏幕，坐标系不随选择变化，无需处理
+  pub fn set_active_display(_origin_x: f64, _origin_y: f64, _scale: f64) {}
 }
 
 #[cfg(target_os = "macos")]
@@ -208,17 +211,20 @@ mod imp {
   /// 而协议里拖动只是 MouseDown + MouseMove，所以这里记住按键状态。
   static PRESSED: Mutex<Option<CGMouseButton>> = Mutex::new(None);
 
-  /// 截图是像素分辨率（Retina 通常 2x），CGEvent 坐标是逻辑点，
-  /// 二者比例即主屏的 backing scale。
-  fn display_scale() -> f64 {
-    let d = CGDisplay::main();
-    let px = d.pixels_wide() as f64;
-    let pt = d.bounds().size.width;
-    if pt > 0.0 {
-      px / pt
-    } else {
-      1.0
+  /// 当前捕获的显示器：(全局原点 x, 全局原点 y, 像素/逻辑点比)。
+  /// CGEvent 坐标是逻辑点、以主屏左上角为原点；截图是像素分辨率，
+  /// 控制端发来的坐标相对当前画面左上角，需要加上该屏的全局原点。
+  static ACTIVE_DISPLAY: Mutex<(f64, f64, f64)> = Mutex::new((0.0, 0.0, 1.0));
+
+  /// 切屏后由 relay 调用，让鼠标/键盘坐标对准当前捕获的屏幕
+  pub fn set_active_display(origin_x: f64, origin_y: f64, scale: f64) {
+    if let Ok(mut g) = ACTIVE_DISPLAY.lock() {
+      *g = (origin_x, origin_y, scale);
     }
+  }
+
+  fn active_display() -> (f64, f64, f64) {
+    ACTIVE_DISPLAY.lock().map(|g| *g).unwrap_or((0.0, 0.0, 1.0))
   }
 
   fn source() -> Option<CGEventSource> {
@@ -364,15 +370,15 @@ mod imp {
   }
 
   pub fn mouse_move(x: i32, y: i32) {
-    let s = display_scale();
-    move_to(CGPoint::new(x as f64 / s, y as f64 / s));
+    let (ox, oy, s) = active_display();
+    move_to(CGPoint::new(ox + x as f64 / s, oy + y as f64 / s));
   }
 
   pub fn mouse_move_relative(dx: i32, dy: i32) {
     if dx == 0 && dy == 0 {
       return;
     }
-    let s = display_scale();
+    let s = active_display().2;
     let cur = current_point();
     move_to(CGPoint::new(cur.x + dx as f64 / s, cur.y + dy as f64 / s));
   }
@@ -433,9 +439,12 @@ mod imp {
   }
 
   pub fn cursor_pos() -> (i32, i32) {
-    let s = display_scale();
+    let (ox, oy, s) = active_display();
     let p = current_point();
-    ((p.x * s).round() as i32, (p.y * s).round() as i32)
+    (
+      ((p.x - ox) * s).round() as i32,
+      ((p.y - oy) * s).round() as i32,
+    )
   }
 }
 
@@ -450,8 +459,10 @@ mod imp {
   pub fn cursor_pos() -> (i32, i32) {
     (0, 0)
   }
+  pub fn set_active_display(_origin_x: f64, _origin_y: f64, _scale: f64) {}
 }
 
 pub use imp::{
-  cursor_pos, key_event, mouse_button, mouse_move, mouse_move_relative, mouse_scroll, type_text,
+  cursor_pos, key_event, mouse_button, mouse_move, mouse_move_relative, mouse_scroll,
+  set_active_display, type_text,
 };

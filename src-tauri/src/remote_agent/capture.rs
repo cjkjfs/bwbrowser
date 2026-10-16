@@ -107,6 +107,41 @@ mod imp {
     (w.max(0) as u32, h.max(0) as u32)
   }
 
+  /// 单个可切换显示器的几何信息（origin 为该平台输入坐标系下的位置）
+  pub struct DisplayInfo {
+    pub width: u32,
+    pub height: u32,
+    pub origin_x: f64,
+    pub origin_y: f64,
+    pub scale: f64,
+  }
+
+  /// Windows 端始终捕获整块虚拟屏幕（含全部显示器），等效于单一显示器
+  pub fn display_count() -> usize {
+    1
+  }
+
+  pub fn display_info(index: usize) -> Option<DisplayInfo> {
+    if index != 0 {
+      return None;
+    }
+    let (w, h) = screen_size();
+    if w == 0 || h == 0 {
+      return None;
+    }
+    Some(DisplayInfo {
+      width: w,
+      height: h,
+      origin_x: 0.0,
+      origin_y: 0.0,
+      scale: 1.0,
+    })
+  }
+
+  pub fn capture_screen_monitor(_index: usize) -> Result<Frame, String> {
+    capture_screen()
+  }
+
   /// 捕获整个虚拟屏幕（含多显示器），合成当前光标
   pub fn capture_screen() -> Result<Frame, String> {
     let vx = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
@@ -291,6 +326,7 @@ mod imp {
 #[cfg(target_os = "macos")]
 mod imp {
   use core_graphics::display::CGDisplay;
+  use core_graphics::image::CGImage;
 
   /// 一帧 BGRA 像素（top-down 行序）
   pub struct Frame {
@@ -299,23 +335,44 @@ mod imp {
     pub bgra: Vec<u8>,
   }
 
+  /// 单个可切换显示器的几何信息（origin 为 CGEvent 全局坐标系下
+  /// 该屏左上角的位置，主屏左上角为原点）
+  pub struct DisplayInfo {
+    pub width: u32,
+    pub height: u32,
+    pub origin_x: f64,
+    pub origin_y: f64,
+    pub scale: f64,
+  }
+
   /// 主显示器尺寸，不截图。供 /discover 免密上报。
   pub fn screen_size() -> (u32, u32) {
     let d = CGDisplay::main();
     (d.pixels_wide() as u32, d.pixels_high() as u32)
   }
 
-  /// 捕获主显示器（CGDisplayCreateImage，像素分辨率）。
-  ///
-  /// 两点与 Windows 端的差异：
-  /// - macOS 没有公开 API 能在截图里合成系统光标，故本帧不含光标；
-  /// - 只捕获主屏。CGEvent 的鼠标坐标以主屏左上角为原点、单位为逻辑点，
-  ///   主屏截图原点与之天然对齐，多屏时的换算见 input 模块的 display_scale。
-  pub fn capture_screen() -> Result<Frame, String> {
-    let image = CGDisplay::main()
-      .image()
-      .ok_or_else(|| "截屏失败（请确认已授予屏幕录制权限）".to_string())?;
+  /// 在线（active）显示器数
+  pub fn display_count() -> usize {
+    CGDisplay::active_displays().map(|v| v.len()).unwrap_or(1)
+  }
 
+  pub fn display_info(index: usize) -> Option<DisplayInfo> {
+    let id = *CGDisplay::active_displays().ok()?.get(index)?;
+    let d = CGDisplay::new(id);
+    let bounds = d.bounds();
+    let pt_w = bounds.size.width;
+    let px_w = d.pixels_wide() as f64;
+    Some(DisplayInfo {
+      width: d.pixels_wide() as u32,
+      height: d.pixels_high() as u32,
+      origin_x: bounds.origin.x,
+      origin_y: bounds.origin.y,
+      scale: if pt_w > 0.0 { px_w / pt_w } else { 1.0 },
+    })
+  }
+
+  /// CGImage → top-down BGRA 帧
+  fn frame_from_cgimage(image: CGImage) -> Result<Frame, String> {
     if image.bits_per_pixel() != 32 || image.bits_per_component() != 8 {
       return Err(format!(
         "不支持的屏幕像素格式: {}bpp/{}bpc",
@@ -347,6 +404,26 @@ mod imp {
       bgra,
     })
   }
+
+  /// 捕获指定显示器（CGDisplayCreateImage，像素分辨率）。
+  ///
+  /// 两点与 Windows 端的差异：
+  /// - macOS 没有公开 API 能在截图里合成系统光标，故本帧不含光标；
+  /// - CGEvent 的鼠标坐标以主屏左上角为原点、单位为逻辑点，
+  ///   非主屏截图需配合 input 模块的 set_active_display 换算。
+  pub fn capture_screen_monitor(index: usize) -> Result<Frame, String> {
+    let id = match CGDisplay::active_displays()
+      .ok()
+      .and_then(|v| v.get(index).copied())
+    {
+      Some(id) => id,
+      None => CGDisplay::main().id,
+    };
+    let image = CGDisplay::new(id)
+      .image()
+      .ok_or_else(|| "截屏失败（请确认已授予屏幕录制权限）".to_string())?;
+    frame_from_cgimage(image)
+  }
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
@@ -357,13 +434,33 @@ mod imp {
     pub bgra: Vec<u8>,
   }
 
+  pub struct DisplayInfo {
+    pub width: u32,
+    pub height: u32,
+    pub origin_x: f64,
+    pub origin_y: f64,
+    pub scale: f64,
+  }
+
   pub fn screen_size() -> (u32, u32) {
     (0, 0)
+  }
+
+  pub fn display_count() -> usize {
+    0
+  }
+
+  pub fn display_info(_index: usize) -> Option<DisplayInfo> {
+    None
   }
 
   pub fn capture_screen() -> Result<Frame, String> {
     Err("仅支持 Windows / macOS".to_string())
   }
+
+  pub fn capture_screen_monitor(_index: usize) -> Result<Frame, String> {
+    capture_screen()
+  }
 }
 
-pub use imp::{capture_screen, screen_size};
+pub use imp::{capture_screen_monitor, display_count, display_info, screen_size};

@@ -104,6 +104,9 @@ interface BwbrowserEnvManagementDialogProps {
 
 type ViewType = "all" | "opened" | "trash";
 
+/** 环境列表默认每页条数 */
+const PAGE_SIZE = 15;
+
 const BROWSER_TYPES = [
   { value: "chromium", label: "Chromium" },
   { value: "chrome", label: "Chrome" },
@@ -133,35 +136,23 @@ function storedOs(fc: unknown): string {
   return typeof os === "string" && os ? os : "auto";
 }
 
-/**
- * 生成新的 fingerprint_config：设置所选系统并清空旧指纹/身份。
- * 旧指纹与身份按旧系统生成，跨系统必须重置，下次启动按新系统重新生成，
- * 否则浏览器拒绝「跨系统指纹」（免费套餐）。
- */
-function buildFingerprintConfig(fc: unknown, nextOs: string): string {
-  let obj: Record<string, unknown> = {};
-  if (fc != null) {
-    let v: unknown = fc;
-    if (typeof v === "string") {
-      try {
-        v = JSON.parse(v);
-      } catch {
-        v = {};
-      }
+/** fingerprint_config 统一解析为对象（可能是对象或 JSON 字符串） */
+function parseFc(fc: unknown): Record<string, unknown> {
+  let v: unknown = fc;
+  if (typeof v === "string") {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      return {};
     }
-    if (v && typeof v === "object") obj = { ...(v as Record<string, unknown>) };
   }
-  if (nextOs === "auto") delete obj.os;
-  else obj.os = nextOs;
-  delete obj.fingerprint;
-  delete obj.identity_id;
-  return JSON.stringify(obj);
+  return v && typeof v === "object"
+    ? { ...(v as Record<string, unknown>) }
+    : {};
 }
 
-const PAGE_SIZE = 26;
-
 // ============================================================
-// 工具函数
+// 环境表单对话框（创建/编辑）
 // ============================================================
 
 function formatDateTime(dateStr?: string): string {
@@ -204,6 +195,10 @@ export function EnvFormDialog({
   const [remark, setRemark] = useState("");
   const [status, setStatus] = useState("ready");
   const [osChoice, setOsChoice] = useState("auto");
+  // 指纹声明：值 "ip" 或留空 = 跟随出口 IP；填具体值则覆盖
+  const [fpTimezone, setFpTimezone] = useState("");
+  const [fpLanguage, setFpLanguage] = useState("");
+  const [fpInterfaceLanguage, setFpInterfaceLanguage] = useState("");
 
   useEffect(() => {
     if (!isOpen) return;
@@ -214,6 +209,14 @@ export function EnvFormDialog({
       setRemark(editingEnv.remark || "");
       setStatus(editingEnv.status);
       setOsChoice(storedOs(editingEnv.fingerprint_config));
+      const fc = parseFc(editingEnv.fingerprint_config);
+      const pick = (key: string) =>
+        typeof fc[key] === "string" && fc[key] !== "ip"
+          ? (fc[key] as string)
+          : "";
+      setFpTimezone(pick("timezone"));
+      setFpLanguage(pick("language"));
+      setFpInterfaceLanguage(pick("interfaceLanguage"));
     } else {
       setName("");
       setBrowserType("chromium");
@@ -221,6 +224,9 @@ export function EnvFormDialog({
       setRemark("");
       setStatus("ready");
       setOsChoice("auto");
+      setFpTimezone("");
+      setFpLanguage("");
+      setFpInterfaceLanguage("");
     }
   }, [editingEnv, isOpen]);
 
@@ -231,31 +237,57 @@ export function EnvFormDialog({
     }
     setIsSaving(true);
     try {
+      // 构建指纹声明：os 逻辑 + 时区/语言覆盖（空 = 跟随出口 IP）
+      const applyFpFields = (obj: Record<string, unknown>) => {
+        if (osChoice === "auto") delete obj.os;
+        else obj.os = osChoice;
+        const t = fpTimezone.trim();
+        const l = fpLanguage.trim();
+        const il = fpInterfaceLanguage.trim();
+        if (t) obj.timezone = t;
+        else delete obj.timezone;
+        if (l) obj.language = l;
+        else delete obj.language;
+        if (il) obj.interfaceLanguage = il;
+        else delete obj.interfaceLanguage;
+        return obj;
+      };
       if (editingEnv) {
         const uuid = extractBwbrowserEnvUuid(editingEnv.id);
         if (!uuid) throw new Error("无效的环境 ID");
         const stored = storedOs(editingEnv.fingerprint_config);
+        const originalFc = parseFc(editingEnv.fingerprint_config);
+        const nextFc = applyFpFields({ ...originalFc });
+        if (osChoice !== stored) {
+          // 旧指纹与身份按旧系统生成，跨系统必须重置，下次启动重新生成
+          delete nextFc.fingerprint;
+          delete nextFc.identity_id;
+        }
+        const changed =
+          JSON.stringify(nextFc) !== JSON.stringify(originalFc) ||
+          osChoice !== stored;
         await updateEnv(uuid, {
           name: name.trim(),
           description: description.trim() || undefined,
           browser_type: browserType,
-          fingerprint_config:
-            osChoice !== stored
-              ? buildFingerprintConfig(editingEnv.fingerprint_config, osChoice)
-              : undefined,
+          fingerprint_config: changed ? JSON.stringify(nextFc) : undefined,
           remark: remark.trim() || undefined,
           status,
         });
         toast.success("环境已更新");
       } else {
+        const hasFpOverride =
+          osChoice !== "auto" ||
+          fpTimezone.trim() ||
+          fpLanguage.trim() ||
+          fpInterfaceLanguage.trim();
         await createEnv({
           name: name.trim(),
           description: description.trim() || undefined,
           browser_type: browserType,
-          fingerprint_config:
-            osChoice !== "auto"
-              ? buildFingerprintConfig(null, osChoice)
-              : undefined,
+          fingerprint_config: hasFpOverride
+            ? JSON.stringify(applyFpFields({}))
+            : undefined,
           remark: remark.trim() || undefined,
           status,
         });
@@ -321,6 +353,50 @@ export function EnvFormDialog({
                 切换系统会重置指纹，下次启动按新系统重新生成；与启动电脑的系统不一致时会被拒绝启动。
               </p>
             </div>
+            <div className="space-y-2">
+              <Label>指纹声明（时区 / 语言）</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <Input
+                  value={fpTimezone}
+                  onChange={(e) => setFpTimezone(e.target.value)}
+                  placeholder="时区，如 Asia/Shanghai"
+                />
+                <Input
+                  value={fpLanguage}
+                  onChange={(e) => setFpLanguage(e.target.value)}
+                  placeholder="语言，如 zh-CN"
+                />
+                <Input
+                  value={fpInterfaceLanguage}
+                  onChange={(e) => setFpInterfaceLanguage(e.target.value)}
+                  placeholder="界面语言，如 zh-CN"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                留空 = 跟随代理出口 IP
+                自动推导；填写具体值则强制覆盖。与出口不匹配时启动会被拦截。
+              </p>
+            </div>
+            {editingEnv?.fingerprint_config != null && (
+              <div className="space-y-2">
+                <Label>当前指纹声明（只读）</Label>
+                <pre className="max-h-40 overflow-auto rounded-md bg-muted/50 p-2 text-xs text-muted-foreground whitespace-pre-wrap break-all">
+                  {JSON.stringify(
+                    typeof editingEnv.fingerprint_config === "string"
+                      ? (() => {
+                          try {
+                            return JSON.parse(editingEnv.fingerprint_config);
+                          } catch {
+                            return editingEnv.fingerprint_config;
+                          }
+                        })()
+                      : editingEnv.fingerprint_config,
+                    null,
+                    2,
+                  )}
+                </pre>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="env-status">状态</Label>
               <Select value={status} onValueChange={setStatus}>

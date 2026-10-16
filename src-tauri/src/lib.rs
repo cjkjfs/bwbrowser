@@ -2701,7 +2701,14 @@ pub fn run_with_builder(
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_macos_permissions::init())
-    .plugin(tauri_plugin_clipboard_manager::init());
+    .plugin(tauri_plugin_clipboard_manager::init())
+    // 开机自启（远程桌面被控端联动注册/注销）。静默参数让开机拉起的实例
+    // 不弹主窗口：登录态还在时 setup 里的 reconcile 会自动恢复被控端。
+    .plugin(
+      tauri_plugin_autostart::Builder::new()
+        .args(["--remote-agent-silent"])
+        .build(),
+    );
 
   #[cfg(not(feature = "e2e"))]
   let builder = builder
@@ -2764,7 +2771,9 @@ pub fn run_with_builder(
       // requestAnimationFrame and stalls animation-gated tests); elsewhere it
       // hides it. Building it hidden here avoids the one-frame flash and the
       // activation that flash causes.
-      let headless = headless_automation();
+      let headless = headless_automation()
+        // 开机自启静默拉起：不弹主窗口，只跑被控端
+        || std::env::args().any(|arg| arg == "--remote-agent-silent");
       if headless {
         log::info!(
           "Headless automation: the main window is created hidden and never focused"
@@ -2849,11 +2858,32 @@ pub fn run_with_builder(
             if QUIT_CONFIRMED.load(Ordering::SeqCst) {
               return;
             }
+            // 远程桌面被控端运行中：关窗口直接藏进托盘而不弹确认，保住被控
+            // 进程。真正的退出在托盘菜单里，退出时被控端随进程结束。
+            if remote_agent::is_running() {
+              api.prevent_close();
+              if let Some(window) = app_handle.get_webview_window("main") {
+                let _ = window.hide();
+              }
+              return;
+            }
             api.prevent_close();
             if let Err(e) = app_handle.emit("close-confirm-requested", ()) {
               log::warn!("Failed to emit close-confirm-requested: {e}");
             }
           }
+        });
+      }
+
+      // 开机自启或普通重启后：磁盘登录态还在就自动恢复被控端（reconcile
+      // 内部会校验云端权限组），随后按被控端状态同步开机自启注册。稍等几秒
+      // 避开启动期的网络竞争。
+      {
+        let handle = app.handle().clone();
+        tauri::async_runtime::spawn(async move {
+          tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+          remote_agent::reconcile().await;
+          remote_agent::sync_autostart(&handle, remote_agent::is_running());
         });
       }
 
@@ -3988,6 +4018,7 @@ pub fn run_with_builder(
       cloud_proxy_manager::cloud_refresh_proxies,
       cloud_proxy_manager::cloud_resolve_proxy,
       bwbrowser_cloud::bwbrowser_list_envs,
+      bwbrowser_cloud::bwbrowser_get_env,
       bwbrowser_cloud::bwbrowser_sync_env,
       bwbrowser_cloud::bwbrowser_delete_env,
       bwbrowser_cloud::bwbrowser_update_account_codes,

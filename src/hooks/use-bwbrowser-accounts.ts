@@ -48,6 +48,8 @@ export interface BwbrowserAccount {
   env_uuid?: string;
   phone_id?: string;
   account_nickname?: string;
+  /** 账号所属公司；环境列表等请求以此为准，而不是页面当前选中的公司 */
+  company_id?: number;
 
   backup_email?: string;
   // 套餐启动配额：false = 超出套餐配额，启动浏览器按钮置灰
@@ -163,20 +165,11 @@ export function useBwbrowserAccounts(
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  // 从 localStorage 读取持久化的筛选条件
-  const [platformFilter, setPlatformFilterState] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("bwbrowser_platform_filter") || "all";
-    }
-    return "all";
-  });
-  const [ownerFilter, setOwnerFilterState] = useState<number | null>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("bwbrowser_owner_filter");
-      return saved ? Number(saved) : null;
-    }
-    return null;
-  });
+  // 平台/归属人筛选只在页面会话内生效：页面组件会因登录框开关等时机重挂，
+  // 持久化的旧筛选会在重挂时突然接管列表（表现为"平台自己变成了别的"），
+  // 还会残留已删除用户的幽灵 owner。每次进入页面回到全部，杜绝静默跳变。
+  const [platformFilter, setPlatformFilterState] = useState("all");
+  const [ownerFilter, setOwnerFilterState] = useState<number | null>(null);
   const [keyword, setKeywordState] = useState("");
   // 服务端排序：点击粉丝量表头时置位，云端 SQL ORDER BY 全量排序
   const [serverSort, setServerSortState] = useState<{
@@ -341,17 +334,11 @@ export function useBwbrowserAccounts(
 
   const setPlatformFilter = useCallback((platform: string) => {
     setPlatformFilterState(platform);
-    localStorage.setItem("bwbrowser_platform_filter", platform);
     setCurrentPage(1);
   }, []);
 
   const setOwnerFilter = useCallback((ownerId: number | null) => {
     setOwnerFilterState(ownerId);
-    if (ownerId === null) {
-      localStorage.removeItem("bwbrowser_owner_filter");
-    } else {
-      localStorage.setItem("bwbrowser_owner_filter", String(ownerId));
-    }
     setCurrentPage(1);
   }, []);
 

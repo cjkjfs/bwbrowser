@@ -24,8 +24,7 @@ pub enum ClientCommand {
     mode: String,
   },
   SetMonitor {
-    #[serde(rename = "monitor")]
-    _monitor: i32,
+    monitor: i32,
   },
   MouseMoveRelative {
     dx: i32,

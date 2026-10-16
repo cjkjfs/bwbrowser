@@ -1427,6 +1427,15 @@ test("offline cloud, update, team-lock, trial, and synchronizer contracts are de
         await app.invokeError("get_remote_hours_quota"),
         notSignedIn,
       );
+      // Editing a bound env resolves it by uuid (bwbrowser_get_env) rather than
+      // walking a company-filtered list, so a signed-out lookup must refuse as
+      // a translatable code instead of pretending the env does not exist.
+      assert.match(
+        await app.invokeError("bwbrowser_get_env", {
+          envUuid: "00000000-0000-0000-0000-000000000000",
+        }),
+        notSignedIn,
+      );
       // The remote-management control side (控制端) rides the same Bwbrowser
       // token: signed out, listing a company's machines and resolving a
       // LAN-first target must refuse as a translatable code rather than reach

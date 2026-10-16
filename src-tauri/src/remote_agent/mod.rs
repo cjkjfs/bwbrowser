@@ -319,12 +319,28 @@ pub(crate) fn current_user() -> String {
 }
 
 /// 当前是否已有被控端任务在跑
-fn is_running() -> bool {
+pub(crate) fn is_running() -> bool {
   AGENT
     .lock()
     .unwrap()
     .as_ref()
-    .is_some_and(|rt| rt.relay_task.is_some() || rt.local_task.is_some())
+    .is_some_and(|rt| rt.status.lock().unwrap().running)
+}
+
+/// 被控端运行状态联动开机自启：远程桌面开着 → 注册开机自启（带
+/// `--remote-agent-silent` 参数静默拉起，程序启动时的 reconcile 会自动恢复
+/// 被控）；关了 → 取消自启。幂等，失败只记日志不阻断登录流程。
+pub fn sync_autostart<R: tauri::Runtime>(app: &tauri::AppHandle<R>, running: bool) {
+  use tauri_plugin_autostart::ManagerExt as _;
+  let autolaunch = app.autolaunch();
+  let result = if running {
+    autolaunch.enable()
+  } else {
+    autolaunch.disable()
+  };
+  if let Err(e) = result {
+    log::warn!("autostart sync failed (running={running}): {e}");
+  }
 }
 
 /// 防刷屏：记住最近一次权限判定 (账号, 是否被拒)，只有状态变化才打日志

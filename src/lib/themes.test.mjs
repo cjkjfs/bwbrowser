@@ -28,9 +28,11 @@ const CONTEXTUAL_ROLES = ["primary", "destructive", "success", "warning"];
 const LIGHT_THEMES = new Set([
   "ayu-light",
   "catppuccin-latte",
+  "coffee",
   "github-light",
   "gruvbox-light",
   "rose-pine-dawn",
+  "sakura",
   "solarized-light",
 ]);
 
@@ -47,7 +49,7 @@ function assertNoContrastFailures(failures) {
 }
 
 test("every theme declares the intended appearance mode", () => {
-  assert.equal(THEMES.length, 20);
+  assert.equal(THEMES.length, 26);
   assert.equal(new Set(THEMES.map((theme) => theme.id)).size, THEMES.length);
   assert.deepEqual(
     THEMES.filter((theme) => theme.mode === "light")

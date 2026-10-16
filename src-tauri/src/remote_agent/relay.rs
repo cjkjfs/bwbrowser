@@ -62,6 +62,8 @@ struct SessionCtx {
   quality: u8,
   fps: u8,
   scale: f32,
+  /// 当前捕获的显示器索引（Windows 恒为 0 = 整块虚拟屏幕）
+  monitor: usize,
   streaming: bool,
   upload: Option<files::Upload>,
   upload_error: Option<String>,
@@ -76,6 +78,7 @@ impl SessionCtx {
       quality: cfg.quality,
       fps: cfg.fps,
       scale: cfg.scale,
+      monitor: 0,
       streaming: false,
       upload: None,
       upload_error: None,
@@ -90,6 +93,10 @@ impl SessionCtx {
         if *password == self.password {
           self.authed = true;
           let (sw, sh) = capture::screen_size();
+          let displays: Vec<serde_json::Value> = (0..capture::display_count())
+            .filter_map(|i| capture::display_info(i).map(|d| (i, d)))
+            .map(|(i, d)| json!({"index": i, "width": d.width, "height": d.height}))
+            .collect();
           replies.push(
             json!({
               "type": "auth_ok",
@@ -100,6 +107,7 @@ impl SessionCtx {
               "scale": self.scale,
               "hostname": hostname(),
               "os": os_name(),
+              "displays": displays,
             })
             .to_string(),
           );
@@ -139,9 +147,38 @@ impl SessionCtx {
         self.control_mode = mode.clone();
         replies.push(json!({"type": "mode_changed", "mode": mode}).to_string());
       }
-      // 多显示器选择：当前捕获整块虚拟屏幕（Windows 含全部显示器）/主屏（macOS），
-      // 不单独切换。接受该指令只为避免未知变体让整条消息解析失败被静默丢弃。
-      ClientCommand::SetMonitor { .. } => {}
+      // 多显示器选择：切到目标屏并让鼠标/键盘坐标对准它（Windows 端
+      // 只有整块虚拟屏幕一块，永远停在 0）
+      ClientCommand::SetMonitor { monitor } => {
+        if !self.authed {
+          replies.push(json!({"type": "error", "message": "Auth required"}).to_string());
+        } else {
+          let count = capture::display_count();
+          let m = if count == 0 {
+            0
+          } else {
+            (*monitor).clamp(0, count as i32 - 1) as usize
+          };
+          self.monitor = m;
+          match capture::display_info(m) {
+            Some(d) => {
+              input::set_active_display(d.origin_x, d.origin_y, d.scale);
+              replies.push(
+                json!({
+                  "type": "monitor_changed",
+                  "monitor": m,
+                  "width": d.width,
+                  "height": d.height
+                })
+                .to_string(),
+              );
+            }
+            None => {
+              replies.push(json!({"type": "monitor_changed", "monitor": m}).to_string());
+            }
+          }
+        }
+      }
       ClientCommand::MouseMoveRelative { dx, dy } => {
         if self.control_mode != "view" {
           input::mouse_move_relative(*dx, *dy);
@@ -267,8 +304,8 @@ impl SessionCtx {
 }
 
 /// 阻塞线程里截屏 + 编码一帧
-fn capture_jpeg_blocking(quality: u8) -> Result<(u32, u32, Vec<u8>), String> {
-  let frame = capture::capture_screen()?;
+fn capture_jpeg_blocking(quality: u8, monitor: usize) -> Result<(u32, u32, Vec<u8>), String> {
+  let frame = capture::capture_screen_monitor(monitor)?;
   let jpeg = encode::bgra_to_jpeg(&frame.bgra, frame.w, frame.h, quality)?;
   Ok((frame.w, frame.h, jpeg))
 }
@@ -281,16 +318,18 @@ where
   S::Error: std::fmt::Display,
 {
   let q = ctx.quality;
-  let (w, h, jpeg) = match tokio::task::spawn_blocking(move || capture_jpeg_blocking(q)).await {
-    Ok(Ok(frame)) => frame,
-    Ok(Err(e)) => return Err(structured("REMOTE_DESKTOP_INTERNAL", e)),
-    Err(e) => {
-      return Err(structured(
-        "REMOTE_DESKTOP_INTERNAL",
-        format!("截屏任务异常: {e}"),
-      ))
-    }
-  };
+  let monitor = ctx.monitor;
+  let (w, h, jpeg) =
+    match tokio::task::spawn_blocking(move || capture_jpeg_blocking(q, monitor)).await {
+      Ok(Ok(frame)) => frame,
+      Ok(Err(e)) => return Err(structured("REMOTE_DESKTOP_INTERNAL", e)),
+      Err(e) => {
+        return Err(structured(
+          "REMOTE_DESKTOP_INTERNAL",
+          format!("截屏任务异常: {e}"),
+        ))
+      }
+    };
   let mut payload = Vec::with_capacity(12 + jpeg.len());
   payload.extend_from_slice(&frame_header(w, h, jpeg.len() as u32));
   payload.extend_from_slice(&jpeg);

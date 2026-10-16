@@ -1,6 +1,6 @@
 [package]
 name = "bwbrowser"
-version = "2.5.1"
+version = "2.5.2"
 description = "Simple Yet Powerful Anti-Detect Browser"
 authors = ["zhom@github"]
 edition = "2021"
@@ -44,6 +44,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-macos-permissions = "2"
 tauri-plugin-log = "2"
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-autostart = "2"
 tauri-plugin-window-state = "2"
 log = "0.4"
 env_logger = "0.11"

@@ -319,6 +319,7 @@ export const commandCoverage = {
       "bwbrowser_cloud::bwbrowser_sync_proxy",
       "bwbrowser_cloud::bwbrowser_delete_proxy",
       "bwbrowser_cloud::bwbrowser_list_envs",
+      "bwbrowser_cloud::bwbrowser_get_env",
       "bwbrowser_cloud::bwbrowser_sync_env",
       "bwbrowser_cloud::bwbrowser_delete_env",
       "bwbrowser_cloud::bwbrowser_get_permissions",

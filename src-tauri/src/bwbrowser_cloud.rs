@@ -411,6 +411,8 @@ impl BwbrowserAuthManager {
 
     // 被控端无 UI 开关：登录后按云端权限组（users.php allow_remote_desktop）自动启停
     let _ = crate::remote_agent::reconcile().await;
+    // 被控端开着就注册开机自启（静默拉起），关了就取消
+    crate::remote_agent::sync_autostart(app, crate::remote_agent::is_running());
 
     Ok(CloudAuthState {
       user: cloud_user,
@@ -487,8 +489,9 @@ impl BwbrowserAuthManager {
     self.invalidate_all_cache();
     Self::clear_auth_state_from_disk();
     let _ = app.emit("cloud-auth-changed", ());
-    // 登出即停被控端
+    // 登出即停被控端，并取消开机自启
     let _ = crate::remote_agent::reconcile().await;
+    crate::remote_agent::sync_autostart(app, crate::remote_agent::is_running());
   }
 
   /// 刷新用户信息
@@ -1135,7 +1138,8 @@ pub async fn bwbrowser_open_vps_login(
 
   emit_progress(100, "爆文库已启动");
 
-  // 后台任务：注入云端 cookie + 关闭时回传 cookie
+  // 后台任务：等浏览器关闭后回传书签。爆文库登录态由 auto_login 自动建立，
+  // 不检测/注入/回传 yacm.xin 的 cookie。
   tokio::spawn(async move {
     // 重新加载最新的 profile（启动后 process_id 才写入，旧 profile 里没有）
     let pm = crate::profile::manager::ProfileManager::instance();
@@ -1143,22 +1147,22 @@ pub async fn bwbrowser_open_vps_login(
       Ok(list) => match list.into_iter().find(|p| p.id == profile.id) {
         Some(p) => p,
         None => {
-          log_bwbrowser_error("vps_cookie_sync", "找不到 VPS 登录 profile，退出同步");
+          log_bwbrowser_error("vps_bookmark_sync", "找不到 VPS 登录 profile，退出同步");
           return;
         }
       },
       Err(e) => {
-        log_bwbrowser_error("vps_cookie_sync", &format!("加载 profile 失败: {}", e));
+        log_bwbrowser_error("vps_bookmark_sync", &format!("加载 profile 失败: {}", e));
         return;
       }
     };
     log_bwbrowser(
-      "vps_cookie_sync",
+      "vps_bookmark_sync",
       &format!("已加载最新 profile: process_id={:?}", profile.process_id),
     );
 
-    // ---- 阶段 1: 检查本地 cookie 数量，决定是否注入云端 cookie ----
-    // 以本地为准：只有本地 cookie 很少（<5个）或没有时，才从云端注入
+    // ---- 阶段 1: 本地 cookie 很少（<5个）时从云端注入 ----
+    // 以本地为准：本地 cookie 充足就跳过注入。
     // 浏览器刚启动 CDP 可能没就绪，重试几次
     let mut local_cookie_count = 0;
     for attempt in 1..=10 {
@@ -1195,18 +1199,8 @@ pub async fn bwbrowser_open_vps_login(
       &format!("本地 cookie 数量: {}", local_cookie_count),
     );
 
-    let should_inject_cloud = if local_cookie_count < 5 {
+    if local_cookie_count < 5 {
       log_bwbrowser("vps_cookie_sync", "本地 cookie 很少，尝试从云端拉取");
-      true
-    } else {
-      log_bwbrowser(
-        "vps_cookie_sync",
-        "本地 cookie 充足，跳过云端注入（以本地为准）",
-      );
-      false
-    };
-
-    let _cloud_has_cookies = if should_inject_cloud {
       match BWBROWSER_AUTH.get_bwbrowser_cookies().await {
         Ok(Some(cookie_str)) if !cookie_str.is_empty() && cookie_str != "null" => {
           log_bwbrowser(
@@ -1231,46 +1225,55 @@ pub async fn bwbrowser_open_vps_login(
               log_bwbrowser_error("vps_cookie_sync", &format!("解析云端 cookie 失败: {}", e));
             }
           }
-          true
         }
-        Ok(None) => {
+        Ok(_) => {
           log_bwbrowser("vps_cookie_sync", "云端无 cookie");
-          false
-        }
-        Ok(Some(_)) => {
-          log_bwbrowser("vps_cookie_sync", "云端 cookie 为空");
-          false
         }
         Err(e) => {
           log_bwbrowser_error("vps_cookie_sync", &format!("拉取云端 cookie 失败: {}", e));
-          false
         }
       }
     } else {
-      false
-    };
+      log_bwbrowser(
+        "vps_cookie_sync",
+        "本地 cookie 充足，跳过云端注入（以本地为准）",
+      );
+    }
 
-    // ---- 阶段 1.5: 等待并确认登录，确认登录后才回传 cookie ----
-    // 取消"关闭浏览器即回传"。未确认登录前一律不回传，避免本机未登录的
-    // cookie 覆盖云端完好的会话。每 3 秒探测一次登录状态：
-    // 确认已登录 → 上传并停止；未登录 → 持续探测，最多 300 秒；
-    // 浏览器关闭或超时 → 停止（不回传 cookie，仅按需补传书签）。
-    const LOGIN_WAIT_SECONDS: u64 = 300;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(LOGIN_WAIT_SECONDS);
+    // 运行期间持续回传 cookie（内容变化才上传）；不做登录页判定
+    let mut last_uploaded = String::new();
 
     loop {
       tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
-      // 浏览器已关闭：不回传 cookie，仅补传书签后停止
+      // 浏览器运行中：cookie 有变化就回传云端（跳过登录页判定）
+      match crate::cookie_sync::export_cookies_via_cdp(&profile).await {
+        Ok(s) if !s.is_empty() && s != "[]" && s != last_uploaded => {
+          log_bwbrowser(
+            "vps_cookie_sync",
+            &format!("CDP 导出 cookie: {} 字节，回传云端", s.len()),
+          );
+          match BWBROWSER_AUTH.update_bwbrowser_cookies(&s).await {
+            Ok(_) => {
+              last_uploaded = s;
+              log_bwbrowser("vps_cookie_sync", "✓ cookie 已同步到云端");
+            }
+            Err(e) => {
+              log_bwbrowser_error("vps_cookie_sync", &format!("上传 cookie 失败: {}", e));
+            }
+          }
+        }
+        Ok(_) => {}
+        Err(_) => {}
+      }
+
+      // 浏览器已关闭：补传书签后停止
       let pm = crate::profile::manager::ProfileManager::instance();
       let is_running = pm
         .check_browser_status(app_handle.clone(), &profile)
         .await
         .unwrap_or(false);
       if !is_running {
-        log_bwbrowser("vps_cookie_sync", "浏览器已关闭，按规则不回传 cookie");
-
-        // ---- 上传书签到云端（与 cookie 无关，保留）----
         log_bwbrowser("vps_bookmark_sync", "浏览器已关闭，准备上传书签");
         match BwbrowserAuthManager::read_local_bookmarks(&profile.id.to_string()) {
           Ok(Some(bookmarks)) if !bookmarks.is_empty() => {
@@ -1296,66 +1299,6 @@ pub async fn bwbrowser_open_vps_login(
         }
 
         break;
-      }
-
-      // 持续等待超时：未确认登录，停止（不回传 cookie）
-      if std::time::Instant::now() >= deadline {
-        log_bwbrowser(
-          "vps_cookie_sync",
-          &format!(
-            "等待登录超时 ({} 秒)，未确认登录，跳过回传",
-            LOGIN_WAIT_SECONDS
-          ),
-        );
-        break;
-      }
-
-      // 探测登录状态
-      match crate::cookie_sync::current_page_is_login(&profile).await {
-        Ok(Some(true)) => {
-          log_bwbrowser("vps_cookie_sync", "仍在登录页，尚未确认登录，继续等待...");
-        }
-        Ok(Some(false)) => {
-          log_bwbrowser("vps_cookie_sync", "已确认登录，开始回传 cookie");
-
-          let cookie_str = match crate::cookie_sync::export_cookies_via_cdp(&profile).await {
-            Ok(s) if !s.is_empty() && s != "[]" => {
-              log_bwbrowser(
-                "vps_cookie_sync",
-                &format!("CDP 导出 cookie: {} 字节", s.len()),
-              );
-              s
-            }
-            Ok(_) => {
-              log_bwbrowser("vps_cookie_sync", "本地 cookie 为空，跳过上传");
-              String::new()
-            }
-            Err(e) => {
-              log_bwbrowser_error("vps_cookie_sync", &format!("CDP 导出失败: {}", e));
-              String::new()
-            }
-          };
-          if !cookie_str.is_empty() {
-            match BWBROWSER_AUTH.update_bwbrowser_cookies(&cookie_str).await {
-              Ok(_) => {
-                log_bwbrowser("vps_cookie_sync", "✓ cookie 已同步到云端");
-              }
-              Err(e) => {
-                log_bwbrowser_error("vps_cookie_sync", &format!("上传 cookie 失败: {}", e));
-              }
-            }
-          }
-          break;
-        }
-        Ok(None) => {
-          log_bwbrowser(
-            "vps_cookie_sync",
-            "登录状态暂时无法判定（页面未就绪或已离开爆文库站内），继续等待...",
-          );
-        }
-        Err(e) => {
-          log_bwbrowser_error("vps_cookie_sync", &format!("登录状态检测失败: {}", e));
-        }
       }
     }
   });
@@ -1482,14 +1425,28 @@ pub async fn bwbrowser_set_vps_proxy(
 
 /// 删除 VPS 登录 profile 的本地数据（删除 profile，下次打开重新创建）
 #[tauri::command]
-pub fn bwbrowser_delete_vps_data(app_handle: tauri::AppHandle) -> Result<(), String> {
+pub fn bwbrowser_delete_vps_data(
+  app_handle: tauri::AppHandle,
+  ignore_missing: Option<bool>,
+) -> Result<(), String> {
   let profile_name = "VPS登录";
   let pm = crate::profile::manager::ProfileManager::instance();
   let profiles = pm.list_profiles().map_err(|e| e.to_string())?;
-  let profile = profiles
+  let profile = match profiles
     .into_iter()
     .find(|p| p.name.to_lowercase() == profile_name.to_lowercase())
-    .ok_or_else(|| "VPS登录 profile 不存在，无需删除".to_string())?;
+  {
+    Some(p) => p,
+    None => {
+      if ignore_missing.unwrap_or(false) {
+        // 一键修复场景：本地无 profile 说明本来就没有本地数据，视为已清空，
+        // 让修复流程继续删除云端 Cookie。
+        log_bwbrowser("delete_vps_data", "  本地无 VPS登录 profile，跳过本地删除");
+        return Ok(());
+      }
+      return Err("VPS登录 profile 不存在，无需删除".to_string());
+    }
+  };
 
   pm.delete_profile_permanently(&app_handle, &profile.id.to_string())
     .map_err(|e| e.to_string())?;
@@ -2379,6 +2336,9 @@ pub struct BwbrowserAccount {
   /// 套餐启动配额：false = 超出套餐配额，客户端置灰禁止启动浏览器
   #[serde(default, deserialize_with = "deserialize_int_or_bool")]
   pub launch_allowed: Option<bool>,
+  /// 账号所属公司；环境列表等请求以此为准，而不是页面当前选中的公司
+  #[serde(default)]
+  pub company_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -4355,6 +4315,14 @@ impl BwbrowserAuthManager {
 pub async fn bwbrowser_list_envs(company_id: Option<i64>) -> Result<Vec<BwbrowserEnvItem>, String> {
   let envs = BWBROWSER_AUTH.list_cloud_envs(company_id).await?;
   Ok(envs.iter().map(BwbrowserEnvItem::from_bwbrowser).collect())
+}
+
+/// 按 env_uuid 直查环境（服务端不按公司过滤）。账号绑定的环境编辑走这里，
+/// 避免「列表按公司过滤 → 遍历查找」在公司维度偏差时误报"环境已被删除"。
+#[tauri::command]
+pub async fn bwbrowser_get_env(env_uuid: String) -> Result<BwbrowserEnvItem, String> {
+  let env = BWBROWSER_AUTH.get_cloud_env_by_uuid(&env_uuid).await?;
+  Ok(BwbrowserEnvItem::from_bwbrowser(&env))
 }
 
 #[tauri::command]
@@ -8693,6 +8661,17 @@ async fn inject_cloud_cookies_after_launch(
   // （例如抖音创作者页未登录时同样渲染作品管理/发布/头像），所以这里不再用它
   // 判登录，而是以健康检查探测为准（评分仅作诊断，不参与判定）。未确认登录就
   // 每 3 秒探测一次，最多 300 秒；浏览器关闭或超时则停止，保留云端完好的会话。
+
+  // 无探测规则的平台（如 PayPal）永远无法自动确认登录，下面的等待循环只会
+  // 空转 300 秒且注定不回传；直接跳过，避免启动后持续的探测动作引发风控风险。
+  if crate::cookie_health::rule_for_platform(&cloud_platform).is_none() {
+    log_bwbrowser(
+      "inject_cookies",
+      "该平台无登录探测规则，跳过登录等待与 Cookie 回传",
+    );
+    return Ok(());
+  }
+
   const LOGIN_WAIT_SECONDS: u64 = 300;
   let deadline = std::time::Instant::now() + std::time::Duration::from_secs(LOGIN_WAIT_SECONDS);
   // 探测连续确认失效达到该次数后停止等待（会话不会自己复活，继续空转只会

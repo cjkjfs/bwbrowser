@@ -8,6 +8,7 @@
   --font-mono: var(--font-geist-mono);
   --animate-progress-indeterminate: progress-indeterminate 1.4s ease-in-out
     infinite;
+  --animate-rail-text-pop: rail-text-pop 0.32s ease-out;
 
   @keyframes progress-indeterminate {
     0% {
@@ -15,6 +16,17 @@
     }
     100% {
       transform: translateX(300%);
+    }
+  }
+
+  @keyframes rail-text-pop {
+    0% {
+      transform: translateX(-2px);
+      opacity: 0.55;
+    }
+    100% {
+      transform: translateX(0);
+      opacity: 1;
     }
   }
 }
