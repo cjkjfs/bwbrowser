@@ -4005,6 +4005,7 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_list_companies,
       bwbrowser_cloud::bwbrowser_get_account_detail,
       bwbrowser_cloud::bwbrowser_update_account_proxy,
+      bwbrowser_cloud::bwbrowser_list_proxy_usage,
       bwbrowser_cloud::bwbrowser_list_proxies,
       bwbrowser_cloud::bwbrowser_sync_proxy,
       bwbrowser_cloud::bwbrowser_sync_proxy_geo,

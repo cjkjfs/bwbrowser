@@ -36,8 +36,10 @@ import {
   LuPlus,
   LuRefreshCw,
   LuSearch,
+  LuStickyNote,
   LuTrash2,
   LuUnplug,
+  LuUserCheck,
   LuUserPlus,
   LuUsers,
   LuWrench,
@@ -72,8 +74,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import {
   type BwbrowserAccount,
+  type CloudUser,
   useBwbrowserAccounts,
 } from "@/hooks/use-bwbrowser-accounts";
 import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
@@ -200,6 +204,32 @@ interface CloudProxyItem {
   is_cloud_managed: boolean;
   country?: string | null;
   city?: string | null;
+}
+
+// 节点使用明细（对应 Rust 端 BwbrowserProxyUsageItem；每账号一条，客户端按平台聚合计数）
+interface CloudProxyUsageItem {
+  proxy_node: string;
+  platform: string;
+  account_name: string;
+  phone_id: string;
+  owner_name: string;
+  owner_real_name: string;
+}
+
+// 平台显示名：直接用库里完整平台名，空值兜底
+function platformShort(p: string): string {
+  return p || "其他";
+}
+
+// 账号表 proxy_node 有新旧两种格式（type:host:port[:user:pass] 与旧 host:port），
+// 统一提取 host:port 作为匹配 key；vless/trojan/ss 按 URI 全串匹配
+function proxyNodeKey(pn: string): string {
+  const s = (pn || "").trim();
+  if (!s) return "";
+  if (/^(vless|trojan|ss):\/\//i.test(s)) return s;
+  const parts = s.split(":");
+  const hostIdx = ["http", "socks5"].includes(parts[0].toLowerCase()) ? 1 : 0;
+  return `${parts[hostIdx] ?? ""}:${parts[hostIdx + 1] ?? ""}`;
 }
 
 // 服务端 platform_config 拉取的全量 code->中文名（如 hongguo -> 红果短剧）。
@@ -395,61 +425,6 @@ function _PaginationBar({
   );
 }
 
-// ==================== 批量操作栏 ====================
-
-function _BatchActionBar({
-  selectedCount,
-  onBatchStart,
-  onBatchTestNode,
-  onClearSelection,
-}: {
-  selectedCount: number;
-  onBatchStart: () => void;
-  onBatchTestNode: () => void;
-  onClearSelection: () => void;
-}) {
-  if (selectedCount === 0) return null;
-
-  return (
-    <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between border-t border-border bg-background/95 px-4 py-2 backdrop-blur-2xl">
-      <div className="text-xs text-muted-foreground">
-        已选择{" "}
-        <span className="font-medium text-foreground">{selectedCount}</span>{" "}
-        个账号
-      </div>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="default"
-          size="sm"
-          onClick={onBatchStart}
-          className="h-7 gap-1 px-3 text-xs"
-        >
-          <LuPlay className="h-3.5 w-3.5" />
-          批量启动
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onBatchTestNode}
-          className="h-7 gap-1 px-3 text-xs"
-        >
-          <LuGlobe className="h-3.5 w-3.5" />
-          批量测试节点
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onClearSelection}
-          className="h-7 gap-1 px-2 text-xs"
-        >
-          <LuX className="h-3.5 w-3.5" />
-          取消选择
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 // ==================== 主组件 ====================
 
 export function BwbrowserCloudAccountsDialog({
@@ -460,7 +435,9 @@ export function BwbrowserCloudAccountsDialog({
 }: BwbrowserCloudAccountsDialogProps) {
   const { t } = useTranslation();
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  // tanstack rowSelection 是 { rowId: true } 对象，不是 Set —— 用对象才能
+  // 与 onRowSelectionChange 正确互搏（之前 Set 强转导致勾选永远无效）。
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [activeTab, setActiveTab] = useState("accounts");
 
   // Cookie 健康检测：按账号 id 存最近一次判定结果
@@ -643,8 +620,24 @@ export function BwbrowserCloudAccountsDialog({
   const [copiedPasswordId, setCopiedPasswordId] = useState<number | null>(null);
   const [proxyDialogOpen, setProxyDialogOpen] = useState(false);
   const [proxyDialogLoading, setProxyDialogLoading] = useState(false);
-  const [proxyDialogAccount, setProxyDialogAccount] =
-    useState<BwbrowserAccount | null>(null);
+  // 代理弹窗的目标账号：单个（行内「设置代理」）或多选（批量操作栏）
+  const [proxyDialogTargets, setProxyDialogTargets] = useState<
+    BwbrowserAccount[]
+  >([]);
+  // 批量设置归属人弹窗
+  const [ownerDialogOpen, setOwnerDialogOpen] = useState(false);
+  const [ownerDialogTargets, setOwnerDialogTargets] = useState<
+    BwbrowserAccount[]
+  >([]);
+  const [isSettingOwner, setIsSettingOwner] = useState(false);
+  // 批量添加备注弹窗
+  const [remarkDialogOpen, setRemarkDialogOpen] = useState(false);
+  const [remarkDialogTargets, setRemarkDialogTargets] = useState<
+    BwbrowserAccount[]
+  >([]);
+  const [remarkText, setRemarkText] = useState("");
+  const [remarkAppend, setRemarkAppend] = useState(true);
+  const [isSavingRemark, setIsSavingRemark] = useState(false);
   const [selectedProxyId, setSelectedProxyId] = useState<string | null>(null);
   const [isSavingProxy, setIsSavingProxy] = useState(false);
   const [proxySearchQuery, setProxySearchQuery] = useState("");
@@ -652,6 +645,10 @@ export function BwbrowserCloudAccountsDialog({
   const [cloudProxyOptions, setCloudProxyOptions] = useState<
     (StoredProxy & { country?: string | null; city?: string | null })[]
   >([]);
+  // 节点使用明细：key = proxyNodeKey(账号 proxy_node)，value = 该节点下每账号一条明细
+  const [proxyUsage, setProxyUsage] = useState<
+    Map<string, CloudProxyUsageItem[]>
+  >(new Map());
   // 代理健康测试结果缓存
   const [proxyCheckResults, setProxyCheckResults] = useState<
     Map<
@@ -1223,10 +1220,11 @@ export function BwbrowserCloudAccountsDialog({
     }
   }, [codeEditAccount, editSafeLink, editBindPhone, refresh]);
 
-  // 打开代理设置弹窗
+  // 打开代理设置弹窗（单账号或批量多账号）
   const handleOpenProxyDialog = useCallback(
-    async (account: BwbrowserAccount) => {
-      setProxyDialogAccount(account);
+    async (targets: BwbrowserAccount[]) => {
+      if (targets.length === 0) return;
+      setProxyDialogTargets(targets);
       setProxySearchQuery("");
       setProxyPage(0);
       // 先打开弹窗，再直接拉云端代理列表，避免弹窗被远程请求卡住
@@ -1262,9 +1260,33 @@ export function BwbrowserCloudAccountsDialog({
           setCloudProxyOptions([]);
         }
 
-        // 如果账号已有代理，自动选中（基于云端代理列表）
-        if (account.proxy_node) {
-          const pn = account.proxy_node;
+        // 并行拉节点使用统计（失败不影响弹窗，只是「使用」列显示为空）
+        try {
+          const usage = await invoke<CloudProxyUsageItem[]>(
+            "bwbrowser_list_proxy_usage",
+            { companyId: selectedCompanyId ? selectedCompanyId : null },
+          );
+          const map = new Map<string, CloudProxyUsageItem[]>();
+          for (const u of usage ?? []) {
+            const key = proxyNodeKey(u.proxy_node);
+            if (!key) continue;
+            const list = map.get(key);
+            if (list) {
+              list.push(u);
+            } else {
+              map.set(key, [u]);
+            }
+          }
+          setProxyUsage(map);
+        } catch (e) {
+          console.warn("拉取节点使用统计失败:", e);
+          setProxyUsage(new Map());
+        }
+
+        // 如果账号已有代理，自动选中（基于云端代理列表）；批量多账号时
+        // 各自代理可能不同，不预选，由用户明确指定
+        if (targets.length === 1 && targets[0].proxy_node) {
+          const pn = targets[0].proxy_node;
           let existing: StoredProxy | undefined;
           // VLESS/Trojan: 按 URI 匹配
           if (pn.startsWith("vless://") || pn.startsWith("trojan://")) {
@@ -1469,26 +1491,91 @@ export function BwbrowserCloudAccountsDialog({
 
   // 保存账号代理
   const handleSaveAccountProxy = useCallback(async () => {
-    if (!proxyDialogAccount) return;
+    const targets = proxyDialogTargets;
+    if (targets.length === 0) return;
 
-    // 直连模式：传空字符串清除代理
-    if (selectedProxyId === "__direct__") {
+    // 批量下发：逐个账号调用，统计成功/失败后汇总提示（服务端按账号解析
+    // 时区/语言，无法合并为一次请求）
+    const applyProxyNode = async (proxyNode: string) => {
       setIsSavingProxy(true);
+      let ok = 0;
+      let geoPending = 0;
+      let lastTimezone: string | undefined;
+      let lastLanguage: string | undefined;
+      const failed: string[] = [];
       try {
-        await invoke("bwbrowser_update_account_proxy", {
-          accountId: proxyDialogAccount.id,
-          accountName: proxyDialogAccount.account_name,
-          proxyNode: "",
-        });
-        showSuccessToast("已清除代理，使用直连模式");
+        for (const target of targets) {
+          try {
+            const result = (await invoke("bwbrowser_update_account_proxy", {
+              accountId: target.id,
+              accountName: target.account_name,
+              proxyNode,
+            })) as BwbrowserUpdateProxyResult | null;
+            ok += 1;
+            if (result?.geo_pending) {
+              geoPending += 1;
+              setGeoPendingIds((prev) => new Set(prev).add(target.id));
+            }
+            lastTimezone = result?.timezone;
+            lastLanguage = result?.language;
+          } catch (e) {
+            failed.push(
+              `${target.account_name || target.id}: ${
+                e instanceof Error ? e.message : String(e)
+              }`,
+            );
+          }
+        }
+
+        if (targets.length === 1) {
+          // 单账号沿用原有的明细提示
+          if (failed.length > 0) {
+            showErrorToast(
+              proxyNode
+                ? `设置代理失败: ${failed[0]}`
+                : `清除代理失败: ${failed[0]}`,
+            );
+          } else if (geoPending > 0) {
+            showSuccessToast("代理设置成功（时区后台解析中，稍后自动更新）");
+          } else if (lastTimezone) {
+            showSuccessToast(
+              `代理设置成功 | 时区: ${lastTimezone}${
+                lastLanguage ? ` | 语言: ${lastLanguage}` : ""
+              }`,
+            );
+          } else {
+            showSuccessToast(
+              proxyNode
+                ? "代理设置成功（未获取到时区）"
+                : "已清除代理，使用直连模式",
+            );
+          }
+        } else {
+          const action = proxyNode ? "设置代理" : "清除代理";
+          if (failed.length === 0) {
+            showSuccessToast(
+              geoPending > 0
+                ? `${action}完成：${ok} 个账号（${geoPending} 个时区后台解析中）`
+                : `${action}完成：${ok} 个账号`,
+            );
+          } else {
+            showErrorToast(
+              `${action}：成功 ${ok} 个，失败 ${failed.length} 个 —— ${failed
+                .slice(0, 3)
+                .join("；")}${failed.length > 3 ? "…" : ""}`,
+            );
+          }
+        }
         setProxyDialogOpen(false);
         void refresh();
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        showErrorToast(`清除代理失败: ${msg}`);
       } finally {
         setIsSavingProxy(false);
       }
+    };
+
+    // 直连模式：传空字符串清除代理
+    if (selectedProxyId === "__direct__") {
+      await applyProxyNode("");
       return;
     }
 
@@ -1497,61 +1584,198 @@ export function BwbrowserCloudAccountsDialog({
     const proxy = cloudProxyOptions.find((p) => p.id === selectedProxyId);
     if (!proxy) return;
 
-    setIsSavingProxy(true);
-    try {
-      const ps = proxy.proxy_settings;
-      const proxyType = ps.proxy_type || "http";
-      let proxyNode: string;
-      if (proxyType === "vless" || proxyType === "trojan") {
-        proxyNode = ps.vless_uri || "";
-        if (!proxyNode) {
-          showErrorToast("该代理缺少协议 URI，请在代理管理中重新编辑");
-          return;
-        }
-      } else if (ps.username && ps.password) {
-        proxyNode = `${proxyType}:${ps.host}:${ps.port}:${ps.username}:${ps.password}`;
-      } else {
-        proxyNode = `${proxyType}:${ps.host}:${ps.port}`;
+    const ps = proxy.proxy_settings;
+    const proxyType = ps.proxy_type || "http";
+    let proxyNode: string;
+    if (proxyType === "vless" || proxyType === "trojan") {
+      proxyNode = ps.vless_uri || "";
+      if (!proxyNode) {
+        showErrorToast("该代理缺少协议 URI，请在代理管理中重新编辑");
+        return;
       }
-
-      console.log("[bwbrowser_update_account_proxy] 调用参数:", {
-        accountId: proxyDialogAccount.id,
-        accountName: proxyDialogAccount.account_name,
-        proxyNode,
-        proxyType,
-        host: ps.host,
-        port: ps.port,
-      });
-
-      const result = (await invoke("bwbrowser_update_account_proxy", {
-        accountId: proxyDialogAccount.id,
-        accountName: proxyDialogAccount.account_name,
-        proxyNode,
-      })) as BwbrowserUpdateProxyResult | null;
-
-      console.log("[bwbrowser_update_account_proxy] 返回结果:", result);
-
-      const tz = result?.timezone;
-      const lang = result?.language;
-      if (result?.geo_pending) {
-        setGeoPendingIds((prev) => new Set(prev).add(proxyDialogAccount.id));
-        showSuccessToast("代理设置成功（时区后台解析中，稍后自动更新）");
-      } else if (tz) {
-        showSuccessToast(
-          `代理设置成功 | 时区: ${tz}${lang ? ` | 语言: ${lang}` : ""}`,
-        );
-      } else {
-        showSuccessToast("代理设置成功（未获取到时区）");
-      }
-      setProxyDialogOpen(false);
-      void refresh();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      showErrorToast(`设置代理失败: ${msg}`);
-    } finally {
-      setIsSavingProxy(false);
+    } else if (ps.username && ps.password) {
+      proxyNode = `${proxyType}:${ps.host}:${ps.port}:${ps.username}:${ps.password}`;
+    } else {
+      proxyNode = `${proxyType}:${ps.host}:${ps.port}`;
     }
-  }, [proxyDialogAccount, selectedProxyId, cloudProxyOptions, refresh]);
+
+    await applyProxyNode(proxyNode);
+  }, [proxyDialogTargets, selectedProxyId, cloudProxyOptions, refresh]);
+
+  // 批量清除代理：不开弹窗，直接逐个账号置为直连
+  const handleBatchClearProxy = useCallback(
+    async (targets: BwbrowserAccount[]) => {
+      if (targets.length === 0) return;
+      setIsSavingProxy(true);
+      let ok = 0;
+      const failed: string[] = [];
+      try {
+        for (const target of targets) {
+          try {
+            await invoke("bwbrowser_update_account_proxy", {
+              accountId: target.id,
+              accountName: target.account_name,
+              proxyNode: "",
+            });
+            ok += 1;
+          } catch (e) {
+            failed.push(
+              `${target.account_name || target.id}: ${
+                e instanceof Error ? e.message : String(e)
+              }`,
+            );
+          }
+        }
+        if (targets.length === 1) {
+          if (failed.length > 0) {
+            showErrorToast(`清除代理失败: ${failed[0]}`);
+          } else {
+            showSuccessToast("已清除代理，使用直连模式");
+          }
+        } else if (failed.length === 0) {
+          showSuccessToast(`清除代理完成：${ok} 个账号`);
+        } else {
+          showErrorToast(
+            `清除代理：成功 ${ok} 个，失败 ${failed.length} 个 —— ${failed
+              .slice(0, 3)
+              .join("；")}${failed.length > 3 ? "…" : ""}`,
+          );
+        }
+        void refresh();
+      } finally {
+        setIsSavingProxy(false);
+      }
+    },
+    [refresh],
+  );
+
+  // 批量设置归属人：逐个账号调 update_account_info（只传 owner_id）
+  const handleBatchSetOwner = useCallback(
+    async (targets: BwbrowserAccount[], owner: CloudUser) => {
+      if (targets.length === 0) return;
+      setIsSettingOwner(true);
+      let ok = 0;
+      const failed: string[] = [];
+      try {
+        for (const target of targets) {
+          try {
+            await invoke("bwbrowser_update_account_info", {
+              accountId: target.id,
+              accountName: null,
+              loginAccount: null,
+              loginPassword: null,
+              remark: null,
+              tags: null,
+              category: null,
+              pureUsername: null,
+              ownerId: owner.id,
+              status: null,
+              phoneId: null,
+              bindPhone: null,
+              safeLink: null,
+              backupEmail: null,
+            });
+            ok += 1;
+          } catch (e) {
+            failed.push(
+              `${target.account_name || target.id}: ${
+                e instanceof Error ? e.message : String(e)
+              }`,
+            );
+          }
+        }
+        const label = owner.real_name || owner.username || `成员#${owner.id}`;
+        if (targets.length === 1) {
+          if (failed.length > 0) {
+            showErrorToast(`设置归属人失败: ${failed[0]}`);
+          } else {
+            showSuccessToast(`归属人已设置为 ${label}`);
+          }
+        } else if (failed.length === 0) {
+          showSuccessToast(`归属人已设置为 ${label}（${ok} 个账号）`);
+        } else {
+          showErrorToast(
+            `设置归属人：成功 ${ok} 个，失败 ${failed.length} 个 —— ${failed
+              .slice(0, 3)
+              .join("；")}${failed.length > 3 ? "…" : ""}`,
+          );
+        }
+        setOwnerDialogOpen(false);
+        void refresh();
+      } finally {
+        setIsSettingOwner(false);
+      }
+    },
+    [refresh],
+  );
+
+  // 批量添加备注：逐个账号调 update_account_info（只传 remark）。
+  // 追加模式 = 原备注 + 换行 + 新内容（前端拼好整体下发，避免服务端拼接逻辑）。
+  const handleBatchSetRemark = useCallback(async () => {
+    const targets = remarkDialogTargets;
+    const text = remarkText.trim();
+    if (targets.length === 0) return;
+    if (!text) return;
+    setIsSavingRemark(true);
+    let ok = 0;
+    const failed: string[] = [];
+    try {
+      for (const target of targets) {
+        const base = (target.remark ?? "").trim();
+        const finalRemark = remarkAppend
+          ? base
+            ? `${base}\n${text}`
+            : text
+          : text;
+        try {
+          await invoke("bwbrowser_update_account_info", {
+            accountId: target.id,
+            accountName: null,
+            loginAccount: null,
+            loginPassword: null,
+            remark: finalRemark,
+            tags: null,
+            category: null,
+            pureUsername: null,
+            ownerId: null,
+            status: null,
+            phoneId: null,
+            bindPhone: null,
+            safeLink: null,
+            backupEmail: null,
+          });
+          ok += 1;
+        } catch (e) {
+          failed.push(
+            `${target.account_name || target.id}: ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          );
+        }
+      }
+      const action = text ? "添加备注" : "清空备注";
+      if (targets.length === 1) {
+        if (failed.length > 0) {
+          showErrorToast(`${action}失败: ${failed[0]}`);
+        } else {
+          showSuccessToast("备注已保存");
+        }
+      } else if (failed.length === 0) {
+        showSuccessToast(`${action}完成：${ok} 个账号`);
+      } else {
+        showErrorToast(
+          `${action}：成功 ${ok} 个，失败 ${failed.length} 个 —— ${failed
+            .slice(0, 3)
+            .join("；")}${failed.length > 3 ? "…" : ""}`,
+        );
+      }
+      setRemarkDialogOpen(false);
+      setRemarkText("");
+      void refresh();
+    } finally {
+      setIsSavingRemark(false);
+    }
+  }, [remarkDialogTargets, remarkText, remarkAppend, refresh]);
 
   // 后台代理时区解析完成后刷新数据（不阻塞 UI）
   useEffect(() => {
@@ -2566,7 +2790,7 @@ export function BwbrowserCloudAccountsDialog({
           return (
             <button
               type="button"
-              onClick={() => handleOpenProxyDialog(account)}
+              onClick={() => void handleOpenProxyDialog([account])}
               className="flex min-w-0 items-center gap-1 text-left"
               title={proxy ? `${proxy}（点击更换）` : "点击设置代理"}
             >
@@ -2882,17 +3106,22 @@ export function BwbrowserCloudAccountsDialog({
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     onSortingChange: setSorting,
-    onRowSelectionChange: setSelectedIds as any,
+    onRowSelectionChange: setSelectedIds,
     state: {
       sorting,
-      rowSelection: Object.fromEntries(
-        Array.from(selectedIds).map((id) => [String(id), true]),
-      ),
+      rowSelection: selectedIds,
     },
     getRowId: (row) => String(row.id),
     manualPagination: true,
     pageCount: totalPages,
   });
+
+  // 当前勾选的账号（勾选状态跨页保留，但批量操作只作用于当前列表里存在的行）
+  const selectedAccounts = useMemo(
+    () => accounts.filter((a) => selectedIds[String(a.id)]),
+    [accounts, selectedIds],
+  );
+  const selectedCount = selectedAccounts.length;
 
   const content = (
     <>
@@ -3164,7 +3393,7 @@ export function BwbrowserCloudAccountsDialog({
         <div className="relative flex-1 max-w-md">
           <LuSearch className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="搜索账号昵称、登录账号、归属人..."
+            placeholder="搜索账号昵称、登录账号、归属人、备注..."
             value={keyword}
             onChange={handleSearchChange}
             className="h-8 pl-8 text-xs"
@@ -3295,8 +3524,67 @@ export function BwbrowserCloudAccountsDialog({
       {/* ========== 底部分页栏 ========== */}
       <div className="flex shrink-0 items-center justify-between border-t border-border bg-background/50 px-4 py-2">
         <div className="text-xs text-muted-foreground">
-          已选择 {selectedIds.size} 项
+          已选择 {selectedCount} 项
         </div>
+        {selectedCount > 0 && (
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="default"
+              size="sm"
+              className="h-7 gap-1 px-3 text-xs"
+              disabled={isSavingProxy}
+              onClick={() => void handleOpenProxyDialog(selectedAccounts)}
+            >
+              <LuNetwork className="h-3.5 w-3.5" />
+              设置代理
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 px-3 text-xs"
+              disabled={isSavingProxy}
+              onClick={() => void handleBatchClearProxy(selectedAccounts)}
+            >
+              <LuX className="h-3.5 w-3.5" />
+              清除代理
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 px-3 text-xs"
+              disabled={isSettingOwner}
+              onClick={() => {
+                setOwnerDialogTargets(selectedAccounts);
+                setOwnerDialogOpen(true);
+              }}
+            >
+              <LuUserCheck className="h-3.5 w-3.5" />
+              设置归属人
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 px-3 text-xs"
+              disabled={isSavingRemark}
+              onClick={() => {
+                setRemarkDialogTargets(selectedAccounts);
+                setRemarkText("");
+                setRemarkDialogOpen(true);
+              }}
+            >
+              <LuStickyNote className="h-3.5 w-3.5" />
+              添加备注
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setSelectedIds({})}
+            >
+              取消选择
+            </Button>
+          </div>
+        )}
         <div className="flex items-center gap-1">
           <Button
             variant="outline"
@@ -3362,18 +3650,132 @@ export function BwbrowserCloudAccountsDialog({
     </>
   );
 
+  const ownerDialog = (
+    <Dialog
+      open={ownerDialogOpen}
+      onOpenChange={(open) => !open && setOwnerDialogOpen(false)}
+    >
+      <DialogContent className="flex max-h-[70vh] w-[420px] max-w-[95vw] flex-col overflow-hidden p-0">
+        <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
+          <div className="flex items-center gap-2">
+            <LuUserCheck className="h-4 w-4 text-primary" />
+            <span className="text-sm font-semibold">
+              设置归属人 -
+              {ownerDialogTargets.length === 1
+                ? ` ${ownerDialogTargets[0]?.account_name}`
+                : ` ${ownerDialogTargets.length} 个账号`}
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={() => setOwnerDialogOpen(false)}
+          >
+            <LuX className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          {users.length === 0 ? (
+            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+              {usersLoading ? "成员列表加载中..." : "当前公司暂无成员列表"}
+            </div>
+          ) : (
+            users.map((u) => (
+              <button
+                type="button"
+                key={u.id}
+                disabled={isSettingOwner}
+                className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs hover:bg-muted disabled:opacity-50"
+                onClick={() => void handleBatchSetOwner(ownerDialogTargets, u)}
+              >
+                <span className="font-medium">
+                  {u.real_name || u.username || `成员#${u.id}`}
+                </span>
+                {u.username && u.real_name && (
+                  <span className="text-muted-foreground">{u.username}</span>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
+  const remarkDialog = (
+    <Dialog
+      open={remarkDialogOpen}
+      onOpenChange={(open) => !open && setRemarkDialogOpen(false)}
+    >
+      <DialogContent className="flex w-[420px] max-w-[95vw] flex-col overflow-hidden p-0">
+        <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
+          <div className="flex items-center gap-2">
+            <LuStickyNote className="h-4 w-4 text-primary" />
+            <span className="text-sm font-semibold">
+              添加备注 -
+              {remarkDialogTargets.length === 1
+                ? ` ${remarkDialogTargets[0]?.account_name}`
+                : ` ${remarkDialogTargets.length} 个账号`}
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={() => setRemarkDialogOpen(false)}
+          >
+            <LuX className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex flex-col gap-3 p-4">
+          <Textarea
+            value={remarkText}
+            onChange={(e) => setRemarkText(e.target.value)}
+            placeholder="输入备注内容"
+            rows={4}
+            disabled={isSavingRemark}
+          />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Checkbox
+              checked={remarkAppend}
+              onCheckedChange={(checked) => setRemarkAppend(checked === true)}
+              disabled={isSavingRemark}
+            />
+            <span>追加到原备注（不勾选则覆盖）</span>
+          </div>
+          <Button
+            size="sm"
+            disabled={isSavingRemark || !remarkText.trim()}
+            onClick={() => void handleBatchSetRemark()}
+          >
+            {isSavingRemark ? (
+              <LuLoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <LuCheck className="h-3.5 w-3.5" />
+            )}
+            保存备注
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
   const proxyDialog = (
     <Dialog
       open={proxyDialogOpen}
       onOpenChange={(open) => !open && setProxyDialogOpen(false)}
     >
-      <DialogContent className="w-[900px] max-w-[95vw] p-0 overflow-hidden">
+      <DialogContent className="flex max-h-[92vh] w-[880px] max-w-[95vw] flex-col overflow-hidden p-0">
         {/* 标题栏 */}
-        <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-2">
             <LuNetwork className="h-4 w-4 text-primary" />
             <span className="text-sm font-semibold">
-              设置代理 - {proxyDialogAccount?.account_name}
+              设置代理 -
+              {proxyDialogTargets.length === 1
+                ? ` ${proxyDialogTargets[0]?.account_name}`
+                : ` ${proxyDialogTargets.length} 个账号`}
             </span>
           </div>
           <Button
@@ -3395,7 +3797,7 @@ export function BwbrowserCloudAccountsDialog({
         )}
 
         {/* 搜索栏 */}
-        <div className="flex items-center gap-2 border-b px-4 py-2">
+        <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">
           <div className="relative flex-1">
             <LuSearch className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -3441,13 +3843,13 @@ export function BwbrowserCloudAccountsDialog({
         </div>
 
         {/* 代理列表表格 */}
-        <div className="max-h-[78vh] min-h-[420px] overflow-y-auto">
+        <div className="min-h-[460px] flex-1 overflow-y-auto">
           {filteredProxies.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
               暂无可用代理，请先在代理中心添加
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full table-fixed">
               <thead className="sticky top-0 bg-muted/50 backdrop-blur-sm">
                 <tr className="border-b">
                   <th className="w-8 px-3 py-2 text-left">
@@ -3460,19 +3862,22 @@ export function BwbrowserCloudAccountsDialog({
                       className="pointer-events-none opacity-0"
                     />
                   </th>
-                  <th className="px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                  <th className="w-[30%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
                     代理信息
                   </th>
-                  <th className="w-16 px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                  <th className="w-[9%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
                     类型
                   </th>
-                  <th className="w-20 px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                  <th className="w-[8%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
                     来源
                   </th>
-                  <th className="w-16 px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                  <th className="w-[26%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                    使用
+                  </th>
+                  <th className="w-[10%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
                     状态
                   </th>
-                  <th className="w-12 px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                  <th className="w-[9%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
                     操作
                   </th>
                 </tr>
@@ -3537,17 +3942,23 @@ export function BwbrowserCloudAccountsDialog({
                       </td>
                       <td className="px-2 py-2">
                         <div className="flex flex-col">
-                          <div className="flex items-center gap-1">
+                          <div className="flex min-w-0 items-center gap-1">
                             {proxy.country && (
                               <span className="inline-flex shrink-0 rounded bg-muted px-1 py-px text-[10px] font-medium text-muted-foreground">
                                 {proxy.country}
                               </span>
                             )}
-                            <span className="text-xs font-medium">
+                            <span
+                              className="truncate text-xs font-medium"
+                              title={proxy.name}
+                            >
                               {proxy.name}
                             </span>
                           </div>
-                          <span className="font-mono text-[11px] text-muted-foreground">
+                          <span
+                            className="truncate font-mono text-[11px] text-muted-foreground"
+                            title={`${proxy.proxy_settings.host}:${proxy.proxy_settings.port}`}
+                          >
                             {proxy.proxy_settings.host}:
                             {proxy.proxy_settings.port}
                           </span>
@@ -3568,6 +3979,56 @@ export function BwbrowserCloudAccountsDialog({
                             本地
                           </span>
                         )}
+                      </td>
+                      <td className="px-2 py-2">
+                        {(() => {
+                          const t = proxy.proxy_settings.proxy_type || "http";
+                          const key = /^(vless|trojan|ss)$/i.test(t)
+                            ? proxy.proxy_settings.vless_uri || ""
+                            : `${proxy.proxy_settings.host}:${proxy.proxy_settings.port}`;
+                          const usageList = key
+                            ? proxyUsage.get(key)
+                            : undefined;
+                          if (!usageList || usageList.length === 0) {
+                            return (
+                              <span className="text-[11px] text-muted-foreground/60">
+                                未使用
+                              </span>
+                            );
+                          }
+                          // 列内只显示平台+数量；悬停 title 显示明细：手机编号 归属人 账号名 平台
+                          const counts = new Map<string, number>();
+                          const lines: string[] = [];
+                          for (const u of usageList) {
+                            const ps = platformShort(u.platform);
+                            counts.set(ps, (counts.get(ps) ?? 0) + 1);
+                            const owner =
+                              u.owner_real_name || u.owner_name || "-";
+                            const ownerFull =
+                              u.owner_real_name && u.owner_name
+                                ? `${owner}(${u.owner_name})`
+                                : owner;
+                            lines.push(
+                              `${u.phone_id || "-"}  ${ownerFull}  ${u.account_name || "-"}  ${ps}`,
+                            );
+                          }
+                          return (
+                            <span
+                              className="inline-block max-w-full cursor-help border-b border-dashed border-muted-foreground/40 text-[11px] leading-5"
+                              title={lines.join("\n")}
+                            >
+                              {[...counts.entries()].map(([ps, n]) => (
+                                <span
+                                  key={ps}
+                                  className="mr-2 whitespace-nowrap"
+                                >
+                                  <span className="font-medium">{ps}</span> {n}{" "}
+                                  个
+                                </span>
+                              ))}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-2 py-2">
                         {(() => {
@@ -3659,7 +4120,7 @@ export function BwbrowserCloudAccountsDialog({
         </div>
 
         {/* 底部分页 + 操作 */}
-        <div className="flex items-center justify-between border-t px-4 py-2">
+        <div className="flex shrink-0 items-center justify-between border-t px-4 py-2">
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">
               每页 {PROXY_PAGE_SIZE} 条
@@ -4887,6 +5348,8 @@ export function BwbrowserCloudAccountsDialog({
       <div className="flex h-full min-h-0 w-full flex-col gap-0 overflow-hidden">
         {content}
         {proxyDialog}
+        {ownerDialog}
+        {remarkDialog}
         {createProxyDialog}
         {vpsProxyDialog}
         {envDialog}
@@ -4907,6 +5370,8 @@ export function BwbrowserCloudAccountsDialog({
         </DialogContent>
       </Dialog>
       {proxyDialog}
+      {ownerDialog}
+      {remarkDialog}
       {createProxyDialog}
       {vpsProxyDialog}
       {envDialog}

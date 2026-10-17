@@ -158,41 +158,6 @@ fn seed_templates() -> Vec<FingerprintTemplate> {
       do_not_track: false,
       max_touch_points: 0,
     },
-    // --- Windows Edge ---
-    FingerprintTemplate {
-      name: "Windows Edge Mid".into(),
-      os: "windows".into(),
-      browser: "edge".into(),
-      user_agents: vec![
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 Edg/128.0.0.0".into(),
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0".into(),
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0".into(),
-      ],
-      platform: "Win32".into(),
-      screen_resolutions: vec![(1920, 1080), (2560, 1440)],
-      window_sizes: vec![(1920, 1040), (2560, 1400)],
-      color_depths: vec![24],
-      // Wayfern scales the claimed screen by DPR while the window runs 1:1, so
-      // a desktop claim other than 1.0 leaks the host display.
-      pixel_ratios: vec![1.0],
-      hardware_concurrencies: vec![8, 12],
-      device_memories: vec![8, 16],
-      webgl_vendors: vec![
-        "Google Inc. (Intel)".into(),
-        "Google Inc. (NVIDIA)".into(),
-      ],
-      webgl_renderers: vec![
-        "ANGLE (Intel, Intel(R) UHD Graphics 770 Direct3D11 vs_5_0 ps_5_0, D3D11)".into(),
-        "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)".into(),
-      ],
-      languages: vec!["en-US".into(), "en-GB".into(), "es-ES".into(), "zh-CN".into()],
-      canvas_mode: "noise".into(),
-      webgl_mode: "noise".into(),
-      audio_mode: "noise".into(),
-      webrtc_mode: "disabled".into(),
-      do_not_track: false,
-      max_touch_points: 0,
-    },
     // --- macOS Chrome ---
     FingerprintTemplate {
       name: "macOS Chrome".into(),
@@ -694,7 +659,7 @@ mod tests {
 
   #[test]
   fn seed_database_is_not_empty() {
-    assert!(db().len() >= 12, "expected at least 12 seed templates");
+    assert!(db().len() >= 11, "expected at least 11 seed templates");
   }
 
   #[test]

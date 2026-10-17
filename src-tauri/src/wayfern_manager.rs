@@ -2,7 +2,7 @@ use crate::browser_runner::BrowserRunner;
 use crate::profile::BrowserProfile;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -993,6 +993,92 @@ impl WayfernManager {
     // - webglParameters, webgl2Parameters, etc. are JSON strings
     // So no conversion is needed
     fingerprint
+  }
+
+  /// The UA handed to `--user-agent` at process start: the payload's claimed
+  /// brand with its version synced to the running kernel, so the engine
+  /// features and every UA surface agree from the very first request.
+  fn process_user_agent(fingerprint: &str, kernel_version: &str) -> Option<String> {
+    if kernel_version.is_empty() {
+      return None;
+    }
+    let payload: Value = serde_json::from_str(fingerprint).ok()?;
+    let ua = payload.get("userAgent")?.as_str()?;
+    let no_edge = ua.split_once(" Edg/").map(|(head, _)| head).unwrap_or(ua);
+    Some(Self::replace_chrome_version(no_edge, kernel_version))
+  }
+
+  /// Replace the `Chrome/<version>` segment of a UA string with `version`.
+  fn replace_chrome_version(ua: &str, version: &str) -> String {
+    match ua.find("Chrome/") {
+      Some(idx) => {
+        let start = idx + "Chrome/".len();
+        let end = ua[start..].find(' ').map(|i| start + i).unwrap_or(ua.len());
+        format!("{}{}{}", &ua[..start], version, &ua[end..])
+      }
+      None => ua.to_string(),
+    }
+  }
+
+  /// Claimed-brand sync across every UA surface.
+  ///
+  /// `Wayfern.setFingerprint` rewrites the JS-level identity but NOT the
+  /// network stack: the HTTP `User-Agent` header and the `sec-ch-ua` client
+  /// hints keep reporting the kernel's own Edge build, which is exactly the
+  /// "Different browser version" inconsistency browserscan flags. Sync the
+  /// payload UA's version to the running kernel (so engine features and the
+  /// claimed version always agree), drop a legacy `Edg/` brand tail (a Chrome
+  /// identity on an Edge kernel is the consistent claim), and return the CDP
+  /// `Network.setUserAgentOverride` params — that one call covers the JS
+  /// navigator, the HTTP header and the UA-CH hints together.
+  fn network_ua_override_params(fingerprint: &Value, kernel_version: &str) -> Option<Value> {
+    let ua = fingerprint.get("userAgent")?.as_str()?;
+    let major = kernel_version.split('.').next().unwrap_or("151");
+    let no_edge = ua
+      .split_once(" Edg/")
+      .map(|(head, _)| head.to_string())
+      .unwrap_or_else(|| ua.to_string());
+    let synced = Self::replace_chrome_version(&no_edge, kernel_version);
+    let platform = fingerprint
+      .get("platform")
+      .and_then(|v| v.as_str())
+      .unwrap_or("Win32");
+    let lang = fingerprint
+      .get("language")
+      .and_then(|v| v.as_str())
+      .unwrap_or("en-US");
+    let base_lang = lang.split('-').next().unwrap_or(lang);
+    let mut accept_language = format!("{lang},{base_lang};q=0.9");
+    if lang != "en-US" {
+      accept_language.push_str(",en-US;q=0.8,en;q=0.7");
+    }
+    let macos = synced.contains("Macintosh");
+    let brand = |name: &str, ver: &str| json!({ "brand": name, "version": ver });
+    Some(json!({
+      "userAgent": synced,
+      "acceptLanguage": accept_language,
+      "platform": platform,
+      "userAgentMetadata": {
+        "brands": [
+          brand(" Not A;Brand", "99"),
+          brand("Chromium", major),
+          brand("Google Chrome", major),
+        ],
+        "fullVersionList": [
+          brand(" Not A;Brand", "99.0.0.0"),
+          brand("Chromium", kernel_version),
+          brand("Google Chrome", kernel_version),
+        ],
+        "fullVersion": kernel_version,
+        "platform": if macos { "macOS" } else { "Windows" },
+        "platformVersion": if macos { "10.15.7" } else { "0.1.0.0" },
+        "architecture": "x86",
+        "model": "",
+        "mobile": false,
+        "bitness": "64",
+        "wow64": false
+      }
+    }))
   }
 
   /// Derive the on-screen window size Chromium should open at, from the stored
@@ -2551,6 +2637,21 @@ impl WayfernManager {
       "--password-store=basic".to_string(),
     ];
 
+    // Process-level UA. Chromium derives the HTTP User-Agent header and the
+    // sec-ch-ua client hints from its build, and a per-target
+    // Network.setUserAgentOverride never reaches tabs opened after the
+    // override — so with an Edge-kernel Wayfern every later tab kept claiming
+    // the kernel's own Edge build, which is exactly the "Different browser
+    // version" inconsistency browserscan flags. Anchor the claimed brand and
+    // version at process start, synced to the running kernel.
+    if let Some(ua) = config
+      .fingerprint
+      .as_deref()
+      .and_then(|fp| Self::process_user_agent(fp, &profile.version))
+    {
+      args.push(format!("--user-agent={ua}"));
+    }
+
     if headless {
       args.push("--headless=new".to_string());
     } else if let Some((w, h)) = config
@@ -3127,6 +3228,29 @@ impl WayfernManager {
       // The device as donut holds it, for the diagnostic below.
       let stored = fingerprint_for_cdp.as_object().cloned().unwrap_or_default();
 
+      // Sync the claimed UA to the running kernel before anything is sent:
+      // the payload's template version (Chrome/128…) disagrees with the
+      // kernel's engine (151…), and the network stack would keep reporting
+      // the kernel build regardless. See network_ua_override_params.
+      let kernel_version = profile.version.clone();
+      if !kernel_version.is_empty() {
+        if let Some(obj) = fingerprint_for_cdp.as_object_mut() {
+          if let Some(ua) = obj
+            .get("userAgent")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+          {
+            let no_edge = ua
+              .split_once(" Edg/")
+              .map(|(head, _)| head.to_string())
+              .unwrap_or_else(|| ua.clone());
+            let synced = Self::replace_chrome_version(&no_edge, &kernel_version);
+            obj.insert("userAgent".to_string(), json!(synced));
+          }
+        }
+      }
+      let ua_override = Self::network_ua_override_params(&fingerprint_for_cdp, &kernel_version);
+
       // `setFingerprint` is the only command that reproduces a whole payload
       // exactly, and on a browser without the identity API it is the only
       // command there is. A profile whose browser HAS that API never reaches
@@ -3148,6 +3272,16 @@ impl WayfernManager {
 
       for target in &page_targets {
         if let Some(ws_url) = &target.websocket_debugger_url {
+          // Network-level UA first: it must be in place before the page loads
+          // any subresource, while setFingerprint only reshapes the JS world.
+          if let Some(params) = &ua_override {
+            if let Err(e) = self
+              .send_cdp_command(ws_url, "Network.setUserAgentOverride", params.clone())
+              .await
+            {
+              log::warn!("Network.setUserAgentOverride failed on page target: {e}");
+            }
+          }
           crate::bwbrowser_cloud::log_bwbrowser(
             "launch_account",
             "  [Launch] Applying fingerprint to page target via setFingerprint...",
@@ -4065,6 +4199,60 @@ fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn replace_chrome_version_syncs_to_kernel() {
+    let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
+    let synced = WayfernManager::replace_chrome_version(ua, "151.0.7922.71");
+    assert!(synced.contains("Chrome/151.0.7922.71"));
+    assert!(!synced.contains("129"));
+    // A UA without a Chrome segment is returned untouched.
+    assert_eq!(
+      WayfernManager::replace_chrome_version("curl/8.0", "151.0.7922.71"),
+      "curl/8.0"
+    );
+  }
+
+  #[test]
+  fn network_ua_override_drops_edge_brand_and_fills_metadata() {
+    let fp = json!({
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0",
+      "platform": "Win32",
+      "language": "en-US"
+    });
+    let params =
+      WayfernManager::network_ua_override_params(&fp, "151.0.7922.71").expect("override params");
+    let ua = params["userAgent"].as_str().unwrap();
+    assert!(ua.contains("Chrome/151.0.7922.71"));
+    assert!(!ua.contains("Edg/"));
+    let metadata = &params["userAgentMetadata"];
+    assert_eq!(metadata["fullVersion"], "151.0.7922.71");
+    assert_eq!(metadata["platform"], "Windows");
+    assert_eq!(metadata["brands"][1]["version"], "151");
+    assert_eq!(params["acceptLanguage"], "en-US,en;q=0.9");
+  }
+
+  #[test]
+  fn network_ua_override_needs_a_user_agent() {
+    assert!(WayfernManager::network_ua_override_params(&json!({}), "151.0.7922.71").is_none());
+  }
+
+  #[test]
+  fn process_user_agent_syncs_and_needs_a_version() {
+    let fp = json!({
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0"
+    })
+    .to_string();
+    let ua = WayfernManager::process_user_agent(&fp, "151.0.7922.71").expect("ua");
+    assert!(ua.contains("Chrome/151.0.7922.71"));
+    assert!(!ua.contains("Edg/"));
+    // No kernel version, no override; no UA in the payload, no override.
+    assert_eq!(WayfernManager::process_user_agent(&fp, ""), None);
+    assert_eq!(
+      WayfernManager::process_user_agent(&json!({}).to_string(), "151.0.7922.71"),
+      None
+    );
+  }
 
   #[test]
   fn whole_device_payload_detection() {

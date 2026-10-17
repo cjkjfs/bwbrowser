@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
@@ -67,6 +67,12 @@ struct SessionCtx {
   streaming: bool,
   upload: Option<files::Upload>,
   upload_error: Option<String>,
+  /// 上一帧原始像素：静止帧检测（与当前帧逐字节相同则不推流，桌面场景可省 80% 带宽）
+  prev_bgra: Option<Vec<u8>>,
+  /// 上次真正发送帧的时刻（fps 节流，静止时不占用窗口）
+  last_sent: Option<Instant>,
+  /// 上次截屏检查时刻（静止画面下把截屏检查降到 ~7Hz，省 CPU）
+  last_poll: Option<Instant>,
 }
 
 impl SessionCtx {
@@ -82,7 +88,15 @@ impl SessionCtx {
       streaming: false,
       upload: None,
       upload_error: None,
+      prev_bgra: None,
+      last_sent: None,
+      last_poll: None,
     }
+  }
+
+  /// 画面参数（质量/帧率/缩放/显示器）变化后旧帧缓存失效，下一帧必须重发
+  fn invalidate_frame(&mut self) {
+    self.prev_bgra = None;
   }
 
   /// 处理一条指令，返回要回复的 JSON 文本列表
@@ -129,6 +143,8 @@ impl SessionCtx {
           replies.push(json!({"type": "error", "message": "Auth required"}).to_string());
         } else {
           self.streaming = true;
+          // viewer 新接入必须立刻见到首帧，即使画面与上次会话结束时相同
+          self.invalidate_frame();
         }
       }
       ClientCommand::StopStream => {
@@ -136,12 +152,14 @@ impl SessionCtx {
       }
       ClientCommand::SetQuality { quality } => {
         self.quality = (*quality).clamp(10, 100);
+        self.invalidate_frame();
       }
       ClientCommand::SetFps { fps } => {
         self.fps = (*fps).clamp(5, 60);
       }
       ClientCommand::SetScale { scale } => {
         self.scale = (*scale).clamp(0.25, 1.0);
+        self.invalidate_frame();
       }
       ClientCommand::SetMode { mode } => {
         self.control_mode = mode.clone();
@@ -159,7 +177,11 @@ impl SessionCtx {
           } else {
             (*monitor).clamp(0, count as i32 - 1) as usize
           };
-          self.monitor = m;
+          if self.monitor != m {
+            self.monitor = m;
+            // 分辨率随切屏变化，旧帧缓存长度不再匹配
+            self.invalidate_frame();
+          }
           match capture::display_info(m) {
             Some(d) => {
               input::set_active_display(d.origin_x, d.origin_y, d.scale);
@@ -303,24 +325,60 @@ impl SessionCtx {
   }
 }
 
-/// 阻塞线程里截屏 + 编码一帧
-fn capture_jpeg_blocking(quality: u8, monitor: usize) -> Result<(u32, u32, Vec<u8>), String> {
-  let frame = capture::capture_screen_monitor(monitor)?;
-  let jpeg = encode::bgra_to_jpeg(&frame.bgra, frame.w, frame.h, quality)?;
-  Ok((frame.w, frame.h, jpeg))
+/// 一次截屏编码的结果。画面与上帧相同时 changed=false（JPEG 为空，
+/// 不缩放不编码），bgra 为 None 表示复用调用方已有的帧缓存。
+struct CapturedFrame {
+  w: u32,
+  h: u32,
+  jpeg: Vec<u8>,
+  changed: bool,
+  bgra: Option<Vec<u8>>,
 }
 
-/// 通用帧推送：截屏 → JPEG → >III 头 + 二进制（sink 以引用传入，兼容 tungstenite/axum 两种 Message）
-async fn push_frame<S, M>(sink: &mut S, ctx: &mut SessionCtx) -> Result<(), String>
+/// 阻塞线程里截屏 + 编码一帧。光标合成进像素里，光标移动会体现为变化。
+fn capture_jpeg_blocking(
+  quality: u8,
+  scale: f32,
+  monitor: usize,
+  prev: Option<Vec<u8>>,
+) -> Result<CapturedFrame, String> {
+  let frame = capture::capture_screen_monitor(monitor)?;
+  let changed = prev.as_deref() != Some(frame.bgra.as_slice());
+  if !changed {
+    // 画面没变：原样归还帧缓存，不缩放不编码
+    return Ok(CapturedFrame {
+      w: frame.w,
+      h: frame.h,
+      jpeg: Vec::new(),
+      changed: false,
+      bgra: prev,
+    });
+  }
+  let (tw, th, jpeg) = encode::bgra_to_jpeg(&frame.bgra, frame.w, frame.h, quality, scale)?;
+  Ok(CapturedFrame {
+    w: tw,
+    h: th,
+    jpeg,
+    changed: true,
+    bgra: Some(frame.bgra),
+  })
+}
+
+/// 通用帧推送：截屏 → 静止检测 → 降采样 → JPEG → >III 头 + 二进制。
+/// 返回是否真的发送了帧（静止画面返回 false，调用方不更新 fps 节流窗口）。
+async fn push_frame<S, M>(sink: &mut S, ctx: &mut SessionCtx) -> Result<bool, String>
 where
   S: futures_util::Sink<M> + Unpin,
   M: From<Vec<u8>>,
   S::Error: std::fmt::Display,
 {
   let q = ctx.quality;
+  let scale = ctx.scale;
   let monitor = ctx.monitor;
-  let (w, h, jpeg) =
-    match tokio::task::spawn_blocking(move || capture_jpeg_blocking(q, monitor)).await {
+  let prev = ctx.prev_bgra.take();
+  let captured =
+    match tokio::task::spawn_blocking(move || capture_jpeg_blocking(q, scale, monitor, prev)).await
+    {
       Ok(Ok(frame)) => frame,
       Ok(Err(e)) => return Err(structured("REMOTE_DESKTOP_INTERNAL", e)),
       Err(e) => {
@@ -330,13 +388,49 @@ where
         ))
       }
     };
-  let mut payload = Vec::with_capacity(12 + jpeg.len());
-  payload.extend_from_slice(&frame_header(w, h, jpeg.len() as u32));
-  payload.extend_from_slice(&jpeg);
+  let w = captured.w;
+  let h = captured.h;
+  ctx.prev_bgra = captured.bgra;
+  if !captured.changed {
+    return Ok(false);
+  }
+  let mut payload = Vec::with_capacity(12 + captured.jpeg.len());
+  payload.extend_from_slice(&frame_header(w, h, captured.jpeg.len() as u32));
+  payload.extend_from_slice(&captured.jpeg);
   sink
     .send(payload.into())
     .await
-    .map_err(|e| structured("REMOTE_DESKTOP_UNREACHABLE", format!("帧发送失败: {e}")))
+    .map_err(|e| structured("REMOTE_DESKTOP_UNREACHABLE", format!("帧发送失败: {e}")))?;
+  Ok(true)
+}
+
+/// ticker 分支共用：fps 节流 + 静止降频后推送一帧
+async fn tick_push<S, M>(sink: &mut S, ctx: &mut SessionCtx) -> Result<(), String>
+where
+  S: futures_util::Sink<M> + Unpin,
+  M: From<Vec<u8>>,
+  S::Error: std::fmt::Display,
+{
+  let now = Instant::now();
+  let fps_gap = Duration::from_millis((1000 / ctx.fps.max(1) as u64).max(10));
+  if ctx
+    .last_sent
+    .is_some_and(|t| now.duration_since(t) < fps_gap)
+  {
+    return Ok(());
+  }
+  // 静止画面下把截屏检查降到 ~7Hz：既省 CPU，又保证画面一变就在 150ms 内出帧
+  if ctx
+    .last_poll
+    .is_some_and(|t| now.duration_since(t) < Duration::from_millis(150))
+  {
+    return Ok(());
+  }
+  ctx.last_poll = Some(now);
+  if push_frame(sink, ctx).await? {
+    ctx.last_sent = Some(now);
+  }
+  Ok(())
 }
 
 /// ==================== relay 主循环（重试直到 stop） ====================
@@ -571,7 +665,7 @@ async fn agent_cycle(
       }
       _ = ticker.tick() => {
         if ctx.streaming {
-          if let Err(e) = push_frame(&mut writer, &mut ctx).await {
+          if let Err(e) = tick_push(&mut writer, &mut ctx).await {
             // 发送失败说明 viewer 端已不可达：停流避免空烧 CPU，等重连后 viewer 重新 StartStream。
             // 此前静默处理，推流失败时日志里毫无痕迹，viewer 秒断无从排查。
             ctx.streaming = false;
@@ -769,7 +863,7 @@ async fn local_session(
       }
       _ = ticker.tick() => {
         if ctx.streaming {
-          if let Err(e) = push_frame(&mut ws, &mut ctx).await {
+          if let Err(e) = tick_push(&mut ws, &mut ctx).await {
             set_status(&status, |s| s.last_error = Some(e));
             tokio::time::sleep(Duration::from_millis(500)).await;
           }

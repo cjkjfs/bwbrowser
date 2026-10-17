@@ -1503,6 +1503,22 @@ struct BwbrowserProxyListResponse {
   proxies: Option<Vec<BwbrowserProxy>>,
 }
 
+/// 单个账号的节点使用明细（list_proxy_usage，每账号一条，客户端按平台聚合计数）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BwbrowserProxyUsageItem {
+  pub proxy_node: String,
+  #[serde(default)]
+  pub platform: String,
+  #[serde(default)]
+  pub account_name: String,
+  #[serde(default)]
+  pub phone_id: String,
+  #[serde(default)]
+  pub owner_name: String,
+  #[serde(default)]
+  pub owner_real_name: String,
+}
+
 /// sync_proxy 响应
 #[derive(Debug, Deserialize)]
 struct BwbrowserProxySyncResponse {
@@ -1815,8 +1831,8 @@ impl BwbrowserAuthManager {
     log_bwbrowser(
       "list_accounts",
       &format!(
-        "→ 请求账号列表: user={}, page={}, page_size={}",
-        username, page, page_size
+        "→ 请求账号列表: user={}, page={}, page_size={}, keyword={:?}",
+        username, page, page_size, keyword
       ),
     );
 
@@ -2882,6 +2898,14 @@ async fn resolve_and_sync_proxy_geo(
   );
 }
 
+/// 节点使用统计（设置代理弹窗）：每条云端代理被哪些云端账号使用
+#[tauri::command]
+pub async fn bwbrowser_list_proxy_usage(
+  company_id: Option<i64>,
+) -> Result<Vec<BwbrowserProxyUsageItem>, String> {
+  BWBROWSER_AUTH.list_proxy_usage(company_id).await
+}
+
 #[tauri::command]
 pub async fn bwbrowser_update_account_proxy(
   app_handle: tauri::AppHandle,
@@ -3365,6 +3389,77 @@ impl BwbrowserAuthManager {
         Err(e) => {
           last_err = Some(format!("解析响应失败 ({}): {}", url, e));
           continue;
+        }
+      }
+    }
+
+    Err(last_err.unwrap_or_else(|| "所有服务器均请求失败".to_string()))
+  }
+
+  /// 节点使用统计：每条代理节点被哪些云端账号使用（设置代理弹窗展示）
+  pub async fn list_proxy_usage(
+    &self,
+    company_id: Option<i64>,
+  ) -> Result<Vec<BwbrowserProxyUsageItem>, String> {
+    let (username, password) = self
+      .get_credentials()
+      .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+
+    let mut form_data = format!(
+      "action=list_proxy_usage&username={}&password={}",
+      urlencode(&username),
+      urlencode(&password)
+    );
+    if let Some(cid) = company_id {
+      form_data.push_str(&format!("&company_id={}", cid));
+    }
+
+    let mut last_err: Option<String> = None;
+    for url in SIMPRINT_ACCOUNTS_URLS {
+      let resp = match self
+        .client
+        .post(*url)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(form_data.clone())
+        .send()
+        .await
+      {
+        Ok(r) => r,
+        Err(e) => {
+          last_err = Some(format!("网络请求失败 ({}): {}", url, e));
+          continue;
+        }
+      };
+
+      let body = match resp.text().await {
+        Ok(b) => b,
+        Err(e) => {
+          last_err = Some(format!("读取响应失败 ({}): {}", url, e));
+          continue;
+        }
+      };
+
+      #[derive(Deserialize)]
+      struct UsageResponse {
+        success: Option<bool>,
+        usage: Option<Vec<BwbrowserProxyUsageItem>>,
+        message: Option<String>,
+      }
+
+      match serde_json::from_str::<UsageResponse>(&body) {
+        Ok(result) => {
+          if result.success == Some(true) {
+            return Ok(result.usage.unwrap_or_default());
+          }
+          last_err = Some(
+            result
+              .message
+              .clone()
+              .unwrap_or_else(|| "获取节点使用统计失败".to_string()),
+          );
+        }
+        Err(e) => {
+          last_err = Some(format!("解析响应失败 ({}): {}", url, e));
         }
       }
     }
@@ -8672,10 +8767,16 @@ async fn inject_cloud_cookies_after_launch(
     return Ok(());
   }
 
-  const LOGIN_WAIT_SECONDS: u64 = 300;
+  // 15 minutes: on a fresh profile this window is "how long the user may
+  // take to sign in manually" (password + 2FA can easily exceed 5 minutes),
+  // and the deadline is the only thing that ends the wait before login is
+  // confirmed. A dead legacy session exits much sooner via MAX_DEAD_PROBES.
+  const LOGIN_WAIT_SECONDS: u64 = 900;
   let deadline = std::time::Instant::now() + std::time::Duration::from_secs(LOGIN_WAIT_SECONDS);
   // 探测连续确认失效达到该次数后停止等待（会话不会自己复活，继续空转只会
-  // 白白占用任务 300 秒；留给用户手动登录，下次启动再回传）。
+  // 白白占用任务；留给用户手动登录，下次启动再回传）。仅当本地已有登录态
+  // （definite_logged_in）时判死才计数 —— 全新 profile 的"未登录"是用户
+  // 正在登录的正常状态，不触发放弃。
   const MAX_DEAD_PROBES: u32 = 3;
   let mut dead_probe_count: u32 = 0;
 
@@ -8753,23 +8854,40 @@ async fn inject_cloud_cookies_after_launch(
         );
       }
       Some(Ok(Some((verdict, msg)))) => {
-        dead_probe_count += 1;
-        log_bwbrowser(
-          "inject_cookies",
-          &format!(
-            "⚠ 健康检查判定未登录（{:?}，{}），第 {} 次，{}",
-            verdict,
-            msg,
-            dead_probe_count,
-            if dead_probe_count >= MAX_DEAD_PROBES {
-              "停止等待，不回传未通过健康检查的会话"
-            } else {
-              "继续等待"
-            }
-          ),
-        );
-        if dead_probe_count >= MAX_DEAD_PROBES {
-          break;
+        // A dying probe only counts toward giving up when the profile
+        // actually carries a logged-in cookie set: a session existed and
+        // died, it will not revive, and further probing is waste. On a
+        // fresh profile nothing is logged in yet — the user may be typing
+        // their password right now, and "not logged in" probes are the
+        // expected state; bailing out after ~10 seconds here was exactly
+        // the "first manual login never uploads" bug.
+        if score.definite_logged_in {
+          dead_probe_count += 1;
+          log_bwbrowser(
+            "inject_cookies",
+            &format!(
+              "⚠ 健康检查判定未登录（{:?}，{}），第 {} 次，{}",
+              verdict,
+              msg,
+              dead_probe_count,
+              if dead_probe_count >= MAX_DEAD_PROBES {
+                "停止等待，不回传未通过健康检查的会话"
+              } else {
+                "继续等待"
+              }
+            ),
+          );
+          if dead_probe_count >= MAX_DEAD_PROBES {
+            break;
+          }
+        } else {
+          log_bwbrowser(
+            "inject_cookies",
+            &format!(
+              "本地尚无登录态（{:?}，{}），用户可能正在手动登录，继续等待...",
+              verdict, msg
+            ),
+          );
         }
         continue;
       }
