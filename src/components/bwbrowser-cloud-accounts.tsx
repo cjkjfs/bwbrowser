@@ -236,6 +236,50 @@ function proxyNodeKey(pn: string): string {
 // 拉取成功前 fallback 到本地硬编码表，因此拼音 code 只会在服务端数据到达前短暂出现。
 let remotePlatformLabels: Record<string, string> = {};
 
+// ==================== 设备 IP 映射表（SRC-IP-CIDR 提示） ====================
+// 用户粘贴的 Clash 风格分流清单（"SRC-IP-CIDR,192.168.168.5/32,us031-70.39.192.115"），
+// 仅存 localStorage 供设置代理弹窗展示提示，不进后端、不写任何账号数据。
+const SRC_IP_RULES_KEY = "bwbrowser_src_ip_rules";
+
+function parseSrcIpRules(text: string): Map<number, string> {
+  const map = new Map<number, string>();
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim().replace(/^[-*\s]+/, "");
+    if (!line || line.startsWith("#")) continue;
+    if (!line.startsWith("SRC-IP-CIDR,")) continue;
+    const parts = line.split(",");
+    const cidr = (parts[1] ?? "").trim();
+    const node = (parts[2] ?? "").trim();
+    if (!cidr || !node) continue;
+    // key 取 IP 末段数字（设备编号对应末段，任意网段均可），value 保持 "IP/掩码,节点" 原格式用于展示
+    const slash = cidr.indexOf("/");
+    const ip = slash >= 0 ? cidr.slice(0, slash) : cidr;
+    const segs = ip.split(".");
+    const lastSeg = parseInt(segs[segs.length - 1] ?? "", 10);
+    if (!Number.isFinite(lastSeg) || lastSeg <= 0 || lastSeg > 255) continue;
+    if (!map.has(lastSeg)) map.set(lastSeg, `${cidr},${node}`);
+  }
+  return map;
+}
+
+function loadSrcIpRulesText(): string {
+  try {
+    return localStorage.getItem(SRC_IP_RULES_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+// 设备编号 = device_id 的数字部分（"005" -> 5），对应清单里 IP 末段为 n 的一行（任意网段）
+function computeSrcIpRuleHint(
+  account: { device_id?: string } | null,
+): string | null {
+  if (!account) return null;
+  const n = parseInt((account.device_id ?? "").trim(), 10);
+  if (!Number.isFinite(n) || n <= 0 || n > 255) return null;
+  return parseSrcIpRules(loadSrcIpRulesText()).get(n) ?? null;
+}
+
 // ==================== 工具函数 ====================
 function getPlatformLabel(platform: string): string {
   const remote = remotePlatformLabels[platform];
@@ -494,6 +538,7 @@ export function BwbrowserCloudAccountsDialog({
     setKeyword,
     currentPage,
     pageSize,
+    setPageSize,
     platformFilter,
     ownerFilter,
     keyword,
@@ -638,6 +683,10 @@ export function BwbrowserCloudAccountsDialog({
   const [remarkText, setRemarkText] = useState("");
   const [remarkAppend, setRemarkAppend] = useState(true);
   const [isSavingRemark, setIsSavingRemark] = useState(false);
+  // 设备 IP 映射提示：单账号设置代理时显示 device_id 对应的 SRC-IP-CIDR 行
+  const [srcIpRuleHint, setSrcIpRuleHint] = useState<string | null>(null);
+  const [srcIpRulesOpen, setSrcIpRulesOpen] = useState(false);
+  const [srcIpRulesText, setSrcIpRulesText] = useState("");
   const [selectedProxyId, setSelectedProxyId] = useState<string | null>(null);
   const [isSavingProxy, setIsSavingProxy] = useState(false);
   const [proxySearchQuery, setProxySearchQuery] = useState("");
@@ -1227,6 +1276,11 @@ export function BwbrowserCloudAccountsDialog({
       setProxyDialogTargets(targets);
       setProxySearchQuery("");
       setProxyPage(0);
+      // 单账号时按 device_id 查映射表，弹窗里提示对应的 SRC-IP-CIDR 行
+      setSrcIpRuleHint(
+        targets.length === 1 ? computeSrcIpRuleHint(targets[0]) : null,
+      );
+      setSrcIpRulesOpen(false);
       // 先打开弹窗，再直接拉云端代理列表，避免弹窗被远程请求卡住
       setProxyDialogOpen(true);
       setProxyDialogLoading(true);
@@ -3586,6 +3640,21 @@ export function BwbrowserCloudAccountsDialog({
           </div>
         )}
         <div className="flex items-center gap-1">
+          <Select
+            value={String(pageSize)}
+            onValueChange={(v) => setPageSize(Number(v))}
+          >
+            <SelectTrigger className="h-7 w-[86px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[20, 50, 100, 200, 500, 1000].map((n) => (
+                <SelectItem key={n} value={String(n)}>
+                  {n} 条/页
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
             variant="outline"
             size="sm"
@@ -3774,7 +3843,10 @@ export function BwbrowserCloudAccountsDialog({
             <span className="text-sm font-semibold">
               设置代理 -
               {proxyDialogTargets.length === 1
-                ? ` ${proxyDialogTargets[0]?.account_name}`
+                ? ` ${proxyDialogTargets[0]?.account_name}` +
+                  (proxyDialogTargets[0]?.device_id?.trim()
+                    ? `（设备编号 ${proxyDialogTargets[0]?.device_id?.trim()}）`
+                    : "")
                 : ` ${proxyDialogTargets.length} 个账号`}
             </span>
           </div>
@@ -3793,6 +3865,108 @@ export function BwbrowserCloudAccountsDialog({
           <div className="flex items-center justify-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
             <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
             正在同步云端代理列表...
+          </div>
+        )}
+
+        {/* 设备 IP 映射提示（来自本地 SRC-IP-CIDR 清单，仅展示，不写入账号数据） */}
+        {proxyDialogTargets.length === 1 && (
+          <div className="flex shrink-0 items-center gap-2 border-b bg-accent/40 px-4 py-2 text-xs">
+            <span className="text-muted-foreground">设备IP映射:</span>
+            {srcIpRuleHint ? (
+              <button
+                type="button"
+                title="点击复制"
+                className="flex items-center gap-1 font-mono text-foreground hover:text-primary"
+                onClick={() => {
+                  navigator.clipboard.writeText(srcIpRuleHint);
+                  showSuccessToast("已复制");
+                }}
+              >
+                {srcIpRuleHint}
+                <LuCopy className="h-3 w-3" />
+              </button>
+            ) : (
+              <span className="text-muted-foreground">
+                未匹配 (设备编号:{" "}
+                {proxyDialogTargets[0]?.device_id?.trim() || "-"})
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-6 px-2 text-xs text-muted-foreground"
+              onClick={async () => {
+                if (!srcIpRulesOpen) {
+                  let text = loadSrcIpRulesText();
+                  if (!text.trim()) {
+                    // 本机没有 → 尝试从云端拉取（换电脑/清缓存场景）
+                    try {
+                      const remote = await invoke<string | null>(
+                        "bwbrowser_get_user_setting",
+                        { settingKey: "src_ip_rules" },
+                      );
+                      if (remote?.trim()) {
+                        text = remote;
+                        localStorage.setItem(SRC_IP_RULES_KEY, remote);
+                      }
+                    } catch {
+                      // 未登录或网络失败：保持空，让用户手动粘贴
+                    }
+                  }
+                  setSrcIpRulesText(text);
+                }
+                setSrcIpRulesOpen(!srcIpRulesOpen);
+              }}
+            >
+              <LuWrench className="mr-1 h-3 w-3" />
+              映射表
+            </Button>
+          </div>
+        )}
+        {srcIpRulesOpen && (
+          <div className="shrink-0 border-b px-4 py-2">
+            <textarea
+              value={srcIpRulesText}
+              onChange={(e) => setSrcIpRulesText(e.target.value)}
+              placeholder="粘贴 SRC-IP-CIDR 清单，每行: SRC-IP-CIDR,192.168.168.5/32,us031-70.39.192.115"
+              className="h-40 w-full resize-y rounded border bg-background p-2 font-mono text-xs"
+            />
+            <div className="mt-2 flex items-center gap-2">
+              <Button
+                size="sm"
+                className="h-7 px-3 text-xs"
+                onClick={async () => {
+                  const text = srcIpRulesText;
+                  localStorage.setItem(SRC_IP_RULES_KEY, text);
+                  setSrcIpRuleHint(computeSrcIpRuleHint(proxyDialogTargets[0]));
+                  setSrcIpRulesOpen(false);
+                  try {
+                    await invoke("bwbrowser_save_user_setting", {
+                      settingKey: "src_ip_rules",
+                      data: text,
+                    });
+                    showSuccessToast("映射表已保存并同步云端");
+                  } catch {
+                    showSuccessToast(
+                      "映射表已保存（云端同步失败，仅本机生效）",
+                    );
+                  }
+                }}
+              >
+                保存
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-3 text-xs"
+                onClick={() => setSrcIpRulesOpen(false)}
+              >
+                取消
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                保存后同步到云端账号，换电脑登录可用
+              </span>
+            </div>
           </div>
         )}
 

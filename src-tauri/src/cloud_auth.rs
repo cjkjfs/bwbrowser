@@ -261,14 +261,6 @@ fn mcp_key_refusal(status: u16, body: &str) -> String {
   crate::backend_error_with_detail("MCP_REMOTE_KEY_UNAVAILABLE", format!("{status}: {message}"))
 }
 
-#[derive(Debug, Deserialize)]
-struct WayfernTokenResponse {
-  token: String,
-  #[serde(rename = "expiresIn")]
-  #[allow(dead_code)]
-  expires_in: u64,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocationItem {
   pub code: String,
@@ -1267,95 +1259,6 @@ impl CloudAuthManager {
       .await
   }
 
-  /// Request a wayfern token from the cloud API. Only succeeds for plans that
-  /// include browser automation.
-  ///
-  /// Self-gating on purpose: every caller used to repeat the check, and the one
-  /// they repeated was the wrong one. A plan without automation is not an error
-  /// state here — it clears any stale token and reports success, because there
-  /// is nothing to fetch and nothing wrong.
-  pub async fn request_wayfern_token(&self) -> Result<(), String> {
-    if !self.is_entitled_to_wayfern_token().await {
-      // Ok(()) here means callers log nothing, so a session that declined to
-      // mint left no trace at all and looked identical to one that succeeded.
-      log::info!(
-        "Skipping wayfern token request: the cached plan does not include browser automation"
-      );
-      self.clear_wayfern_token().await;
-      return Ok(());
-    }
-
-    let result = self
-      .api_call_with_retry(|access_token| {
-        let url = format!("{CLOUD_API_URL}/api/auth/wayfern-start");
-        // Bound the request: without a timeout, an unreachable
-        // yacm.xin hangs the background fetch indefinitely,
-        // which in turn forces wayfern_manager's launch-time wait to
-        // exhaust its full polling budget every time.
-        let client = reqwest::Client::builder()
-          .timeout(std::time::Duration::from_secs(8))
-          .connect_timeout(std::time::Duration::from_secs(4))
-          .build()
-          .unwrap_or_else(|_| reqwest::Client::new());
-        async move {
-          let response = client
-            .post(&url)
-            .header("Authorization", format!("Bearer {access_token}"))
-            .send()
-            .await
-            .map_err(|e| format!("Failed to request wayfern token: {e}"))?;
-
-          if !response.status().is_success() {
-            let status = response.status();
-            // The body carries WHICH rule refused: a device-family conflict or
-            // a plan that lacks automation. They need different handling, so
-            // keep the text instead of collapsing every failure to a status.
-            let body = response.text().await.unwrap_or_default();
-            return Err(format!("Wayfern token request failed ({status}): {body}"));
-          }
-
-          let result: WayfernTokenResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse wayfern token response: {e}"))?;
-
-          Ok(result.token)
-        }
-      })
-      .await;
-
-    let token = match result {
-      Ok(token) => token,
-      Err(e) => {
-        // A 403 rejects the entitlement without invalidating the login session.
-        // Clear the browser token and refresh account state before notifying UI.
-        if e.contains("(403") || e.contains("Forbidden") {
-          log::warn!("Wayfern token blocked by backend (403): {e}");
-          self.clear_wayfern_token().await;
-          if let Err(fetch_err) = self.fetch_profile().await {
-            log::warn!("Profile re-fetch after wayfern block failed: {fetch_err}");
-          }
-          // Only the device rules produce a restriction the user can lift, and
-          // the toast tells them to sign other devices out — so only those may
-          // raise it. A plan-level refusal that slipped past the gate above
-          // (cached entitlements the re-fetch just corrected) must stay silent:
-          // telling a Solo customer they are "temporarily restricted" describes
-          // a lockout that does not exist and hides the real answer, which is
-          // that their plan does not include browser automation.
-          if is_device_restriction(&e) {
-            let _ = crate::events::emit_empty("wayfern-paid-blocked");
-          }
-        }
-        return Err(e);
-      }
-    };
-
-    let mut wt = self.wayfern_token.lock().await;
-    *wt = Some(token);
-    log::info!("Wayfern token acquired");
-    Ok(())
-  }
-
   /// Get the current wayfern token, if any.
   pub async fn get_wayfern_token(&self) -> Option<String> {
     #[cfg(feature = "e2e")]
@@ -1380,15 +1283,12 @@ impl CloudAuthManager {
 
   /// Background loop that refreshes the sync token periodically
   pub async fn start_sync_token_refresh_loop(app_handle: tauri::AppHandle) {
-    let mut wayfern_refresh_counter: u32 = 0;
     loop {
       tokio::time::sleep(std::time::Duration::from_secs(600)).await; // 10 minutes
 
       if !CLOUD_AUTH.is_logged_in().await {
         continue;
       }
-
-      wayfern_refresh_counter += 1;
 
       // Proactively refresh the access token if it's expired or expiring soon.
       // This runs first so subsequent API calls use a fresh token.
@@ -1442,36 +1342,9 @@ impl CloudAuthManager {
       // Sync cloud proxy credentials
       CLOUD_AUTH.sync_cloud_proxy().await;
 
-      // Refresh wayfern token every 10 hours (60 iterations of 10-minute loop).
-      // request_wayfern_token owns the entitlement check and clears the cached
-      // token when the plan doesn't include automation.
-      //
-      // Also mint one as soon as the plan starts granting it. `fetch_profile`
-      // above picks up an upgrade within ten minutes, but nothing watched that
-      // transition, so a session that signed in before upgrading stayed
-      // tokenless for up to ten hours while reporting the feature as unlocked.
-      let missing_entitled_token = CLOUD_AUTH.is_entitled_to_wayfern_token().await
-        && CLOUD_AUTH.get_wayfern_token().await.is_none();
-      if wayfern_refresh_counter >= 60 || missing_entitled_token {
-        wayfern_refresh_counter = 0;
-        if let Err(e) = CLOUD_AUTH.request_wayfern_token().await {
-          log::warn!("Failed to refresh wayfern token: {e}");
-        }
-      }
-
       let _ = &app_handle; // keep app_handle alive
     }
   }
-}
-
-/// Whether a rejected wayfern-token request was refused by one of the device
-/// rules rather than by the plan's capabilities.
-///
-/// Matches on the server's message because that is the only thing that
-/// distinguishes them: both arrive as a bare 403. Only these two are a state
-/// the user can clear themselves, which is what the toast asks them to do.
-fn is_device_restriction(error: &str) -> bool {
-  error.contains("primary device") || error.contains("requires the desktop app")
 }
 
 fn solve_pow(prefix: &str, difficulty: u32) -> Option<String> {
@@ -1546,11 +1419,6 @@ pub async fn cloud_exchange_device_code(
       Ok(Some(_)) => log::info!("Sync token pre-fetched successfully"),
       Ok(None) => log::warn!("Sync token not available despite active subscription"),
       Err(e) => log::error!("Failed to pre-fetch sync token after login: {e}"),
-    }
-
-    // Request wayfern token for paid users
-    if let Err(e) = CLOUD_AUTH.request_wayfern_token().await {
-      log::warn!("Failed to request wayfern token after login: {e}");
     }
   }
 
@@ -1629,19 +1497,6 @@ pub async fn cloud_refresh_profile() -> Result<CloudUser, String> {
   let mut user = CLOUD_AUTH.fetch_profile().await?;
   user.entitlements = Some(user.entitlements());
 
-  // Minting the token is what actually unlocks cross-OS fingerprints, and it
-  // only happened at login, at startup and once every 10 hours. An account
-  // that upgraded after its last sign-in therefore refreshed into the correct
-  // entitlements while still holding no token, and "Refresh" did not fix it.
-  // Only mint when one is genuinely missing, so this stays a no-op afterwards.
-  if CLOUD_AUTH.is_entitled_to_wayfern_token().await
-    && CLOUD_AUTH.get_wayfern_token().await.is_none()
-  {
-    if let Err(e) = CLOUD_AUTH.request_wayfern_token().await {
-      log::warn!("Refresh could not obtain a wayfern token: {e}");
-    }
-  }
-
   Ok(user)
 }
 
@@ -1680,13 +1535,21 @@ pub async fn cloud_has_active_subscription() -> Result<bool, String> {
 
 #[tauri::command]
 pub async fn cloud_get_wayfern_token() -> Result<Option<String>, String> {
-  Ok(CLOUD_AUTH.get_wayfern_token().await)
+  Ok(
+    crate::bwbrowser_cloud::BWBROWSER_AUTH
+      .get_wayfern_token()
+      .await,
+  )
 }
 
 #[tauri::command]
 pub async fn cloud_refresh_wayfern_token() -> Result<Option<String>, String> {
-  CLOUD_AUTH.request_wayfern_token().await?;
-  Ok(CLOUD_AUTH.get_wayfern_token().await)
+  // 无后台缓存：每次调用都是一次真实请求（自带 8 秒超时），即强制刷新
+  Ok(
+    crate::bwbrowser_cloud::BWBROWSER_AUTH
+      .get_wayfern_token()
+      .await,
+  )
 }
 
 #[tauri::command]
@@ -1998,24 +1861,6 @@ mod tests {
       !body.contains("revoke_mcp_key("),
       "a dead session has nothing to revoke with; the call could only fail"
     );
-  }
-
-  #[test]
-  fn only_the_device_rules_read_as_a_restriction() {
-    assert!(is_device_restriction(
-      "Wayfern token request failed (403 Forbidden): {\"message\":\"Browser automation is restricted to your primary device. Log out other devices to use it here.\",\"statusCode\":403}"
-    ));
-    assert!(is_device_restriction(
-      "Wayfern token request failed (403 Forbidden): {\"message\":\"Browser automation requires the desktop app. Open BW Browser and try again.\",\"statusCode\":403}"
-    ));
-    // A plan-level refusal is not a restriction, and must not raise the toast
-    // that tells the user to sign other devices out.
-    assert!(!is_device_restriction(
-      "Wayfern token request failed (403 Forbidden): {\"message\":\"Browser automation subscription required\",\"statusCode\":403}"
-    ));
-    assert!(!is_device_restriction(
-      "Wayfern token request failed (500 Internal Server Error): "
-    ));
   }
 
   fn usage_response(recurring: Option<i64>, extra: Option<i64>) -> ProxyUsageResponse {

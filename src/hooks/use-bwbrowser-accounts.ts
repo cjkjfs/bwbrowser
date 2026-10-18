@@ -127,6 +127,7 @@ interface UseBwbrowserAccountsReturn {
   keyword: string;
   currentPage: number;
   pageSize: number;
+  setPageSize: (n: number) => void;
   // 服务端排序（全量数据排序，非当前页）：null = 默认按创建时间倒序
   serverSort: { by: string; order: "asc" | "desc" } | null;
   setServerSort: (s: { by: string; order: "asc" | "desc" } | null) => void;
@@ -150,6 +151,11 @@ interface UseBwbrowserAccountsReturn {
 /**
  * Bwbrowser 云端账号 Hook（对接 Simprint 账号 API）
  */
+const platformFilterKey = (companyId: number | null | undefined) =>
+  `bwbrowser_platform_filter:${companyId ?? "default"}`;
+const ownerFilterKey = (companyId: number | null | undefined) =>
+  `bwbrowser_owner_filter:${companyId ?? "default"}`;
+
 export function useBwbrowserAccounts(
   companyId?: number | null,
 ): UseBwbrowserAccountsReturn {
@@ -164,12 +170,31 @@ export function useBwbrowserAccounts(
   const [isManager, setIsManager] = useState(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  // 平台/归属人筛选只在页面会话内生效：页面组件会因登录框开关等时机重挂，
-  // 持久化的旧筛选会在重挂时突然接管列表（表现为"平台自己变成了别的"），
-  // 还会残留已删除用户的幽灵 owner。每次进入页面回到全部，杜绝静默跳变。
-  const [platformFilter, setPlatformFilterState] = useState("all");
-  const [ownerFilter, setOwnerFilterState] = useState<number | null>(null);
+  // 每页条数持久化到 localStorage（默认 20），非法值回退默认
+  const [pageSize, setPageSizeState] = useState(() => {
+    if (typeof window === "undefined") return 20;
+    const saved = Number(localStorage.getItem("bwbrowser_page_size"));
+    return [20, 50, 100, 200, 500, 1000].includes(saved) ? saved : 20;
+  });
+  const changePageSize = useCallback((n: number) => {
+    setPageSizeState(n);
+    setCurrentPage(1);
+    try {
+      localStorage.setItem("bwbrowser_page_size", String(n));
+    } catch {}
+  }, []);
+  // 平台/归属人筛选按公司持久化到 localStorage。重挂时恢复筛选是期望行为
+  // （页面顶部有筛选标签明示当前状态）；key 带公司后缀避免跨公司接管，
+  // 已删除用户的幽灵 owner 由 users 到齐后的校验重置兜底。
+  const [platformFilter, setPlatformFilterState] = useState(() => {
+    if (typeof window === "undefined") return "all";
+    return localStorage.getItem(platformFilterKey(companyId)) || "all";
+  });
+  const [ownerFilter, setOwnerFilterState] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const saved = localStorage.getItem(ownerFilterKey(companyId));
+    return saved !== null && saved !== "" ? Number(saved) : null;
+  });
   const [keyword, setKeywordState] = useState("");
   // 服务端排序：点击粉丝量表头时置位，云端 SQL ORDER BY 全量排序
   const [serverSort, setServerSortState] = useState<{
@@ -243,7 +268,7 @@ export function useBwbrowserAccounts(
         setAccounts(result.accounts || []);
         setTotal(result.total || 0);
         setCurrentPage(page);
-        setPageSize(pSize);
+        setPageSizeState(pSize);
         if (typeof result.can_view_password === "boolean") {
           setCanViewPassword(result.can_view_password);
         }
@@ -332,19 +357,54 @@ export function useBwbrowserAccounts(
     return fetchSummary(ownerFilter);
   }, [fetchSummary, ownerFilter]);
 
-  const setPlatformFilter = useCallback((platform: string) => {
-    setPlatformFilterState(platform);
-    setCurrentPage(1);
-  }, []);
+  const setPlatformFilter = useCallback(
+    (platform: string) => {
+      setPlatformFilterState(platform);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(platformFilterKey(companyId), platform);
+      }
+      setCurrentPage(1);
+    },
+    [companyId],
+  );
 
-  const setOwnerFilter = useCallback((ownerId: number | null) => {
-    setOwnerFilterState(ownerId);
-    setCurrentPage(1);
-  }, []);
+  const setOwnerFilter = useCallback(
+    (ownerId: number | null) => {
+      setOwnerFilterState(ownerId);
+      if (typeof window !== "undefined") {
+        if (ownerId === null) {
+          localStorage.removeItem(ownerFilterKey(companyId));
+        } else {
+          localStorage.setItem(ownerFilterKey(companyId), String(ownerId));
+        }
+      }
+      setCurrentPage(1);
+    },
+    [companyId],
+  );
 
   const setKeyword = useCallback((kw: string) => {
     setKeywordState(kw);
   }, []);
+
+  // 切换公司时载入该公司持久化的筛选（挂载时重读一次无害）
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setPlatformFilterState(
+      localStorage.getItem(platformFilterKey(companyId)) || "all",
+    );
+    const saved = localStorage.getItem(ownerFilterKey(companyId));
+    setOwnerFilterState(saved !== null && saved !== "" ? Number(saved) : null);
+    setCurrentPage(1);
+  }, [companyId]);
+
+  // 幽灵 owner 兜底：users 到齐后若持久化的归属人已不存在则重置为全部
+  useEffect(() => {
+    if (usersLoading || users.length === 0) return;
+    if (ownerFilter !== null && !users.some((u) => u.id === ownerFilter)) {
+      setOwnerFilter(null);
+    }
+  }, [users, usersLoading, ownerFilter, setOwnerFilter]);
 
   /** 切换服务端排序并回到第 1 页重新拉取 */
   const setServerSort = useCallback(
@@ -422,6 +482,7 @@ export function useBwbrowserAccounts(
     setKeyword,
     currentPage,
     pageSize,
+    setPageSize: changePageSize,
     platformFilter,
     ownerFilter,
     keyword,

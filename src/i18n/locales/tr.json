@@ -239,7 +239,8 @@
         "verifying": "Kopya denetleniyor",
         "cleaning": "Eski dizin siliniyor",
         "done": "Bitti"
-      }
+      },
+      "openFolder": "Klasörü Aç"
     },
     "misc": {
       "title": "Diğer",
@@ -3596,6 +3597,9 @@
     "deleteSession": "Sohbeti sil",
     "deleteSessionTitle": "Bu sohbet silinsin mi?",
     "deleteSessionBody": "Bu sohbet ve yerel olarak kaydedilen mesajları silinecek, geri alınamaz.",
-    "defaultSessionTitle": "Yeni sohbet"
+    "defaultSessionTitle": "Yeni sohbet",
+    "dotUser": "Ben",
+    "dotAssistant": "AI",
+    "rollback": "Bu mesajdan önceki haline dön"
   }
 }

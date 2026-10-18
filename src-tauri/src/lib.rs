@@ -3624,12 +3624,10 @@ pub fn run_with_builder(
       // Start cloud auth background refresh loop
       let app_handle_cloud = app.handle().clone();
       tauri::async_runtime::spawn(async move {
-        // On startup, refresh sync token, proxy config, and wayfern token in
-        // PARALLEL. Previously they were awaited sequentially, so the wayfern
-        // token request didn't even start until the earlier two API calls had
-        // finished. Wayfern launch can race with this task — a few seconds of
-        // serialized API calls translates directly into a slow first launch
-        // because launch_wayfern blocks waiting for the token to land.
+        // On startup, refresh sync token and proxy config in PARALLEL. (The
+        // wayfern token is no longer fetched here: it is minted per launch
+        // from the bwbrowser auth server, so there is no background cache to
+        // warm.)
         // api_call_with_retry handles 401/refresh internally — no direct
         // refresh_access_token call needed.
         if cloud_auth::CLOUD_AUTH.is_logged_in().await {
@@ -3641,12 +3639,7 @@ pub fn run_with_builder(
           let proxy_fut = async {
             cloud_auth::CLOUD_AUTH.sync_cloud_proxy().await;
           };
-          let wayfern_fut = async {
-            if let Err(e) = cloud_auth::CLOUD_AUTH.request_wayfern_token().await {
-              log::warn!("Failed to request wayfern token on startup: {e}");
-            }
-          };
-          tokio::join!(sync_token_fut, proxy_fut, wayfern_fut);
+          tokio::join!(sync_token_fut, proxy_fut);
 
           // Subscribe to remote-session transitions. Started here rather than
           // unconditionally because a signed-out desktop has nothing to stream
@@ -4003,6 +3996,8 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_platform_names,
       bwbrowser_cloud::bwbrowser_list_cloud_users,
       bwbrowser_cloud::bwbrowser_list_companies,
+      bwbrowser_cloud::bwbrowser_save_user_setting,
+      bwbrowser_cloud::bwbrowser_get_user_setting,
       bwbrowser_cloud::bwbrowser_get_account_detail,
       bwbrowser_cloud::bwbrowser_update_account_proxy,
       bwbrowser_cloud::bwbrowser_list_proxy_usage,

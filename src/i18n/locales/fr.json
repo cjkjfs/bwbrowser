@@ -240,7 +240,8 @@
         "verifying": "Vérification de la copie",
         "cleaning": "Suppression de l'ancien répertoire",
         "done": "Terminé"
-      }
+      },
+      "openFolder": "Ouvrir le dossier"
     },
     "misc": {
       "title": "Plus",
@@ -3629,6 +3630,9 @@
     "deleteSession": "Supprimer la conversation",
     "deleteSessionTitle": "Supprimer cette conversation ?",
     "deleteSessionBody": "Cette conversation et ses messages enregistrés localement seront supprimés et ne pourront pas être récupérés.",
-    "defaultSessionTitle": "Nouvelle conversation"
+    "defaultSessionTitle": "Nouvelle conversation",
+    "dotUser": "Moi",
+    "dotAssistant": "IA",
+    "rollback": "Revenir avant ce message"
   }
 }

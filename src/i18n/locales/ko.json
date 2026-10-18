@@ -239,7 +239,8 @@
         "verifying": "복사본 확인 중",
         "cleaning": "이전 디렉터리를 지우는 중",
         "done": "완료"
-      }
+      },
+      "openFolder": "폴더 열기"
     },
     "misc": {
       "title": "더 보기",
@@ -3596,6 +3597,9 @@
     "deleteSession": "대화 삭제",
     "deleteSessionTitle": "이 대화를 삭제할까요?",
     "deleteSessionBody": "이 대화와 로컬에 저장된 메시지가 삭제되며 복구할 수 없습니다.",
-    "defaultSessionTitle": "새 대화"
+    "defaultSessionTitle": "새 대화",
+    "dotUser": "나",
+    "dotAssistant": "AI",
+    "rollback": "이 메시지 이전으로 되돌리기"
   }
 }

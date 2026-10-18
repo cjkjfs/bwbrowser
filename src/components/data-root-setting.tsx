@@ -3,6 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LoadingButton } from "@/components/loading-button";
@@ -84,6 +85,15 @@ export function DataRootSetting() {
       setError(translateBackendError(t, err));
     }
   }, [info, t]);
+
+  const handleOpenFolder = useCallback(async () => {
+    if (!info?.active_path) return;
+    try {
+      await openPath(info.active_path);
+    } catch (err) {
+      console.error("Failed to open the data directory:", err);
+    }
+  }, [info]);
 
   const handleUseDefault = useCallback(async () => {
     try {
@@ -204,6 +214,15 @@ export function DataRootSetting() {
           onClick={() => void handleChoose()}
         >
           {t("settings.dataRoot.choose")}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          data-slot="data-root-open-folder"
+          onClick={() => void handleOpenFolder()}
+        >
+          {t("settings.dataRoot.openFolder")}
         </Button>
         {info.previous_path && (
           <LoadingButton

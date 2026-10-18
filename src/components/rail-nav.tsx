@@ -299,6 +299,9 @@ const TOP_ITEMS: RailItem[] = [
 
 const ADMIN_ONLY_PAGES: AppPage[] = ["profiles", "proxies"];
 
+/** AI 洗稿活动任务数广播事件：ai-rewrite-page 发、RailNav 收。 */
+export const AI_REWRITE_ACTIVE_EVENT = "bwbrowser:ai-rewrite-active";
+
 const ADMIN_ROLES = ["manager", "admin", "super_admin"];
 
 /** 底部用户信息卡片：显示头像、姓名、公司、套餐等 */
@@ -394,6 +397,18 @@ export function RailNav({
   const { canManageUsers, canDownloadVideos, canAiRewrite, canManageRemote } =
     useBwbrowserPermissions();
   const isAdmin = !!user?.teamRole && ADMIN_ROLES.includes(user.teamRole);
+
+  // AI 洗稿进行中任务数：洗稿页广播（任务运行时菜单显示「AI 洗稿(N)」且图标转动）
+  const [aiRewriteActive, setAiRewriteActive] = useState(0);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const n = (e as CustomEvent<{ active?: number }>).detail?.active ?? 0;
+      setAiRewriteActive(n);
+    };
+    window.addEventListener(AI_REWRITE_ACTIVE_EVENT, handler);
+    return () => window.removeEventListener(AI_REWRITE_ACTIVE_EVENT, handler);
+  }, []);
+
   const visibleTopItems = TOP_ITEMS.filter((item) => {
     if (ADMIN_ONLY_PAGES.includes(item.page) && !isAdmin) return false;
     if (item.page === "userManagement" && !canManageUsers) return false;
@@ -841,6 +856,9 @@ export function RailNav({
                         "size-[18px] shrink-0 transition-transform duration-200 group-hover:scale-110 group-active:scale-95",
                         active &&
                           "text-primary drop-shadow-[0_0_5px_var(--primary)]",
+                        page === "aiRewrite" &&
+                          aiRewriteActive > 0 &&
+                          "animate-spin",
                       )}
                     />
                     <span
@@ -851,7 +869,9 @@ export function RailNav({
                           "animate-rail-text-pop bg-gradient-to-r from-primary to-foreground bg-clip-text text-transparent",
                       )}
                     >
-                      {RAIL_LABELS_ZH[page]}
+                      {page === "aiRewrite" && aiRewriteActive > 0
+                        ? `${RAIL_LABELS_ZH[page]}(${aiRewriteActive})`
+                        : RAIL_LABELS_ZH[page]}
                     </span>
                     {page === "cookieBot" && cookieBotRunning && (
                       <span

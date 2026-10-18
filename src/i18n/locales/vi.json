@@ -239,7 +239,8 @@
         "verifying": "Đang kiểm tra bản sao",
         "cleaning": "Đang xoá thư mục cũ",
         "done": "Xong"
-      }
+      },
+      "openFolder": "Mở thư mục"
     },
     "misc": {
       "title": "Thêm",
@@ -3596,6 +3597,9 @@
     "deleteSession": "Xóa hội thoại",
     "deleteSessionTitle": "Xóa hội thoại này?",
     "deleteSessionBody": "Hội thoại này và các tin nhắn đã lưu trên máy sẽ bị xóa và không thể khôi phục.",
-    "defaultSessionTitle": "Hội thoại mới"
+    "defaultSessionTitle": "Hội thoại mới",
+    "dotUser": "Tôi",
+    "dotAssistant": "AI",
+    "rollback": "Quay lại trước tin nhắn này"
   }
 }

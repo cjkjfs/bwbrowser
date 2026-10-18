@@ -9,14 +9,17 @@ import {
   LuFolderOpen,
   LuLoader,
   LuPlus,
+  LuRotateCcw,
   LuSend,
   LuTrash2,
   LuX,
 } from "react-icons/lu";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 import { Textarea } from "@/components/ui/textarea";
 import { translateBackendError } from "@/lib/backend-errors";
 import { cn } from "@/lib/utils";
@@ -191,7 +194,38 @@ export function AiAssistantPage({
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
+    // 挂载时定位到底部
   }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || messages.length === 0) return;
+    // 用户正在翻历史（离底部较远）时不自动拽底，其余情况（含新回复）贴底跟随
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (nearBottom || busy) el.scrollTop = el.scrollHeight;
+  }, [messages.length, busy]);
+
+  const jumpToMessage = useCallback((id: string) => {
+    document
+      .getElementById(`ai-msg-${id}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  // 回滚：删除该条消息及其后的所有内容。user 消息会把内容填回输入框，方便修改后重发。
+  const rollbackTo = useCallback(
+    (msgId: string, fill?: string) => {
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id !== active.id) return s;
+          const idx = s.messages.findIndex((x) => x.id === msgId);
+          if (idx < 0) return s;
+          return { ...s, messages: s.messages.slice(0, idx) };
+        }),
+      );
+      if (fill !== undefined) setInput(fill);
+    },
+    [active.id],
+  );
 
   const send = useCallback(async () => {
     const text = input.trim();
@@ -388,8 +422,11 @@ export function AiAssistantPage({
         </Button>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1 rounded-lg border border-border bg-card/30">
-        <div ref={scrollRef} className="h-full overflow-y-auto p-4">
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scrollRef}
+          className="h-full overflow-y-auto rounded-lg border border-border bg-card/30 p-4"
+        >
           {!hasMessages && !busy && (
             <div className="flex h-full min-h-40 flex-col items-center justify-center gap-2 text-center">
               <LuBot className="size-10 text-muted-foreground/40" />
@@ -405,11 +442,23 @@ export function AiAssistantPage({
             {messages.map((m) => (
               <div
                 key={m.id}
+                id={`ai-msg-${m.id}`}
                 className={cn(
-                  "flex",
+                  "group flex scroll-mt-2",
                   m.role === "user" ? "justify-end" : "justify-start",
                 )}
               >
+                {m.role === "user" && (
+                  <button
+                    type="button"
+                    title={t("aiAssistant.rollback")}
+                    disabled={busy}
+                    onClick={() => rollbackTo(m.id, m.content)}
+                    className="mt-auto shrink-0 rounded p-1 text-muted-foreground/50 opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 disabled:hidden"
+                  >
+                    <LuRotateCcw className="size-3.5" />
+                  </button>
+                )}
                 <div
                   className={cn(
                     "max-w-[85%] rounded-lg px-3 py-2 text-sm",
@@ -440,8 +489,25 @@ export function AiAssistantPage({
                       ))}
                     </div>
                   )}
-                  <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                  {m.role === "assistant" ? (
+                    <MarkdownContent content={m.content} />
+                  ) : (
+                    <p className="whitespace-pre-wrap break-words">
+                      {m.content}
+                    </p>
+                  )}
                 </div>
+                {m.role === "assistant" && (
+                  <button
+                    type="button"
+                    title={t("aiAssistant.rollback")}
+                    disabled={busy}
+                    onClick={() => rollbackTo(m.id)}
+                    className="mt-auto shrink-0 rounded p-1 text-muted-foreground/50 opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 disabled:hidden"
+                  >
+                    <LuRotateCcw className="size-3.5" />
+                  </button>
+                )}
               </div>
             ))}
             {busy && (
@@ -454,7 +520,36 @@ export function AiAssistantPage({
             )}
           </div>
         </div>
-      </ScrollArea>
+        {messages.length > 3 && (
+          <div className="absolute top-2 right-1.5 bottom-2 flex w-3 flex-col items-center justify-between py-1">
+            {(() => {
+              const total = messages.length;
+              const step = total <= 20 ? 1 : Math.ceil(total / 20);
+              const dots = messages.filter(
+                (_, i) => i % step === 0 || i === total - 1,
+              );
+              return dots.map((m) => {
+                const idx = messages.indexOf(m);
+                const preview = m.content.replace(/\s+/g, " ").slice(0, 30);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    title={`#${idx + 1} ${m.role === "user" ? t("aiAssistant.dotUser") : t("aiAssistant.dotAssistant")}: ${preview}`}
+                    onClick={() => jumpToMessage(m.id)}
+                    className={cn(
+                      "size-1.5 shrink-0 rounded-full transition-transform hover:scale-150",
+                      m.role === "user"
+                        ? "bg-primary/70"
+                        : "bg-muted-foreground/40",
+                    )}
+                  />
+                );
+              });
+            })()}
+          </div>
+        )}
+      </div>
 
       {allowedFolders.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -534,6 +629,93 @@ export function AiAssistantPage({
           )}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** AI 回复按 Markdown 渲染（加粗/标题/列表/表格/代码），紧凑排版适配聊天气泡。 */
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <div className="break-words text-sm">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          p: ({ children }) => (
+            <p className="my-1 leading-relaxed first:mt-0 last:mb-0">
+              {children}
+            </p>
+          ),
+          strong: ({ children }) => (
+            <strong className="font-semibold">{children}</strong>
+          ),
+          ul: ({ children }) => (
+            <ul className="my-1 list-disc space-y-0.5 pl-4">{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="my-1 list-decimal space-y-0.5 pl-4">{children}</ol>
+          ),
+          li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+          h1: ({ children }) => (
+            <h1 className="mt-2 mb-1 text-sm font-semibold">{children}</h1>
+          ),
+          h2: ({ children }) => (
+            <h2 className="mt-2 mb-1 text-sm font-semibold">{children}</h2>
+          ),
+          h3: ({ children }) => (
+            <h3 className="mt-2 mb-1 text-sm font-semibold">{children}</h3>
+          ),
+          h4: ({ children }) => (
+            <h4 className="mt-2 mb-1 text-xs font-semibold">{children}</h4>
+          ),
+          table: ({ children }) => (
+            <div className="my-1 overflow-x-auto">
+              <table className="w-full border-collapse text-xs">
+                {children}
+              </table>
+            </div>
+          ),
+          th: ({ children }) => (
+            <th className="border border-border bg-muted/40 px-1.5 py-1 text-left font-medium">
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td className="border border-border px-1.5 py-1 align-top">
+              {children}
+            </td>
+          ),
+          code: ({ className, children }) =>
+            className ? (
+              <code className={className}>{children}</code>
+            ) : (
+              <code className="rounded bg-muted px-1 py-0.5 text-[12px]">
+                {children}
+              </code>
+            ),
+          pre: ({ children }) => (
+            <pre className="my-1 overflow-x-auto rounded-md bg-muted/60 p-2 text-[12px] [&_code]:bg-transparent [&_code]:p-0">
+              {children}
+            </pre>
+          ),
+          a: ({ children, href }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary break-all underline"
+            >
+              {children}
+            </a>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote className="my-1 border-l-2 border-border pl-2 text-muted-foreground">
+              {children}
+            </blockquote>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   );
 }

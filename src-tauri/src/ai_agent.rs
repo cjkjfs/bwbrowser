@@ -140,6 +140,68 @@ async fn list_folder_impl(folder: &str, allowed: &[String]) -> Result<Value, Str
   Ok(value)
 }
 
+/// 在授权文件夹内写入/覆盖一个文本文件（≤512KB，UTF-8；文件可不存在，自动创建父目录）。
+/// 存在的文件 canonicalize 后校验；新文件校验其父目录，防止借「新文件」越权。
+async fn write_text_file_impl(
+  path: &str,
+  content: &str,
+  allowed: &[String],
+) -> Result<Value, String> {
+  if allowed.is_empty() {
+    return Err("未授权任何文件夹：请先在对话上方点击「选择文件夹」".to_string());
+  }
+  if content.len() > 512 * 1024 {
+    return Err(format!(
+      "内容超过 512KB（{} 字节），不支持写入",
+      content.len()
+    ));
+  }
+  if content.contains('\0') {
+    return Err("内容包含 NUL 字节，无法作为文本写入".to_string());
+  }
+  let target = std::path::PathBuf::from(path);
+  let check_root = if target.exists() {
+    std::fs::canonicalize(&target).map_err(|e| format!("路径不可访问：{path}（{e}）"))?
+  } else {
+    let parent = target
+      .parent()
+      .filter(|p| !p.as_os_str().is_empty())
+      .ok_or_else(|| format!("路径缺少父目录：{path}"))?;
+    std::fs::canonicalize(parent)
+      .map_err(|e| format!("父目录不存在：{}（{e}）", parent.to_string_lossy()))?
+  };
+  let mut authorized = false;
+  for folder in allowed {
+    if let Ok(root) = std::fs::canonicalize(folder) {
+      if check_root.starts_with(&root) {
+        authorized = true;
+        break;
+      }
+    }
+  }
+  if !authorized {
+    return Err(format!(
+      "路径不在已授权的文件夹内：{path}。只能写入用户明确选择的文件夹"
+    ));
+  }
+  if let Some(parent) = target.parent() {
+    tokio::fs::create_dir_all(parent)
+      .await
+      .map_err(|e| format!("创建父目录失败：{e}"))?;
+  }
+  tokio::fs::write(&target, content.as_bytes())
+    .await
+    .map_err(|e| format!("写入失败：{e}"))?;
+  let meta = tokio::fs::metadata(&target)
+    .await
+    .map_err(|e| format!("写入后读取元数据失败：{e}"))?;
+  Ok(json!({
+      "path": target.to_string_lossy(),
+      "bytes": meta.len(),
+      "message": "写入成功",
+  }))
+}
+
 /// 读取授权文件夹内的单个文本文件（≤512KB；内容里出现 NUL 字节判为二进制拒绝）。
 async fn read_text_file_impl(path: &str, allowed: &[String]) -> Result<Value, String> {
   let target = path_is_allowed(path, allowed)?;
@@ -291,7 +353,7 @@ fn code_err(code: &str, message: Option<&str>) -> String {
 // Agent 构建
 // ============================================================
 
-const PREAMBLE: &str = "你是 BW Browser 内置的 AI 助手，可以调用工具查询与执行：视频库（query_videos）、洗稿成果列表（query_results）、单条成果详情（get_rewrite_result）、代理中心线路（list_proxies）、发起洗稿任务（start_rewrite_tasks）、查洗稿任务进度（query_running_tasks）、平台数据更新（cron_update）、实时拉取账号主页视频（fetch_account_videos）、实时拉取视频最新数据（fetch_video_data）、列本地文件夹（list_folder）、读本地文本文件（read_text_file）、在用户提供的 VPS 上执行命令（vps_exec）。\n\
+const PREAMBLE: &str = "你是 BW Browser 内置的 AI 助手，可以调用工具查询与执行：视频库（query_videos）、洗稿成果列表（query_results）、单条成果详情（get_rewrite_result）、代理中心线路（list_proxies）、发起洗稿任务（start_rewrite_tasks）、提取视频文案（extract_transcript，给链接直接下载转写出文案，不洗稿）、查洗稿任务进度（query_running_tasks）、平台数据更新（cron_update）、实时拉取账号主页视频（fetch_account_videos）、实时拉取视频最新数据（fetch_video_data）、列本地文件夹（list_folder）、读本地文本文件（read_text_file）、写本地文本文件（write_text_file，可创建/覆盖 HTML/JS/Markdown 等文本文件）、在用户提供的 VPS 上执行命令（vps_exec）。\n\n## 业务背景\nBW Browser 是 TikTok 短视频矩阵运营工具，本机用户是管理层（老板/管理员），带一个运营团队。核心概念：\n- **云端账号矩阵**：数百个 TikTok 等平台的运营账号，每个账号有「归属人」（负责运营它的员工）、赛道（体育/动漫等内容方向）、粉丝数、视频数、总播放量、备注。用 list_team_members 查团队、query_accounts 查账号。\n- **员工/运营人**：账号的归属人就是账号运营人，有入职时间、赛道分工、在职状态；管理层关心每人的账号数、更新频率、播放产出（对应后台「员工概况」报表）。\n- **AI 洗稿流水线**：下载参考视频→转写文案→AI 改写→评分，产出供员工二创发布；「断更」指账号连续多天没发新视频。\n- **代理中心**：TikTok 运营必需的代理节点（list_proxies），账号绑定代理保证 IP 稳定。\n回答运营问题时结合以上背景和工具查到的真实数据，不要凭空猜。\n\
 \n\
 数据边界（必须严格遵守，回答口径保持一致）：\n\
 - 所有工具返回的数据都在当前登录公司可见范围内：自有账号 + 对标账号，由云端服务器按登录账号过滤，不存在其他公司的数据。\n\
@@ -305,7 +367,7 @@ const PREAMBLE: &str = "你是 BW Browser 内置的 AI 助手，可以调用工�
 4. 直接给结论，不要每轮都罗列一堆选项反问；最多保留一个必要的追问。\n\
 5. 用用户的语言回答（默认简体中文），保持简洁。\n\
 6. 发起洗稿任务：用户给出视频链接、或明确点名某个视频要洗稿/分析时，直接调用 start_rewrite_tasks，不要再向用户确认（点名即授权）；只有意图模糊（没说清处理哪个视频）时才问一次。一次最多 3 条，用户要求更多时说明限制并分批。任务发起后会自动出现在应用的任务列表（洗稿页任务 Tab），用户可直接看到实时进度，不要反问“要不要查进度”；发起后用 query_running_tasks 查一次当前阶段做简报，完成后用 query_results 查成果。\n\
-7. 本地文件夹：list_folder / read_text_file 只能访问用户通过「选择文件夹」按钮授权的目录，工具会拒绝其他路径，被拒绝就告知用户请先选择对应文件夹，不要换路径绕过。\n\
+7. 本地文件夹：list_folder / read_text_file / write_text_file 只能访问用户通过「选择文件夹」按钮授权的目录，工具会拒绝其他路径，被拒绝就告知用户请先选择对应文件夹，不要换路径绕过。用户让你做文件（网页、脚本、文档）时，用 write_text_file 直接把完整内容写进授权目录里的新文件，不要再说“没有文件写入能力”。\n\
 8. VPS 的硬规则：连接信息（主机/端口/用户名/密码）必须由用户在对话里提供，不要主动索要，也不要猜测。执行前向用户复述将运行的命令；破坏性命令（rm、mkfs、dd、reboot、shutdown、重启服务等）必须有用户的明确同意才能执行。连接信息只在当轮使用。\n\
 9. 用户问数据归属、隔离或“是不是别家公司的数据”时，用上面的数据边界回答。\n\
 10. 触发数据更新的硬规则：cron_update 的 action=run 会按次计费并让服务器后台更新当前公司的平台账号数据（tiktok / youtube / douyin）。调用 run 前必须先告知用户平台与单价（先用 action=prices 查价目、余额），得到用户明确同意后才能 run；run 成功后告知用户约 5 分钟内完成，稍后可用 action=status 查进度、query_videos 看新数据。status 和 prices 是只读免费查询，可随意使用。\n\
@@ -414,12 +476,16 @@ async fn build_agent(ep: &AiEndpointConfig) -> Result<Agent, String> {
       .dynamic_tool(tool_get_rewrite_result())
       .dynamic_tool(tool_list_proxies())
       .dynamic_tool(tool_start_rewrite_tasks())
+      .dynamic_tool(tool_extract_transcript())
+      .dynamic_tool(tool_list_team_members())
+      .dynamic_tool(tool_query_accounts())
       .dynamic_tool(tool_query_running_tasks())
       .dynamic_tool(tool_cron_update())
       .dynamic_tool(tool_fetch_account_videos())
       .dynamic_tool(tool_fetch_video_data())
       .dynamic_tool(tool_list_folder())
       .dynamic_tool(tool_read_text_file())
+      .dynamic_tool(tool_write_text_file())
       .dynamic_tool(tool_vps_exec())
       .build(),
   )
@@ -699,6 +765,197 @@ fn tool_start_rewrite_tasks() -> DynamicTool {
   )
 }
 
+/// 查团队成员：运营员工名单（姓名/登录名/赛道/在职状态）。
+fn tool_list_team_members() -> DynamicTool {
+  DynamicTool::new(
+    ToolName::new("list_team_members").expect("tool name is static and valid"),
+    "查询公司的运营团队成员名单（云端账号的归属人）：姓名、登录名、负责赛道（如体育/动漫）、在职状态、所属公司。用户问「有哪些运营人/员工」「谁负责某个赛道」时用这个。员工与账号的关系用 query_accounts 查。",
+    json!({
+        "type": "object",
+        "properties": {},
+        "required": []
+    }),
+    move |_args: Value| {
+      Box::pin(async move {
+        let resp = crate::bwbrowser_cloud::BWBROWSER_AUTH
+          .list_cloud_users(None)
+          .await
+          .map_err(tool_err)?;
+        let users = resp
+          .users
+          .unwrap_or_default()
+          .into_iter()
+          .map(|u| {
+            json!({
+              "id": u.id,
+              "name": u.real_name.unwrap_or_default(),
+              "username": u.username.unwrap_or_default(),
+              "sector": u.sector.unwrap_or_default(),
+              "leave_status": u.leave_status.unwrap_or_default(),
+              "company": u.company_name.unwrap_or_default(),
+            })
+          })
+          .collect::<Vec<_>>();
+        tool_output(json!({ "count": users.len(), "members": users })).await
+      })
+    },
+  )
+}
+
+/// 查云端账号：按关键词/归属人/平台过滤，返回运营数据概要。
+fn tool_query_accounts() -> DynamicTool {
+  DynamicTool::new(
+    ToolName::new("query_accounts").expect("tool name is static and valid"),
+    "查询云端账号矩阵（TikTok 等平台的运营账号），支持按关键词（账号名/备注/归属人）、归属人 ID、平台过滤，返回账号名、归属人、平台、粉丝数、视频数、总播放、状态、备注摘要。用户问「李清莹有哪些账号」「某某账号数据怎么样」「查一下备注里有 xx 的账号」时用。一次最多返回 20 条，结果超过时提示用户缩小条件。",
+    json!({
+        "type": "object",
+        "properties": {
+            "keyword": { "type": "string", "description": "关键词，匹配账号昵称/登录账号/归属人/备注" },
+            "owner_id": { "type": "number", "description": "归属人（运营员工）ID，来自 list_team_members 的 id" },
+            "platform": { "type": "string", "description": "平台筛选，如 tiktok" }
+        },
+        "required": []
+    }),
+    move |args: Value| {
+      Box::pin(async move {
+        let keyword = args
+          .get("keyword")
+          .and_then(Value::as_str)
+          .map(|s| s.trim().to_string())
+          .filter(|s| !s.is_empty());
+        let owner_id = args
+          .get("owner_id")
+          .and_then(Value::as_i64)
+          .or_else(|| args.get("owner_id").and_then(Value::as_f64).map(|f| f as i64));
+        let platform = args
+          .get("platform")
+          .and_then(Value::as_str)
+          .map(|s| s.trim().to_string())
+          .filter(|s| !s.is_empty());
+        let resp = crate::bwbrowser_cloud::BWBROWSER_AUTH
+          .list_cloud_accounts(
+            1,
+            20,
+            platform,
+            keyword,
+            owner_id,
+            None,
+            None,
+            None,
+          )
+          .await
+          .map_err(tool_err)?;
+        let accounts = resp
+          .accounts
+          .unwrap_or_default()
+          .into_iter()
+          .map(|a| {
+            let remark = a.remark.unwrap_or_default();
+            let remark: String = remark.chars().take(80).collect();
+            json!({
+              "id": a.id,
+              "account_name": a.account_name,
+              "owner": a.owner_name.unwrap_or_default(),
+              "platform": a.platform.unwrap_or_default(),
+              "followers": a.followers,
+              "video_count": a.video_count,
+              "total_views": a.total_views,
+              "status": a.status,
+              "remark": if remark.is_empty() { Value::Null } else { json!(remark) },
+            })
+          })
+          .collect::<Vec<_>>();
+        tool_output(json!({
+          "total": resp.total.unwrap_or(accounts.len() as i64),
+          "returned": accounts.len(),
+          "accounts": accounts,
+          "hint": "total 是全库匹配数，returned 是本次返回数；total > returned 时建议用户用更具体的关键词缩小范围。"
+        }))
+        .await
+      })
+    },
+  )
+}
+
+/// 提取文案：给视频链接（或本地视频路径），复用洗稿流水线的 transcript 模式
+/// （只下载 + 转写，不分析/不洗稿/不评分），同步等待完成后把文案返回给模型。
+fn tool_extract_transcript() -> DynamicTool {
+  DynamicTool::new(
+    ToolName::new("extract_transcript").expect("tool name is static and valid"),
+    "给视频链接（或本地视频文件路径），直接下载并转写提取文案文本（不洗稿、不评分、不计洗稿费用）。适合用户说「帮我提取这个视频的文案」。一次 1-5 条链接；单条需要下载+转写，数十秒到几分钟，耐心等待。完成后把文案整理给用户（优先用中文翻译 transcript_zh），用户要保存成文件时再用 write_text_file。",
+    json!({
+        "type": "object",
+        "properties": {
+            "urls": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "视频页面链接或本地视频文件路径，1-5 条"
+            }
+        },
+        "required": ["urls"]
+    }),
+    move |args: Value| {
+      Box::pin(async move {
+        let app = APP_HANDLE
+          .get()
+          .ok_or_else(|| tool_err("应用尚未就绪，请稍后重试"))?;
+        let urls = args
+          .get("urls")
+          .and_then(Value::as_array)
+          .ok_or_else(|| tool_err("缺少 urls 参数（视频链接列表）"))?;
+        if urls.is_empty() {
+          return Err(tool_err(
+            "urls 为空：请向用户索要要提取文案的视频链接",
+          ));
+        }
+        let items: Vec<Value> = urls
+          .iter()
+          .take(5)
+          .filter_map(|u| u.as_str())
+          .map(|u| json!({ "source_url": u.trim(), "mode": "transcript" }))
+          .collect();
+        if items.is_empty() {
+          return Err(tool_err("urls 里没有有效链接"));
+        }
+        let mut value = crate::ai_rewrite::ai_rewrite_run_links(
+          app.clone(),
+          items,
+          Some(1),
+          Some(true),
+        )
+        .await
+        .map_err(tool_err)?;
+        // 分段明细对模型没用且体积大，剥掉；超长文案截断防上下文溢出
+        const MAX_TRANSCRIPT_CHARS: usize = 8000;
+        if let Value::Object(ref mut map) = value {
+          if let Some(Value::Array(results)) = map.get_mut("results") {
+            for r in results.iter_mut() {
+              if let Value::Object(rm) = r {
+                rm.remove("transcript_segments");
+              }
+              for key in ["transcript", "transcript_zh"] {
+                if let Some(Value::String(text)) = r.get_mut(key) {
+                  if text.chars().count() > MAX_TRANSCRIPT_CHARS {
+                    let cut: String = text.chars().take(MAX_TRANSCRIPT_CHARS).collect();
+                    *text = format!(
+                      "{cut}\n…[文案过长，仅保留前 {MAX_TRANSCRIPT_CHARS} 字，完整版见「AI 洗稿」页任务成果]"
+                    );
+                  }
+                }
+              }
+            }
+          }
+          map.insert(
+            "hint".to_string(),
+            json!("完成后直接把文案呈给用户（有中文翻译 transcript_zh 时优先用中文版）；用户要求保存为文件时，用 write_text_file 写入其授权目录。"),
+          );
+        }
+        tool_output(value).await
+      })
+    },
+  )
+}
+
 fn tool_query_running_tasks() -> DynamicTool {
   DynamicTool::new(
     ToolName::new("query_running_tasks").expect("tool name is static and valid"),
@@ -955,6 +1212,32 @@ fn tool_read_text_file() -> DynamicTool {
         let path = arg_str(&args, "path").ok_or_else(|| tool_err("缺少 path 参数"))?;
         let allowed = ALLOWED_FOLDERS.lock().await.clone();
         let value = read_text_file_impl(&path, &allowed)
+          .await
+          .map_err(tool_err)?;
+        tool_output(value).await
+      })
+    },
+  )
+}
+
+fn tool_write_text_file() -> DynamicTool {
+  DynamicTool::new(
+    ToolName::new("write_text_file").expect("tool name is static and valid"),
+    "在用户已授权文件夹内写入或覆盖一个文本文件（≤512KB，UTF-8，自动创建父目录）。可用于生成 HTML/JS/Markdown/脚本等新文件，或修改已有文本文件。",
+    json!({
+        "type": "object",
+        "properties": {
+            "path": { "type": "string", "description": "目标文件的完整路径（必须在已授权目录内；文件可以不存在）" },
+            "content": { "type": "string", "description": "要写入的完整文本内容" }
+        },
+        "required": ["path", "content"]
+    }),
+    move |args: Value| {
+      Box::pin(async move {
+        let path = arg_str(&args, "path").ok_or_else(|| tool_err("缺少 path 参数"))?;
+        let content = arg_str(&args, "content").ok_or_else(|| tool_err("缺少 content 参数"))?;
+        let allowed = ALLOWED_FOLDERS.lock().await.clone();
+        let value = write_text_file_impl(&path, &content, &allowed)
           .await
           .map_err(tool_err)?;
         tool_output(value).await

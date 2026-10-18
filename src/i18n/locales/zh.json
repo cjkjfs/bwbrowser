@@ -239,7 +239,8 @@
         "verifying": "正在校验副本",
         "cleaning": "正在删除旧目录",
         "done": "完成"
-      }
+      },
+      "openFolder": "打开文件夹"
     },
     "misc": {
       "title": "更多",
@@ -3596,6 +3597,9 @@
     "deleteSession": "删除对话",
     "deleteSessionTitle": "删除这个对话？",
     "deleteSessionBody": "该对话及其本地保存的消息将被删除，无法恢复。",
-    "defaultSessionTitle": "新对话"
+    "defaultSessionTitle": "新对话",
+    "dotUser": "我",
+    "dotAssistant": "AI",
+    "rollback": "回滚到这条消息之前"
   }
 }

@@ -2,7 +2,7 @@
   "name": "bwbrowser",
   "private": true,
   "license": "AGPL-3.0",
-  "version": "2.5.6",
+  "version": "2.5.7",
   "type": "module",
   "scripts": {
     "predev": "pnpm licenses:generate",
@@ -100,7 +100,9 @@
     "react-dom": "^19.2.8",
     "react-i18next": "^17.0.12",
     "react-icons": "^5.7.0",
+    "react-markdown": "^10.1.0",
     "recharts": "3.10.1",
+    "remark-gfm": "^4.0.1",
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.6.0",
     "tauri-plugin-macos-permissions-api": "^2.3.0"

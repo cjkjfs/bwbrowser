@@ -240,7 +240,8 @@
         "verifying": "Comprobando la copia",
         "cleaning": "Eliminando el directorio anterior",
         "done": "Listo"
-      }
+      },
+      "openFolder": "Abrir carpeta"
     },
     "misc": {
       "title": "Más",
@@ -3629,6 +3630,9 @@
     "deleteSession": "Eliminar chat",
     "deleteSessionTitle": "¿Eliminar este chat?",
     "deleteSessionBody": "Este chat y sus mensajes guardados localmente se eliminarán y no se podrán recuperar.",
-    "defaultSessionTitle": "Nuevo chat"
+    "defaultSessionTitle": "Nuevo chat",
+    "dotUser": "Yo",
+    "dotAssistant": "IA",
+    "rollback": "Volver a antes de este mensaje"
   }
 }

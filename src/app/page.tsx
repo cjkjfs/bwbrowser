@@ -2502,6 +2502,7 @@ export default function Home() {
                       open={true}
                       onOpenChange={() => {}}
                       embedded={true}
+                      onNavigateAiRewrite={() => setCurrentPage("aiRewrite")}
                     />
                   </div>
                 )}

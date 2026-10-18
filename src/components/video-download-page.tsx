@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LuCheck,
   LuDownload,
+  LuFileText,
   LuFolderOpen,
   LuLink,
   LuLoader,
@@ -15,6 +16,7 @@ import {
   LuRefreshCw,
   LuRotateCcw,
   LuSettings,
+  LuSparkles,
   LuTrash2,
   LuX,
 } from "react-icons/lu";
@@ -40,6 +42,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import {
   type DownloadTask,
   useVideoDownload,
@@ -51,6 +54,47 @@ interface VideoDownloadPageProps {
   onOpenChange: (open: boolean) => void;
   subPage?: boolean;
   embedded?: boolean;
+  /** 跳转到 AI 洗稿页（查看提取/洗稿结果）。 */
+  onNavigateAiRewrite?: () => void;
+}
+
+/** AI 洗稿后台任务的进度事件负载（只取需要字段）。 */
+interface AiRewriteProgressPayload {
+  task_key?: string;
+  source_url?: string;
+  stage?: string;
+  percent?: number;
+  message?: string;
+}
+
+/** 已投递 AI 洗稿的本地视频（跨页面持久）：filename → mode。 */
+const AI_REWRITE_SENT_KEY = "ai_rewrite_sent_tasks";
+
+/** 跨页面「查看」请求 key（与 ai-rewrite-page 约定一致）。 */
+const AI_REWRITE_VIEW_KEY = "ai_rewrite_view_request";
+
+type AiRewriteSentMode = "rewrite" | "transcript";
+
+interface AiRewriteSentEntry {
+  mode: AiRewriteSentMode;
+  percent: number;
+  /** 后台任务已完成：按钮显示「查看」，点击进入 AI 洗稿任务列表看结果。 */
+  done?: boolean;
+}
+
+/** 把内存中的投递表写回 localStorage（mode + 完成标记；percent 由后端运行表恢复）。 */
+function persistAiRewriteSent(map: Map<string, AiRewriteSentEntry>) {
+  localStorage.setItem(
+    AI_REWRITE_SENT_KEY,
+    JSON.stringify(
+      Object.fromEntries(
+        [...map].map(([k, v]) => [
+          k,
+          { mode: v.mode, ...(v.done ? { done: true } : {}) },
+        ]),
+      ),
+    ),
+  );
 }
 
 export function VideoDownloadPage({
@@ -58,7 +102,9 @@ export function VideoDownloadPage({
   onOpenChange,
   subPage,
   embedded = false,
+  onNavigateAiRewrite,
 }: VideoDownloadPageProps) {
+  const { canAiRewrite } = useBwbrowserPermissions();
   const {
     tasks,
     settings,
@@ -93,6 +139,81 @@ export function VideoDownloadPage({
 
   const [urlInput, setUrlInput] = useState("");
   const [activeTab, setActiveTab] = useState("tasks");
+
+  /** 把已完成的本地视频投递给 AI 洗稿：后端后台运行（wait:false，条目自动落盘），
+   *  进度事件驱动本页百分比显示，完成后轻提示。投递前按内存记录与落盘任务列表去重。 */
+  const [aiRewriteSent, setAiRewriteSent] = useState<
+    Map<string, AiRewriteSentEntry>
+  >(new Map());
+  const aiRewriteSentRef = useRef<Map<string, AiRewriteSentEntry>>(new Map());
+  /** 查看 AI 洗稿结果：写入查看请求后跳转洗稿页（其挂载时切任务列表并高亮定位）。 */
+  const onViewAiRewriteResult = useCallback(
+    (task: DownloadTask) => {
+      if (!task.filename) return;
+      localStorage.setItem(
+        AI_REWRITE_VIEW_KEY,
+        JSON.stringify({ url: task.filename, ts: Date.now() }),
+      );
+      onNavigateAiRewrite?.();
+    },
+    [onNavigateAiRewrite],
+  );
+  const sendToAiRewrite = useCallback(
+    async (task: DownloadTask, mode: "rewrite" | "transcript") => {
+      const fname = task.filename;
+      if (!fname) return;
+      if (aiRewriteSentRef.current.has(fname)) {
+        toast.info("该视频已在 AI 洗稿任务列表中，请勿重复投递");
+        return;
+      }
+      try {
+        const saved = await invoke<unknown[]>("ai_rewrite_load_tasks");
+        const dup = (saved ?? []).some(
+          (t) =>
+            t &&
+            typeof t === "object" &&
+            (t as Record<string, unknown>).url === fname,
+        );
+        if (dup) {
+          toast.info("该视频已在 AI 洗稿任务列表中，请勿重复投递");
+          return;
+        }
+      } catch {
+        // 读不到历史任务：跳过落盘去重，仅按内存记录去重
+      }
+      const entry = { mode, percent: 0 };
+      aiRewriteSentRef.current.set(fname, entry);
+      setAiRewriteSent((prev) => {
+        const next = new Map(prev).set(fname, entry);
+        persistAiRewriteSent(next);
+        return next;
+      });
+      try {
+        await invoke("ai_rewrite_run_links", {
+          items: [
+            {
+              source_url: fname,
+              title: task.title || fname,
+              ...(mode === "transcript" ? { mode: "transcript" } : {}),
+            },
+          ],
+          concurrency: 1,
+          wait: false,
+        });
+        toast.success("任务已进入任务列表");
+      } catch (e) {
+        aiRewriteSentRef.current.delete(fname);
+        setAiRewriteSent((prev) => {
+          const next = new Map(prev);
+          next.delete(fname);
+          persistAiRewriteSent(next);
+          return next;
+        });
+        toast.error(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [],
+  );
   const [downloadingTools, setDownloadingTools] = useState<string[]>([]);
   const [toolDownloadProgress, setToolDownloadProgress] = useState<
     Record<string, number>
@@ -103,6 +224,118 @@ export function VideoDownloadPage({
   const [updatingTool, setUpdatingTool] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<string | null>(null);
   const autoDownloadingRef = useRef(false);
+
+  // AI 洗稿后台任务进度 + 完成通知：本页显示百分比，完成/失败轻提示
+  useEffect(() => {
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    listen<AiRewriteProgressPayload>("ai-rewrite:progress", (event) => {
+      const p = event.payload;
+      const src = (p.source_url ?? "").trim();
+      const entry = aiRewriteSentRef.current.get(src);
+      if (!entry) return;
+      if (p.stage === "done" || p.stage === "error") {
+        if (p.stage === "done") {
+          // 保留记录并标记完成：按钮变「查看」，点击进入洗稿任务列表看结果
+          const updated = { ...entry, percent: 100, done: true };
+          aiRewriteSentRef.current.set(src, updated);
+          setAiRewriteSent((prev) => {
+            const next = new Map(prev).set(src, updated);
+            persistAiRewriteSent(next);
+            return next;
+          });
+          toast.success(entry.mode === "transcript" ? "提取完成" : "洗稿完成");
+        } else {
+          aiRewriteSentRef.current.delete(src);
+          setAiRewriteSent((prev) => {
+            const next = new Map(prev);
+            next.delete(src);
+            persistAiRewriteSent(next);
+            return next;
+          });
+          toast.error(
+            `${entry.mode === "transcript" ? "提取失败" : "洗稿失败"}：${(p.message ?? "").slice(0, 80)}`,
+          );
+        }
+      } else {
+        const percent =
+          typeof p.percent === "number"
+            ? Math.max(0, Math.min(100, Math.round(p.percent)))
+            : 0;
+        const updated = { ...entry, percent };
+        aiRewriteSentRef.current.set(src, updated);
+        setAiRewriteSent((prev) => new Map(prev).set(src, updated));
+      }
+    })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisteners.push(fn);
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      for (const fn of unlisteners) fn();
+    };
+  }, []);
+
+  // 恢复持久化的投递记录：切走页面/重开页面后进度显示不丢。
+  // percent 从后端运行表（ai_rewrite_running_tasks）恢复；不在运行表或已终态的记录清除。
+  useEffect(() => {
+    let saved: Record<string, { mode: AiRewriteSentMode; done?: boolean }> = {};
+    try {
+      const raw = localStorage.getItem(AI_REWRITE_SENT_KEY);
+      if (raw) saved = JSON.parse(raw) as typeof saved;
+    } catch {
+      return;
+    }
+    const names = Object.keys(saved).filter((k) => k && saved[k]?.mode);
+    if (names.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      let running: {
+        source_url?: string;
+        stage?: string;
+        percent?: number;
+      }[] = [];
+      try {
+        const res = await invoke<{
+          tasks?: {
+            source_url?: string;
+            stage?: string;
+            percent?: number;
+          }[];
+        }>("ai_rewrite_running_tasks");
+        running = res.tasks ?? [];
+      } catch {
+        // 后端查询失败：按无运行任务处理（记录将被清除）
+      }
+      if (cancelled) return;
+      const next = new Map<string, AiRewriteSentEntry>();
+      for (const name of names) {
+        if (saved[name].done) {
+          // 已完成：直接恢复「查看」状态，不依赖运行表
+          next.set(name, { mode: saved[name].mode, percent: 100, done: true });
+          continue;
+        }
+        const hit = running.find((r) => (r.source_url ?? "").trim() === name);
+        if (hit && hit.stage !== "done" && hit.stage !== "error") {
+          next.set(name, {
+            mode: saved[name].mode,
+            percent:
+              typeof hit.percent === "number"
+                ? Math.max(0, Math.min(100, Math.round(hit.percent)))
+                : 0,
+          });
+        }
+      }
+      aiRewriteSentRef.current = next;
+      persistAiRewriteSent(next);
+      setAiRewriteSent(new Map(next));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const downloadingToolsRef = useRef<string[]>([]);
   const toolProgressRef = useRef<Record<string, number>>({});
   const toolInfoRef = useRef<
@@ -895,6 +1128,14 @@ export function VideoDownloadPage({
                     toolDownloadInfo={
                       showToolProgress ? combinedToolInfo : null
                     }
+                    aiRewriteEnabled={canAiRewrite}
+                    onSendAiRewrite={sendToAiRewrite}
+                    onViewAiRewriteResult={onViewAiRewriteResult}
+                    aiRewriteProgress={
+                      task.filename
+                        ? aiRewriteSent.get(task.filename)
+                        : undefined
+                    }
                   />
                 );
               })}
@@ -1335,6 +1576,10 @@ function TaskRow({
   onOpenFile,
   onOpenDir,
   toolDownloadInfo,
+  aiRewriteEnabled,
+  onSendAiRewrite,
+  onViewAiRewriteResult,
+  aiRewriteProgress,
 }: {
   task: DownloadTask;
   onPause: () => void;
@@ -1349,6 +1594,12 @@ function TaskRow({
     downloaded: number;
     total: number;
   } | null;
+  /** AI 洗稿权限开启时，完成后可一键送入洗稿/提取文案。 */
+  aiRewriteEnabled: boolean;
+  onSendAiRewrite: (task: DownloadTask, mode: "rewrite" | "transcript") => void;
+  onViewAiRewriteResult: (task: DownloadTask) => void;
+  /** 该视频已投递 AI 洗稿且正在后台运行：按钮位置显示进度。 */
+  aiRewriteProgress?: AiRewriteSentEntry;
 }) {
   const statusConfig: Record<
     string,
@@ -1557,6 +1808,63 @@ function TaskRow({
               {task.filename && (
                 <>
                   <span className="flex-1" />
+                  {aiRewriteEnabled &&
+                    (aiRewriteProgress?.done ? (
+                      <button
+                        type="button"
+                        className="text-primary hover:underline flex items-center gap-1"
+                        title="查看提取/洗稿结果"
+                        onClick={() => onViewAiRewriteResult(task)}
+                      >
+                        <LuFileText className="w-3 h-3" />
+                        {aiRewriteProgress.mode === "transcript"
+                          ? "查看文案"
+                          : "查看洗稿"}
+                      </button>
+                    ) : aiRewriteProgress ? (
+                      <span
+                        className="flex items-center gap-1.5 text-primary"
+                        title={
+                          aiRewriteProgress.mode === "transcript"
+                            ? "提取文案进行中"
+                            : "AI 洗稿进行中"
+                        }
+                      >
+                        <span className="text-xs whitespace-nowrap">
+                          {aiRewriteProgress.mode === "transcript"
+                            ? "提取中"
+                            : "洗稿中"}{" "}
+                          {aiRewriteProgress.percent}%
+                        </span>
+                        <span className="w-14 h-1.5 rounded-full bg-muted overflow-hidden">
+                          <span
+                            className="block h-full bg-primary transition-all duration-500"
+                            style={{ width: `${aiRewriteProgress.percent}%` }}
+                          />
+                        </span>
+                      </span>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="text-primary hover:underline flex items-center gap-1"
+                          title="提取视频文案（转写，不洗稿）"
+                          onClick={() => onSendAiRewrite(task, "transcript")}
+                        >
+                          <LuFileText className="w-3 h-3" />
+                          提取文案
+                        </button>
+                        <button
+                          type="button"
+                          className="text-primary hover:underline flex items-center gap-1"
+                          title="转写并 AI 洗稿"
+                          onClick={() => onSendAiRewrite(task, "rewrite")}
+                        >
+                          <LuSparkles className="w-3 h-3" />
+                          一键洗稿
+                        </button>
+                      </>
+                    ))}
                   <button
                     type="button"
                     className="text-primary hover:underline flex items-center gap-1"

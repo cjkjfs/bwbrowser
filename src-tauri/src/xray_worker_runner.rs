@@ -156,6 +156,10 @@ async fn wait_until_ready(
     }
 
     if tokio::time::Instant::now() >= deadline {
+      let worker_log = std::fs::read_to_string(xray_worker_log_path(id)).unwrap_or_default();
+      if !worker_log.is_empty() {
+        log::error!("Xray worker {id} startup timed out; sidecar log: {worker_log}");
+      }
       return Err(structured_error("XRAY_START_FAILED"));
     }
     tokio::time::sleep(POLL_INTERVAL).await;
@@ -616,6 +620,13 @@ pub async fn run_xray_worker(config_path: &Path) -> Result<(), Box<dyn std::erro
   }
   .await;
   if let Err(error) = readiness_result {
+    let worker_log = std::fs::read_to_string(xray_worker_log_path(&config.id)).unwrap_or_default();
+    if !worker_log.is_empty() {
+      log::error!(
+        "Xray worker {} failed to become ready; sidecar log: {worker_log}",
+        config.id
+      );
+    }
     drop(child);
     delete_xray_worker_config(&config.id);
     return Err(error);

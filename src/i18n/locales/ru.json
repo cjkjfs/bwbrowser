@@ -241,7 +241,8 @@
         "verifying": "Проверяем копию",
         "cleaning": "Удаляем прежний каталог",
         "done": "Готово"
-      }
+      },
+      "openFolder": "Открыть папку"
     },
     "misc": {
       "title": "Ещё",
@@ -3662,6 +3663,9 @@
     "deleteSession": "Удалить чат",
     "deleteSessionTitle": "Удалить этот чат?",
     "deleteSessionBody": "Этот чат и сохранённые в нём сообщения будут удалены без возможности восстановления.",
-    "defaultSessionTitle": "Новый чат"
+    "defaultSessionTitle": "Новый чат",
+    "dotUser": "Я",
+    "dotAssistant": "ИИ",
+    "rollback": "Откатить к моменту до этого сообщения"
   }
 }

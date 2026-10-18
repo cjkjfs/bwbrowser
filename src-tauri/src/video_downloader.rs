@@ -85,10 +85,20 @@ pub struct DownloadSettings {
   pub proxy_id: Option<String>, // None = 直连
 }
 
+/// 默认下载目录：桌面/downloadvideo（不存在时自动创建）。
+fn default_download_dir() -> PathBuf {
+  let base = dirs::desktop_dir()
+    .or_else(dirs::download_dir)
+    .unwrap_or_else(|| PathBuf::from("."));
+  let dir = base.join("downloadvideo");
+  let _ = std::fs::create_dir_all(&dir);
+  dir
+}
+
 impl Default for DownloadSettings {
   fn default() -> Self {
     Self {
-      download_dir: String::new(),
+      download_dir: default_download_dir().to_string_lossy().to_string(),
       max_concurrent: 10,
       max_height: 0,
       auto_paste_download: false,
@@ -208,7 +218,15 @@ impl VideoDownloader {
     if let Ok(content) = std::fs::read_to_string(&settings_file) {
       if let Ok(saved) = serde_json::from_str::<DownloadSettings>(&content) {
         let mut inner = self.inner.lock().await;
-        inner.settings = saved;
+        // 老配置里目录为空 → 升级为默认目录（桌面/downloadvideo，自动创建）
+        if saved.download_dir.trim().is_empty() {
+          inner.settings = DownloadSettings {
+            download_dir: default_download_dir().to_string_lossy().to_string(),
+            ..saved
+          };
+        } else {
+          inner.settings = saved;
+        }
       }
     }
 
@@ -947,8 +965,7 @@ async fn run_single_download<R: Runtime>(
   );
 
   let output_dir = if settings.download_dir.is_empty() {
-    dirs::desktop_dir()
-      .unwrap_or_else(|| dirs::download_dir().unwrap_or_else(|| PathBuf::from(".")))
+    default_download_dir()
   } else {
     PathBuf::from(&settings.download_dir)
   };

@@ -239,7 +239,8 @@
         "verifying": "Checking the copy",
         "cleaning": "Removing the old directory",
         "done": "Done"
-      }
+      },
+      "openFolder": "Open Folder"
     },
     "misc": {
       "title": "More",
@@ -3596,6 +3597,9 @@
     "deleteSession": "Delete chat",
     "deleteSessionTitle": "Delete this chat?",
     "deleteSessionBody": "This chat and its locally saved messages will be deleted and cannot be recovered.",
-    "defaultSessionTitle": "New chat"
+    "defaultSessionTitle": "New chat",
+    "dotUser": "Me",
+    "dotAssistant": "AI",
+    "rollback": "Roll back to before this message"
   }
 }

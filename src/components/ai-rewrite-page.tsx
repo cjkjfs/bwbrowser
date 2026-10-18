@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -43,6 +43,7 @@ import {
 import { toast } from "sonner";
 import { AiAssistantPage } from "@/components/ai-assistant-page";
 import { AiRewriteSettingsDialog } from "@/components/ai-rewrite-settings-dialog";
+import { AI_REWRITE_ACTIVE_EVENT } from "@/components/rail-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -286,6 +287,9 @@ function rewriteFullText(rewrite: unknown): string {
   return [w.hook, ...bodyParas(w.body), w.cta].filter(Boolean).join("\n");
 }
 
+/** 跨页面「查看」请求 key：视频下载页写入，本页挂载时消费（与 video-download-page 一致）。 */
+const AI_REWRITE_VIEW_KEY = "ai_rewrite_view_request";
+
 /** 去掉文件名里的非法字符。 */
 function safeFileName(name: string): string {
   const s = (name || "字幕").replace(/[\\/:*?"<>|]/g, "_").trim();
@@ -382,6 +386,8 @@ export function AiRewritePage({
   const [tab, setTab] = useState<"run" | "tasks" | "assistant">("run");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [taskFlash, setTaskFlash] = useState<{ count: number } | null>(null);
+  /** 视频下载页「查看」定位：高亮该 url 的任务卡几秒。 */
+  const [highlightUrl, setHighlightUrl] = useState<string | null>(null);
   const reduceMotion = useReducedMotion();
 
   // 「开始分析」→ 任务列表的小人飞行动画
@@ -492,6 +498,37 @@ export function AiRewritePage({
   useEffect(() => {
     void loadPersistedTasks();
   }, [loadPersistedTasks]);
+
+  /** 视频下载页「查看」请求：切到任务列表、高亮并滚动到对应任务卡。 */
+  useEffect(() => {
+    let cleanup = () => {};
+    try {
+      const raw = localStorage.getItem(AI_REWRITE_VIEW_KEY);
+      if (raw) {
+        localStorage.removeItem(AI_REWRITE_VIEW_KEY);
+        const req = JSON.parse(raw) as { url?: string };
+        const url = (req.url ?? "").trim();
+        if (url) {
+          setTab("tasks");
+          setHighlightUrl(url);
+          const timer = window.setTimeout(() => {
+            const el = document.querySelector(
+              `[data-task-url="${CSS.escape(url)}"]`,
+            );
+            el?.scrollIntoView({ behavior: "smooth", block: "center" });
+          }, 600);
+          const clear = window.setTimeout(() => setHighlightUrl(null), 5000);
+          cleanup = () => {
+            window.clearTimeout(timer);
+            window.clearTimeout(clear);
+          };
+        }
+      }
+    } catch {
+      // 请求损坏：丢弃
+    }
+    return cleanup;
+  }, []);
 
   /** 删除单个任务（从列表移除并重新落盘）。 */
   const deleteTask = useCallback(
@@ -851,6 +888,9 @@ export function AiRewritePage({
       ) => {
         const url = String(item.source_url ?? "");
         if (!url || seen.has(url)) return;
+        // 任务列表去重：同 url（含历史/落盘恢复的任务）不重复入列
+        if (tasksRef.current.some((t) => t.url === url || t.key === url))
+          return;
         seen.add(url);
         if (mode) item.mode = mode;
         items.push(item);
@@ -919,6 +959,29 @@ export function AiRewritePage({
       reduceMotion,
     ],
   );
+
+  /** 任务活动数（pending/running）广播给导航栏：显示「AI 洗稿(N)」并让图标转动；
+   *  页面卸载时归零，避免切走后菜单残留转动状态。 */
+  const activeTaskCount = useMemo(
+    () =>
+      tasks.filter((t) => t.status === "pending" || t.status === "running")
+        .length,
+    [tasks],
+  );
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent(AI_REWRITE_ACTIVE_EVENT, {
+        detail: { active: activeTaskCount },
+      }),
+    );
+  }, [activeTaskCount]);
+  useEffect(() => {
+    return () => {
+      window.dispatchEvent(
+        new CustomEvent(AI_REWRITE_ACTIVE_EVENT, { detail: { active: 0 } }),
+      );
+    };
+  }, []);
 
   /** 单任务重试：从失败处继续（云端会复用已完成的转写/分析/洗稿，不重复计费） */
   const retryTask = useCallback(
@@ -1318,6 +1381,10 @@ export function AiRewritePage({
                         onDelete={() => deleteTask(t.key || t.url)}
                         onRetry={() => void retryTask(t)}
                         onRerun={() => void rerunRewrite(t)}
+                        highlighted={
+                          !!highlightUrl &&
+                          (t.url === highlightUrl || t.key === highlightUrl)
+                        }
                       />
                     ))}
                   </div>
@@ -1400,11 +1467,14 @@ function TaskCard({
   onDelete,
   onRetry,
   onRerun,
+  highlighted,
 }: {
   task: TaskItem;
   onDelete?: () => void;
   onRetry?: () => void;
   onRerun?: () => void;
+  /** 外部「查看」定位：高亮该任务卡并滚动到可见。 */
+  highlighted?: boolean;
 }) {
   const [showLogs, setShowLogs] = useState(false);
   const order = stageOrder(task.stage);
@@ -1458,7 +1528,13 @@ function TaskCard({
           };
 
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <div
+      data-task-url={task.url}
+      className={cn(
+        "rounded-lg border bg-card p-4 transition-colors",
+        highlighted && "border-primary ring-2 ring-primary/40",
+      )}
+    >
       {/* 头部 */}
       <div className="flex items-center gap-2">
         {isError || isInterrupted ? (
@@ -2096,7 +2172,6 @@ function DetailView({
     </details>
   );
 }
-
 function Section({
   title,
   tone,

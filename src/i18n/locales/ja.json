@@ -239,7 +239,8 @@
         "verifying": "コピーを確認しています",
         "cleaning": "以前のディレクトリを削除しています",
         "done": "完了"
-      }
+      },
+      "openFolder": "フォルダを開く"
     },
     "misc": {
       "title": "その他",
@@ -3596,6 +3597,9 @@
     "deleteSession": "チャットを削除",
     "deleteSessionTitle": "このチャットを削除しますか？",
     "deleteSessionBody": "このチャットとローカルに保存されたメッセージは削除され、元に戻せません。",
-    "defaultSessionTitle": "新しいチャット"
+    "defaultSessionTitle": "新しいチャット",
+    "dotUser": "自分",
+    "dotAssistant": "AI",
+    "rollback": "このメッセージ前へ戻す"
   }
 }

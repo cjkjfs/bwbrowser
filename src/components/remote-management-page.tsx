@@ -192,7 +192,7 @@ export function RemoteManagementPage() {
       setConnectingKey(`${row.key}:${mode}`);
       try {
         const title = `${t(MODE_LABEL_KEY[mode])} · ${
-          row.hostname || row.address
+          row.account || row.hostname || row.address
         }`;
         const label = viewerWindowLabel(row.key, mode);
         const target = await invoke<RemoteTarget>(

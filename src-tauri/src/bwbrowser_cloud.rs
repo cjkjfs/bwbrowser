@@ -422,6 +422,16 @@ impl BwbrowserAuthManager {
 
   /// 获取 Wayfern token（从爆文库服务器）
   pub async fn get_wayfern_token(&self) -> Option<String> {
+    #[cfg(feature = "e2e")]
+    if crate::e2e_automation_enabled() {
+      if let Some(token) = std::env::var_os("WAYFERN_TEST_TOKEN")
+        .filter(|token| !token.is_empty())
+        .and_then(|token| token.into_string().ok())
+      {
+        return Some(token);
+      }
+    }
+
     let state = self.state.lock().unwrap().clone();
     let (username, password) = match state {
       Some(s) => (s.username, s.password),
@@ -2654,6 +2664,108 @@ pub async fn bwbrowser_list_cloud_users(
 #[tauri::command]
 pub async fn bwbrowser_list_companies() -> Result<CompanyListResponse, String> {
   BWBROWSER_AUTH.list_cloud_companies().await
+}
+
+/// 保存用户级云端设置 KV（如 SRC-IP 映射表）。按登录用户隔离，换电脑登录后可读回。
+async fn save_user_setting_impl(setting_key: &str, data: &str) -> Result<(), String> {
+  let (username, password) = BWBROWSER_AUTH
+    .get_credentials()
+    .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+
+  let form_data = format!(
+    "action=save_user_setting&username={}&password={}&setting_key={}&data={}",
+    urlencode(&username),
+    urlencode(&password),
+    urlencode(setting_key),
+    urlencode(data)
+  );
+
+  let resp = BWBROWSER_AUTH
+    .client
+    .post(BWBROWSER_API_URL)
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .body(form_data)
+    .send()
+    .await
+    .map_err(|e| format!("网络请求失败: {}", e))?;
+
+  let status = resp.status();
+  let body = resp
+    .text()
+    .await
+    .map_err(|e| format!("读取响应失败: {}", e))?;
+  let parsed: serde_json::Value = parse_api_response("save_user_setting", status, &body)?;
+  if !parsed
+    .get("success")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false)
+  {
+    let msg = parsed
+      .get("message")
+      .and_then(|v| v.as_str())
+      .unwrap_or("保存设置失败")
+      .to_string();
+    return Err(msg);
+  }
+  Ok(())
+}
+
+/// 读取用户级云端设置 KV。未保存过时返回 None。
+async fn get_user_setting_impl(setting_key: &str) -> Result<Option<String>, String> {
+  let (username, password) = BWBROWSER_AUTH
+    .get_credentials()
+    .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+
+  let form_data = format!(
+    "action=get_user_setting&username={}&password={}&setting_key={}",
+    urlencode(&username),
+    urlencode(&password),
+    urlencode(setting_key)
+  );
+
+  let resp = BWBROWSER_AUTH
+    .client
+    .post(BWBROWSER_API_URL)
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .body(form_data)
+    .send()
+    .await
+    .map_err(|e| format!("网络请求失败: {}", e))?;
+
+  let status = resp.status();
+  let body = resp
+    .text()
+    .await
+    .map_err(|e| format!("读取响应失败: {}", e))?;
+  let parsed: serde_json::Value = parse_api_response("get_user_setting", status, &body)?;
+  if !parsed
+    .get("success")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false)
+  {
+    let msg = parsed
+      .get("message")
+      .and_then(|v| v.as_str())
+      .unwrap_or("读取设置失败")
+      .to_string();
+    return Err(msg);
+  }
+  Ok(
+    parsed
+      .get("data")
+      .and_then(|v| v.as_str())
+      .map(|s| s.to_string()),
+  )
+}
+
+#[tauri::command]
+pub async fn bwbrowser_save_user_setting(setting_key: String, data: String) -> Result<(), String> {
+  save_user_setting_impl(&setting_key, &data).await
+}
+
+#[tauri::command]
+pub async fn bwbrowser_get_user_setting(setting_key: String) -> Result<Option<String>, String> {
+  get_user_setting_impl(&setting_key).await
 }
 
 #[tauri::command]

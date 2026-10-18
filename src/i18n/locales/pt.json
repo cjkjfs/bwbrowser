@@ -240,7 +240,8 @@
         "verifying": "A verificar a cópia",
         "cleaning": "A remover o diretório anterior",
         "done": "Concluído"
-      }
+      },
+      "openFolder": "Abrir pasta"
     },
     "misc": {
       "title": "Mais",
@@ -3629,6 +3630,9 @@
     "deleteSession": "Excluir conversa",
     "deleteSessionTitle": "Excluir esta conversa?",
     "deleteSessionBody": "Esta conversa e suas mensagens salvas localmente serão excluídas e não poderão ser recuperadas.",
-    "defaultSessionTitle": "Nova conversa"
+    "defaultSessionTitle": "Nova conversa",
+    "dotUser": "Eu",
+    "dotAssistant": "IA",
+    "rollback": "Voltar para antes desta mensagem"
   }
 }
