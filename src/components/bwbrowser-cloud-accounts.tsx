@@ -287,6 +287,9 @@ function getPlatformLabel(platform: string): string {
   return PLATFORM_LABELS[platform] || platform;
 }
 
+// 平台按显示名的拼音排序（Intl 中文排序即拼音序，WebView 原生支持）
+const zhCollator = new Intl.Collator("zh-Hans-CN");
+
 function _formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
@@ -517,9 +520,14 @@ export function BwbrowserCloudAccountsDialog({
   );
 
   const { isLoggedIn: isBwbrowserLoggedIn } = useBwbrowserAuth();
-  const { isSuperAdmin: isSuperAdminPerm } = useBwbrowserPermissions();
+  const { isSuperAdmin: isSuperAdminPerm, permissionsReady } =
+    useBwbrowserPermissions();
   const { companies, selectedCompanyId, setSelectedCompanyId } =
-    useBwbrowserCompany(isSuperAdminPerm, isBwbrowserLoggedIn);
+    useBwbrowserCompany(
+      isSuperAdminPerm,
+      isBwbrowserLoggedIn,
+      permissionsReady,
+    );
 
   const {
     accounts,
@@ -2159,19 +2167,20 @@ export function BwbrowserCloudAccountsDialog({
     void run();
   };
 
-  // 平台统计：始终用 summary 数据（来自 API 的全量统计，不依赖当前页）
+  // 平台统计：始终用 summary 数据（来自 API 的全量统计，不依赖当前页）；
+  // 按显示名拼音排序，「全部」固定在最前
   const platformStats = useMemo(() => {
-    if (summary?.platforms && summary.platforms.length > 0) {
-      return [
-        { platform: "all", count: summary.total ?? total },
-        ...summary.platforms.map((p) => ({
-          platform: p.platform,
-          count: p.count,
-        })),
-      ];
-    }
-    // summary 还没加载时只显示总数
-    return [{ platform: "all", count: total }];
+    const list = (summary?.platforms ?? []).map((p) => ({
+      platform: p.platform,
+      count: p.count,
+    }));
+    list.sort((a, b) =>
+      zhCollator.compare(
+        getPlatformLabel(a.platform),
+        getPlatformLabel(b.platform),
+      ),
+    );
+    return [{ platform: "all", count: summary?.total ?? total }, ...list];
   }, [total, summary]);
 
   // 人员统计：以 users 列表为准（显示所有人），count 从 summary.owners 匹配
@@ -2233,7 +2242,7 @@ export function BwbrowserCloudAccountsDialog({
             sectors: [],
           };
         })
-        .sort((a, b) => b.count - a.count);
+        .sort((a, b) => zhCollator.compare(a.owner_name, b.owner_name));
     }
 
     // 构建 summary owner 的 count 映射
@@ -2265,17 +2274,19 @@ export function BwbrowserCloudAccountsDialog({
       };
     });
 
-    // 按账号数降序排列
-    return result.sort((a, b) => b.count - a.count);
+    // 按显示名拼音排序
+    return result.sort((a, b) =>
+      zhCollator.compare(a.owner_name, b.owner_name),
+    );
   }, [summary, users]);
 
-  // 所有赛道（去重，用于赛道筛选栏）
+  // 所有赛道（去重，用于赛道筛选栏），拼音排序
   const allSectors = useMemo(() => {
     const set = new Set<string>();
     for (const o of ownerStats) {
       for (const s of o.sectors) set.add(s);
     }
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "zh"));
+    return Array.from(set).sort((a, b) => zhCollator.compare(a, b));
   }, [ownerStats]);
 
   // 当前赛道筛选下可见的人员（含其账号数）
@@ -5179,11 +5190,15 @@ export function BwbrowserCloudAccountsDialog({
                 {Object.entries({
                   ...PLATFORM_LABELS,
                   ...remotePlatformLabels,
-                }).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
+                })
+                  .sort((a, b) =>
+                    zhCollator.compare(String(a[1]), String(b[1])),
+                  )
+                  .map(([key, label]) => (
+                    <option key={key} value={key}>
+                      {label}
+                    </option>
+                  ))}
               </select>
             </div>
           </div>

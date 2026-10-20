@@ -29,6 +29,9 @@ const STORAGE_KEY = "bwbrowser_selected_company_id";
 export function useBwbrowserCompany(
   isSuperAdmin: boolean,
   isLoggedIn: boolean,
+  // 权限解析完成前不判超管：挂载瞬间 isSuperAdmin 还是 false，提前清空会把
+  // 超管恢复的公司选择连同 localStorage 一起删掉，导致刷新后过滤状态丢失
+  permissionsReady = true,
 ): UseBwbrowserCompanyReturn {
   const [companies, setCompanies] = useState<BwbrowserCompany[]>([]);
   const [selectedCompanyId, setSelectedCompanyIdState] = useState<
@@ -78,12 +81,13 @@ export function useBwbrowserCompany(
     void fetchCompanies();
   }, [fetchCompanies]);
 
-  // 非超管或未登录时清空选中公司
+  // 非超管或未登录时清空选中公司（等权限解析完成后再判，防止中间态误清）
   useEffect(() => {
+    if (!permissionsReady) return;
     if (!isSuperAdmin || !isLoggedIn) {
       setSelectedCompanyId(null);
     }
-  }, [isSuperAdmin, isLoggedIn, setSelectedCompanyId]);
+  }, [isSuperAdmin, isLoggedIn, permissionsReady, setSelectedCompanyId]);
 
   return {
     companies,

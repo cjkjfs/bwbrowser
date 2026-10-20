@@ -1319,6 +1319,10 @@ async fn process_video(
 ) -> Result<Value, String> {
   use tauri::Emitter;
 
+  // 任务归属：事件只推给发起时的登录账号。同机换号后，旧任务的
+  // 转写 / 翻译洗稿进度、日志、内容不会串进新账号的任务列表。
+  let owner_uid = crate::bwbrowser_cloud::BWBROWSER_AUTH.get_user_id();
+
   let video_id = video
     .get("video_id")
     .and_then(|v| v.as_str())
@@ -1343,6 +1347,9 @@ async fn process_video(
   };
 
   let emit = |stage: &str, percent: u32, message: &str, speed: &str| {
+    if crate::bwbrowser_cloud::BWBROWSER_AUTH.get_user_id() != owner_uid {
+      return;
+    }
     let payload = json!({
         "task_key": task_key,
         "index": index,
@@ -1361,6 +1368,9 @@ async fn process_video(
     let _ = app.emit("ai-rewrite:progress", payload);
   };
   let log = |level: &str, message: &str| {
+    if crate::bwbrowser_cloud::BWBROWSER_AUTH.get_user_id() != owner_uid {
+      return;
+    }
     let _ = app.emit(
       "ai-rewrite:log",
       json!({
@@ -1378,6 +1388,9 @@ async fn process_video(
   };
   // 实时把各环节产物推给 UI（转写文案 / 爆点分析 / 洗稿文案 / 打分）
   let content = |field: &str, value: Value| {
+    if crate::bwbrowser_cloud::BWBROWSER_AUTH.get_user_id() != owner_uid {
+      return;
+    }
     let _ = app.emit(
       "ai-rewrite:content",
       json!({
@@ -2373,6 +2386,8 @@ pub async fn ai_rewrite_run_links<R: tauri::Runtime>(
                  i: usize,
                  total: usize| async move {
     let _permit = sem.acquire_owned().await.ok();
+    // 与 process_video 相同的归属校验：换号后失败事件不再推给新账号
+    let owner_uid = crate::bwbrowser_cloud::BWBROWSER_AUTH.get_user_id();
     match process_video(&app, &row, &creds, i + 1, total).await {
       Ok(r) => r,
       Err(e) => {
@@ -2400,20 +2415,22 @@ pub async fn ai_rewrite_run_links<R: tauri::Runtime>(
         });
         log::warn!("[ai_rewrite] 任务失败 video_id={vid} src={src} 错误={e}");
         tokio::spawn(track_running(progress.clone()));
-        let _ = app.emit("ai-rewrite:progress", progress);
-        let _ = app.emit(
-          "ai-rewrite:log",
-          json!({
-              "task_key": key,
-              "index": i + 1,
-              "total": total,
-              "video_id": vid,
-              "source_url": src,
-              "level": "error",
-              "message": e,
-              "time": now_hms(),
-          }),
-        );
+        if crate::bwbrowser_cloud::BWBROWSER_AUTH.get_user_id() == owner_uid {
+          let _ = app.emit("ai-rewrite:progress", progress);
+          let _ = app.emit(
+            "ai-rewrite:log",
+            json!({
+                "task_key": key,
+                "index": i + 1,
+                "total": total,
+                "video_id": vid,
+                "source_url": src,
+                "level": "error",
+                "message": e,
+                "time": now_hms(),
+            }),
+          );
+        }
         json!({ "video_id": vid, "source_url": src, "success": false, "error": e })
       }
     }
@@ -2758,9 +2775,15 @@ pub async fn ai_rewrite_build_srt(
 // 任务列表持久化（本地 tasks.json）
 // ============================================================
 
-/// 持久化任务列表文件路径：{data_dir}/ai-rewrite-tasks.json
+/// 持久化任务列表文件路径：{data_dir}/ai-rewrite-tasks-{登录账号ID}.json
+/// 按登录身份隔离：账号 A 的任务列表（含助手发起的转写 / 翻译洗稿任务）
+/// 不会出现在账号 B 的列表里；未登录时落到 anonymous。
 fn tasks_store_path() -> PathBuf {
-  crate::app_dirs::data_dir().join("ai-rewrite-tasks.json")
+  let uid = crate::bwbrowser_cloud::BWBROWSER_AUTH
+    .get_user_id()
+    .map(|id| id.to_string())
+    .unwrap_or_else(|| "anonymous".to_string());
+  crate::app_dirs::data_dir().join(format!("ai-rewrite-tasks-{uid}.json"))
 }
 
 /// 读取已落盘的任务列表。文件不存在 / 损坏时返回空列表。

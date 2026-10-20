@@ -846,6 +846,14 @@ export function VideoDownloadPage({
     });
   }, [settings, updateSettings]);
 
+  // 切换系统浏览器 Cookie 回退
+  const toggleCookieFromSystemBrowser = useCallback(() => {
+    updateSettings({
+      ...settings,
+      cookie_from_system_browser: !settings.cookie_from_system_browser,
+    });
+  }, [settings, updateSettings]);
+
   // 切换粘贴自动下载
   const toggleAutoPaste = useCallback(() => {
     updateSettings({
@@ -1278,6 +1286,38 @@ export function VideoDownloadPage({
                 />
               </button>
             </div>
+            {settings.cookie_from_browser && (
+              <div className="flex items-center justify-between pl-1 py-1 border-t">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-medium">
+                    取不到时从系统浏览器获取
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    「VPS登录」未登录或未创建时，自动改用系统
+                    Chrome/Edge/Firefox 登录的 Cookie
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={settings.cookie_from_system_browser}
+                  onClick={toggleCookieFromSystemBrowser}
+                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                    settings.cookie_from_system_browser
+                      ? "bg-primary"
+                      : "bg-muted"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      settings.cookie_from_system_browser
+                        ? "translate-x-4"
+                        : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+            )}
             {settings.cookie_from_browser && (
               <div className="flex items-center justify-between pl-1">
                 <div className="text-xs text-muted-foreground">

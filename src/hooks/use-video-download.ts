@@ -35,6 +35,7 @@ export interface DownloadSettings {
   max_height: number;
   auto_paste_download: boolean;
   cookie_from_browser: boolean;
+  cookie_from_system_browser: boolean;
   proxy_id: string | null;
 }
 
@@ -64,6 +65,7 @@ const defaultSettings: DownloadSettings = {
   max_height: 0,
   auto_paste_download: false,
   cookie_from_browser: true,
+  cookie_from_system_browser: true,
   proxy_id: null,
 };
 

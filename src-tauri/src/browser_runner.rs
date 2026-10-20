@@ -659,8 +659,11 @@ impl BrowserRunner {
 
       // Install extensions if an extension group is assigned
       emit_launch_stage(profile, "extensions", None);
+      // PayPal 风控对启动注入面敏感：该平台跳过扩展组与收益护盾注入，
+      // 让加载面与裸内核浏览器一致，降低触发安全检测的概率
+      let paypal_no_extensions = shield_platform == Some("paypal");
       let mut extension_paths = Vec::new();
-      if updated_profile.extension_group_id.is_some() {
+      if updated_profile.extension_group_id.is_some() && !paypal_no_extensions {
         let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
         match mgr.install_extensions_for_profile(&updated_profile, &profile_data_path) {
           Ok(paths) => {
@@ -677,6 +680,11 @@ impl BrowserRunner {
             log::warn!("Failed to install extensions for Wayfern profile: {e}");
           }
         }
+      } else if paypal_no_extensions && updated_profile.extension_group_id.is_some() {
+        log::info!(
+          "PayPal platform launch skips extension injection for profile: {}",
+          updated_profile.name
+        );
       }
 
       // Get proxy URL from config
@@ -686,13 +694,17 @@ impl BrowserRunner {
       // `--load-extension` channel. Staged after the group install because that
       // call wipes the profile's staging directory, and asked for before the
       // launch because the browser reads the folder only once, at startup.
-      if let Some(shield) = crate::revenue_shield::extension_for_launch(
-        &updated_profile.id.to_string(),
-        shield_platform,
-      )
-      .await
-      {
-        extension_paths.push(shield);
+      // PayPal launches skip it entirely — any injected extension widens the
+      // fingerprint that PayPal's security check reacts to.
+      if !paypal_no_extensions {
+        if let Some(shield) = crate::revenue_shield::extension_for_launch(
+          &updated_profile.id.to_string(),
+          shield_platform,
+        )
+        .await
+        {
+          extension_paths.push(shield);
+        }
       }
 
       emit_launch_stage(profile, "starting", None);

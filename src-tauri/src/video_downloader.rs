@@ -82,7 +82,14 @@ pub struct DownloadSettings {
   pub max_height: u32,     // 0 = 最高
   pub auto_paste_download: bool,
   pub cookie_from_browser: bool,
+  // VPS 登录 profile 的 Cookie 取不到时，回退到系统浏览器（Chrome/Edge/Firefox）提取
+  #[serde(default = "default_true")]
+  pub cookie_from_system_browser: bool,
   pub proxy_id: Option<String>, // None = 直连
+}
+
+fn default_true() -> bool {
+  true
 }
 
 /// 默认下载目录：桌面/downloadvideo（不存在时自动创建）。
@@ -103,6 +110,7 @@ impl Default for DownloadSettings {
       max_height: 0,
       auto_paste_download: false,
       cookie_from_browser: true,
+      cookie_from_system_browser: true,
       proxy_id: None,
     }
   }
@@ -1368,6 +1376,9 @@ async fn run_single_download<R: Runtime>(
     }
     cmd
   };
+  // 记录下载开始时刻：兜底挑文件时只认本任务期间新出现/改动的文件，
+  // 防止把目录里以前任务的旧视频当成本次下载的结果。
+  let download_started = std::time::SystemTime::now() - std::time::Duration::from_secs(5);
   let mut child = match yt_cmd.spawn() {
     Ok(c) => c,
     Err(e) => {
@@ -1804,9 +1815,9 @@ async fn run_single_download<R: Runtime>(
               output_dir.join(fname)
             }
           });
-          // filename 也找不到的话，兜底：在目录中找最大的视频文件
+          // filename 也找不到的话，兜底：在本任务开始后新出现的视频文件里找最大的
           if from_filename.as_ref().is_none_or(|p| !p.exists()) {
-            find_largest_video_file(&output_dir)
+            find_largest_video_file(&output_dir, download_started)
           } else {
             from_filename
           }
@@ -1821,9 +1832,9 @@ async fn run_single_download<R: Runtime>(
             output_dir.join(fname)
           }
         });
-        // filename 路径不存在，兜底：在目录中找最大的视频文件
+        // filename 路径不存在，兜底：在本任务开始后新出现的视频文件里找最大的
         if from_filename.as_ref().is_none_or(|p| !p.exists()) {
-          find_largest_video_file(&output_dir)
+          find_largest_video_file(&output_dir, download_started)
         } else {
           from_filename
         }
@@ -2691,25 +2702,23 @@ pub(crate) async fn extract_audio_with_ffmpeg(
 /// cookie_url 决定 yt-dlp 访问哪个网站提取对应域名的 cookie
 async fn extract_cookies_via_ytdlp(
   yt_dlp_path: &std::path::Path,
-  user_data_dir: &std::path::Path,
+  browser_arg: &str,
   output_path: &std::path::Path,
   cookie_url: &str,
 ) -> Result<usize, String> {
   let tmp_path = output_path.with_extension("tmp.txt");
   let _ = std::fs::remove_file(&tmp_path);
 
-  let browser_arg = format!("chrome:{}:Default", user_data_dir.to_string_lossy());
-
   log::info!(
-    "[video_download] 使用 yt-dlp 从浏览器数据目录提取 Cookie ({}): {}",
+    "[video_download] 使用 yt-dlp 从浏览器提取 Cookie ({}): {}",
     cookie_url,
-    user_data_dir.display()
+    browser_arg
   );
 
   let mut cmd = tokio::process::Command::new(yt_dlp_path);
   cmd
     .arg("--cookies-from-browser")
-    .arg(&browser_arg)
+    .arg(browser_arg)
     .arg("--cookies")
     .arg(&tmp_path)
     .arg("--skip-download")
@@ -2724,9 +2733,11 @@ async fn extract_cookies_via_ytdlp(
     cmd.creation_flags(0x08000000);
   }
 
-  let output = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output())
+  // 本地读库 + 写 cookie 文件，10 秒绰绰有余；系统浏览器逐个回退时
+  // 每个最多卡 10 秒，避免网络慢时把总时长拖垮
+  let output = tokio::time::timeout(std::time::Duration::from_secs(10), cmd.output())
     .await
-    .map_err(|_| "yt-dlp 提取 Cookie 超时（20秒）".to_string())?
+    .map_err(|_| "yt-dlp 提取 Cookie 超时（10秒）".to_string())?
     .map_err(|e| format!("yt-dlp 进程启动失败: {}", e))?;
 
   if !tmp_path.exists() {
@@ -2810,6 +2821,39 @@ async fn export_vps_cookies_to_file<R: Runtime>(
   };
   let cookie_path = tools_dir().join(format!("cookies_{}.txt", platform_tag));
 
+  // 获取 yt-dlp 路径与系统浏览器回退开关
+  let inner = dl.inner.lock().await;
+  let yt_dlp_path = inner.yt_dlp_path.clone();
+  let system_fallback = inner.settings.cookie_from_system_browser;
+  drop(inner);
+
+  // 找到 VPS 登录 profile（即左上角 logo 点击打开的浏览器）
+  let pm = crate::profile::manager::ProfileManager::instance();
+  let profiles = pm.list_profiles().map_err(|e| e.to_string())?;
+  let vps_profile = match profiles
+    .into_iter()
+    .find(|p| p.name.to_lowercase() == "vps登录")
+  {
+    Some(p) => p,
+    None => {
+      // 没有 VPS 登录 profile：设置允许时回退到系统浏览器
+      if system_fallback {
+        if let Some(yt_dlp) = yt_dlp_path.as_ref() {
+          if yt_dlp.exists() {
+            if let Ok(n) = try_system_browser_cookie(yt_dlp, &cookie_path, cookie_url).await {
+              dl.set_last_cookie_time(now_secs()).await;
+              log::info!("[video_download] Cookie 已刷新（系统浏览器回退，{n} 条）");
+              return Ok(cookie_path);
+            }
+          }
+        }
+      }
+      return Err(
+        "未找到名为「VPS登录」的浏览器 profile，请先点击左上角 Logo 创建并登录 YouTube".to_string(),
+      );
+    }
+  };
+
   // 如果不是强制刷新且文件存在且1小时内，直接复用
   if !force_refresh && cookie_path.exists() {
     if let Ok(metadata) = std::fs::metadata(&cookie_path) {
@@ -2837,17 +2881,13 @@ async fn export_vps_cookies_to_file<R: Runtime>(
     })
     .unwrap_or(false);
 
-  // 获取 yt-dlp 路径
-  let inner = dl.inner.lock().await;
-  let yt_dlp_path = inner.yt_dlp_path.clone();
-  drop(inner);
-
   // 抖音跳过 yt-dlp 提取（yt-dlp 访问 douyin.com 会 403），
   // 直接走 CDP 导航 + 导出，从浏览器内存获取新鲜 cookie
   if !needs_douyin_nav {
-    if let Some(yt_dlp) = yt_dlp_path {
+    if let Some(yt_dlp) = yt_dlp_path.as_ref() {
       if yt_dlp.exists() && user_data_dir.exists() {
-        match extract_cookies_via_ytdlp(&yt_dlp, &user_data_dir, &cookie_path, cookie_url).await {
+        let vps_arg = format!("chrome:{}:Default", user_data_dir.to_string_lossy());
+        match extract_cookies_via_ytdlp(yt_dlp, &vps_arg, &cookie_path, cookie_url).await {
           Ok(count) if count > 0 => {
             dl.set_last_cookie_time(now_secs()).await;
             log::info!(
@@ -2936,8 +2976,26 @@ async fn export_vps_cookies_to_file<R: Runtime>(
         }
       }
 
-      // CDP 30 秒内仍不可用，最终 fallback 到 SQLite 数据库
-      log::warn!("[video_download] CDP 30 秒内不可用，回退到 SQLite 数据库");
+      // CDP 30 秒内仍不可用：设置允许时先回退系统浏览器，最后 SQLite
+      if system_fallback {
+        if let Some(yt_dlp) = yt_dlp_path.as_ref() {
+          if yt_dlp.exists() {
+            match try_system_browser_cookie(yt_dlp, &cookie_path, cookie_url).await {
+              Ok(n) => {
+                dl.set_last_cookie_time(now_secs()).await;
+                log::info!("[video_download] Cookie 已刷新（系统浏览器回退，{n} 条）");
+                return Ok(cookie_path);
+              }
+              Err(e) => {
+                log::warn!("[video_download] 系统浏览器回退失败: {}", e);
+              }
+            }
+          }
+        }
+      }
+
+      // 全部失败，最终 fallback 到 SQLite 数据库
+      log::warn!("[video_download] 回退到 SQLite 数据库");
       let result = crate::cookie_manager::CookieManager::read_cookies(&profile_id)
         .map_err(|e| format!("Cookie 导出失败（CDP 不可用，SQLite: {}）", e))?;
       let all_cookies: Vec<crate::cookie_manager::UnifiedCookie> =
@@ -2953,6 +3011,136 @@ async fn export_vps_cookies_to_file<R: Runtime>(
       Ok(cookie_path)
     }
   }
+}
+
+/// 回退：从系统浏览器（Chrome/Edge/Firefox/Brave/Chromium）提取 Cookie。
+/// yt-dlp 直读默认 profile 的 cookie 库，无需浏览器在运行。
+/// Windows 下 Chrome 127+ 的 App-Bound 加密可能失败，因此逐个尝试。
+async fn try_system_browser_cookie(
+  yt_dlp_path: &std::path::Path,
+  output_path: &std::path::Path,
+  cookie_url: &str,
+) -> Result<usize, String> {
+  let mut errors: Vec<String> = Vec::new();
+  for browser in ["chrome", "edge", "firefox", "brave", "chromium"] {
+    if !system_browser_cookie_db_exists(browser) {
+      continue;
+    }
+    match extract_cookies_via_ytdlp(yt_dlp_path, browser, output_path, cookie_url).await {
+      Ok(n) if n > 0 => {
+        log::info!(
+          "[video_download] 从系统浏览器 {} 提取到 {} 条 cookie",
+          browser,
+          n
+        );
+        return Ok(n);
+      }
+      Ok(_) => errors.push(format!("{browser}: 0 条")),
+      Err(e) => errors.push(format!("{browser}: {e}")),
+    }
+  }
+  Err(format!(
+    "系统浏览器均未提取到 Cookie（{}）",
+    if errors.is_empty() {
+      "未检测到已安装的系统浏览器".to_string()
+    } else {
+      errors.join("; ")
+    }
+  ))
+}
+
+/// 判断某个系统浏览器的 cookie 库文件是否存在
+fn system_browser_cookie_db_exists(browser: &str) -> bool {
+  #[cfg(target_os = "windows")]
+  {
+    let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let roaming = std::env::var("APPDATA").unwrap_or_default();
+    // Chromium 系 cookie 库：新版在 Default/Network/Cookies，旧版（<96）在 Default/Cookies
+    let chromium_db = |base: &str| {
+      let root = std::path::Path::new(base);
+      root.join("Default/Network/Cookies").exists() || root.join("Default/Cookies").exists()
+    };
+    match browser {
+      "chrome" => chromium_db(
+        &std::path::Path::new(&local)
+          .join("Google/Chrome/User Data")
+          .to_string_lossy(),
+      ),
+      "edge" => chromium_db(
+        &std::path::Path::new(&local)
+          .join("Microsoft/Edge/User Data")
+          .to_string_lossy(),
+      ),
+      "brave" => chromium_db(
+        &std::path::Path::new(&local)
+          .join("BraveSoftware/Brave-Browser/User Data")
+          .to_string_lossy(),
+      ),
+      "firefox" => firefox_cookie_db(&roaming).is_some(),
+      _ => false,
+    }
+  }
+  #[cfg(target_os = "macos")]
+  {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let app_support = format!("{home}/Library/Application Support");
+    match browser {
+      "chrome" => std::path::Path::new(&app_support)
+        .join("Google/Chrome/Default/Cookies")
+        .exists(),
+      "edge" => std::path::Path::new(&app_support)
+        .join("Microsoft Edge/Default/Cookies")
+        .exists(),
+      "brave" => std::path::Path::new(&app_support)
+        .join("BraveSoftware/Brave-Browser/Default/Cookies")
+        .exists(),
+      "firefox" => firefox_cookie_db(&format!("{app_support}/Firefox")).is_some(),
+      _ => false,
+    }
+  }
+  #[cfg(all(unix, not(target_os = "macos")))]
+  {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let config = format!("{home}/.config");
+    match browser {
+      "chrome" => std::path::Path::new(&config)
+        .join("google-chrome/Default/Cookies")
+        .exists(),
+      "edge" => std::path::Path::new(&config)
+        .join("microsoft-edge/Default/Cookies")
+        .exists(),
+      "brave" => std::path::Path::new(&config)
+        .join("BraveSoftware/Brave-Browser/Default/Cookies")
+        .exists(),
+      "chromium" => std::path::Path::new(&config)
+        .join("chromium/Default/Cookies")
+        .exists(),
+      "firefox" => firefox_cookie_db(&format!("{home}/.mozilla/firefox")).is_some(),
+      _ => false,
+    }
+  }
+}
+
+/// 找 Firefox 的 cookie 库（Profiles/<随机>.default*/cookies.sqlite）
+fn firefox_cookie_db(base: &str) -> Option<std::path::PathBuf> {
+  let profiles = std::path::Path::new(base).join("Profiles");
+  let mut entries: Vec<_> = std::fs::read_dir(&profiles).ok()?.flatten().collect();
+  entries.sort_by_key(|e| {
+    // modified 优先，其次 default-release 这类名字
+    let name = e.file_name().to_string_lossy().to_string();
+    let mtime = e
+      .metadata()
+      .ok()
+      .and_then(|m| m.modified().ok())
+      .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+      .map(|d| d.as_secs())
+      .unwrap_or(0);
+    (std::cmp::Reverse(mtime), name)
+  });
+  entries
+    .iter()
+    .map(|e| e.path().join("cookies.sqlite"))
+    .find(|p| p.exists())
 }
 
 /// 把 CDP 导出的 cookie JSON 数组转成 Netscape cookies.txt 格式
@@ -3361,7 +3549,20 @@ fn extract_bilibili_id(url: &str) -> Option<String> {
 
 /// 从 URL 提取视频 ID（优先 YouTube，其次 B 站）
 fn extract_video_id(url: &str) -> Option<String> {
-  extract_youtube_id(url).or_else(|| extract_bilibili_id(url))
+  extract_youtube_id(url)
+    .or_else(|| extract_bilibili_id(url))
+    .or_else(|| {
+      // TikTok: /video/<纯数字ID>。完成后靠 ID 在输出目录定位实际文件——
+      // Windows 下 stdout 管道会丢文件名里的 emoji，只有 ID 是可靠的。
+      let idx = url.find("/video/")?;
+      let rest = &url[idx + 7..];
+      let id: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+      if id.len() >= 8 {
+        Some(id)
+      } else {
+        None
+      }
+    })
 }
 
 /// 在输出目录中查找包含视频 ID 的最大视频文件
@@ -3410,8 +3611,13 @@ fn find_final_video_file(output_dir: &PathBuf, video_id: &str) -> Option<PathBuf
   largest.map(|(p, _)| p)
 }
 
-/// 在输出目录中查找最大的视频文件（兜底用，当 ID 和 filename 都找不到时）
-fn find_largest_video_file(output_dir: &PathBuf) -> Option<PathBuf> {
+/// 在输出目录中查找最大的视频文件（兜底用，当 ID 和 filename 都找不到时）。
+/// 只考虑 `min_modified` 之后有改动的文件——下载目录里往往有以前任务的
+/// 旧视频，不看时间会把旧文件当成刚下载的结果，点「打开」就打开了别的视频。
+fn find_largest_video_file(
+  output_dir: &PathBuf,
+  min_modified: std::time::SystemTime,
+) -> Option<PathBuf> {
   let mut largest: Option<(PathBuf, u64)> = None;
 
   if let Ok(entries) = std::fs::read_dir(output_dir) {
@@ -3445,6 +3651,17 @@ fn find_largest_video_file(output_dir: &PathBuf) -> Option<PathBuf> {
         let size = meta.len();
         // 小于 100KB 的忽略（可能是残留的小文件）
         if size < 100 * 1024 {
+          continue;
+        }
+        // 下载开始前就存在的文件属于以前的任务，跳过。
+        // 不能用 mtime：yt-dlp 默认把文件 mtime 设成视频的上传时间（--mtime 默认
+        // 开启），刚下完的文件 mtime 可能是几年前的；创建时间才是真实下载时刻，
+        // yt-dlp 不会改它。created 不可用时退回 mtime。
+        let file_time = meta
+          .created()
+          .or_else(|_| meta.modified())
+          .unwrap_or(min_modified);
+        if file_time < min_modified {
           continue;
         }
         match &largest {
@@ -4017,6 +4234,25 @@ async fn download_ffmpeg_inner<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<
       .map_err(|e| format!("解压失败: {}", e))?;
   }
 
+  // evermeet.cx 的 ffmpeg zip 只含 ffmpeg 单个二进制，ffprobe 必须单独下载，
+  // 否则 macOS 上工具检查永远缺 ffprobe、视频下载不可用。
+  #[cfg(target_os = "macos")]
+  {
+    let ffprobe_archive = dir.join("ffprobe.zip");
+    download_file_with_progress(
+      "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip",
+      &ffprobe_archive,
+      app,
+      "ffprobe",
+    )
+    .await?;
+    extractor
+      .extract_zip(&ffprobe_archive, &dir, None)
+      .await
+      .map_err(|e| format!("解压 ffprobe 失败: {}", e))?;
+    let _ = std::fs::remove_file(&ffprobe_archive);
+  }
+
   // 找到解压出来的 ffmpeg 和 ffprobe
   // 解压后结构可能是:
   //   1. video-tools/ffmpeg (macOS evermeet.cx: 根目录直接是二进制)
@@ -4416,15 +4652,58 @@ pub async fn video_download_get_task_log_path(task_id: String) -> Result<String,
   Ok(path.to_string_lossy().to_string())
 }
 
+/// 打开失败时的自愈定位：任务记录的文件名可能因 Windows stdout 编码
+/// 丢失 emoji 等字符（emoji→空格）。从记录名里提取数字 ID，在原目录里
+/// 按名字含该 ID 的视频文件找回真实路径。
+fn relocate_broken_file(path: &std::path::Path) -> Option<PathBuf> {
+  let name = path.file_name()?.to_string_lossy().to_string();
+  let id = name
+    .split(|c: char| !c.is_ascii_digit())
+    .filter(|s| s.len() >= 8)
+    .max_by_key(|s| s.len())?;
+  let dir = path.parent()?;
+  let mut best: Option<(PathBuf, u64)> = None;
+  for entry in std::fs::read_dir(dir).ok()?.flatten() {
+    let p = entry.path();
+    if !p.is_file() {
+      continue;
+    }
+    let n = p.file_name()?.to_string_lossy().to_string();
+    let nl = n.to_lowercase();
+    let is_video = [
+      ".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".flv", ".wmv",
+    ]
+    .iter()
+    .any(|e| nl.ends_with(e));
+    if !is_video || !n.contains(id) {
+      continue;
+    }
+    if let Ok(meta) = std::fs::metadata(&p) {
+      if best.as_ref().is_none_or(|(_, s)| meta.len() > *s) {
+        best = Some((p, meta.len()));
+      }
+    }
+  }
+  best.map(|(p, _)| p)
+}
+
 /// 用默认程序打开视频文件
 #[tauri::command]
 pub async fn video_download_open_file(path: String) -> Result<(), String> {
   // 规范化路径（Windows 下把 / 转成 \）
-  let p = if cfg!(windows) {
+  let mut p = if cfg!(windows) {
     PathBuf::from(path.replace('/', "\\"))
   } else {
     PathBuf::from(&path)
   };
+
+  // 记录名打不开时先尝试自愈定位（文件名里 emoji 等字符丢失的场景）
+  if !p.exists() {
+    if let Some(found) = relocate_broken_file(&p) {
+      log::info!("[video_download] open_file 自愈定位: {}", found.display());
+      p = found;
+    }
+  }
 
   log::info!("[video_download] open_file 请求, 原始路径: {}", path);
   log::info!("[video_download] open_file 规范化后: {}", p.display());

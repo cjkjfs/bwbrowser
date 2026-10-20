@@ -2064,9 +2064,10 @@ function DetailView({
                     variant="outline"
                     size="sm"
                     className="h-7 gap-1.5 text-[11px]"
-                    onClick={() =>
-                      void copyRewrite(data.transcript!, "转写文案")
-                    }
+                    onClick={() => {
+                      const transcript = data.transcript;
+                      if (transcript) void copyRewrite(transcript, "转写文案");
+                    }}
                   >
                     <LuCopy className="size-3.5" />
                     复制转写文案

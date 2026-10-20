@@ -15,6 +15,8 @@ export function useBwbrowserPermissions() {
   const { isLoggedIn } = useBwbrowserAuth();
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  // 权限是否已解析完成：避免挂载瞬间 isSuperAdmin=false 的中间态误伤依赖方
+  const [permissionsReady, setPermissionsReady] = useState(false);
   const [currentManagementUserId, setCurrentManagementUserId] = useState<
     number | null
   >(null);
@@ -23,6 +25,7 @@ export function useBwbrowserPermissions() {
     if (!isLoggedIn) {
       setPermissions({});
       setIsSuperAdmin(false);
+      setPermissionsReady(true);
       setCurrentManagementUserId(null);
       return;
     }
@@ -32,10 +35,12 @@ export function useBwbrowserPermissions() {
         if (cancelled) return;
         setPermissions(result.permissions || {});
         setIsSuperAdmin(result.is_super_admin ?? false);
+        setPermissionsReady(true);
         setCurrentManagementUserId(result.id);
       })
       .catch((e) => {
         console.error("[Permissions] 获取当前用户权限失败:", e);
+        if (!cancelled) setPermissionsReady(true);
       });
     return () => {
       cancelled = true;
@@ -55,6 +60,7 @@ export function useBwbrowserPermissions() {
   return {
     permissions,
     isSuperAdmin,
+    permissionsReady,
     canManageUsers,
     canDownloadVideos,
     canAiRewrite,
