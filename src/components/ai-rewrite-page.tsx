@@ -44,7 +44,6 @@ import {
 import { toast } from "sonner";
 import { AiAssistantPage } from "@/components/ai-assistant-page";
 import { AiRewriteSettingsDialog } from "@/components/ai-rewrite-settings-dialog";
-import { AI_REWRITE_ACTIVE_EVENT } from "@/components/rail-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -436,8 +435,13 @@ export function AiRewritePage({
     failed: number;
   } | null>(null);
 
-  /** 持久化全部任务到本地磁盘（含进行中/中断/失败/已完成），应用重启时完整恢复。 */
+  /** 初始加载完成前禁止一切落盘：加载在途时 tasks 还是空的，
+   *  此时事件补建的单条或卸载 flush 都会用残缺列表覆盖磁盘、抹掉其他任务。 */
+  const loadDoneRef = useRef(false);
+
+  /** 全量落盘任务列表。 */
   const persistTasks = useCallback(async (next: TaskItem[]) => {
+    if (!loadDoneRef.current) return;
     try {
       const serializable = next.map((t) => ({
         ...t,
@@ -470,18 +474,40 @@ export function AiRewritePage({
   }, [tasks]);
 
   /** 页面进入时把本地已落盘的任务加载回列表。
-   *  上次应用退出时还在 running 的任务标记为 interrupted，UI 展示为「中断」。 */
+   *  后端仍在运行的任务保持 running（页面切走任务并不中断，事件流会继续推进）；
+   *  只有后端已不在运行（应用重启等）的才标记为 interrupted。 */
   const loadPersistedTasks = useCallback(async () => {
+    loadDoneRef.current = false;
     try {
-      const arr = await invoke<unknown[]>("ai_rewrite_load_tasks");
-      if (!Array.isArray(arr) || arr.length === 0) return;
+      const [arr, running] = await Promise.all([
+        invoke<unknown[]>("ai_rewrite_load_tasks"),
+        invoke<{ tasks?: Array<{ task_key?: string; stage?: string }> }>(
+          "ai_rewrite_running_tasks",
+        ).catch(() => ({ tasks: [] })),
+      ]);
+      if (!Array.isArray(arr) || arr.length === 0) {
+        // 存储本来就是空的：之后正常落盘没有风险
+        loadDoneRef.current = true;
+        return;
+      }
+      const liveKeys = new Set(
+        (running?.tasks ?? [])
+          .filter(
+            (r) =>
+              r.task_key &&
+              !["done", "error", "interrupted"].includes(r.stage ?? ""),
+          )
+          .map((r) => r.task_key as string),
+      );
       const loaded: TaskItem[] = arr
         .map((raw) => raw as Partial<TaskItem>)
         .filter((t) => t && (t.key || t.url))
         .map((t) => {
           const item = { ...(t as TaskItem), persisted: true };
-          // 上次运行中断的任务：标记为 interrupted，避免 UI 一直显示"处理中"
-          if (item.status === "running" || item.status === "pending") {
+          if (
+            (item.status === "running" || item.status === "pending") &&
+            !liveKeys.has(item.key)
+          ) {
             return {
               ...item,
               status: "interrupted" as const,
@@ -498,7 +524,10 @@ export function AiRewritePage({
         return aUnfinished - bUnfinished;
       });
       setTasks(loaded);
+      // 加载完成：解锁落盘（此后 events/flush 写的都是完整列表）
+      loadDoneRef.current = true;
     } catch (e) {
+      // 保持 false：读取失败时本会话禁写，避免用内存残缺状态覆盖磁盘
       console.error("加载持久化任务失败", e);
     }
   }, []);
@@ -731,9 +760,11 @@ export function AiRewritePage({
 
     return () => {
       for (const fn of unlisteners) fn();
-      // 组件卸载前强制 flush：清掉 pending timer，立即落盘最新状态
+      // 组件卸载前强制 flush：清掉 pending timer，立即落盘最新状态。
+      // 仅在初始加载已完成时执行——加载在途（快速切走、StrictMode 二次挂载）
+      // 时 tasksRef 还是空的，flush 会用空列表抹掉磁盘上的任务。
       if (persistTimer.current) clearTimeout(persistTimer.current);
-      void persistTasks(tasksRef.current);
+      if (loadDoneRef.current) void persistTasks(tasksRef.current);
     };
   }, [matchTask, schedulePersist, persistTasks]);
 
@@ -978,29 +1009,6 @@ export function AiRewritePage({
       reduceMotion,
     ],
   );
-
-  /** 任务活动数（pending/running）广播给导航栏：显示「AI 洗稿(N)」并让图标转动；
-   *  页面卸载时归零，避免切走后菜单残留转动状态。 */
-  const activeTaskCount = useMemo(
-    () =>
-      tasks.filter((t) => t.status === "pending" || t.status === "running")
-        .length,
-    [tasks],
-  );
-  useEffect(() => {
-    window.dispatchEvent(
-      new CustomEvent(AI_REWRITE_ACTIVE_EVENT, {
-        detail: { active: activeTaskCount },
-      }),
-    );
-  }, [activeTaskCount]);
-  useEffect(() => {
-    return () => {
-      window.dispatchEvent(
-        new CustomEvent(AI_REWRITE_ACTIVE_EVENT, { detail: { active: 0 } }),
-      );
-    };
-  }, []);
 
   /** 单任务重试：从失败处继续（云端会复用已完成的转写/分析/洗稿，不重复计费） */
   const retryTask = useCallback(
@@ -1907,7 +1915,8 @@ function DetailView({
               <p className="whitespace-pre-wrap text-xs leading-relaxed">
                 {data.transcript}
               </p>
-              {data.transcriptZh && (
+              {/* 中文原文跳过翻译时 zh 与原文相同，不重复展示 */}
+              {data.transcriptZh && data.transcriptZh !== data.transcript && (
                 <div>
                   <button
                     type="button"

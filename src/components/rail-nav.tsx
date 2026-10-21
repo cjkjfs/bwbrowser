@@ -1,6 +1,7 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -299,9 +300,6 @@ const TOP_ITEMS: RailItem[] = [
 
 const ADMIN_ONLY_PAGES: AppPage[] = ["profiles", "proxies"];
 
-/** AI 洗稿活动任务数广播事件：ai-rewrite-page 发、RailNav 收。 */
-export const AI_REWRITE_ACTIVE_EVENT = "bwbrowser:ai-rewrite-active";
-
 const ADMIN_ROLES = ["manager", "admin", "super_admin"];
 
 /** 底部用户信息卡片：显示头像、姓名、公司、套餐等 */
@@ -398,16 +396,49 @@ export function RailNav({
     useBwbrowserPermissions();
   const isAdmin = !!user?.teamRole && ADMIN_ROLES.includes(user.teamRole);
 
-  // AI 洗稿进行中任务数：洗稿页广播（任务运行时菜单显示「AI 洗稿(N)」且图标转动）
+  // AI 洗稿进行中任务数：直接跟踪后端运行状态（任务运行时菜单显示「AI 洗稿(N)」且图标转动）。
+  // 后端任务在页面切走后仍继续运行，所以这里不依赖洗稿页面挂载，导航栏自己监听事件 + 启动时问一次后端。
   const [aiRewriteActive, setAiRewriteActive] = useState(0);
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const n = (e as CustomEvent<{ active?: number }>).detail?.active ?? 0;
-      setAiRewriteActive(n);
-    };
-    window.addEventListener(AI_REWRITE_ACTIVE_EVENT, handler);
-    return () => window.removeEventListener(AI_REWRITE_ACTIVE_EVENT, handler);
+  const aiRewriteLiveKeys = useRef<Set<string>>(new Set());
+  const syncAiRewriteActive = useCallback(() => {
+    setAiRewriteActive(aiRewriteLiveKeys.current.size);
   }, []);
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    void invoke<{
+      tasks?: Array<{ task_key?: string; stage?: string }>;
+    }>("ai_rewrite_running_tasks")
+      .then((res) => {
+        for (const r of res.tasks ?? []) {
+          if (
+            r.task_key &&
+            !["done", "error", "interrupted"].includes(r.stage ?? "")
+          ) {
+            aiRewriteLiveKeys.current.add(r.task_key);
+          }
+        }
+        syncAiRewriteActive();
+      })
+      .catch(() => {});
+    void listen<{
+      task_key?: string;
+      stage?: string;
+    }>("ai-rewrite:progress", (e) => {
+      const key = e.payload?.task_key;
+      if (!key) return;
+      const terminal = ["done", "error", "interrupted"].includes(
+        e.payload?.stage ?? "",
+      );
+      if (terminal) aiRewriteLiveKeys.current.delete(key);
+      else aiRewriteLiveKeys.current.add(key);
+      syncAiRewriteActive();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [syncAiRewriteActive]);
 
   const visibleTopItems = TOP_ITEMS.filter((item) => {
     if (ADMIN_ONLY_PAGES.includes(item.page) && !isAdmin) return false;

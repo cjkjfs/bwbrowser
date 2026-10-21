@@ -135,11 +135,56 @@ async fn track_running(payload: Value) {
   if key.is_empty() {
     return;
   }
+  // 先取落盘需要的字段（payload 马上要被 move 进 entry）
+  let p_stage = payload
+    .get("stage")
+    .and_then(|s| s.as_str())
+    .unwrap_or("")
+    .to_string();
+  let p_percent = payload.get("percent").and_then(|p| p.as_u64()).unwrap_or(0);
+  let p_message = payload
+    .get("message")
+    .and_then(|s| s.as_str())
+    .unwrap_or("")
+    .to_string();
+  let p_title = payload
+    .get("title")
+    .and_then(|s| s.as_str())
+    .unwrap_or("")
+    .to_string();
+  let p_platform = payload
+    .get("platform")
+    .and_then(|s| s.as_str())
+    .unwrap_or("")
+    .to_string();
+  let p_src = payload
+    .get("source_url")
+    .and_then(|s| s.as_str())
+    .unwrap_or("")
+    .to_string();
+
   let mut entry = payload;
   if let Value::Object(ref mut m) = entry {
     m.insert("_updated_at".to_string(), json!(now));
   }
-  map.insert(key, entry);
+  map.insert(key.clone(), entry);
+  drop(map);
+  // 同步落盘任务状态（download 中间百分比除外，避免高频写盘）：
+  // 页面切走再回来时，任务列表按落盘恢复真实进度，而不是误标「中断」。
+  if p_stage != "download" || p_percent >= 100 {
+    tasks_patch(
+      &key,
+      &p_src,
+      progress_store_patch(&json!({
+        "stage": p_stage,
+        "percent": p_percent,
+        "message": p_message,
+        "title": p_title,
+        "platform": p_platform,
+        "source_url": p_src,
+      })),
+    );
+  }
 }
 
 /// 运行表快照（AI 助手的进度查询工具）。
@@ -2404,6 +2449,26 @@ pub async fn ai_rewrite_test_endpoint(endpoint: AiEndpointConfig) -> Result<Stri
   ))
 }
 
+/// 判断文本是否已是中文：统计 CJK 汉字与拉丁字母数量，
+/// 汉字数 ≥ 拉丁字母数的一半即视为中文（兼容夹杂英文品牌词的中文口播）。
+/// 中文原文无需再翻译成中文，直接跳过翻译步骤（省 token、省时间）。
+fn is_chinese_text(text: &str) -> bool {
+  let mut cjk = 0usize;
+  let mut latin = 0usize;
+  for ch in text.chars() {
+    let c = ch as u32;
+    if (0x4E00..=0x9FFF).contains(&c)
+      || (0x3400..=0x4DBF).contains(&c)
+      || (0xF900..=0xFAFF).contains(&c)
+    {
+      cjk += 1;
+    } else if ch.is_ascii_alphabetic() || (0x00C0..=0x024F).contains(&c) {
+      latin += 1;
+    }
+  }
+  cjk > 0 && cjk * 2 >= latin
+}
+
 /// 处理单个视频，返回该视频的结果摘要。
 /// 全程通过 `ai-rewrite:progress`（阶段/百分比/速度）与 `ai-rewrite:log`（日志）实时上报。
 async fn process_video(
@@ -2501,6 +2566,20 @@ async fn process_video(
           "value": value,
       }),
     );
+    // 内容同步落盘：页面切走时事件无人接收，落盘保证「回来」后转写/洗稿结果不丢
+    let store_field = match field {
+      "transcript" => "transcript",
+      "transcript_segments" => "transcriptSegments",
+      "transcript_zh" => "transcriptZh",
+      "analyze" => "analyze",
+      "rewrite_ref" => "rewriteRef",
+      "rewrite" => "rewrite",
+      "score" => "scoreJson",
+      _ => "",
+    };
+    if !store_field.is_empty() {
+      tasks_patch(&task_key, &source_url, json!({ (store_field): value }));
+    }
   };
 
   emit("start", 0, "准备处理", "");
@@ -2884,25 +2963,32 @@ async fn process_video(
   let transcript = asr_text.unwrap_or_default();
 
   // 2.2) 生成原文中文翻译（对照阅读用；失败不影响后续流程）
+  //      原文已是中文时跳过翻译，transcript_zh 直接复用原文。
   let mut transcript_zh = String::new();
   if !transcript.trim().is_empty() {
-    emit("asr", 42, "生成原文中文翻译", "");
-    let sys = "你是字幕翻译。将用户提供的视频解说文案逐段翻译成简体中文：保持原有分段与顺序，不增删内容、不加注释，只输出译文。";
-    match llm_chat(&creds.llm, sys, &transcript).await {
-      Ok((raw, _)) => {
-        let zh = raw
-          .trim()
-          .trim_start_matches("```")
-          .trim_end_matches("```")
-          .trim()
-          .to_string();
-        if !zh.is_empty() {
-          content("transcript_zh", json!(zh.clone()));
-          transcript_zh = zh;
-          log("info", "原文中文翻译完成");
+    if is_chinese_text(&transcript) {
+      transcript_zh = transcript.clone();
+      content("transcript_zh", json!(transcript_zh.clone()));
+      log("info", "原文已是中文，跳过翻译");
+    } else {
+      emit("asr", 42, "生成原文中文翻译", "");
+      let sys = "你是字幕翻译。将用户提供的视频解说文案逐段翻译成简体中文：保持原有分段与顺序，不增删内容、不加注释，只输出译文。";
+      match llm_chat(&creds.llm, sys, &transcript).await {
+        Ok((raw, _)) => {
+          let zh = raw
+            .trim()
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim()
+            .to_string();
+          if !zh.is_empty() {
+            content("transcript_zh", json!(zh.clone()));
+            transcript_zh = zh;
+            log("info", "原文中文翻译完成");
+          }
         }
+        Err(e) => log("warn", &format!("原文翻译失败（不影响洗稿）：{e}")),
       }
-      Err(e) => log("warn", &format!("原文翻译失败（不影响洗稿）：{e}")),
     }
   }
 
@@ -3860,54 +3946,61 @@ pub async fn ai_rewrite_build_srt(
   }
 
   // 翻译：复用服务器的翻译配置（免费翻译模型）。未配置时跳过。
+  // 全部字幕已是中文时同样跳过（译文即原文）。
   let mut zh: Vec<Option<String>> = vec![None; cues.len()];
   let mut translated = false;
   let mut note = String::new();
-  match AI_REWRITE.credentials().await {
-    Ok(creds) => {
-      let cfg = creds.translate.clone();
-      if cfg.base_url.trim().is_empty() || cfg.api_key.trim().is_empty() {
-        note = "未配置翻译模型，仅导出原文".to_string();
-      } else {
-        let prompt = if creds.prompts.translate.trim().is_empty() {
-          DEFAULT_TRANSLATE_PROMPT.to_string()
+  if cues.iter().all(|c| is_chinese_text(c)) {
+    zh = cues.iter().map(|c| Some(c.clone())).collect();
+    translated = true;
+    note = "原文已是中文，无需翻译".to_string();
+  } else {
+    match AI_REWRITE.credentials().await {
+      Ok(creds) => {
+        let cfg = creds.translate.clone();
+        if cfg.base_url.trim().is_empty() || cfg.api_key.trim().is_empty() {
+          note = "未配置翻译模型，仅导出原文".to_string();
         } else {
-          creds.prompts.translate.clone()
-        };
-        let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
-        let mut set: tokio::task::JoinSet<(usize, Result<String, String>)> =
-          tokio::task::JoinSet::new();
-        for (i, c) in cues.iter().enumerate() {
-          let cfg = cfg.clone();
-          let prompt = prompt.clone();
-          let c = c.clone();
-          let sem = sem.clone();
-          set.spawn(async move {
-            let _permit = sem.acquire_owned().await.ok();
-            (i, translate_text(&cfg, &prompt, &c).await)
-          });
-        }
-        let mut first_err: Option<String> = None;
-        while let Some(joined) = set.join_next().await {
-          if let Ok((i, r)) = joined {
-            match r {
-              Ok(t) => zh[i] = Some(t),
-              Err(e) => {
-                if first_err.is_none() {
-                  first_err = Some(e);
+          let prompt = if creds.prompts.translate.trim().is_empty() {
+            DEFAULT_TRANSLATE_PROMPT.to_string()
+          } else {
+            creds.prompts.translate.clone()
+          };
+          let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
+          let mut set: tokio::task::JoinSet<(usize, Result<String, String>)> =
+            tokio::task::JoinSet::new();
+          for (i, c) in cues.iter().enumerate() {
+            let cfg = cfg.clone();
+            let prompt = prompt.clone();
+            let c = c.clone();
+            let sem = sem.clone();
+            set.spawn(async move {
+              let _permit = sem.acquire_owned().await.ok();
+              (i, translate_text(&cfg, &prompt, &c).await)
+            });
+          }
+          let mut first_err: Option<String> = None;
+          while let Some(joined) = set.join_next().await {
+            if let Ok((i, r)) = joined {
+              match r {
+                Ok(t) => zh[i] = Some(t),
+                Err(e) => {
+                  if first_err.is_none() {
+                    first_err = Some(e);
+                  }
                 }
               }
             }
           }
-        }
-        if zh.iter().all(|z| z.is_some()) {
-          translated = true;
-        } else if let Some(e) = first_err {
-          note = format!("翻译未完成，仅导出原文：{e}");
+          if zh.iter().all(|z| z.is_some()) {
+            translated = true;
+          } else if let Some(e) = first_err {
+            note = format!("翻译未完成，仅导出原文：{e}");
+          }
         }
       }
+      Err(e) => note = format!("获取翻译配置失败，仅导出原文：{e}"),
     }
-    Err(e) => note = format!("获取翻译配置失败，仅导出原文：{e}"),
   }
 
   // 时间轴：优先 ASR 真实逐段 timestamps；无则按字符数估算（约每秒 4 字符，最少 1.6s），
@@ -4036,6 +4129,82 @@ pub fn ai_rewrite_clear_tasks() -> Result<Value, String> {
   Ok(json!({ "success": true, "count": 0 }))
 }
 
+/// 任务落盘补丁的串行锁：读-改-写期间不允许并发任务交错，避免互相覆盖。
+static TASKS_PATCH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// progress payload → 落盘条目补丁（字段名与前端 TaskItem 对齐）。
+fn progress_store_patch(p: &Value) -> Value {
+  let stage = p.get("stage").and_then(|s| s.as_str()).unwrap_or("");
+  let status = match stage {
+    "done" => "done",
+    "error" => "error",
+    "interrupted" => "interrupted",
+    _ => "running",
+  };
+  json!({
+    "stage": stage,
+    "percent": p.get("percent").and_then(|x| x.as_u64()).unwrap_or(0),
+    "message": p.get("message").and_then(|x| x.as_str()).unwrap_or(""),
+    "status": status,
+    "title": p.get("title").and_then(|x| x.as_str()).unwrap_or(""),
+    "platform": p.get("platform").and_then(|x| x.as_str()).unwrap_or(""),
+    "url": p.get("source_url").and_then(|x| x.as_str()).unwrap_or(""),
+  })
+}
+
+/// 把增量补丁合并进落盘任务列表。页面切走后事件无人接收，
+/// 这份落盘就是「切走再回来」时任务列表恢复的真相源。
+fn tasks_patch(task_key: &str, source_url: &str, patch: Value) {
+  if task_key.is_empty() && source_url.is_empty() {
+    return;
+  }
+  let Ok(_guard) = TASKS_PATCH_LOCK.lock() else {
+    return;
+  };
+  let mut stored = tasks_read();
+  let at = stored.iter().position(|t| {
+    (!task_key.is_empty() && t.get("key").and_then(|k| k.as_str()) == Some(task_key))
+      || (!source_url.is_empty() && t.get("url").and_then(|u| u.as_str()) == Some(source_url))
+  });
+  let obj = match at {
+    Some(i) => match stored.get_mut(i).and_then(|v| v.as_object_mut()) {
+      Some(o) => o,
+      None => return,
+    },
+    None => {
+      // 事件先于前端建条到达（助手后台任务、页面未打开等）：补一条最小条目
+      let mut o = serde_json::Map::new();
+      o.insert("key".to_string(), json!(task_key));
+      o.insert("url".to_string(), json!(source_url));
+      o.insert("logs".to_string(), json!([]));
+      o.insert("persisted".to_string(), json!(true));
+      stored.push(Value::Object(o));
+      let last = stored.len() - 1;
+      match stored.get_mut(last).and_then(|v| v.as_object_mut()) {
+        Some(o) => o,
+        None => return,
+      }
+    }
+  };
+  if let Value::Object(patch_map) = patch {
+    for (k, v) in patch_map {
+      // 空字符串的 title/platform 不覆盖已有值
+      if (k == "title" || k == "platform")
+        && v.as_str().map(str::is_empty).unwrap_or(false)
+        && obj
+          .get(&k)
+          .and_then(|x| x.as_str())
+          .map(|s| !s.is_empty())
+          .unwrap_or(false)
+      {
+        continue;
+      }
+      obj.insert(k, v);
+    }
+  }
+  let _ = tasks_write(&stored);
+}
+
 /// 读取接口配置（与云端后台「AI 接口配置」同一份数据；接口设置对话框打开时回显）。
 #[tauri::command]
 pub async fn ai_rewrite_get_api_config() -> Result<AiApiConfig, String> {
@@ -4064,6 +4233,21 @@ mod tests {
     assert_eq!(cues[3], "He sold 3.5 copies anyway");
     let zh = split_cues_per_sentence("你敢信吗？全校最凶的霸王，突然一见钟情！");
     assert_eq!(zh.len(), 2);
+  }
+
+  #[test]
+  fn chinese_detection() {
+    assert!(is_chinese_text("你敢信吗？全校最凶的霸王，突然一见钟情！"));
+    assert!(is_chinese_text(
+      "今天我们聊聊 TikTok 的 CDN 加速，带宽 100Mbps。"
+    ));
+    // 英文为主、只夹一两个汉字 → 仍按英文处理，需要翻译
+    assert!(!is_chinese_text(
+      "He painted it. No hesitation! What happened next?"
+    ));
+    assert!(!is_chinese_text("I really love 你"));
+    // 纯数字/标点不算任何一种语言
+    assert!(!is_chinese_text("12345... !!!"));
   }
 
   #[test]
