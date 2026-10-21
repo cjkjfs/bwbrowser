@@ -242,6 +242,52 @@ test("ai rewrite running tasks reads the local runtime table without a session",
     const res = await app.invoke("ai_rewrite_running_tasks");
     assert.equal(res.success, true);
     assert.deepEqual(res.tasks, []);
+    // 停止开关是本机内存状态：置位/复位都只是写标志位，无会话也必须成功。
+    const stopped = await app.invoke("ai_rewrite_stop");
+    assert.equal(stopped.success, true);
+    // 本地 ASR 配置读写：默认关闭、往返保存后能读回同样内容。
+    const localAsr = await app.invoke("ai_rewrite_get_local_asr");
+    assert.equal(localAsr.enabled, false);
+    assert.equal(localAsr.model, "small");
+    const saved = await app.invoke("ai_rewrite_save_local_asr", {
+      cfg: { enabled: true, pythonPath: "", model: "medium", language: "zh" },
+    });
+    assert.equal(saved.success, true);
+    const localAsr2 = await app.invoke("ai_rewrite_get_local_asr");
+    assert.equal(localAsr2.enabled, true);
+    assert.equal(localAsr2.model, "medium");
+    // 模型预下载：缓存检查在无 Python 的环境必须干净失败（点名 Python），
+    // 有 Python 时返回结构化 cached 布尔；下载命令对未知模型名直接拒绝。
+    try {
+      const checked = await app.invoke("ai_rewrite_check_local_model", {
+        model: "tiny",
+      });
+      assert.equal(typeof checked.cached, "boolean");
+    } catch (e) {
+      assert.match(String(e), /Python/, "check error names Python");
+    }
+    const dlErr = await app.invokeError("ai_rewrite_download_local_model", {
+      model: "not-a-model",
+    });
+    assert.match(dlErr, /不支持/, "download rejects unknown model");
+
+    // 本地转写环境：检测命令返回结构化结果（python/source/hasWhisper）；
+    // 安装命令可启动或因环境互斥/平台限制报错，但必须可调用。
+    const env = await app.invoke("ai_rewrite_check_local_env");
+    assert.ok(
+      typeof env.hasWhisper === "boolean",
+      "env check returns hasWhisper boolean",
+    );
+    try {
+      const started = await app.invoke("ai_rewrite_install_local_env");
+      assert.equal(started.started, true);
+    } catch (e) {
+      assert.match(
+        String(e),
+        /安装/,
+        "install error mentions installation state",
+      );
+    }
   });
 });
 

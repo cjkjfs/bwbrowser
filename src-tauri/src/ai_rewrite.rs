@@ -106,6 +106,10 @@ lazy_static::lazy_static! {
 /// 终态条目在表里的最长保留时间：超过后写入时顺带清洗，防表无限膨胀。
 const RUNNING_TASKS_TTL_SECS: u64 = 2 * 60 * 60;
 
+/// 停止标志：置位后尚未开跑的任务不再开始（标记为中断），
+/// 正在处理的任务跑完当前这条后停止。新批次启动时自动复位。
+static AI_REWRITE_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// 把一条 progress 上报记入运行表（emit 与助手查询共用的真相源）。
 async fn track_running(payload: Value) {
   let mut map = RUNNING_TASKS.lock().await;
@@ -146,6 +150,775 @@ pub async fn ai_rewrite_running_tasks() -> Result<Value, String> {
   drop(map);
   tasks.sort_by_key(|v| v.get("_updated_at").and_then(|t| t.as_u64()).unwrap_or(0));
   Ok(json!({ "success": true, "tasks": tasks }))
+}
+
+/// 停止当前批次的洗稿任务：尚未开跑的不再开始（标为中断），
+/// 正在处理的任务跑完当前这条后停止。
+#[tauri::command]
+pub fn ai_rewrite_stop() -> Result<Value, String> {
+  AI_REWRITE_STOP.store(true, std::sync::atomic::Ordering::Relaxed);
+  Ok(json!({ "success": true }))
+}
+
+// ============================================================
+// 本地 ASR（faster-whisper）配置：机器级偏好，存本地不上云
+// ============================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LocalAsrConfig {
+  /// true = 提取文案交给本地 faster-whisper；false = 云端 ASR（按 token 计费）
+  pub enabled: bool,
+  /// Python 解释器路径；空 = 用 PATH 里的 "python"
+  pub python_path: String,
+  /// faster-whisper 模型名：tiny/base/small/medium/large-v3
+  pub model: String,
+  /// 识别语言（BCP-47 如 zh/en）；空 = 自动检测
+  pub language: String,
+}
+
+fn default_local_asr_model() -> String {
+  "small".to_string()
+}
+
+impl Default for LocalAsrConfig {
+  fn default() -> Self {
+    Self {
+      enabled: false,
+      python_path: String::new(),
+      model: default_local_asr_model(),
+      language: String::new(),
+    }
+  }
+}
+
+/// 配置文件路径：机器级（不按账号隔离），与任务落盘同目录。
+fn local_asr_store_path() -> PathBuf {
+  crate::app_dirs::data_dir().join("ai-rewrite-local-asr.json")
+}
+
+fn local_asr_config() -> LocalAsrConfig {
+  let path = local_asr_store_path();
+  std::fs::read_to_string(&path)
+    .ok()
+    .and_then(|text| serde_json::from_str(&text).ok())
+    .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn ai_rewrite_get_local_asr() -> Result<Value, String> {
+  let cfg = local_asr_config();
+  serde_json::to_value(&cfg).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ai_rewrite_save_local_asr(cfg: LocalAsrConfig) -> Result<Value, String> {
+  let path = local_asr_store_path();
+  if let Some(dir) = path.parent() {
+    std::fs::create_dir_all(dir).map_err(|e| format!("创建目录失败：{e}"))?;
+  }
+  let text = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+  let tmp = path.with_extension("json.tmp");
+  std::fs::write(&tmp, &text).map_err(|e| format!("写入失败：{e}"))?;
+  std::fs::rename(&tmp, &path).map_err(|e| format!("保存失败：{e}"))?;
+  Ok(json!({ "success": true }))
+}
+
+/// 本地 ASR 支持的模型档位（与转录脚本可用的 WhisperModel 参数一致）。
+const LOCAL_ASR_MODEL_IDS: [&str; 5] = ["tiny", "base", "small", "medium", "large-v3"];
+
+lazy_static::lazy_static! {
+  /// 模型预下载互斥标志：同一时间只允许一个下载任务。
+  static ref LOCAL_MODEL_DOWNLOADING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+}
+
+/// 程序托管的嵌入式 Python 目录（一键安装落点，数据目录内）。
+fn managed_python_dir() -> PathBuf {
+  crate::app_dirs::data_dir().join("local-asr").join("python")
+}
+
+fn managed_python_exe() -> PathBuf {
+  if cfg!(windows) {
+    managed_python_dir().join("python.exe")
+  } else {
+    managed_python_dir().join("bin").join("python3")
+  }
+}
+
+/// 解释器候选列表（按优先级）：配置路径 → 托管嵌入式 → 系统 PATH。
+fn python_candidates() -> Vec<(String, &'static str)> {
+  let mut out: Vec<(String, &'static str)> = Vec::new();
+  let cfg = local_asr_config();
+  let custom = cfg.python_path.trim().to_string();
+  if !custom.is_empty() {
+    out.push((custom, "custom"));
+  }
+  let managed = managed_python_exe();
+  if managed.exists() {
+    out.push((managed.to_string_lossy().into_owned(), "managed"));
+  }
+  out.push(("python".to_string(), "system"));
+  out
+}
+
+/// 本地 Python 解释器路径：按候选优先级取第一个。
+fn local_python_path() -> String {
+  python_candidates()
+    .into_iter()
+    .next()
+    .map(|(p, _)| p)
+    .unwrap_or_else(|| "python".to_string())
+}
+
+/// 模型缓存探测脚本：local_files_only 快照探测，缓存不全即视为未下载，不触发网络。
+const LOCAL_MODEL_CHECK_PY: &str = r#"import sys, json
+
+def out(obj):
+    print(json.dumps(obj, ensure_ascii=False), flush=True)
+
+model = sys.argv[1]
+try:
+    from huggingface_hub import snapshot_download
+    snapshot_download("Systran/faster-whisper-" + model, local_files_only=True)
+    out({"cached": True})
+except Exception:
+    out({"cached": False})
+"#;
+
+/// 模型预下载脚本：与转录脚本同一套 tqdm 钩子思路，把 HF 下载进度
+/// （百分比/字节/平滑速度）按 JSON 行打到 stdout，下载本体走 download_model。
+const LOCAL_MODEL_DOWNLOAD_PY: &str = r#"import sys, json, time
+
+def out(obj):
+    print(json.dumps(obj, ensure_ascii=False), flush=True)
+
+try:
+    import faster_whisper.utils as fwu
+except ImportError:
+    out({"type": "error", "message": "Python 未安装 faster-whisper：请先执行 pip install faster-whisper"})
+    sys.exit(1)
+
+try:
+    import threading
+    import tqdm.std
+    class _HookTqdm(tqdm.std.tqdm):
+        def __init__(self, *a, **kw):
+            kw.pop("name", None)
+            kw["disable"] = True
+            self._dl_done = 0
+            self._dl_last_t = 0.0
+            self._dl_speed = 0.0
+            self._dl_lock = threading.Lock()
+            super().__init__(*a, **kw)
+        def update(self, n=0):
+            if getattr(self, "unit", "") != "B":
+                return
+            try:
+                step = int(n or 0)
+            except (TypeError, ValueError):
+                step = 0
+            with self._dl_lock:
+                self._dl_done += step
+                now = time.monotonic()
+                if self._dl_last_t > 0 and now > self._dl_last_t:
+                    inst = step / (now - self._dl_last_t)
+                    self._dl_speed = inst if self._dl_speed <= 0 else self._dl_speed * 0.7 + inst * 0.3
+                self._dl_last_t = now
+                t = int(self.total or 0)
+                if t > 0 and self._dl_done > 0:
+                    pct = min(99, self._dl_done * 100 // t)
+                    out({"type": "download_progress", "percent": pct, "done": self._dl_done, "total": t, "speed": int(self._dl_speed)})
+    fwu.disabled_tqdm = _HookTqdm
+except Exception:
+    pass
+
+model_size = sys.argv[1]
+out({"type": "info", "message": "开始下载模型 " + model_size})
+
+# hf_xet 下载路径不经过 tqdm，进度由 Rust 侧轮询缓存目录补齐：
+# 这里把缓存目录和模型总大小报给 Rust，轮询用。
+try:
+    from huggingface_hub.constants import HF_HUB_CACHE
+    out({"type": "cache_dir", "path": HF_HUB_CACHE})
+except Exception:
+    pass
+try:
+    from huggingface_hub import HfApi
+    import re as _re
+    _pats = _re.compile(r"^(config\.json|preprocessor_config\.json|model\.bin|tokenizer\.json|vocabulary\..*)$")
+    _info = HfApi(timeout=15).model_info("Systran/faster-whisper-" + model_size, files_metadata=True)
+    _total = sum((f.size or 0) for f in (_info.siblings or []) if _pats.match(f.rfilename or ""))
+    if _total > 0:
+        out({"type": "total", "bytes": _total})
+except Exception:
+    pass
+
+try:
+    path = fwu.download_model(model_size)
+except Exception as e:
+    out({"type": "error", "message": "模型下载失败：" + str(e)})
+    sys.exit(1)
+out({"type": "done", "path": str(path)})
+"#;
+
+/// 检查本地模型是否已下载到 HF 缓存（结果供设置页展示「已下载/下载」按钮态）。
+#[tauri::command]
+pub async fn ai_rewrite_check_local_model(model: String) -> Result<Value, String> {
+  if !LOCAL_ASR_MODEL_IDS.contains(&model.as_str()) {
+    return Err(format!("不支持的模型：{model}"));
+  }
+  use tokio::io::AsyncWriteExt;
+
+  let python = local_python_path();
+  let mut cmd = tokio::process::Command::new(&python);
+  cmd
+    .arg("-")
+    .arg(&model)
+    .env("PYTHONIOENCODING", "utf-8")
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped());
+  let mut child = cmd
+    .spawn()
+    .map_err(|e| format!("启动 Python（{python}）失败：{e}；请在设置里填写正确的 Python 路径"))?;
+  if let Some(mut stdin) = child.stdin.take() {
+    let _ = stdin.write_all(LOCAL_MODEL_CHECK_PY.as_bytes()).await;
+  }
+  let output = tokio::time::timeout(std::time::Duration::from_secs(30), child.wait_with_output())
+    .await
+    .map_err(|_| "检查模型缓存超时".to_string())?
+    .map_err(|e| format!("检查模型缓存失败：{e}"))?;
+  for line in String::from_utf8_lossy(&output.stdout).lines().rev() {
+    if let Ok(v) = serde_json::from_str::<Value>(line.trim()) {
+      if v.get("cached").is_some() {
+        return Ok(v);
+      }
+    }
+  }
+  Ok(json!({ "cached": false }))
+}
+
+/// 模型预下载：spawn 后台任务拉全量模型文件，命令立即返回；
+/// 进度/速度/结果通过 `ai-rewrite:model-download` 事件上报（含收尾的 done/error）。
+#[tauri::command]
+pub async fn ai_rewrite_download_local_model(
+  app: tauri::AppHandle,
+  model: String,
+) -> Result<Value, String> {
+  use std::sync::atomic::Ordering;
+  if !LOCAL_ASR_MODEL_IDS.contains(&model.as_str()) {
+    return Err(format!("不支持的模型：{model}"));
+  }
+  if LOCAL_MODEL_DOWNLOADING
+    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+    .is_err()
+  {
+    return Err("已有模型正在下载，请等待完成".to_string());
+  }
+  use tauri::Emitter;
+  let python = local_python_path();
+  tokio::spawn(async move {
+    if let Err(msg) = run_local_model_download(&app, &python, &model).await {
+      let _ = app.emit(
+        "ai-rewrite:model-download",
+        json!({ "model": model, "status": "error", "message": msg }),
+      );
+    }
+    LOCAL_MODEL_DOWNLOADING.store(false, Ordering::SeqCst);
+  });
+  Ok(json!({ "started": true }))
+}
+
+/// 统计 HF 缓存中该模型 blobs/*.incomplete 的总字节数（目录不存在时为 0）。
+/// hf_xet 的 Rust 下载路径不经过 tqdm，但所有路径都写 .incomplete，轮询即可补齐进度。
+async fn incomplete_blob_bytes(cache_dir: &Path, model: &str) -> u64 {
+  let blobs = cache_dir
+    .join(format!("models--Systran--faster-whisper-{model}"))
+    .join("blobs");
+  let mut done: u64 = 0;
+  let Ok(mut entries) = tokio::fs::read_dir(&blobs).await else {
+    return 0;
+  };
+  while let Ok(Some(entry)) = entries.next_entry().await {
+    if entry.file_name().to_string_lossy().ends_with(".incomplete") {
+      done += entry.metadata().await.map(|m| m.len()).unwrap_or(0);
+    }
+  }
+  done
+}
+
+/// 预下载任务体：逐行解析 Python 进度并转发到事件通道；百分比单调不回退。
+async fn run_local_model_download(
+  app: &tauri::AppHandle,
+  python: &str,
+  model: &str,
+) -> Result<(), String> {
+  use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+  use std::sync::Arc;
+  use tauri::Emitter;
+  use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+  let emit = |status: &str, percent: u32, done: u64, total: u64, speed: u64, message: &str| {
+    let _ = app.emit(
+      "ai-rewrite:model-download",
+      json!({
+        "model": model,
+        "status": status,
+        "percent": percent,
+        "done": done,
+        "total": total,
+        "speed": speed,
+        "message": message,
+      }),
+    );
+  };
+
+  let mut cmd = tokio::process::Command::new(python);
+  cmd
+    .arg("-")
+    .arg(model)
+    .env("PYTHONIOENCODING", "utf-8")
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped());
+  let mut child = cmd
+    .spawn()
+    .map_err(|e| format!("启动 Python（{python}）失败：{e}；请在设置里填写正确的 Python 路径"))?;
+  if let Some(mut stdin) = child.stdin.take() {
+    let _ = stdin.write_all(LOCAL_MODEL_DOWNLOAD_PY.as_bytes()).await;
+  }
+  let stdout = child.stdout.take().ok_or("无法读取模型下载进度")?;
+  let stderr = child.stderr.take().ok_or("无法读取模型下载错误输出")?;
+  let stderr_task = tokio::spawn(async move {
+    let mut buf = String::new();
+    let mut lines = BufReader::new(stderr).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+      buf.push_str(&line);
+      buf.push('\n');
+    }
+    buf
+  });
+  let mut stdout_lines = BufReader::new(stdout).lines();
+  let last_pct = Arc::new(AtomicU32::new(0));
+
+  // hf_xet 下载路径不经过 tqdm（进度钩子收不到事件），由 Python 上报缓存目录
+  // 和模型总大小，这里轮询 blobs/*.incomplete 的字节数补齐进度与速度。
+  let dl_meta: Arc<Mutex<(Option<PathBuf>, u64)>> = Arc::new(Mutex::new((None, 0)));
+  let stop_poll = Arc::new(AtomicBool::new(false));
+  let poll_task = {
+    let dl_meta = dl_meta.clone();
+    let stop_poll = stop_poll.clone();
+    let last_pct = last_pct.clone();
+    let poll_model = model.to_string();
+    let poll_app = app.clone();
+    tokio::spawn(async move {
+      let mut last_done: u64 = 0;
+      let mut last_t: Option<std::time::Instant> = None;
+      let mut speed: f64 = 0.0;
+      while !stop_poll.load(Ordering::Relaxed) {
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        let (cache_dir, total) = {
+          let guard = dl_meta.lock().await;
+          (guard.0.clone(), guard.1)
+        };
+        let Some(cache_dir) = cache_dir else {
+          continue;
+        };
+        // 下载收尾时 .incomplete 会被改名成正式文件，进度单调不回退
+        let done = incomplete_blob_bytes(&cache_dir, &poll_model)
+          .await
+          .max(last_done);
+        let now = std::time::Instant::now();
+        if let Some(t0) = last_t {
+          let dt = now.duration_since(t0).as_secs_f64();
+          if dt > 0.0 {
+            let inst = (done - last_done) as f64 / dt;
+            speed = if speed <= 0.0 {
+              inst
+            } else {
+              speed * 0.6 + inst * 0.4
+            };
+          }
+        }
+        last_t = Some(now);
+        last_done = done;
+        let mut pct = last_pct.load(Ordering::Relaxed);
+        if total > 0 && done > 0 {
+          pct = pct.max(((done * 100 / total) as u32).min(99));
+          last_pct.store(pct, Ordering::Relaxed);
+        }
+        let _ = poll_app.emit(
+          "ai-rewrite:model-download",
+          json!({
+            "model": poll_model,
+            "status": "downloading",
+            "percent": pct,
+            "done": done,
+            "total": total,
+            "speed": speed as u64,
+            "message": "",
+          }),
+        );
+      }
+    })
+  };
+
+  let mut finished = false;
+  let mut last_err = String::new();
+
+  while let Ok(Some(line)) = stdout_lines.next_line().await {
+    let v: Value = match serde_json::from_str(line.trim()) {
+      Ok(v) => v,
+      Err(_) => continue,
+    };
+    match v.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+      "download_progress" => {
+        let pct = v.get("percent").and_then(|p| p.as_u64()).unwrap_or(0) as u32;
+        let next = pct.max(last_pct.load(Ordering::Relaxed));
+        last_pct.store(next, Ordering::Relaxed);
+        emit(
+          "downloading",
+          next,
+          v.get("done").and_then(|d| d.as_u64()).unwrap_or(0),
+          v.get("total").and_then(|t| t.as_u64()).unwrap_or(0),
+          v.get("speed").and_then(|s| s.as_u64()).unwrap_or(0),
+          "",
+        );
+      }
+      "cache_dir" => {
+        if let Some(p) = v.get("path").and_then(|p| p.as_str()) {
+          dl_meta.lock().await.0 = Some(PathBuf::from(p));
+        }
+      }
+      "total" => {
+        let b = v.get("bytes").and_then(|b| b.as_u64()).unwrap_or(0);
+        if b > 0 {
+          dl_meta.lock().await.1 = b;
+        }
+      }
+      "info" => {
+        let msg = v.get("message").and_then(|m| m.as_str()).unwrap_or("");
+        emit(
+          "downloading",
+          last_pct.load(Ordering::Relaxed),
+          0,
+          0,
+          0,
+          msg,
+        );
+      }
+      "error" => {
+        last_err = v
+          .get("message")
+          .and_then(|m| m.as_str())
+          .unwrap_or("模型下载失败")
+          .to_string();
+      }
+      "done" => finished = true,
+      _ => {}
+    }
+  }
+
+  stop_poll.store(true, Ordering::Relaxed);
+  let _ = poll_task.await;
+  let status = child.wait().await;
+  if finished && status.map(|s| s.success()).unwrap_or(false) {
+    emit("done", 100, 0, 0, 0, "模型下载完成");
+    return Ok(());
+  }
+  let stderr_tail: String = stderr_task.await.unwrap_or_default();
+  Err(if last_err.is_empty() {
+    format!("模型下载失败：{}", truncate(&stderr_tail, 400))
+  } else {
+    last_err
+  })
+}
+
+lazy_static::lazy_static! {
+  /// 本地转写环境安装互斥标志：同一时间只允许一个安装任务。
+  static ref LOCAL_ENV_INSTALLING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+}
+
+/// 托管嵌入式 Python 版本（官方 embeddable 包；faster-whisper 支持 3.8-3.12）。
+const MANAGED_PY_VERSION: &str = "3.11.9";
+/// pip 默认走清华 PyPI 镜像（国内下载快），失败回退官方源。
+const PYPI_MIRROR: &str = "https://pypi.tuna.tsinghua.edu.cn/simple";
+
+/// 运行 Python 子命令并捕获输出（timeout_secs 兜底防挂死）。
+async fn run_python_output(
+  py: &str,
+  args: &[&str],
+  timeout_secs: u64,
+) -> Result<std::process::Output, String> {
+  tokio::time::timeout(
+    std::time::Duration::from_secs(timeout_secs),
+    tokio::process::Command::new(py)
+      .args(args)
+      .env("PYTHONIOENCODING", "utf-8")
+      .stdin(std::process::Stdio::null())
+      .output(),
+  )
+  .await
+  .map_err(|_| "命令执行超时".to_string())?
+  .map_err(|e| format!("启动失败：{e}"))
+}
+
+/// 探测解释器：能启动且 import faster_whisper 成功返回 true；
+/// 能启动但缺库返回 false；无法启动返回 Err（换下一个候选）。
+async fn probe_python(py: &str) -> Result<bool, String> {
+  let out = run_python_output(py, &["-c", "import faster_whisper"], 30).await?;
+  Ok(out.status.success())
+}
+
+/// 检查本地转写环境：按候选顺序探测，返回
+/// `{ python, source: custom|managed|system|null, hasWhisper }`。
+#[tauri::command]
+pub async fn ai_rewrite_check_local_env() -> Result<Value, String> {
+  for (python, source) in python_candidates() {
+    if let Ok(has_whisper) = probe_python(&python).await {
+      return Ok(json!({ "python": python, "source": source, "hasWhisper": has_whisper }));
+    }
+  }
+  Ok(json!({ "python": Value::Null, "source": Value::Null, "hasWhisper": false }))
+}
+
+/// 一键安装本地转写环境（Windows）：嵌入式 Python + pip + faster-whisper
+/// 装进数据目录，不动系统 Python。进度通过 `ai-rewrite:env-install`
+/// 事件上报（installing/done/error + stage/percent/message）。
+#[tauri::command]
+pub async fn ai_rewrite_install_local_env(app: tauri::AppHandle) -> Result<Value, String> {
+  use std::sync::atomic::Ordering;
+  if !cfg!(windows) {
+    return Err(
+      "自动安装目前仅支持 Windows；macOS/Linux 请安装 Python 后执行 pip install faster-whisper"
+        .to_string(),
+    );
+  }
+  if LOCAL_ENV_INSTALLING
+    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+    .is_err()
+  {
+    return Err("环境正在安装中，请等待完成".to_string());
+  }
+  use tauri::Emitter;
+  tokio::spawn(async move {
+    if let Err(msg) = run_local_env_install(&app).await {
+      let _ = app.emit(
+        "ai-rewrite:env-install",
+        json!({ "status": "error", "message": msg }),
+      );
+    }
+    LOCAL_ENV_INSTALLING.store(false, Ordering::SeqCst);
+  });
+  Ok(json!({ "started": true }))
+}
+
+/// 流式下载文件到本地并回调 0-100 百分比。
+async fn download_file_progress(
+  client: &Client,
+  url: &str,
+  dest: &Path,
+  on_progress: impl Fn(u8),
+) -> Result<(), String> {
+  use futures_util::StreamExt;
+  use tokio::io::AsyncWriteExt;
+
+  let resp = client
+    .get(url)
+    .send()
+    .await
+    .and_then(|r| r.error_for_status())
+    .map_err(|e| format!("下载失败（{url}）：{e}"))?;
+  let total = resp.content_length().unwrap_or(0);
+  let mut stream = resp.bytes_stream();
+  let mut file = tokio::fs::File::create(dest)
+    .await
+    .map_err(|e| format!("创建文件失败：{e}"))?;
+  let mut done: u64 = 0;
+  let mut last_pct = 255u8;
+  while let Some(chunk) = stream.next().await {
+    let chunk = chunk.map_err(|e| format!("下载中断：{e}"))?;
+    file
+      .write_all(&chunk)
+      .await
+      .map_err(|e| format!("写入失败：{e}"))?;
+    done += chunk.len() as u64;
+    if let Some(pct) = done
+      .checked_mul(100)
+      .and_then(|v| v.checked_div(total))
+      .map(|v| v.min(100) as u8)
+    {
+      if pct != last_pct {
+        last_pct = pct;
+        on_progress(pct);
+      }
+    }
+  }
+  file.flush().await.map_err(|e| format!("写入失败：{e}"))?;
+  Ok(())
+}
+
+/// 解压 zip 到目标目录（enclosed_name 防路径穿越）。
+fn unzip_to(zip_path: &Path, dest: &Path) -> Result<(), String> {
+  let file = std::fs::File::open(zip_path).map_err(|e| format!("打开压缩包失败：{e}"))?;
+  let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("读取压缩包失败：{e}"))?;
+  for i in 0..archive.len() {
+    let mut entry = archive.by_index(i).map_err(|e| format!("解压失败：{e}"))?;
+    let enclosed = entry
+      .enclosed_name()
+      .ok_or_else(|| format!("压缩包含非法路径：{}", entry.name()))?;
+    let out_path = dest.join(enclosed);
+    if entry.is_dir() {
+      std::fs::create_dir_all(&out_path).map_err(|e| format!("创建目录失败：{e}"))?;
+    } else {
+      if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败：{e}"))?;
+      }
+      let mut out = std::fs::File::create(&out_path)
+        .map_err(|_e| format!("写入失败：{}", out_path.display()))?;
+      std::io::copy(&mut entry, &mut out).map_err(|e| format!("写入失败：{e}"))?;
+    }
+  }
+  Ok(())
+}
+
+/// 打开嵌入式 Python 的 site-packages：python3XY._pth 里 "#import site" → "import site"。
+fn patch_pth(py_dir: &Path, version: &str) -> Result<(), String> {
+  let nums: String = version.split('.').take(2).collect::<Vec<_>>().join("");
+  let pth = py_dir.join(format!("python{nums}._pth"));
+  let text =
+    std::fs::read_to_string(&pth).map_err(|e| format!("读取 {} 失败：{e}", pth.display()))?;
+  if text.starts_with("import site") || text.contains("\nimport site") {
+    return Ok(());
+  }
+  std::fs::write(&pth, text.replace("#import site", "import site"))
+    .map_err(|e| format!("写入 {} 失败：{e}", pth.display()))
+}
+
+/// 安装任务体：下载/解压嵌入式 Python → 装 pip → 装 faster-whisper → 校验。
+/// 各步骤幂等，中途失败重试会跳过已完成的部分。
+async fn run_local_env_install(app: &tauri::AppHandle) -> Result<(), String> {
+  use tauri::Emitter;
+
+  let emit = |stage: &str, percent: u32, message: &str| {
+    let _ = app.emit(
+      "ai-rewrite:env-install",
+      json!({ "status": "installing", "stage": stage, "percent": percent, "message": message }),
+    );
+  };
+
+  let client = Client::builder()
+    .connect_timeout(std::time::Duration::from_secs(30))
+    .build()
+    .map_err(|e| format!("初始化下载器失败：{e}"))?;
+  let base = crate::app_dirs::data_dir().join("local-asr");
+  std::fs::create_dir_all(&base).map_err(|e| format!("创建目录失败：{e}"))?;
+  let py_dir = managed_python_dir();
+  let py_exe = managed_python_exe();
+
+  if !py_exe.exists() {
+    emit("下载 Python", 5, "正在下载嵌入式 Python…");
+    let zip_path = base.join("python-embed.zip");
+    download_file_progress(
+      &client,
+      &format!(
+        "https://www.python.org/ftp/python/{MANAGED_PY_VERSION}/python-{MANAGED_PY_VERSION}-embed-amd64.zip"
+      ),
+      &zip_path,
+      |p| emit("下载 Python", 5 + p as u32 * 35 / 100, ""),
+    )
+    .await?;
+    match std::fs::metadata(&zip_path) {
+      Ok(m) if m.len() > 1024 * 1024 => {}
+      _ => return Err("下载的 Python 包不完整，请重试".to_string()),
+    }
+    emit("解压 Python", 42, "正在解压…");
+    unzip_to(&zip_path, &py_dir)?;
+    let _ = std::fs::remove_file(&zip_path);
+    patch_pth(&py_dir, MANAGED_PY_VERSION)?;
+  }
+  let py = py_exe.to_string_lossy().to_string();
+
+  emit("准备 pip", 46, "");
+  let has_pip = run_python_output(&py, &["-m", "pip", "--version"], 60)
+    .await
+    .map(|o| o.status.success())
+    .unwrap_or(false);
+  if !has_pip {
+    emit("安装 pip", 50, "正在安装 pip…");
+    let get_pip = base.join("get-pip.py");
+    download_file_progress(
+      &client,
+      "https://bootstrap.pypa.io/get-pip.py",
+      &get_pip,
+      |_| {},
+    )
+    .await?;
+    let out = run_python_output(
+      &py,
+      &[
+        get_pip.to_string_lossy().as_ref(),
+        "--no-warn-script-location",
+      ],
+      600,
+    )
+    .await?;
+    let _ = std::fs::remove_file(&get_pip);
+    if !out.status.success() {
+      return Err(format!(
+        "pip 安装失败：{}",
+        truncate(&String::from_utf8_lossy(&out.stderr), 400)
+      ));
+    }
+  }
+
+  let has_fw = run_python_output(&py, &["-c", "import faster_whisper"], 120)
+    .await
+    .map(|o| o.status.success())
+    .unwrap_or(false);
+  if !has_fw {
+    emit(
+      "安装 faster-whisper",
+      58,
+      "正在下载 faster-whisper 及依赖（约 200MB，请耐心等待）…",
+    );
+    let attempts: [Vec<&str>; 2] = [vec!["-i", PYPI_MIRROR], Vec::new()];
+    let mut install_err = String::new();
+    for index_args in attempts {
+      let mut args: Vec<&str> = vec![
+        "-m",
+        "pip",
+        "install",
+        "--no-warn-script-location",
+        "--disable-pip-version-check",
+      ];
+      args.extend(index_args);
+      args.push("faster-whisper");
+      emit("安装 faster-whisper", 70, "依赖较多，正在安装…");
+      let out = run_python_output(&py, &args, 1800).await?;
+      if out.status.success() {
+        install_err.clear();
+        break;
+      }
+      install_err = truncate(&String::from_utf8_lossy(&out.stderr), 400);
+    }
+    if !install_err.is_empty() {
+      return Err(format!("faster-whisper 安装失败：{install_err}"));
+    }
+  }
+
+  emit("校验环境", 95, "正在校验…");
+  match run_python_output(&py, &["-c", "import faster_whisper"], 120).await {
+    Ok(o) if o.status.success() => {}
+    _ => return Err("环境安装完成但校验失败，请重试一键安装".to_string()),
+  }
+  let _ = app.emit(
+    "ai-rewrite:env-install",
+    json!({ "status": "done", "percent": 100, "message": "本地转写环境安装完成" }),
+  );
+  Ok(())
 }
 
 lazy_static::lazy_static! {
@@ -963,6 +1736,329 @@ async fn asr_transcribe(
   Ok((transcript, usage, segs))
 }
 
+/// 本地转录的 Python 脚本：faster-whisper 逐段转写，进度/结果按 JSON 行打到 stdout。
+/// 有 CUDA 时自动用 GPU（float16），否则 CPU（int8）；VAD 过滤跳过静音段减少幻觉。
+const LOCAL_ASR_PY: &str = r#"import sys, json
+
+def out(obj):
+    print(json.dumps(obj, ensure_ascii=False), flush=True)
+
+try:
+    from faster_whisper import WhisperModel
+except ImportError:
+    out({"type": "error", "message": "Python 未安装 faster-whisper：请先执行 pip install faster-whisper"})
+    sys.exit(1)
+
+try:
+    import threading
+    import tqdm.std
+    import faster_whisper.utils as _fwu
+    class _HookTqdm(tqdm.std.tqdm):
+        def __init__(self, *a, **kw):
+            kw.pop("name", None)
+            kw["disable"] = True
+            self._dl_done = 0
+            self._dl_pct = -1
+            self._dl_lock = threading.Lock()
+            super().__init__(*a, **kw)
+        def update(self, n=0):
+            if getattr(self, "unit", "") != "B":
+                return
+            try:
+                step = int(n or 0)
+            except (TypeError, ValueError):
+                step = 0
+            with self._dl_lock:
+                self._dl_done += step
+                t = int(self.total or 0)
+                if t > 0 and self._dl_done > 0:
+                    pct = min(99, self._dl_done * 100 // t)
+                    if pct != self._dl_pct:
+                        self._dl_pct = pct
+                        out({"type": "download_progress", "percent": pct, "done": self._dl_done, "total": t})
+    _fwu.disabled_tqdm = _HookTqdm
+except Exception:
+    pass
+
+model_size, audio_path, language = sys.argv[1], sys.argv[2], sys.argv[3]
+device, compute = "cpu", "int8"
+try:
+    import ctranslate2
+    if ctranslate2.get_cuda_device_count() > 0:
+        device, compute = "cuda", "float16"
+except Exception:
+    pass
+out({"type": "info", "message": "加载本地模型 " + model_size + "（" + device + "），首次使用需下载模型文件"})
+# hf_xet 下载路径不经过 tqdm，进度由 Rust 侧轮询缓存目录补齐：
+# 这里把缓存目录和模型总大小报给 Rust，轮询用。
+try:
+    from huggingface_hub.constants import HF_HUB_CACHE
+    out({"type": "cache_dir", "path": HF_HUB_CACHE})
+except Exception:
+    pass
+try:
+    from huggingface_hub import HfApi
+    import re as _re
+    _pats = _re.compile(r"^(config\.json|preprocessor_config\.json|model\.bin|tokenizer\.json|vocabulary\..*)$")
+    _info = HfApi(timeout=15).model_info("Systran/faster-whisper-" + model_size, files_metadata=True)
+    _total = sum((f.size or 0) for f in (_info.siblings or []) if _pats.match(f.rfilename or ""))
+    if _total > 0:
+        out({"type": "total", "bytes": _total})
+except Exception:
+    pass
+model = WhisperModel(model_size, device=device, compute_type=compute)
+# 显式指定语言时用带标点的 initial_prompt 引导解码风格，让输出自带逗号句号
+init_prompt = ""
+if language == "zh":
+    init_prompt = "大家好，今天我们来聊一个很有意思的话题，首先，我要感谢大家的支持。"
+elif language == "en":
+    init_prompt = "Hello everyone, today we are going to talk about something really interesting, so let's get started."
+segments, info = model.transcribe(audio_path, language=language or None, beam_size=5, vad_filter=True,
+                                  word_timestamps=True, initial_prompt=init_prompt or None)
+lang = (getattr(info, "language", "") or "")
+zh = lang.startswith("zh")
+sent_p, mid_p = ("。", "，") if zh else (".", ",")
+total = float(info.duration or 0.0)
+parts = []
+
+def finish(cur, st, en):
+    # 收条：去掉结尾悬着的逗号，句末补句号（已有终止标点则不重复）
+    txt = "".join(cur).strip().rstrip("，,、；;：: ")
+    if txt and txt[-1] not in "。．.!！?？":
+        txt += sent_p
+    if txt:
+        parts.append({"start": st, "end": en, "text": txt})
+
+for s in segments:
+    try:
+        words = [(float(w.start), float(w.end), w.word) for w in (s.words or [])]
+    except Exception:
+        words = []
+    if not words:
+        text = (s.text or "").strip()
+        if text:
+            parts.append({"start": float(s.start), "end": float(s.end), "text": text})
+    else:
+        # 词间停顿断句：>=1.0s 收句开新条，>=0.45s 补逗号；字幕条带真实时间
+        cur = []
+        cur_st = words[0][0]
+        prev_end = cur_st
+        for i, (wst, wen, wtxt) in enumerate(words):
+            gap = wst - prev_end if cur else 0.0
+            if cur and gap >= 1.0:
+                finish(cur, cur_st, prev_end)
+                cur = []
+                cur_st = wst
+            elif cur and gap >= 0.45 and cur[-1][-1] not in "，,、；;：:.。．!！?？":
+                cur.append(mid_p)
+            tok = wtxt if not zh else wtxt.strip()
+            if not cur:
+                tok = tok.strip()
+            cur.append(tok)
+            prev_end = wen
+        finish(cur, cur_st, prev_end)
+    if total > 0:
+        out({"type": "progress", "percent": min(99, int(float(s.end) / total * 100))})
+transcript_text = ("".join(p["text"] for p in parts) if zh
+                   else " ".join(p["text"] for p in parts))
+out({"type": "done", "text": transcript_text, "segments": parts, "duration": total})
+"#;
+
+/// 本地 faster-whisper 转写：spawn Python 子进程，逐行解析进度，
+/// 停止标志置位时杀掉子进程。返回与 asr_transcribe 相同的三元组。
+async fn local_transcribe(
+  audio_path: &Path,
+  cfg: &LocalAsrConfig,
+  on_progress: &(dyn Fn(&str, u32, String) + Send + Sync),
+) -> Result<(String, Value, Vec<Value>), String> {
+  use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+  let python = local_python_path();
+
+  let mut cmd = tokio::process::Command::new(&python);
+  cmd
+    .arg("-")
+    .arg(&cfg.model)
+    .arg(audio_path)
+    .arg(&cfg.language)
+    .env("PYTHONIOENCODING", "utf-8")
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped());
+
+  let mut child = cmd
+    .spawn()
+    .map_err(|e| format!("启动 Python（{python}）失败：{e}；请在设置里填写正确的 Python 路径"))?;
+  if let Some(mut stdin) = child.stdin.take() {
+    let _ = stdin.write_all(LOCAL_ASR_PY.as_bytes()).await;
+    drop(stdin);
+  }
+  let stdout = child.stdout.take().ok_or("无法读取转录进程输出")?;
+  let stderr = child.stderr.take().ok_or("无法读取转录进程错误输出")?;
+  let stderr_task = tokio::spawn(async move {
+    let mut buf = String::new();
+    let mut lines = BufReader::new(stderr).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+      buf.push_str(&line);
+      buf.push('\n');
+    }
+    buf
+  });
+  let mut stdout_lines = BufReader::new(stdout).lines();
+
+  let mut transcript = String::new();
+  let mut segs: Vec<Value> = Vec::new();
+  let mut duration = Value::Null;
+  let mut last_err = String::new();
+
+  // hf_xet 下载路径不经过 tqdm（进度钩子收不到事件），Python 会上报缓存目录
+  // 和模型总大小，趁 stdout 安静的间隙轮询 blobs/*.incomplete 补齐下载进度。
+  let mut dl_cache: Option<PathBuf> = None;
+  let mut dl_total: u64 = 0;
+  let mut dl_done: u64 = 0;
+  let mut dl_pct: u32 = 0;
+  let mut dl_last_t: Option<std::time::Instant> = None;
+  let mut dl_speed: f64 = 0.0;
+
+  loop {
+    tokio::select! {
+      line = stdout_lines.next_line() => {
+        let line = match line {
+          Ok(Some(l)) => l,
+          Ok(None) => break,
+          Err(e) => {
+            last_err = format!("读取转录输出失败：{e}");
+            break;
+          }
+        };
+        let v: Value = match serde_json::from_str(line.trim()) {
+          Ok(v) => v,
+          Err(_) => continue,
+        };
+        match v.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+          "progress" => {
+            let pct = v.get("percent").and_then(|p| p.as_u64()).unwrap_or(0) as u32;
+            on_progress("progress", pct, format!("本地转写中 {pct}%"));
+          }
+          "download_progress" => {
+            let pct = v.get("percent").and_then(|p| p.as_u64()).unwrap_or(0) as u32;
+            let done = v.get("done").and_then(|d| d.as_u64()).unwrap_or(0) as f64 / 1_000_000.0;
+            let total = v.get("total").and_then(|t| t.as_u64()).unwrap_or(0) as f64 / 1_000_000.0;
+            let msg = if total > 0.0 {
+              format!("正在下载模型 {pct}%（{done:.0}MB / {total:.0}MB）")
+            } else {
+              format!("正在下载模型 {pct}%")
+            };
+            on_progress("download_progress", pct, msg);
+          }
+          "cache_dir" => {
+            if let Some(p) = v.get("path").and_then(|p| p.as_str()) {
+              dl_cache = Some(PathBuf::from(p));
+            }
+          }
+          "total" => {
+            let b = v.get("bytes").and_then(|b| b.as_u64()).unwrap_or(0);
+            if b > 0 {
+              dl_total = b;
+            }
+          }
+          "info" => {
+            let msg = v.get("message").and_then(|m| m.as_str()).unwrap_or("");
+            on_progress("info", 0, msg.to_string());
+          }
+          "error" => {
+            last_err = v
+              .get("message")
+              .and_then(|m| m.as_str())
+              .unwrap_or("本地转录失败")
+              .to_string();
+          }
+          "done" => {
+            transcript = v.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
+            segs = asr_parse_segments(&v);
+            duration = v.get("duration").cloned().unwrap_or(Value::Null);
+          }
+          _ => {}
+        }
+      }
+      _ = async {
+        loop {
+          tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+          if let Some(cache) = dl_cache.as_ref() {
+            let prev = dl_done;
+            // 下载收尾时 .incomplete 会被改名成正式文件，进度单调不回退
+            dl_done = dl_done.max(incomplete_blob_bytes(cache, &cfg.model).await);
+            let now = std::time::Instant::now();
+            if let Some(t0) = dl_last_t {
+              let dt = now.duration_since(t0).as_secs_f64();
+              if dt > 0.0 {
+                let inst = (dl_done - prev) as f64 / dt;
+                dl_speed = if dl_speed <= 0.0 { inst } else { dl_speed * 0.6 + inst * 0.4 };
+              }
+            }
+            dl_last_t = Some(now);
+            if dl_total > 0 && dl_done > 0 {
+              dl_pct = dl_pct.max(((dl_done * 100 / dl_total) as u32).min(99));
+            }
+            if dl_done > prev {
+              let spd = if dl_speed > 0.0 {
+                format!(" · {:.1}MB/s", dl_speed / 1_000_000.0)
+              } else {
+                String::new()
+              };
+              let msg = if dl_total > 0 {
+                format!(
+                  "正在下载模型 {dl_pct}%（{:.0}MB / {:.0}MB）{spd}",
+                  dl_done as f64 / 1_000_000.0,
+                  dl_total as f64 / 1_000_000.0
+                )
+              } else {
+                format!("正在下载模型（已下载 {:.0}MB）{spd}", dl_done as f64 / 1_000_000.0)
+              };
+              on_progress("download_progress", dl_pct, msg);
+            }
+          }
+          if AI_REWRITE_STOP.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+          }
+        }
+      } => {
+        let _ = child.kill().await;
+        return Err("已手动停止".to_string());
+      }
+    }
+  }
+
+  let status = child.wait().await;
+  let stderr_tail: String = stderr_task
+    .await
+    .unwrap_or_default()
+    .lines()
+    .rev()
+    .take(6)
+    .collect::<Vec<_>>()
+    .into_iter()
+    .rev()
+    .collect::<Vec<_>>()
+    .join("\n");
+  if transcript.is_empty() {
+    if status.map(|s| s.success()).unwrap_or(false) && last_err.is_empty() {
+      return Err("本地转录未产出文本".to_string());
+    }
+    return Err(if last_err.is_empty() {
+      format!("本地转录失败：{}", truncate(&stderr_tail, 400))
+    } else {
+      last_err
+    });
+  }
+  let usage = json!({
+      "engine": "faster-whisper",
+      "model": cfg.model,
+      "duration": duration,
+  });
+  Ok((transcript, usage, segs))
+}
+
 /// 从 verbose_json 响应提取真实逐段时间轴（[{start,end,text}]，单位秒）。
 fn asr_parse_segments(v: &Value) -> Vec<Value> {
   let mut out = Vec::new();
@@ -1710,9 +2806,36 @@ async fn process_video(
       log("info", &format!("音频下载完成：{name}"));
       emit("download", 20, "下载完成", "");
 
-      emit("asr", 22, "正在转写（本地 ASR）", "");
-      log("info", "开始 ASR 转写…");
-      let (text, usage, segs) = asr_transcribe(&creds.asr, &audio).await?;
+      // 转写来源：本地 faster-whisper（不耗 token）或云端 ASR（按量计费）
+      let local_cfg = local_asr_config();
+      let (text, usage, segs) = if local_cfg.enabled {
+        log(
+          "info",
+          &format!("开始本地 ASR 转写（模型 {}）…", local_cfg.model),
+        );
+        let last_pct = std::sync::atomic::AtomicU32::new(22);
+        let on_prog = |ev: &str, pct: u32, msg: String| {
+          use std::sync::atomic::Ordering;
+          if pct > 0 {
+            let raw = match ev {
+              // 模型首次下载占 22–30，转写占 30–39（完成时固定 40）
+              "download_progress" => 22 + pct * 8 / 100,
+              "progress" => 30 + pct * 9 / 100,
+              _ => last_pct.load(Ordering::Relaxed),
+            };
+            let next = raw.max(last_pct.load(Ordering::Relaxed));
+            last_pct.store(next, Ordering::Relaxed);
+            emit("asr", next, &msg, "");
+          } else {
+            emit("asr", last_pct.load(Ordering::Relaxed), &msg, "");
+          }
+        };
+        local_transcribe(&audio, &local_cfg, &on_prog).await?
+      } else {
+        emit("asr", 22, "正在转写", "");
+        log("info", "开始 ASR 转写…");
+        asr_transcribe(&creds.asr, &audio).await?
+      };
 
       let _ = std::fs::remove_file(&audio);
       log(
@@ -1729,6 +2852,25 @@ async fn process_video(
         content("transcript_segments", json!(segs.clone()));
       }
       asr_segs = segs;
+
+      // 本地视频：顺手在视频同目录落一份同名字幕（原文时间轴 SRT），已存在则不覆盖
+      if is_local && !asr_segs.is_empty() {
+        let vpath = std::path::Path::new(&source_url);
+        if let (Some(parent), Some(stem)) = (vpath.parent(), vpath.file_stem()) {
+          let srt_path = parent.join(format!("{}.srt", stem.to_string_lossy()));
+          if srt_path.exists() {
+            log(
+              "info",
+              &format!("字幕文件已存在，跳过自动保存：{}", srt_path.display()),
+            );
+          } else {
+            match std::fs::write(&srt_path, format_srt_text(&asr_segs)) {
+              Ok(_) => log("info", &format!("已自动保存字幕：{}", srt_path.display())),
+              Err(e) => log("warn", &format!("自动保存字幕失败：{e}")),
+            }
+          }
+        }
+      }
 
       let body = merge_identity(
         &identity,
@@ -2238,6 +3380,9 @@ pub async fn ai_rewrite_run_links<R: tauri::Runtime>(
 ) -> Result<Value, String> {
   use tauri::Emitter;
 
+  // 新批次自动复位停止标志
+  AI_REWRITE_STOP.store(false, std::sync::atomic::Ordering::Relaxed);
+
   AI_REWRITE.ensure_login().await?;
 
   // 余额预检
@@ -2388,6 +3533,41 @@ pub async fn ai_rewrite_run_links<R: tauri::Runtime>(
     let _permit = sem.acquire_owned().await.ok();
     // 与 process_video 相同的归属校验：换号后失败事件不再推给新账号
     let owner_uid = crate::bwbrowser_cloud::BWBROWSER_AUTH.get_user_id();
+    // 已请求停止：本条不开跑，直接标记为中断（正在跑的其他条跑完后整批停止）
+    if AI_REWRITE_STOP.load(std::sync::atomic::Ordering::Relaxed) {
+      let vid = row.get("video_id").and_then(|v| v.as_str()).unwrap_or("");
+      let src = row
+        .get("source_url")
+        .or_else(|| row.get("play_url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+      let key = if vid.is_empty() {
+        url_task_key(src)
+      } else {
+        vid.to_string()
+      };
+      let progress = json!({
+          "task_key": key,
+          "index": i + 1,
+          "total": total,
+          "video_id": vid,
+          "source_url": src,
+          "stage": "interrupted",
+          "percent": 100,
+          "message": "已手动停止",
+          "speed_text": "",
+      });
+      tokio::spawn(track_running(progress.clone()));
+      if crate::bwbrowser_cloud::BWBROWSER_AUTH.get_user_id() == owner_uid {
+        let _ = app.emit("ai-rewrite:progress", progress);
+      }
+      return json!({
+          "video_id": vid,
+          "source_url": src,
+          "success": false,
+          "error": "已手动停止",
+      });
+    }
     match process_video(&app, &row, &creds, i + 1, total).await {
       Ok(r) => r,
       Err(e) => {
@@ -2542,6 +3722,29 @@ fn srt_time(secs: f64) -> String {
   let ms = ((s - s.floor()) * 1000.0).round() as u64;
   let ms = if ms >= 1000 { 999 } else { ms };
   format!("{h:02}:{m:02}:{sec:02},{ms:03}")
+}
+
+/// 时间轴段落 → SRT 文本（UTF-8 带 BOM，Windows 播放器兼容中文）。
+fn format_srt_text(segs: &[Value]) -> String {
+  let mut out = String::from("\u{feff}");
+  let mut n = 0usize;
+  for s in segs {
+    let st = s.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let en = s.get("end").and_then(|v| v.as_f64()).unwrap_or(st);
+    let tx = s.get("text").and_then(|v| v.as_str()).unwrap_or("").trim();
+    if tx.is_empty() || en <= st {
+      continue;
+    }
+    n += 1;
+    out.push_str(&format!(
+      "{}\n{} --> {}\n{}\n\n",
+      n,
+      srt_time(st),
+      srt_time(en),
+      tx
+    ));
+  }
+  out
 }
 
 /// 单条文案翻译成中文。

@@ -1,8 +1,10 @@
 "use client";
 
+import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FaExternalLinkAlt, FaTimes } from "react-icons/fa";
-import { LuCheckCheck } from "react-icons/lu";
+import { LuCheckCheck, LuPackageOpen } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
 import type { AppUpdateInfo } from "@/types";
 import { RippleButton } from "./ui/ripple";
@@ -21,6 +23,31 @@ export function AppUpdateToast({
   updateReady = false,
 }: AppUpdateToastProps) {
   const { t } = useTranslation();
+  const [hasPendingInstaller, setHasPendingInstaller] = useState(false);
+
+  // Windows 的 exe/msi 更新会 defer 安装包等待重启时执行——存在待安装包时
+  // 才显示「手动安装」，其他更新方式（覆盖式/包管理器）没有安装包可打开。
+  useEffect(() => {
+    if (!updateReady) return;
+    let cancelled = false;
+    invoke<string | null>("get_pending_update_installer")
+      .then((path) => {
+        if (!cancelled) setHasPendingInstaller(Boolean(path));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [updateReady]);
+
+  const handleManualInstall = async () => {
+    try {
+      await invoke("open_pending_update_installer");
+    } catch (e) {
+      console.error("open installer failed:", e);
+    }
+  };
+
   const handleRestartClick = async () => {
     await onRestart();
   };
@@ -67,14 +94,27 @@ export function AppUpdateToast({
 
         <div className="mt-3 flex items-center gap-2">
           {updateReady ? (
-            <RippleButton
-              onClick={() => void handleRestartClick()}
-              size="sm"
-              className="flex items-center gap-2 text-xs"
-            >
-              <LuCheckCheck className="size-3" />
-              {t("appUpdate.toast.restartNow")}
-            </RippleButton>
+            <>
+              <RippleButton
+                onClick={() => void handleRestartClick()}
+                size="sm"
+                className="flex items-center gap-2 text-xs"
+              >
+                <LuCheckCheck className="size-3" />
+                {t("appUpdate.toast.restartNow")}
+              </RippleButton>
+              {hasPendingInstaller && (
+                <RippleButton
+                  variant="outline"
+                  onClick={() => void handleManualInstall()}
+                  size="sm"
+                  className="flex items-center gap-2 text-xs"
+                >
+                  <LuPackageOpen className="size-3" />
+                  {t("appUpdate.toast.installManually")}
+                </RippleButton>
+              )}
+            </>
           ) : (
             !updateInfo.repo_update &&
             updateInfo.manual_update_required && (

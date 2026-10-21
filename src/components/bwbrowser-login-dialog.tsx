@@ -306,6 +306,7 @@ export function BwbrowserLoginDialog({
       <div className="flex-1 flex items-center justify-center overflow-auto">
         {isAutoLoginMode ? (
           <div className="flex flex-col items-center justify-center px-8 py-16 min-h-[420px]">
+            {/* biome-ignore lint/performance/noImgElement: Tauri static logo, next/image optimization unavailable */}
             <img
               src="/logo.png"
               alt="BwBrowser"
@@ -337,6 +338,7 @@ export function BwbrowserLoginDialog({
           </div>
         ) : (
           <div className="flex flex-col items-center px-8 pt-12 pb-8 w-full max-w-md">
+            {/* biome-ignore lint/performance/noImgElement: Tauri static logo, next/image optimization unavailable */}
             <img
               src="/logo.png"
               alt="BwBrowser"

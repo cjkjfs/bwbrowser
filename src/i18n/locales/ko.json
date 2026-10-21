@@ -2040,6 +2040,8 @@
       "updateReady": "업데이트 준비됨, 적용하려면 재시작하세요",
       "manualDownloadRequired": "수동 다운로드 필요",
       "restartNow": "지금 재시작",
+      "restartNow": "지금 재시작",
+      "installManually": "수동 설치",
       "viewRelease": "릴리스 보기",
       "later": "나중에",
       "uploading": "업로드 중",

@@ -329,3 +329,55 @@
     backdrop-filter: none;
   }
 }
+
+/* 云端账号管理页文字大小三档（列设置里可切换，选择存 localStorage）。
+   档位 class（cloud-font-*）与页面 class（bwbrowser-cloud-page）同时挂在弹窗
+   根节点上，双类选择器特异性高于 utilities 层的字号工具类，无需 !important。
+   表格里的小字（text-[10px]/text-[11px]）与大字（text-xs/sm/base）各档全覆盖。 */
+.bwbrowser-cloud-page.cloud-font-small .text-\[10px\] {
+  font-size: 11px;
+}
+.bwbrowser-cloud-page.cloud-font-small .text-\[11px\] {
+  font-size: 12px;
+}
+.bwbrowser-cloud-page.cloud-font-small .text-xs {
+  font-size: 13px;
+}
+.bwbrowser-cloud-page.cloud-font-small .text-sm {
+  font-size: 14px;
+}
+.bwbrowser-cloud-page.cloud-font-small .text-base {
+  font-size: 16px;
+}
+
+.bwbrowser-cloud-page.cloud-font-medium .text-\[10px\] {
+  font-size: 13px;
+}
+.bwbrowser-cloud-page.cloud-font-medium .text-\[11px\] {
+  font-size: 15px;
+}
+.bwbrowser-cloud-page.cloud-font-medium .text-xs {
+  font-size: 16px;
+}
+.bwbrowser-cloud-page.cloud-font-medium .text-sm {
+  font-size: 17px;
+}
+.bwbrowser-cloud-page.cloud-font-medium .text-base {
+  font-size: 19px;
+}
+
+.bwbrowser-cloud-page.cloud-font-large .text-\[10px\] {
+  font-size: 15px;
+}
+.bwbrowser-cloud-page.cloud-font-large .text-\[11px\] {
+  font-size: 17px;
+}
+.bwbrowser-cloud-page.cloud-font-large .text-xs {
+  font-size: 18px;
+}
+.bwbrowser-cloud-page.cloud-font-large .text-sm {
+  font-size: 19px;
+}
+.bwbrowser-cloud-page.cloud-font-large .text-base {
+  font-size: 21px;
+}

@@ -12,7 +12,7 @@
  */
 
 import { execSync, spawn } from "node:child_process";
-import { chmodSync, createWriteStream, existsSync, mkdirSync } from "node:fs";
+import { chmodSync, createWriteStream, existsSync, mkdirSync, statSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
@@ -85,22 +85,29 @@ async function downloadFile(url, dest) {
   });
 }
 
+// dl.min.io went dark (every platform path answers 410), so binaries are
+// pulled from an older GitHub release that still ships per-platform assets.
+// Asset naming is `minio.<platform>.<TAG>[.exe]`.
+const MINIO_RELEASE_TAG = "RELEASE.2025-09-07T16-13-09Z";
+const MINIO_MIN_BYTES = 1024 * 1024;
+
 function getMinioUrl() {
   const platform = os.platform();
   const arch = os.arch();
+  const base = `https://github.com/minio/minio/releases/download/${MINIO_RELEASE_TAG}`;
 
   if (platform === "darwin") {
     if (arch === "arm64") {
-      return "https://dl.min.io/server/minio/release/darwin-arm64/minio";
+      return `${base}/minio.darwin-arm64.${MINIO_RELEASE_TAG}`;
     }
-    return "https://dl.min.io/server/minio/release/darwin-amd64/minio";
+    return `${base}/minio.darwin-amd64.${MINIO_RELEASE_TAG}`;
   } else if (platform === "linux") {
     if (arch === "arm64") {
-      return "https://dl.min.io/server/minio/release/linux-arm64/minio";
+      return `${base}/minio.linux-arm64.${MINIO_RELEASE_TAG}`;
     }
-    return "https://dl.min.io/server/minio/release/linux-amd64/minio";
+    return `${base}/minio.linux-amd64.${MINIO_RELEASE_TAG}`;
   } else if (platform === "win32") {
-    return "https://dl.min.io/server/minio/release/windows-amd64/minio.exe";
+    return `${base}/minio.windows-amd64.${MINIO_RELEASE_TAG}.exe`;
   }
 
   throw new Error(`Unsupported platform: ${platform}-${arch}`);
@@ -110,9 +117,12 @@ async function ensureMinioBinary() {
   const isWindows = os.platform() === "win32";
   const minioBin = path.join(CACHE_DIR, isWindows ? "minio.exe" : "minio");
 
-  if (existsSync(minioBin)) {
+  if (existsSync(minioBin) && statSync(minioBin).size >= MINIO_MIN_BYTES) {
     log("MinIO binary already cached");
     return minioBin;
+  }
+  if (existsSync(minioBin)) {
+    log("Cached MinIO binary is truncated, re-downloading");
   }
 
   log("Downloading MinIO binary...");
@@ -120,6 +130,9 @@ async function ensureMinioBinary() {
 
   const url = getMinioUrl();
   await downloadFile(url, minioBin);
+  if (statSync(minioBin).size < MINIO_MIN_BYTES) {
+    throw new Error(`Downloaded MinIO binary is too small: ${statSync(minioBin).size} bytes`);
+  }
   if (!isWindows) {
     chmodSync(minioBin, 0o755);
   }

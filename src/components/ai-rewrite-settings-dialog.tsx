@@ -1,10 +1,12 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   LuCheck,
   LuChevronDown,
+  LuDownload,
   LuLoader,
   LuRefreshCw,
   LuSearch,
@@ -23,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -52,6 +55,76 @@ interface AiApiConfigFields {
   asr: AiEndpointFields;
   llm: AiEndpointFields;
   translate: AiEndpointFields;
+}
+
+/** 本地 ASR（faster-whisper）配置：机器级偏好，存本地不上云 */
+interface LocalAsrFields {
+  enabled: boolean;
+  pythonPath: string;
+  model: string;
+  language: string;
+}
+
+const EMPTY_LOCAL_ASR: LocalAsrFields = {
+  enabled: false,
+  pythonPath: "",
+  model: "small",
+  language: "",
+};
+
+/** faster-whisper 模型档位：标签 + 说明（大小/速度） */
+const LOCAL_ASR_MODELS = [
+  { value: "tiny", label: "tiny（最快，~75MB，精度低）" },
+  { value: "base", label: "base（~140MB）" },
+  { value: "small", label: "small（推荐，~500MB）" },
+  { value: "medium", label: "medium（~1.5GB，较慢）" },
+  { value: "large-v3", label: "large-v3（最准，~3GB，需 GPU）" },
+] as const;
+
+/** 本地转写「识别语言」下拉选项（value 传给 faster-whisper；auto = 留空自动检测） */
+const LOCAL_ASR_LANGUAGES = [
+  { value: "zh", label: "中文" },
+  { value: "en", label: "英语" },
+  { value: "ja", label: "日语" },
+  { value: "ko", label: "韩语" },
+  { value: "ru", label: "俄语" },
+  { value: "es", label: "西班牙语" },
+  { value: "pt", label: "葡萄牙语" },
+  { value: "vi", label: "越南语" },
+  { value: "th", label: "泰语" },
+  { value: "id", label: "印尼语" },
+] as const;
+
+/** 后端模型预下载事件（ai-rewrite:model-download）载荷 */
+interface ModelDownloadPayload {
+  model: string;
+  status: "downloading" | "done" | "error";
+  percent?: number;
+  done?: number;
+  total?: number;
+  speed?: number;
+  message?: string;
+}
+
+/** 后端本地转写环境安装事件（ai-rewrite:env-install）载荷 */
+interface EnvInstallPayload {
+  status: "installing" | "done" | "error";
+  stage?: string;
+  percent?: number;
+  message?: string;
+}
+
+/** 环境检测结果（ai_rewrite_check_local_env 返回子集） */
+interface LocalEnvState {
+  source: "custom" | "managed" | "system" | null;
+  hasWhisper: boolean;
+}
+
+/** 模型下载字节数展示（模型体量以 MB/GB 计） */
+function fmtModelBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "0MB";
+  const mb = n / 1024 / 1024;
+  return mb >= 1024 ? `${(mb / 1024).toFixed(2)}GB` : `${mb.toFixed(0)}MB`;
 }
 
 /** 代理中心（云端）代理条目的前端子集 */
@@ -623,6 +696,168 @@ export function AiRewriteSettingsDialog({
   const [proxyError, setProxyError] = useState("");
   /** 正在为哪个端点选择代理线路（null = 选择弹窗关闭） */
   const [pickerFor, setPickerFor] = useState<EndpointKey | null>(null);
+  const [localAsr, setLocalAsr] = useState<LocalAsrFields>(EMPTY_LOCAL_ASR);
+  /** 每个模型的缓存状态：true=已下载 false=未下载 undefined=检查中 */
+  const [modelCached, setModelCached] = useState<Record<string, boolean>>({});
+  /** 正在预下载的模型（null = 无下载任务） */
+  const [dlModel, setDlModel] = useState<string | null>(null);
+  const [dl, setDl] = useState({ percent: 0, done: 0, total: 0, speed: 0 });
+  /** 去重防抖：同模型的缓存检查不并发重复 spawn */
+  const checkingRef = useRef<Set<string>>(new Set());
+  /** 本轮会话中自动安装/自动下载失败过的对象：失败不自动重试，手动点按钮可清除重试 */
+  const envFailedRef = useRef(false);
+  const dlFailedRef = useRef<Set<string>>(new Set());
+  /** 本地转写环境状态：null = 未检测完；hasWhisper=false 时展示一键安装 */
+  const [env, setEnv] = useState<LocalEnvState | null>(null);
+  /** 正在安装本地转写环境（null = 无安装任务） */
+  const [envInstall, setEnvInstall] = useState<{
+    stage: string;
+    percent: number;
+    message: string;
+  } | null>(null);
+
+  /** 探测模型是否已在 HF 缓存（失败按未下载处理，交给下载按钮兜底） */
+  const checkModel = useCallback((model: string) => {
+    if (checkingRef.current.has(model)) return;
+    checkingRef.current.add(model);
+    invoke<{ cached: boolean }>("ai_rewrite_check_local_model", { model })
+      .then((r) => setModelCached((s) => ({ ...s, [model]: !!r.cached })))
+      .catch(() => setModelCached((s) => ({ ...s, [model]: false })))
+      .finally(() => checkingRef.current.delete(model));
+  }, []);
+
+  /** 检测本机 Python + faster-whisper 环境（失败按未检测到处理） */
+  const checkEnv = useCallback(async () => {
+    try {
+      const r = await invoke<LocalEnvState>("ai_rewrite_check_local_env");
+      setEnv({
+        source: r.source ?? null,
+        hasWhisper: !!r.hasWhisper,
+      });
+    } catch {
+      setEnv({ source: null, hasWhisper: false });
+    }
+  }, []);
+
+  // 打开设置或切换模型档位时重新探测缓存状态
+  useEffect(() => {
+    if (open && localAsr.enabled) checkModel(localAsr.model);
+  }, [open, localAsr.enabled, localAsr.model, checkModel]);
+
+  // 打开设置或开启本地模型时检测本机转写环境
+  useEffect(() => {
+    if (open && localAsr.enabled) void checkEnv();
+  }, [open, localAsr.enabled, checkEnv]);
+
+  // 环境安装事件：进度/收尾（done 重新检测环境与模型缓存，error 弹出原因）
+  useEffect(() => {
+    const unlisteners: Array<() => void> = [];
+    listen<EnvInstallPayload>("ai-rewrite:env-install", (event) => {
+      const p = event.payload;
+      if (p.status === "installing") {
+        setEnvInstall({
+          stage: p.stage ?? "",
+          percent: p.percent ?? 0,
+          message: p.message ?? "",
+        });
+      } else if (p.status === "done") {
+        setEnvInstall(null);
+        toast.success(p.message || "本地转写环境安装完成");
+        void checkEnv();
+        if (localAsr.enabled) checkModel(localAsr.model);
+      } else {
+        envFailedRef.current = true;
+        setEnvInstall(null);
+        toast.error(p.message || "本地转写环境安装失败");
+      }
+    })
+      .then((fn) => unlisteners.push(fn))
+      .catch(() => {});
+    return () => {
+      for (const fn of unlisteners) fn();
+    };
+  }, [checkEnv, localAsr.enabled, localAsr.model, checkModel]);
+
+  // 模型预下载事件：进度/收尾（done 回填缓存状态，error 弹出原因）
+  useEffect(() => {
+    const unlisteners: Array<() => void> = [];
+    listen<ModelDownloadPayload>("ai-rewrite:model-download", (event) => {
+      const p = event.payload;
+      if (p.status === "done") {
+        setDlModel(null);
+        setModelCached((s) => ({ ...s, [p.model]: true }));
+        toast.success("模型下载完成，转写时可离线使用");
+      } else if (p.status === "error") {
+        dlFailedRef.current.add(p.model);
+        setDlModel(null);
+        toast.error(p.message || "模型下载失败");
+      } else {
+        setDl({
+          percent: p.percent ?? 0,
+          done: p.done ?? 0,
+          total: p.total ?? 0,
+          speed: p.speed ?? 0,
+        });
+      }
+    })
+      .then((fn) => unlisteners.push(fn))
+      .catch(() => {});
+    return () => {
+      for (const fn of unlisteners) fn();
+    };
+  }, []);
+
+  /** 启动模型预下载（后端互斥，一次只允许一个；manual=true 清除失败标记） */
+  const startDownload = useCallback(
+    (model: string, manual = false) => {
+      if (manual) dlFailedRef.current.delete(model);
+      if (dlModel || dlFailedRef.current.has(model)) return;
+      setDl({ percent: 0, done: 0, total: 0, speed: 0 });
+      setDlModel(model);
+      invoke("ai_rewrite_download_local_model", { model }).catch((e) => {
+        dlFailedRef.current.add(model);
+        setDlModel(null);
+        toast.error(e instanceof Error ? e.message : String(e));
+      });
+    },
+    [dlModel],
+  );
+
+  /** 一键安装本地转写环境（后端互斥 + 幂等续装；manual=true 清除失败标记） */
+  const startEnvInstall = useCallback(
+    (manual = false) => {
+      if (manual) envFailedRef.current = false;
+      if (envInstall || envFailedRef.current) return;
+      setEnvInstall({ stage: "准备安装", percent: 0, message: "" });
+      invoke("ai_rewrite_install_local_env").catch((e) => {
+        envFailedRef.current = true;
+        setEnvInstall(null);
+        toast.error(e instanceof Error ? e.message : String(e));
+      });
+    },
+    [envInstall],
+  );
+
+  // 全自动链路：没环境自动装环境；环境就绪且当前模型未下载则自动下模型。
+  // 触发源（检测完成/安装完成/缓存检查完成）经状态变化进入这里；
+  // 失败标记阻断自动重试，避免网络问题导致死循环，按钮仍可手动重试。
+  useEffect(() => {
+    if (!open || !localAsr.enabled || envInstall || !env) return;
+    if (!env.hasWhisper) {
+      if (env.source !== "custom") startEnvInstall();
+      return;
+    }
+    if (modelCached[localAsr.model] === false) startDownload(localAsr.model);
+  }, [
+    open,
+    localAsr.enabled,
+    localAsr.model,
+    env,
+    envInstall,
+    modelCached,
+    startEnvInstall,
+    startDownload,
+  ]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -644,6 +879,15 @@ export function AiRewriteSettingsDialog({
       setLoadError(e instanceof Error ? e.message : String(e));
       setLoading(false);
       return;
+    }
+    // 本地 ASR 偏好单独读：失败不影响云端配置编辑
+    try {
+      const local = await invoke<Partial<LocalAsrFields>>(
+        "ai_rewrite_get_local_asr",
+      );
+      setLocalAsr({ ...EMPTY_LOCAL_ASR, ...local });
+    } catch {
+      setLocalAsr(EMPTY_LOCAL_ASR);
     }
     // 代理列表单独拉取：失败不影响配置编辑，只影响代理下拉
     let usable: CloudProxyLite[] = [];
@@ -734,6 +978,7 @@ export function AiRewriteSettingsDialog({
           translate: cfg.translate,
         },
       });
+      await invoke("ai_rewrite_save_local_asr", { cfg: localAsr });
       toast.success("已保存，云端后台与本程序同步更新");
       onOpenChange(false);
     } catch (e) {
@@ -785,6 +1030,227 @@ export function AiRewriteSettingsDialog({
                     </Button>
                   </div>
                 )}
+                {/* 提取文案转写来源：云端按量计费 / 本地 faster-whisper 免费 */}
+                <div className="rounded-lg border p-3">
+                  <div className="text-sm font-medium">提取文案转写来源</div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    只影响「提取文案 / 转写」这一步；分析、洗稿、打分仍走云端。
+                  </p>
+                  <div className="mt-2 space-y-1.5">
+                    <div
+                      className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() =>
+                        setLocalAsr((s) => ({ ...s, enabled: false }))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setLocalAsr((s) => ({ ...s, enabled: false }));
+                        }
+                      }}
+                    >
+                      <Checkbox
+                        className="mt-0.5"
+                        checked={!localAsr.enabled}
+                      />
+                      <span className="text-xs">
+                        <span className="font-medium">
+                          云端 ASR（按量计费）
+                        </span>
+                        <span className="block text-muted-foreground">
+                          服务器统一密钥，速度快、精度稳定，消耗 token
+                        </span>
+                      </span>
+                    </div>
+                    <div
+                      className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() =>
+                        setLocalAsr((s) => ({ ...s, enabled: true }))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setLocalAsr((s) => ({ ...s, enabled: true }));
+                        }
+                      }}
+                    >
+                      <Checkbox className="mt-0.5" checked={localAsr.enabled} />
+                      <span className="text-xs">
+                        <span className="font-medium">
+                          本地模型 faster-whisper（免费）
+                        </span>
+                        <span className="block text-muted-foreground">
+                          调用本机 Python 的 faster-whisper，不消耗
+                          token；可先在下方点「下载」预下载模型，未下载时首次使用会自动下载
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                  {localAsr.enabled && (
+                    <div className="mt-2 space-y-2 rounded-md bg-muted/40 p-2.5">
+                      <div className="space-y-1.5">
+                        <div className="flex items-end gap-2">
+                          <div className="flex-1 space-y-1">
+                            <Label className="text-xs">模型</Label>
+                            <Select
+                              value={localAsr.model}
+                              onValueChange={(v) =>
+                                setLocalAsr((s) => ({ ...s, model: v }))
+                              }
+                              disabled={!!dlModel || !!envInstall}
+                            >
+                              <SelectTrigger className="h-7 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {LOCAL_ASR_MODELS.map((m) => (
+                                  <SelectItem key={m.value} value={m.value}>
+                                    {m.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {dlModel === localAsr.model ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 w-20 gap-1 text-xs"
+                              disabled
+                            >
+                              <LuLoader className="size-3.5 animate-spin" />
+                              {dl.percent}%
+                            </Button>
+                          ) : modelCached[localAsr.model] ? (
+                            <span className="flex h-7 items-center gap-1 whitespace-nowrap px-1 text-xs text-success">
+                              <LuCheck className="size-3.5" />
+                              已下载
+                            </span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 w-20 gap-1 text-xs"
+                              disabled={!!dlModel || !!envInstall}
+                              onClick={() =>
+                                startDownload(localAsr.model, true)
+                              }
+                            >
+                              <LuDownload className="size-3.5" />
+                              下载
+                            </Button>
+                          )}
+                        </div>
+                        {dlModel === localAsr.model && (
+                          <div className="space-y-1 rounded-md border bg-background/50 p-2">
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>
+                                正在下载模型 {dl.percent}%（下载后可离线转写）
+                              </span>
+                              <span>
+                                {dl.total > 0
+                                  ? `${fmtModelBytes(dl.done)} / ${fmtModelBytes(dl.total)}${dl.speed > 0 ? ` · ${fmtModelBytes(dl.speed)}/s` : ""}`
+                                  : dl.done > 0
+                                    ? `已下载 ${fmtModelBytes(dl.done)}${dl.speed > 0 ? ` · ${fmtModelBytes(dl.speed)}/s` : ""}`
+                                    : "准备下载…"}
+                              </span>
+                            </div>
+                            <Progress value={dl.percent} className="h-1.5" />
+                          </div>
+                        )}
+                      </div>
+                      {env && !env.hasWhisper && envInstall === null ? (
+                        env.source === "custom" ? (
+                          <div className="rounded-md border border-warning/50 bg-warning/10 p-2 text-xs text-warning-foreground">
+                            当前配置的 Python 路径无法运行或缺少
+                            faster-whisper，请修正或清空「Python 路径」后重试
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-2 rounded-md border bg-background/50 p-2">
+                            <span className="text-xs text-muted-foreground">
+                              本机未检测到可用的转写环境，点「一键安装」自动完成（免费，约
+                              200MB，装进程序数据目录，不影响系统）
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 shrink-0 gap-1 text-xs"
+                              onClick={() => startEnvInstall(true)}
+                            >
+                              <LuDownload className="size-3.5" />
+                              一键安装
+                            </Button>
+                          </div>
+                        )
+                      ) : null}
+                      {envInstall && (
+                        <div className="space-y-1 rounded-md border bg-background/50 p-2">
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>
+                              正在安装本地转写环境：{envInstall.stage}
+                              {envInstall.message
+                                ? `（${envInstall.message}）`
+                                : ""}
+                            </span>
+                            <span>{envInstall.percent}%</span>
+                          </div>
+                          <Progress
+                            value={envInstall.percent}
+                            className="h-1.5"
+                          />
+                        </div>
+                      )}
+                      <div className="space-y-1">
+                        <Label className="text-xs">Python 路径（可选）</Label>
+                        <Input
+                          className="h-7 text-xs"
+                          placeholder="留空 = 使用系统 PATH 中的 python"
+                          value={localAsr.pythonPath}
+                          onChange={(e) =>
+                            setLocalAsr((s) => ({
+                              ...s,
+                              pythonPath: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">识别语言（可选）</Label>
+                        <Select
+                          value={localAsr.language || "auto"}
+                          onValueChange={(v) =>
+                            setLocalAsr((s) => ({
+                              ...s,
+                              language: v === "auto" ? "" : v,
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="auto" className="text-xs">
+                              自动检测
+                            </SelectItem>
+                            {LOCAL_ASR_LANGUAGES.map((l) => (
+                              <SelectItem
+                                key={l.value}
+                                value={l.value}
+                                className="text-xs"
+                              >
+                                {l.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 {ENDPOINTS.map((item) => (
                   <EndpointSection
                     key={item.key}

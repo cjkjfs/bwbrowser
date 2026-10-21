@@ -1693,6 +1693,7 @@ function TaskRow({
           }}
           disabled={!task.filename}
         >
+          {/* biome-ignore lint/performance/noImgElement: remote thumbnail, next/image optimization unavailable in Tauri */}
           <img
             src={task.thumbnail}
             alt=""

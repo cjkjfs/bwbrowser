@@ -7,6 +7,7 @@ import {
   getSortedRowModel,
   type SortingState,
   useReactTable,
+  type VisibilityState,
 } from "@tanstack/react-table";
 import { invoke } from "@tauri-apps/api/core";
 import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
@@ -36,6 +37,7 @@ import {
   LuPlus,
   LuRefreshCw,
   LuSearch,
+  LuSettings2,
   LuStickyNote,
   LuTrash2,
   LuUnplug,
@@ -482,6 +484,69 @@ export function BwbrowserCloudAccountsDialog({
 }: BwbrowserCloudAccountsDialogProps) {
   const { t } = useTranslation();
   const [sorting, setSorting] = useState<SortingState>([]);
+  // 列显隐：平时少看的列（节点IP/环境/时区/Cookie更新）默认折叠，表头「列设置」可勾选
+  // 显示；用户的选择存 localStorage，下次打开保持。
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
+    (() => {
+      const defaults: VisibilityState = {
+        proxy_node: false,
+        env_uuid: false,
+        timezone: false,
+        cookie_updated_at: false,
+      };
+      try {
+        const raw = localStorage.getItem("bwbrowser_cloud_columns");
+        if (!raw) return defaults;
+        const saved = JSON.parse(raw) as VisibilityState;
+        return saved && typeof saved === "object"
+          ? { ...defaults, ...saved }
+          : defaults;
+      } catch {
+        return defaults;
+      }
+    })(),
+  );
+  const handleColumnVisibilityChange = useCallback(
+    (
+      updater: VisibilityState | ((old: VisibilityState) => VisibilityState),
+    ) => {
+      setColumnVisibility((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        try {
+          localStorage.setItem("bwbrowser_cloud_columns", JSON.stringify(next));
+        } catch {
+          // 存储不可用时仅本次会话生效
+        }
+        return next;
+      });
+    },
+    [],
+  );
+  // 文字大小三档（小/中/大）：作用域 class 挂在弹窗根节点上，由 globals.css
+  // 按档位覆盖表格里所有字号工具类；选择存 localStorage，下次打开保持。
+  const [cloudFontSize, setCloudFontSize] = useState<
+    "small" | "medium" | "large"
+  >(
+    (() => {
+      try {
+        const raw = localStorage.getItem("bwbrowser_cloud_font_size");
+        return raw === "small" || raw === "large" ? raw : "medium";
+      } catch {
+        return "medium";
+      }
+    })(),
+  );
+  const handleFontSizeChange = useCallback(
+    (size: "small" | "medium" | "large") => {
+      setCloudFontSize(size);
+      try {
+        localStorage.setItem("bwbrowser_cloud_font_size", size);
+      } catch {
+        // 存储不可用时仅本次会话生效
+      }
+    },
+    [],
+  );
   // tanstack rowSelection 是 { rowId: true } 对象，不是 Set —— 用对象才能
   // 与 onRowSelectionChange 正确互搏（之前 Set 强转导致勾选永远无效）。
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
@@ -3171,10 +3236,12 @@ export function BwbrowserCloudAccountsDialog({
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     onSortingChange: setSorting,
+    onColumnVisibilityChange: handleColumnVisibilityChange,
     onRowSelectionChange: setSelectedIds,
     state: {
       sorting,
       rowSelection: selectedIds,
+      columnVisibility,
     },
     getRowId: (row) => String(row.id),
     manualPagination: true,
@@ -3502,6 +3569,69 @@ export function BwbrowserCloudAccountsDialog({
             )}
             一键检测健康
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 text-xs"
+                title="显示/隐藏表格列"
+              >
+                <LuSettings2 className="h-3.5 w-3.5" />
+                列设置
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              {[
+                ["proxy_node", "节点IP"],
+                ["env_uuid", "环境"],
+                ["timezone", "时区"],
+                ["cookie_updated_at", "Cookie更新"],
+              ].map(([key, label]) => (
+                <DropdownMenuItem
+                  key={key}
+                  className="gap-2"
+                  onSelect={(e) => e.preventDefault()}
+                  onClick={() =>
+                    setColumnVisibility((v) => ({ ...v, [key]: !v[key] }))
+                  }
+                >
+                  <Checkbox
+                    checked={!!columnVisibility[key]}
+                    className="h-3.5 w-3.5"
+                  />
+                  {label}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                文字大小
+              </div>
+              <div className="flex gap-1 px-2 pb-2">
+                {(
+                  [
+                    ["small", "小"],
+                    ["medium", "中"],
+                    ["large", "大"],
+                  ] as const
+                ).map(([size, label]) => (
+                  <button
+                    key={size}
+                    type="button"
+                    className={cn(
+                      "flex-1 rounded-md border px-2 py-1 text-xs transition-colors",
+                      cloudFontSize === size
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border hover:bg-accent",
+                    )}
+                    onClick={() => handleFontSizeChange(size)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -5534,7 +5664,9 @@ export function BwbrowserCloudAccountsDialog({
 
   if (embedded) {
     return (
-      <div className="flex h-full min-h-0 w-full flex-col gap-0 overflow-hidden">
+      <div
+        className={`bwbrowser-cloud-page cloud-font-${cloudFontSize} flex h-full min-h-0 w-full flex-col gap-0 overflow-hidden`}
+      >
         {content}
         {proxyDialog}
         {ownerDialog}
@@ -5554,7 +5686,9 @@ export function BwbrowserCloudAccountsDialog({
   return (
     <>
       <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-        <DialogContent className="flex max-h-[90vh] w-[1200px] max-w-[95vw] flex-col gap-0 overflow-hidden p-0">
+        <DialogContent
+          className={`bwbrowser-cloud-page cloud-font-${cloudFontSize} flex h-[92vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden p-0`}
+        >
           {content}
         </DialogContent>
       </Dialog>

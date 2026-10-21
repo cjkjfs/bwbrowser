@@ -148,6 +148,10 @@ pub struct PlatformRule {
 /// callers can silently fall back to their existing logic.
 pub fn rule_for_platform(platform: &str) -> Option<&'static PlatformRule> {
   let key = platform.trim().to_lowercase();
+  // 云端下发的规则优先（新平台不发版即可生效）；本地表兜底。
+  if let Some(r) = CLOUD_RULES.read().unwrap().get(key.as_str()) {
+    return Some(r);
+  }
   let canonical = match key.as_str() {
     "twitter" | "tw" => "x",
     "youtube" | "yt" => "youtube",
@@ -213,6 +217,72 @@ pub fn rule_for_platform(platform: &str) -> Option<&'static PlatformRule> {
     other => other,
   };
   PLATFORM_RULES.iter().find(|r| r.key == canonical)
+}
+
+/// 云端下发的登录探测规则（platform_config.json 平台条目的 `cookie_probe` 字段）。
+///
+/// 本地表（PLATFORM_RULES）覆盖已知平台；云端规则让新平台不发版就能回传
+/// cookie——服务端给平台条目加一段 `cookie_probe`，客户端启动时拉取注册。
+static CLOUD_RULES: LazyLock<std::sync::RwLock<HashMap<String, &'static PlatformRule>>> =
+  LazyLock::new(|| std::sync::RwLock::new(HashMap::new()));
+
+/// A platform's `cookie_probe` object from the cloud platform config, in owned
+/// form (the fetch layer parses JSON into this; `register_cloud_rule` seals it).
+#[derive(Debug, Clone, Deserialize)]
+pub struct CloudCookieProbe {
+  pub url: String,
+  pub domains: Vec<String>,
+  #[serde(default)]
+  pub session_cookies: Vec<String>,
+  #[serde(default)]
+  pub network_probe: bool,
+  #[serde(default)]
+  pub loose: bool,
+}
+
+/// Register a cloud-delivered probe rule for `platform` (no-op if already
+/// registered — the config is fetched per launch, the rule set is sealed once).
+///
+/// Strings are leaked into `&'static` so the rule can flow through the
+/// `&'static PlatformRule` pipeline unchanged; a rule set is a few hundred
+/// bytes per platform and registered at most once per platform per session.
+pub fn register_cloud_rule(platform: &str, probe: CloudCookieProbe) {
+  let key = platform.trim().to_lowercase();
+  if key.is_empty() || probe.url.is_empty() || probe.domains.is_empty() {
+    return;
+  }
+  if CLOUD_RULES.read().unwrap().contains_key(&key) {
+    return;
+  }
+  let leak_str = |s: String| Box::leak(s.into_boxed_str()) as &'static str;
+  let leak_list = |v: Vec<String>| -> &'static [&'static str] {
+    Box::leak(
+      v.into_iter()
+        .map(&leak_str)
+        .collect::<Vec<_>>()
+        .into_boxed_slice(),
+    )
+  };
+  let rule = Box::leak(Box::new(PlatformRule {
+    key: leak_str(key.clone()),
+    url: leak_str(probe.url),
+    domains: leak_list(probe.domains),
+    session_cookies: leak_list(probe.session_cookies),
+    network_probe: probe.network_probe,
+    loose: probe.loose,
+    session_indicators: leak_list(Vec::new()),
+    login_indicators: leak_list(Vec::new()),
+    ok_status_range: (200, 299),
+  }));
+  CLOUD_RULES.write().unwrap().insert(key, rule);
+}
+
+/// True when a cloud-delivered rule is already registered for `platform`.
+pub fn has_cloud_rule(platform: &str) -> bool {
+  CLOUD_RULES
+    .read()
+    .unwrap()
+    .contains_key(platform.trim().to_lowercase().as_str())
 }
 
 static PLATFORM_RULES: LazyLock<Vec<PlatformRule>> = LazyLock::new(platform_rules);
@@ -1033,6 +1103,19 @@ fn platform_rules() -> Vec<PlatformRule> {
       login_indicators: &[],
       ok_status_range: (200, 299),
     },
+    // 珊瑚跨境（coralglobal.cn）— 登录 cookie 名未固定，按域名 loose 判定：
+    // ≥2 条未过期域名 cookie 视为已登录；访客状态通常只有 1 条，不会误报。
+    PlatformRule {
+      key: "coral",
+      url: "https://www.coralglobal.cn/",
+      domains: &["coralglobal.cn"],
+      session_cookies: &[],
+      network_probe: false,
+      loose: true,
+      session_indicators: &[],
+      login_indicators: &[],
+      ok_status_range: (200, 299),
+    },
   ]
 }
 
@@ -1553,8 +1636,9 @@ mod tests {
     let rules = platform_rules();
     let mut keys = HashSet::new();
     for rule in &rules {
+      // Loose 规则按域名判定、不依赖固定 cookie 名，session_cookies 允许为空。
       assert!(
-        !rule.session_cookies.is_empty(),
+        !rule.session_cookies.is_empty() || rule.loose,
         "{} has no session cookies",
         rule.key
       );
@@ -1727,5 +1811,53 @@ mod tests {
     assert!(domain_matches("creator.douyin.com", &["douyin.com"]));
     assert!(!domain_matches("douyin.com.cn", &["douyin.com"]));
     assert!(!domain_matches("evil-douyin.com", &["douyin.com"]));
+  }
+
+  #[test]
+  fn cloud_rule_registers_and_wins_lookup() {
+    // 本地表没有 demo_platform：注册前查不到，注册后命中云端规则。
+    assert!(rule_for_platform("demo_platform").is_none());
+    register_cloud_rule(
+      "demo_platform",
+      CloudCookieProbe {
+        url: "https://www.demo-platform.example/".into(),
+        domains: vec!["demo-platform.example".into()],
+        session_cookies: Vec::new(),
+        network_probe: false,
+        loose: true,
+      },
+    );
+    let rule = rule_for_platform("Demo_Platform").expect("cloud rule should resolve");
+    assert_eq!(rule.key, "demo_platform");
+    assert_eq!(rule.url, "https://www.demo-platform.example/");
+    assert!(rule.loose);
+    assert!(has_cloud_rule("demo_platform"));
+    // 重复注册是 no-op（规则集每平台仅封存一次）。
+    register_cloud_rule(
+      "demo_platform",
+      CloudCookieProbe {
+        url: "https://changed.example/".into(),
+        domains: vec!["changed.example".into()],
+        session_cookies: Vec::new(),
+        network_probe: false,
+        loose: true,
+      },
+    );
+    assert_eq!(
+      rule_for_platform("demo_platform").unwrap().url,
+      "https://www.demo-platform.example/"
+    );
+    // 空数据不注册。
+    register_cloud_rule(
+      "",
+      CloudCookieProbe {
+        url: "https://x.example/".into(),
+        domains: vec!["x.example".into()],
+        session_cookies: Vec::new(),
+        network_probe: false,
+        loose: true,
+      },
+    );
+    assert!(has_cloud_rule("demo_platform"));
   }
 }

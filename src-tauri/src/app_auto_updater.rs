@@ -2082,6 +2082,60 @@ pub async fn restart_application() -> Result<(), String> {
     .map_err(|e| crate::wrap_backend_error(e, "Failed to restart application"))
 }
 
+/// Windows 上 defer 的 exe/msi 安装包路径（手动安装入口的可用性判断）。
+/// 其他平台更新走即时覆盖，没有待安装安装包，恒为 None。
+#[tauri::command]
+pub async fn get_pending_update_installer() -> Result<Option<String>, String> {
+  let pending = PENDING_INSTALLER_PATH.lock().unwrap().clone();
+  Ok(
+    pending
+      .filter(|p| p.exists())
+      .and_then(|p| p.to_str().map(|s| s.to_string())),
+  )
+}
+
+/// 手动安装：直接打开已下载的安装包，由用户自己完成安装向导。
+/// 与「立即重启」的静默安装互不影响——安装器要求关闭应用时用户自行处理。
+#[tauri::command]
+pub async fn open_pending_update_installer() -> Result<(), String> {
+  let installer = PENDING_INSTALLER_PATH
+    .lock()
+    .unwrap()
+    .clone()
+    .filter(|p| p.exists())
+    .ok_or("No pending update installer")?;
+
+  log::info!(
+    "Opening installer for manual install: {}",
+    installer.display()
+  );
+  let ext = installer
+    .extension()
+    .and_then(|e| e.to_str())
+    .unwrap_or("")
+    .to_lowercase();
+
+  let mut cmd = if ext == "msi" {
+    let mut c = std::process::Command::new("msiexec");
+    c.arg("/i").arg(&installer);
+    c
+  } else {
+    std::process::Command::new(&installer)
+  };
+
+  // CREATE_NO_WINDOW：手动安装的向导 UI 要显示，只隐藏随安装器起的控制台
+  #[cfg(target_os = "windows")]
+  {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x08000000);
+  }
+
+  cmd
+    .spawn()
+    .map_err(|e| format!("Failed to launch installer: {e}"))?;
+  Ok(())
+}
+
 #[tauri::command]
 pub async fn check_for_app_updates_manual() -> Result<Option<AppUpdateInfo>, String> {
   #[cfg(feature = "e2e")]

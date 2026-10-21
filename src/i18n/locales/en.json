@@ -2040,6 +2040,8 @@
       "updateReady": "Update ready, restart to apply",
       "manualDownloadRequired": "Manual download required",
       "restartNow": "Restart Now",
+      "restartNow": "Restart Now",
+      "installManually": "Install Manually",
       "viewRelease": "View Release",
       "later": "Later",
       "uploading": "Uploading",

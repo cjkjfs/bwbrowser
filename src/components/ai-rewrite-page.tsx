@@ -38,6 +38,7 @@ import {
   LuRotateCcw,
   LuSettings2,
   LuSparkles,
+  LuSquare,
   LuTrash2,
 } from "react-icons/lu";
 import { toast } from "sonner";
@@ -310,7 +311,8 @@ async function copyRewrite(text: string, kind = "洗稿文稿") {
   }
 }
 
-/** 生成并保存 SRT 字幕；lang 决定保存哪个文件（en=原文 / zh=中文译文），各自独立导出。 */
+/** 生成并保存 SRT 字幕；lang 决定保存哪个文件（en=原文 / zh=中文译文），各自独立导出。
+ *  forceTranscript: true 时无视洗稿文案，用转写 segments 的真实时间轴生成字幕。 */
 async function exportSrt(opts: {
   lang: "en" | "zh";
   rewrite?: unknown;
@@ -318,9 +320,15 @@ async function exportSrt(opts: {
   segments?: unknown;
   title?: string;
   duration?: number;
+  forceTranscript?: boolean;
 }) {
   const hasRewrite = rewriteFullText(opts.rewrite).trim().length > 0;
-  if (!hasRewrite && !(opts.transcript ?? "").trim()) {
+  const forceTranscript = opts.forceTranscript === true;
+  if (
+    !hasRewrite &&
+    !(opts.transcript ?? "").trim() &&
+    !(forceTranscript && opts.segments)
+  ) {
     toast.info("暂无可导出的文案");
     return;
   }
@@ -334,7 +342,7 @@ async function exportSrt(opts: {
       title: string;
       message?: string;
     }>("ai_rewrite_build_srt", {
-      rewrite: hasRewrite ? opts.rewrite : null,
+      rewrite: forceTranscript ? null : hasRewrite ? opts.rewrite : null,
       transcript: opts.transcript ?? "",
       segments: opts.segments ?? null,
       title: opts.title ?? "",
@@ -561,16 +569,23 @@ export function AiRewritePage({
     }
   }, [tasks]);
 
-  const hasFinishedTasks = useMemo(
-    () =>
-      tasks.some(
-        (t) =>
-          t.status === "done" ||
-          t.status === "error" ||
-          t.status === "interrupted",
-      ),
+  /** 有未完成任务（等待中/处理中）时显示「停止」按钮。 */
+  const hasActiveTasks = useMemo(
+    () => tasks.some((t) => t.status === "pending" || t.status === "running"),
     [tasks],
   );
+
+  /** 停止当前批次：未开跑的任务标记为中断，正在处理的跑完这条后停止。 */
+  const stopTasks = useCallback(async () => {
+    try {
+      await invoke("ai_rewrite_stop");
+      toast.info(
+        "已请求停止：正在处理的任务完成后停止，未开始的任务标记为中断",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
 
   const refreshStatus = useCallback(async () => {
     setLoadingStatus(true);
@@ -628,9 +643,11 @@ export function AiRewritePage({
             status:
               p.stage === "done"
                 ? "done"
-                : p.stage === "error"
-                  ? "error"
-                  : "running",
+                : p.stage === "interrupted"
+                  ? "interrupted"
+                  : p.stage === "error"
+                    ? "error"
+                    : "running",
           };
           const next = [...prev, item];
           schedulePersist(next);
@@ -649,9 +666,11 @@ export function AiRewritePage({
           status:
             p.stage === "done"
               ? "done"
-              : p.stage === "error"
-                ? "error"
-                : "running",
+              : p.stage === "interrupted"
+                ? "interrupted"
+                : p.stage === "error"
+                  ? "error"
+                  : "running",
         };
         schedulePersist(next);
         return next;
@@ -1348,6 +1367,39 @@ export function AiRewritePage({
             transition={{ duration: reduceMotion ? 0 : 0.22 }}
             className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
           >
+            {/* 标题 + 停止/清空按钮固定在滚动区外：任务卡展开详情往下滚时按钮始终可见 */}
+            {tasks.length > 0 && (
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <span className="font-medium">任务列表</span>
+                <span className="text-xs text-muted-foreground">
+                  {summary
+                    ? `共 ${summary.total} · 成功 ${summary.done} · 失败 ${summary.failed}`
+                    : `共 ${tasks.length} 条，处理中…`}
+                </span>
+                {hasActiveTasks && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto h-7 gap-1 text-[11px] text-amber-600 dark:text-amber-500"
+                    onClick={() => void stopTasks()}
+                  >
+                    <LuSquare className="h-3 w-3" />
+                    停止
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "h-7 gap-1 text-[11px] text-destructive",
+                    !hasActiveTasks && "ml-auto",
+                  )}
+                  onClick={() => void clearTasks()}
+                >
+                  清空列表
+                </Button>
+              </div>
+            )}
             <ScrollArea className="min-h-0 flex-1">
               <div className="space-y-3 pr-2">
                 {tasks.length === 0 ? (
@@ -1356,24 +1408,6 @@ export function AiRewritePage({
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-3 text-sm">
-                      <span className="font-medium">任务列表</span>
-                      <span className="text-xs text-muted-foreground">
-                        {summary
-                          ? `共 ${summary.total} · 成功 ${summary.done} · 失败 ${summary.failed}`
-                          : `共 ${tasks.length} 条，处理中…`}
-                      </span>
-                      {hasFinishedTasks && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="ml-auto h-7 gap-1 text-[11px] text-destructive"
-                          onClick={() => void clearTasks()}
-                        >
-                          清空列表
-                        </Button>
-                      )}
-                    </div>
                     {tasks.map((t) => (
                       <TaskCard
                         key={t.key}
@@ -1834,6 +1868,42 @@ function DetailView({
         <Section title="① 转写文案" tone="slate">
           {data.transcript ? (
             <div className="space-y-2">
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-[11px]"
+                  onClick={() =>
+                    void exportSrt({
+                      lang: "en",
+                      transcript: data.transcript,
+                      segments: data.transcriptSegments,
+                      title: data.title,
+                      forceTranscript: true,
+                    })
+                  }
+                >
+                  <LuFileDown className="size-3.5" />
+                  导出原文时间轴字幕(SRT)
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-[11px]"
+                  onClick={() =>
+                    void exportSrt({
+                      lang: "zh",
+                      transcript: data.transcript,
+                      segments: data.transcriptSegments,
+                      title: data.title,
+                      forceTranscript: true,
+                    })
+                  }
+                >
+                  <LuFileDown className="size-3.5" />
+                  导出中文时间轴字幕(SRT)
+                </Button>
+              </div>
               <p className="whitespace-pre-wrap text-xs leading-relaxed">
                 {data.transcript}
               </p>

@@ -2040,6 +2040,8 @@
       "updateReady": "アップデートの準備完了。再起動して適用",
       "manualDownloadRequired": "手動ダウンロードが必要です",
       "restartNow": "今すぐ再起動",
+      "restartNow": "今すぐ再起動",
+      "installManually": "手動でインストール",
       "viewRelease": "リリースを見る",
       "later": "後で",
       "uploading": "アップロード中",

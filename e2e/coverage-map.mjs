@@ -458,7 +458,16 @@ export const commandCoverage = {
   aiRewriteRunningTasks: {
     suite: "smoke",
     level: "contract",
-    commands: ["ai_rewrite::ai_rewrite_running_tasks"],
+    commands: [
+      "ai_rewrite::ai_rewrite_running_tasks",
+      "ai_rewrite::ai_rewrite_stop",
+      "ai_rewrite::ai_rewrite_get_local_asr",
+      "ai_rewrite::ai_rewrite_save_local_asr",
+      "ai_rewrite::ai_rewrite_check_local_model",
+      "ai_rewrite::ai_rewrite_download_local_model",
+      "ai_rewrite::ai_rewrite_check_local_env",
+      "ai_rewrite::ai_rewrite_install_local_env",
+    ],
   },
   aiAgentChat: {
     suite: "smoke",
@@ -530,6 +539,7 @@ export const commandCoverage = {
       "check_for_app_updates",
       "check_for_app_updates_manual",
       "download_and_prepare_app_update",
+      "get_pending_update_installer",
     ],
   },
   hostMutating: {
@@ -541,6 +551,7 @@ export const commandCoverage = {
       "open_log_directory",
       "set_as_default_browser",
       "restart_application",
+      "open_pending_update_installer",
       "connect_vpn",
       "video_downloader::video_download_open_dir",
       "video_downloader::video_download_open_file",

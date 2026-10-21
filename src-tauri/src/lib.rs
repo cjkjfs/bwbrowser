@@ -212,7 +212,7 @@ use auto_updater::{
 
 use app_auto_updater::{
   check_for_app_updates, check_for_app_updates_manual, download_and_prepare_app_update,
-  restart_application,
+  get_pending_update_installer, open_pending_update_installer, restart_application,
 };
 
 use profile_importer::{
@@ -399,9 +399,15 @@ async fn create_stored_proxy(
 /// rather than only after they try to save or launch.
 #[tauri::command]
 fn validate_vless_uri(uri: String) -> Result<(), String> {
-  crate::xray::parse_vless_uri(uri.trim())
-    .map(|_| ())
-    .map_err(|error| vless_config_error(&error))
+  let trimmed = uri.trim();
+  // Trojan shares the URI form and the Xray worker with VLESS; the form dialog
+  // validates either kind with this one command, keyed off the scheme itself.
+  let result = if trimmed.starts_with("trojan://") {
+    crate::xray::parse_trojan_uri(trimmed).map(|_| ())
+  } else {
+    crate::xray::parse_vless_uri(trimmed).map(|_| ())
+  };
+  result.map_err(|error| vless_config_error(&error))
 }
 
 #[tauri::command]
@@ -3751,6 +3757,8 @@ pub fn run_with_builder(
       check_for_app_updates,
       check_for_app_updates_manual,
       download_and_prepare_app_update,
+      get_pending_update_installer,
+      open_pending_update_installer,
       restart_application,
       detect_existing_profiles,
       import_browser_profiles,
@@ -4088,6 +4096,13 @@ pub fn run_with_builder(
       ai_rewrite::ai_rewrite_test_endpoint,
       ai_rewrite::ai_rewrite_save_api_config,
       ai_rewrite::ai_rewrite_running_tasks,
+      ai_rewrite::ai_rewrite_stop,
+      ai_rewrite::ai_rewrite_get_local_asr,
+      ai_rewrite::ai_rewrite_save_local_asr,
+      ai_rewrite::ai_rewrite_check_local_model,
+      ai_rewrite::ai_rewrite_download_local_model,
+      ai_rewrite::ai_rewrite_check_local_env,
+      ai_rewrite::ai_rewrite_install_local_env,
       ai_agent::ai_agent_chat,
     ])
     .build(tauri::generate_context!())

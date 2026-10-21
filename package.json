@@ -2,7 +2,7 @@
   "name": "bwbrowser",
   "private": true,
   "license": "AGPL-3.0",
-  "version": "2.5.8",
+  "version": "2.5.9",
   "type": "module",
   "scripts": {
     "predev": "pnpm licenses:generate",

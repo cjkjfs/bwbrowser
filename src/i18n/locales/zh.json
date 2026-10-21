@@ -2040,6 +2040,8 @@
       "updateReady": "更新就绪，请重启以应用",
       "manualDownloadRequired": "需要手动下载",
       "restartNow": "立即重启",
+      "restartNow": "立即重启",
+      "installManually": "手动安装",
       "viewRelease": "查看版本",
       "later": "稍后",
       "uploading": "上传中",

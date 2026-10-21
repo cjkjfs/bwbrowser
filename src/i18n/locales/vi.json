@@ -2040,6 +2040,8 @@
       "updateReady": "Bản cập nhật sẵn sàng, khởi động lại để áp dụng",
       "manualDownloadRequired": "Cần tải xuống thủ công",
       "restartNow": "Khởi động lại ngay",
+      "restartNow": "Khởi động lại ngay",
+      "installManually": "Cài đặt thủ công",
       "viewRelease": "Xem phiên bản",
       "later": "Để sau",
       "uploading": "Đang tải lên",

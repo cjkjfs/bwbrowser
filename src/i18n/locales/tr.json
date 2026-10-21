@@ -2040,6 +2040,8 @@
       "updateReady": "Güncelleme hazır, uygulamak için yeniden başlatın",
       "manualDownloadRequired": "Elle indirme gerekli",
       "restartNow": "Şimdi Yeniden Başlat",
+      "restartNow": "Şimdi Yeniden Başlat",
+      "installManually": "Elle Yükle",
       "viewRelease": "Sürümü Görüntüle",
       "later": "Daha Sonra",
       "uploading": "Yükleniyor",

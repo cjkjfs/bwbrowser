@@ -8408,6 +8408,72 @@ pub(crate) async fn fetch_platform_earnings_hide_selectors(platform: &str) -> Ve
   Vec::new()
 }
 
+/// The platform's cloud-delivered `cookie_probe` login rule, if the config
+/// publishes one.
+///
+/// New platforms ship their cookie health rule server-side (a `cookie_probe`
+/// object on the platform entry in platform_config.json), so adding a platform
+/// no longer requires a client release. The local table in cookie_health.rs
+/// stays as the fallback for platforms without a cloud entry.
+pub(crate) async fn fetch_platform_cookie_probe(
+  platform: &str,
+) -> Option<crate::cookie_health::CloudCookieProbe> {
+  if crate::cookie_health::has_cloud_rule(platform) {
+    return None;
+  }
+  let resp = match BWBROWSER_AUTH
+    .client
+    .get(PLATFORM_CONFIG_API_URL)
+    .send()
+    .await
+  {
+    Ok(r) => r,
+    Err(e) => {
+      log_bwbrowser_error("cookie_probe", &format!("拉取平台配置失败: {}", e));
+      return None;
+    }
+  };
+  let body = match resp.text().await {
+    Ok(b) => b,
+    Err(e) => {
+      log_bwbrowser_error("cookie_probe", &format!("读取平台配置失败: {}", e));
+      return None;
+    }
+  };
+  let result: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::json!({}));
+  let platforms = result
+    .get("data")
+    .and_then(|d| d.get("platforms"))
+    .or_else(|| result.get("platforms"))?;
+  let platform_lower = platform.to_lowercase();
+  let entry = if let Some(map) = platforms.as_object() {
+    map.get(&platform_lower).cloned()
+  } else {
+    platforms.as_array().and_then(|arr| {
+      arr
+        .iter()
+        .find(|item| {
+          ["id", "platform"]
+            .iter()
+            .filter_map(|field| item.get(field).and_then(|v| v.as_str()))
+            .any(|val| val.to_lowercase() == platform_lower)
+        })
+        .cloned()
+    })
+  }?;
+  let probe_val = entry.get("cookie_probe")?;
+  match serde_json::from_value::<crate::cookie_health::CloudCookieProbe>(probe_val.clone()) {
+    Ok(probe) => Some(probe),
+    Err(e) => {
+      log_bwbrowser_error(
+        "cookie_probe",
+        &format!("平台 {platform} 的 cookie_probe 字段格式错误: {e}"),
+      );
+      None
+    }
+  }
+}
+
 /// 指纹验证结果
 #[derive(Debug, Clone)]
 struct FingerprintInfo {
@@ -8871,6 +8937,17 @@ async fn inject_cloud_cookies_after_launch(
 
   // 无探测规则的平台（如 PayPal）永远无法自动确认登录，下面的等待循环只会
   // 空转 300 秒且注定不回传；直接跳过，避免启动后持续的探测动作引发风控风险。
+  // 本地表查不到时先看云端 platform_config 是否下发了该平台的 cookie_probe
+  // 规则（新平台不发版即可回传），注册成功后再查一次。
+  if crate::cookie_health::rule_for_platform(&cloud_platform).is_none() {
+    if let Some(probe) = fetch_platform_cookie_probe(&cloud_platform).await {
+      log_bwbrowser(
+        "inject_cookies",
+        &format!("注册平台 {cloud_platform} 的云端登录探测规则"),
+      );
+      crate::cookie_health::register_cloud_rule(&cloud_platform, probe);
+    }
+  }
   if crate::cookie_health::rule_for_platform(&cloud_platform).is_none() {
     log_bwbrowser(
       "inject_cookies",

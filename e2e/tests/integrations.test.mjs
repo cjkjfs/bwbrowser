@@ -1315,6 +1315,14 @@ test("offline cloud, update, team-lock, trial, and synchronizer contracts are de
       assert.ok(versionStatus && typeof versionStatus === "object");
       assert.equal(typeof (await app.invoke("is_default_browser")), "boolean");
 
+      // Manual install surfaces the deferred Windows installer (null on other
+      // platforms or before an exe/msi update lands) without opening anything.
+      const pendingInstaller = await app.invoke("get_pending_update_installer");
+      assert.ok(
+        pendingInstaller === null ||
+          (typeof pendingInstaller === "string" && pendingInstaller.length > 0),
+      );
+
       // Remote sessions and the cookie bot are brokered by the cloud backend.
       // Signed out, every one of them must fail as a code the UI can
       // translate — a raw English string from the transport would reach the

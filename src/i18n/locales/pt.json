@@ -2050,6 +2050,8 @@
       "updateReady": "Atualização pronta, reinicie para aplicar",
       "manualDownloadRequired": "Download manual necessário",
       "restartNow": "Reiniciar agora",
+      "restartNow": "Reiniciar agora",
+      "installManually": "Instalar manualmente",
       "viewRelease": "Ver lançamento",
       "later": "Mais tarde",
       "uploading": "Enviando",
