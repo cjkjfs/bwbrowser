@@ -583,6 +583,43 @@ test("extensions, extension groups, VPN storage, DNS rules, and event-backed ass
       ).id,
       extensionGroup.id,
     );
+    // Bulk assign resolves targets (users, profile groups) on the frontend into
+    // profile ids; the backend skips already-assigned profiles.
+    await app.invoke("assign_extension_group_to_profile", {
+      profileId: profile.id,
+      extensionGroupId: null,
+    });
+    const bulk = await app.invoke("assign_extension_group_to_profiles_bulk", {
+      groupId: extensionGroup.id,
+      profileIds: [profile.id],
+    });
+    assert.deepEqual(bulk, { assigned: 1, skipped: 0 });
+    assert.equal(
+      (
+        await app.invoke("get_extension_group_for_profile", {
+          profileId: profile.id,
+        })
+      ).id,
+      extensionGroup.id,
+    );
+    const bulkAgain = await app.invoke(
+      "assign_extension_group_to_profiles_bulk",
+      { groupId: extensionGroup.id, profileIds: [profile.id] },
+    );
+    assert.deepEqual(bulkAgain, { assigned: 0, skipped: 0 });
+    // User bindings: the store reads empty before any binding, and the
+    // binding commands refuse cleanly in a hermetic run (resolving the
+    // user's browsers needs the cloud account list, which needs a session).
+    assert.deepEqual(await app.invoke("list_extension_user_assignments"), []);
+    await app.invokeError("assign_extension_to_user", {
+      extensionId: extension.id,
+      userId: 424242,
+    });
+    await app.invokeError("unassign_extension_from_user", {
+      extensionId: extension.id,
+      userId: 424242,
+    });
+    assert.deepEqual(await app.invoke("list_extension_user_assignments"), []);
     const renamed = await app.invoke("update_extension", {
       extensionId: extension.id,
       name: "Renamed Fixture Extension",

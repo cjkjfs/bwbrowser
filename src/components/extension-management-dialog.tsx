@@ -28,6 +28,7 @@ import {
   LuRefreshCw,
   LuTrash2,
   LuUpload,
+  LuUsers,
 } from "react-icons/lu";
 import { AssignmentImpact } from "@/components/assignment-impact";
 import {
@@ -83,7 +84,12 @@ import { useProfileReferences } from "@/hooks/use-profile-references";
 import { parseBackendError, translateBackendError } from "@/lib/backend-errors";
 import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import { cn } from "@/lib/utils";
-import type { Extension, ExtensionGroup, FetchedExtension } from "@/types";
+import type {
+  Extension,
+  ExtensionGroup,
+  FetchedExtension,
+  ProfileGroup,
+} from "@/types";
 import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
 import { RippleButton } from "./ui/ripple";
 
@@ -206,6 +212,35 @@ export function ExtensionManagementDialog({
   // Bulk delete state
   const [bulkExtDeleteOpen, setBulkExtDeleteOpen] = useState(false);
   const [bulkGroupDeleteOpen, setBulkGroupDeleteOpen] = useState(false);
+
+  // Assign-group-to-users state. Targets are `creator:<email>` / `group:<id>`
+  // keys resolved into profile ids when the assignment runs. The dialog opens
+  // either from an extension row (direct extension assignment; the backend
+  // manages its shadow group) or from a group row (explicit group assignment).
+  const [assignUsersGroup, setAssignUsersGroup] =
+    useState<ExtensionGroup | null>(null);
+  const [assignUsersExtension, setAssignUsersExtension] =
+    useState<Extension | null>(null);
+  const [assignUsersTargets, setAssignUsersTargets] = useState<string[]>([]);
+  const [assignUsersProfileGroups, setAssignUsersProfileGroups] = useState<
+    ProfileGroup[]
+  >([]);
+  const [assignUsersCloudUsers, setAssignUsersCloudUsers] = useState<
+    { id: number; name: string }[]
+  >([]);
+  const [assignUsersOwnerProfiles, setAssignUsersOwnerProfiles] = useState<
+    Record<number, string[]>
+  >({});
+  const [assignUsersAssignments, setAssignUsersAssignments] = useState<
+    { extension_id: string; user_id: number }[]
+  >([]);
+  const [isAssigningUsers, setIsAssigningUsers] = useState(false);
+  const closeAssignUsers = () => {
+    setAssignUsersGroup(null);
+    setAssignUsersExtension(null);
+  };
+  const assignUsersSourceName =
+    assignUsersGroup?.name ?? assignUsersExtension?.name ?? "";
 
   // Table state
   const [extSorting, setExtSorting] = useState<SortingState>([]);
@@ -334,6 +369,267 @@ export function ExtensionManagementDialog({
     },
     [t],
   );
+
+  // Distinct creator emails across all profiles — one entry per cloud user.
+  const assignUsersCreatorOptions = useMemo(() => {
+    const byEmail = new Map<string, number>();
+    for (const profile of referencedProfiles ?? []) {
+      const email = profile.created_by_email?.trim();
+      if (!email) continue;
+      byEmail.set(email, (byEmail.get(email) ?? 0) + 1);
+    }
+    return Array.from(byEmail.entries())
+      .map(([email, count]) => ({ key: `creator:${email}`, email, count }))
+      .sort((a, b) => a.email.localeCompare(b.email));
+  }, [referencedProfiles]);
+
+  const assignUsersGroupOptions = useMemo(
+    () =>
+      assignUsersProfileGroups.map((g) => ({
+        key: `group:${g.id}`,
+        name: g.name,
+        count: (referencedProfiles ?? []).filter((p) => p.group_id === g.id)
+          .length,
+      })),
+    [assignUsersProfileGroups, referencedProfiles],
+  );
+
+  const assignUsersCloudOptions = useMemo(() => {
+    const options = assignUsersCloudUsers.map((u) => ({
+      key: `cloud:${u.id}`,
+      name: u.name,
+      count: (assignUsersOwnerProfiles[u.id] ?? []).length,
+    }));
+    // 已绑定但不在云端用户列表里的账号也要出现，否则绑了却看不到、取消不了。
+    if (assignUsersExtension) {
+      const known = new Set(options.map((o) => o.key));
+      for (const a of assignUsersAssignments) {
+        if (a.extension_id !== assignUsersExtension.id) continue;
+        const key = `cloud:${a.user_id}`;
+        if (known.has(key)) continue;
+        options.push({
+          key,
+          name: `#${a.user_id}`,
+          count: (assignUsersOwnerProfiles[a.user_id] ?? []).length,
+        });
+      }
+    }
+    return options;
+  }, [
+    assignUsersCloudUsers,
+    assignUsersOwnerProfiles,
+    assignUsersAssignments,
+    assignUsersExtension,
+  ]);
+
+  // 勾选态与已绑定态的差异：勾选新增的待绑定，取消勾选的待解绑。
+  // 提交按钮的可用性与文案都以它为准（全部取消勾选也要能提交解绑）。
+  const assignUsersDiff = useMemo(() => {
+    const ext = assignUsersExtension;
+    if (!ext) return { toAssign: [] as number[], toUnassign: [] as number[] };
+    const desired = new Set(
+      assignUsersTargets
+        .filter((key) => key.startsWith("cloud:"))
+        .map((key) => Number(key.slice("cloud:".length))),
+    );
+    const current = new Set(
+      assignUsersAssignments
+        .filter((a) => a.extension_id === ext.id)
+        .map((a) => a.user_id),
+    );
+    return {
+      toAssign: [...desired].filter((id) => !current.has(id)),
+      toUnassign: [...current].filter((id) => !desired.has(id)),
+    };
+  }, [assignUsersAssignments, assignUsersExtension, assignUsersTargets]);
+
+  useEffect(() => {
+    if (!assignUsersGroup && !assignUsersExtension) return;
+    // 分组模式是手动勾选，不复用上一次弹窗残留的勾选态。
+    if (assignUsersGroup && !assignUsersExtension) setAssignUsersTargets([]);
+    let active = true;
+    invoke<ProfileGroup[]>("get_profile_groups")
+      .then((groups) => {
+        if (active) setAssignUsersProfileGroups(groups);
+      })
+      .catch(() => {
+        if (active) setAssignUsersProfileGroups([]);
+      });
+    invoke<{
+      success: boolean;
+      users?: { id: number; username: string; real_name: string }[];
+    }>("bwbrowser_list_cloud_users", { companyId: null })
+      .then((resp) => {
+        if (active)
+          setAssignUsersCloudUsers(
+            (resp.users ?? []).map((u) => ({
+              id: u.id,
+              name: u.real_name || u.username || `#${u.id}`,
+            })),
+          );
+      })
+      .catch(() => {
+        if (active) setAssignUsersCloudUsers([]);
+      });
+    invoke<{
+      owners?: { owner_id: number; profile_ids: string[] }[];
+    }>("bwbrowser_get_owner_profile_map")
+      .then((resp) => {
+        if (!active) return;
+        const byOwner: Record<number, string[]> = {};
+        for (const owner of resp.owners ?? []) {
+          byOwner[owner.owner_id] = owner.profile_ids ?? [];
+        }
+        setAssignUsersOwnerProfiles(byOwner);
+      })
+      .catch(() => {
+        if (active) setAssignUsersOwnerProfiles({});
+      });
+    invoke<{ extension_id: string; user_id: number }[]>(
+      "list_extension_user_assignments",
+    )
+      .then((items) => {
+        if (!active) return;
+        setAssignUsersAssignments(items ?? []);
+        // 用户绑定模式：勾选态 = 当前绑定关系，取消勾选即解绑。
+        const ext = assignUsersExtension;
+        if (ext) {
+          setAssignUsersTargets(
+            (items ?? [])
+              .filter((a) => a.extension_id === ext.id)
+              .map((a) => `cloud:${a.user_id}`),
+          );
+        }
+      })
+      .catch(() => {
+        if (active) setAssignUsersAssignments([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [assignUsersGroup, assignUsersExtension]);
+
+  const toggleAssignUsersTarget = (key: string, checked: boolean) => {
+    setAssignUsersTargets((prev) =>
+      checked ? [...prev, key] : prev.filter((k) => k !== key),
+    );
+  };
+
+  const handleAssignGroupToUsers = async () => {
+    const source = assignUsersGroup ?? assignUsersExtension;
+    if (!source) return;
+    if (assignUsersExtension) {
+      // 用户绑定模式：勾选 = 绑定到该云端用户（长期生效，名下浏览器自动装，
+      // 取消勾选 = 自动卸载）。浏览器解析在后端按云端归属完成。
+      const ext = assignUsersExtension;
+      const { toAssign, toUnassign } = assignUsersDiff;
+      if (toAssign.length === 0 && toUnassign.length === 0) {
+        showSuccessToast(t("extensions.assignUsers.nothingAssigned"));
+        return;
+      }
+      setIsAssigningUsers(true);
+      try {
+        let assigned = 0;
+        let skipped = 0;
+        let removed = 0;
+        for (const userId of toAssign) {
+          const result = await invoke<{ assigned: number; skipped: number }>(
+            "assign_extension_to_user",
+            { extensionId: ext.id, userId },
+          );
+          assigned += result.assigned;
+          skipped += result.skipped;
+        }
+        for (const userId of toUnassign) {
+          const result = await invoke<{ removed: number }>(
+            "unassign_extension_from_user",
+            { extensionId: ext.id, userId },
+          );
+          removed += result.removed;
+        }
+        if (toAssign.length > 0 && toUnassign.length > 0) {
+          showSuccessToast(t("extensions.assignUsers.savedChanges"));
+        } else if (assigned > 0) {
+          showSuccessToast(
+            skipped > 0
+              ? t("extensions.assignUsers.successWithSkipped", {
+                  count: assigned,
+                  skipped,
+                })
+              : t("extensions.assignUsers.success", { count: assigned }),
+          );
+        } else if (toUnassign.length > 0) {
+          // removed 是本机已清掉的浏览器数；用户还没在任何机器上启动浏览器时
+          // 为 0，但绑定记录确实已取消，不能回落到「已绑定」的提示。
+          showSuccessToast(
+            removed > 0
+              ? t("extensions.assignUsers.unassigned", { count: removed })
+              : t("extensions.assignUsers.unassignedNoBrowsers"),
+          );
+        } else {
+          showSuccessToast(t("extensions.assignUsers.boundAuto"));
+        }
+        closeAssignUsers();
+      } catch (err) {
+        showActionError(err, t("extensions.assignUsers.failed"));
+      } finally {
+        setIsAssigningUsers(false);
+      }
+      return;
+    }
+    const profileIds = new Set<string>();
+    for (const key of assignUsersTargets) {
+      // Cloud-user targets resolve through cloud account ownership
+      // (owner_id → local profiles via the account profile name).
+      if (key.startsWith("cloud:")) {
+        const userId = Number(key.slice("cloud:".length));
+        for (const profileId of assignUsersOwnerProfiles[userId] ?? []) {
+          profileIds.add(profileId);
+        }
+        continue;
+      }
+      const [kind, ...rest] = key.split(":");
+      const value = rest.join(":");
+      for (const profile of referencedProfiles ?? []) {
+        const matches =
+          kind === "creator"
+            ? profile.created_by_email?.trim() === value
+            : kind === "group" && profile.group_id === value;
+        if (matches) profileIds.add(profile.id);
+      }
+    }
+    if (profileIds.size === 0) {
+      showSuccessToast(t("extensions.assignUsers.nothingOwned"));
+      return;
+    }
+    setIsAssigningUsers(true);
+    try {
+      const result = await invoke<{ assigned: number; skipped: number }>(
+        "assign_extension_group_to_profiles_bulk",
+        {
+          groupId: assignUsersGroup?.id,
+          profileIds: Array.from(profileIds),
+        },
+      );
+      if (result.assigned > 0) {
+        showSuccessToast(
+          result.skipped > 0
+            ? t("extensions.assignUsers.successWithSkipped", {
+                count: result.assigned,
+                skipped: result.skipped,
+              })
+            : t("extensions.assignUsers.success", { count: result.assigned }),
+        );
+      } else {
+        showSuccessToast(t("extensions.assignUsers.nothingAssigned"));
+      }
+      closeAssignUsers();
+    } catch (err) {
+      showActionError(err, t("extensions.assignUsers.failed"));
+    } finally {
+      setIsAssigningUsers(false);
+    }
+  };
 
   const resetImportForm = useCallback(() => {
     setPendingSource(null);
@@ -1053,13 +1349,31 @@ export function ExtensionManagementDialog({
       },
       {
         id: "actions",
-        size: 80,
+        size: 104,
         enableSorting: false,
         header: () => t("common.labels.actions"),
         cell: ({ row }) => {
           const ext = row.original;
           return (
             <div className="flex shrink-0 justify-end gap-0.5">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="size-7 p-0"
+                    onClick={() => {
+                      setAssignUsersExtension(ext);
+                      setAssignUsersTargets([]);
+                    }}
+                  >
+                    <LuUsers className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("extensions.assignUsers.title")}
+                </TooltipContent>
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1309,13 +1623,31 @@ export function ExtensionManagementDialog({
       },
       {
         id: "actions",
-        size: 80,
+        size: 104,
         enableSorting: false,
         header: () => t("common.labels.actions"),
         cell: ({ row }) => {
           const group = row.original;
           return (
             <div className="flex shrink-0 justify-end gap-0.5">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="size-7 p-0"
+                    onClick={() => {
+                      setAssignUsersGroup(group);
+                      setAssignUsersTargets([]);
+                    }}
+                  >
+                    <LuUsers className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("extensions.assignUsers.title")}
+                </TooltipContent>
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -2280,6 +2612,176 @@ export function ExtensionManagementDialog({
             >
               {t("common.buttons.save")}
             </RippleButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign extension / group to users */}
+      <Dialog
+        open={assignUsersGroup !== null || assignUsersExtension !== null}
+        onOpenChange={(open) => {
+          if (!open) closeAssignUsers();
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <LuUsers className="size-4" />
+              {t("extensions.assignUsers.title")}
+            </DialogTitle>
+            <DialogDescription>
+              {assignUsersExtension
+                ? t("extensions.assignUsers.userDescription", {
+                    name: assignUsersSourceName,
+                  })
+                : t("extensions.assignUsers.description", {
+                    name: assignUsersSourceName,
+                  })}
+            </DialogDescription>
+          </DialogHeader>
+          {(
+            assignUsersExtension
+              ? assignUsersCloudUsers.length === 0
+              : assignUsersCloudUsers.length === 0 &&
+                assignUsersCreatorOptions.length === 0 &&
+                assignUsersGroupOptions.length === 0
+          ) ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              {t("extensions.assignUsers.empty")}
+            </p>
+          ) : (
+            <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+              {assignUsersCloudOptions.length > 0 && (
+                <>
+                  <p className="px-2 pt-1 text-xs font-medium text-muted-foreground">
+                    {t("extensions.assignUsers.cloudSection")}
+                  </p>
+                  {assignUsersCloudOptions.map((option) => (
+                    <label
+                      key={option.key}
+                      htmlFor={`assign-users-${option.key}`}
+                      className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-accent"
+                    >
+                      <Checkbox
+                        id={`assign-users-${option.key}`}
+                        checked={assignUsersTargets.includes(option.key)}
+                        onCheckedChange={(checked) =>
+                          toggleAssignUsersTarget(option.key, checked === true)
+                        }
+                      />
+                      <span
+                        className="min-w-0 flex-1 truncate text-sm font-medium"
+                        title={option.name}
+                      >
+                        {option.name}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {t("extensions.assignUsers.profileCount", {
+                          n: option.count,
+                        })}
+                      </span>
+                    </label>
+                  ))}
+                </>
+              )}
+              {!assignUsersExtension &&
+                assignUsersCreatorOptions.length > 0 && (
+                  <>
+                    <p className="px-2 pt-1 text-xs font-medium text-muted-foreground">
+                      {t("extensions.assignUsers.creatorsSection")}
+                    </p>
+                    {assignUsersCreatorOptions.map((option) => (
+                      <label
+                        key={option.key}
+                        htmlFor={`assign-users-${option.key}`}
+                        className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-accent"
+                      >
+                        <Checkbox
+                          id={`assign-users-${option.key}`}
+                          checked={assignUsersTargets.includes(option.key)}
+                          onCheckedChange={(checked) =>
+                            toggleAssignUsersTarget(
+                              option.key,
+                              checked === true,
+                            )
+                          }
+                        />
+                        <span
+                          className="min-w-0 flex-1 truncate text-sm font-medium"
+                          title={option.email}
+                        >
+                          {option.email}
+                        </span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {t("extensions.assignUsers.profileCount", {
+                            count: option.count,
+                          })}
+                        </span>
+                      </label>
+                    ))}
+                  </>
+                )}
+              {!assignUsersExtension && assignUsersGroupOptions.length > 0 && (
+                <>
+                  <p className="px-2 pt-2 text-xs font-medium text-muted-foreground">
+                    {t("extensions.assignUsers.groupsSection")}
+                  </p>
+                  {assignUsersGroupOptions.map((option) => (
+                    <label
+                      key={option.key}
+                      htmlFor={`assign-users-${option.key}`}
+                      className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-accent"
+                    >
+                      <Checkbox
+                        id={`assign-users-${option.key}`}
+                        checked={assignUsersTargets.includes(option.key)}
+                        onCheckedChange={(checked) =>
+                          toggleAssignUsersTarget(option.key, checked === true)
+                        }
+                      />
+                      <span
+                        className="min-w-0 flex-1 truncate text-sm font-medium"
+                        title={option.name}
+                      >
+                        {option.name}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {t("extensions.assignUsers.profileCount", {
+                          count: option.count,
+                        })}
+                      </span>
+                    </label>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => closeAssignUsers()}>
+              {t("common.buttons.cancel")}
+            </Button>
+            <Button
+              disabled={
+                isAssigningUsers ||
+                (assignUsersExtension
+                  ? assignUsersDiff.toAssign.length === 0 &&
+                    assignUsersDiff.toUnassign.length === 0
+                  : assignUsersTargets.length === 0)
+              }
+              onClick={() => void handleAssignGroupToUsers()}
+            >
+              {isAssigningUsers
+                ? t("extensions.assignUsers.assigning")
+                : assignUsersExtension &&
+                    assignUsersDiff.toAssign.length === 0 &&
+                    assignUsersDiff.toUnassign.length > 0
+                  ? t("extensions.assignUsers.unassignAction")
+                  : assignUsersExtension &&
+                      assignUsersDiff.toAssign.length > 0 &&
+                      assignUsersDiff.toUnassign.length > 0
+                    ? t("extensions.assignUsers.saveAction")
+                    : t("extensions.assignUsers.confirm")}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

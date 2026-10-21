@@ -1073,6 +1073,11 @@ impl ExtensionManager {
       log::error!("Failed to emit extensions-changed event: {e}");
     }
 
+    // 定制:插件删除后同步清理「分配给用户」的绑定与云端插件包,
+    // 否则其他机器拉取绑定后会把已删除的插件重新下载回来。
+    crate::extension_user_assign::remove_assignments_for_extension(id);
+    crate::extension_user_assign::spawn_delete_extension_remote(id.to_string());
+
     if ext.sync_enabled {
       let ext_id = id.to_string();
       let app_handle_clone = app_handle.clone();
@@ -1945,6 +1950,54 @@ pub async fn assign_extension_group_to_profile(
   profile_manager
     .update_profile_extension_group(&profile_id, extension_group_id)
     .map_err(|e| format!("Failed to assign extension group: {e}"))
+}
+
+/// Bulk-assign one extension group to the given profiles. The frontend resolves
+/// its targets (creator emails, profile groups) into profile ids; this command
+/// only filters: profiles that are already assigned or browser-incompatible are
+/// skipped. Every remaining profile goes through the single-assign mutator so
+/// `updated_at` bumps and cloud sync fan out exactly as if edited by hand.
+#[tauri::command]
+pub async fn assign_extension_group_to_profiles_bulk(
+  group_id: String,
+  profile_ids: Vec<String>,
+) -> Result<serde_json::Value, String> {
+  let mgr = EXTENSION_MANAGER.lock().unwrap();
+  if mgr.get_group(&group_id).is_err() {
+    return Err(serde_json::json!({ "code": "EXTENSION_GROUP_NOT_FOUND" }).to_string());
+  }
+  drop(mgr);
+
+  let wanted: std::collections::HashSet<&str> = profile_ids.iter().map(|s| s.as_str()).collect();
+  let profile_manager = crate::profile::ProfileManager::instance();
+  let profiles = profile_manager
+    .list_profiles()
+    .map_err(|e| format!("Failed to list profiles: {e}"))?;
+
+  let mut assigned = 0u32;
+  let mut skipped = 0u32;
+  for profile in &profiles {
+    if !wanted.contains(profile.id.to_string().as_str()) {
+      continue;
+    }
+    if profile.extension_group_id.as_deref() == Some(group_id.as_str()) {
+      continue;
+    }
+    let compatible = {
+      let mgr = EXTENSION_MANAGER.lock().unwrap();
+      mgr.validate_group_compatibility(&group_id, &profile.browser)
+    };
+    if compatible.is_err() {
+      skipped += 1;
+      continue;
+    }
+    profile_manager
+      .update_profile_extension_group(&profile.id.to_string(), Some(group_id.clone()))
+      .map_err(|e| format!("Failed to assign extension group: {e}"))?;
+    assigned += 1;
+  }
+
+  Ok(serde_json::json!({ "assigned": assigned, "skipped": skipped }))
 }
 
 #[tauri::command]

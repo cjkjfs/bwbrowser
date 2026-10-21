@@ -858,7 +858,10 @@ pub async fn bwbrowser_login<R: Runtime>(
   username: String,
   password: String,
 ) -> Result<CloudAuthState, String> {
-  BWBROWSER_AUTH.login(&app, &username, &password).await
+  let state = BWBROWSER_AUTH.login(&app, &username, &password).await?;
+  // 登录成功后后台拉一次公司级绑定（管理员分配的插件与绑定跨机器预热）
+  tokio::spawn(crate::extension_user_assign::pull_company_assignments());
+  Ok(state)
 }
 
 #[tauri::command]
@@ -1005,6 +1008,19 @@ pub async fn bwbrowser_open_vps_login(
     }
   };
   emit_progress(30, "profile 就绪");
+
+  // 先拉一次公司级绑定（管理员机器分配的插件跨机器生效；失败静默降级）
+  crate::extension_user_assign::pull_company_assignments().await;
+
+  // 爆文库启动前应用当前登录用户绑定的扩展：扩展管理里绑定给这个用户的
+  // 插件，在爆文库浏览器里自动装/卸（只覆盖空分组或自动分组，手动分组
+  // 不动）。云端账号启动不注入扩展，这里是唯一的插件落点。
+  crate::extension_user_assign::apply_owner_assignments(
+    BWBROWSER_AUTH.get_user_id(),
+    &profile.id.to_string(),
+    profile.extension_group_id.as_deref(),
+  );
+
   emit_progress(40, "同步云端书签...");
 
   // 本地解析 VPS 登录代理时区（仅本地解析，不回传云端）
@@ -2643,6 +2659,74 @@ pub async fn bwbrowser_get_account_summary(
   Ok(result)
 }
 
+/// 归属人 → 名下云端账号 → 本地 profile 的映射。归属关系以云端账号的
+/// owner_id 为准（账号在云端设置归属人）；本地 profile 按
+/// account_profile_name 命名约定对应，账号首次启动时才会创建。
+/// 供扩展「分配给用户」按云端用户解析可分配的浏览器。
+#[tauri::command]
+pub async fn bwbrowser_get_owner_profile_map() -> Result<serde_json::Value, String> {
+  let list = BWBROWSER_AUTH
+    .list_cloud_accounts(1, 500, None, None, None, None, None, None)
+    .await?;
+  let mut accounts = list.accounts.unwrap_or_default();
+
+  // 权限过滤：普通成员只能看到自己的账号（与 bwbrowser_list_accounts 一致）
+  let is_manager = list.is_manager.unwrap_or(false) || BWBROWSER_AUTH.is_manager_role();
+  let is_super_admin = list.is_super_admin.unwrap_or(false);
+  if !is_manager && !is_super_admin {
+    if let Some(uid) = BWBROWSER_AUTH.get_user_id() {
+      accounts.retain(|a| a.owner_id == Some(uid));
+    }
+  }
+
+  let pm = crate::profile::manager::ProfileManager::instance();
+  let profiles = pm.list_profiles().unwrap_or_default();
+
+  let mut owners: std::collections::BTreeMap<i64, serde_json::Value> =
+    std::collections::BTreeMap::new();
+  for a in &accounts {
+    let owner_id = a.owner_id.unwrap_or(0);
+    let entry = owners.entry(owner_id).or_insert_with(
+      || serde_json::json!({ "owner_id": owner_id, "accounts": 0, "profile_ids": [] }),
+    );
+    entry["accounts"] = serde_json::json!(entry["accounts"].as_i64().unwrap_or(0) + 1);
+    let profile_name = account_profile_name(&a.account_name, a.id);
+    if let Some(profile) = profiles
+      .iter()
+      .find(|p| p.name.to_lowercase() == profile_name.to_lowercase())
+    {
+      if let Some(ids) = entry["profile_ids"].as_array_mut() {
+        ids.push(serde_json::json!(profile.id.to_string()));
+      }
+    }
+  }
+
+  Ok(serde_json::json!({ "owners": owners.values().collect::<Vec<_>>() }))
+}
+
+/// 归属人名下账号对应的本地 profile id（按 account_profile_name 命名约定
+/// 匹配，账号首次启动后才有）。供「分配给用户」的自动装/卸解析目标。
+pub(crate) async fn owner_profile_ids(owner_id: i64) -> Result<Vec<String>, String> {
+  let list = BWBROWSER_AUTH
+    .list_cloud_accounts(1, 500, None, None, Some(owner_id), None, None, None)
+    .await?;
+  let accounts = list.accounts.unwrap_or_default();
+  let pm = crate::profile::manager::ProfileManager::instance();
+  let profiles = pm.list_profiles().unwrap_or_default();
+  Ok(
+    accounts
+      .iter()
+      .filter_map(|a| {
+        let name = account_profile_name(&a.account_name, a.id);
+        profiles
+          .iter()
+          .find(|p| p.name.to_lowercase() == name.to_lowercase())
+          .map(|p| p.id.to_string())
+      })
+      .collect(),
+  )
+}
+
 #[tauri::command]
 pub async fn bwbrowser_list_cloud_users(
   company_id: Option<i64>,
@@ -2766,6 +2850,156 @@ pub async fn bwbrowser_save_user_setting(setting_key: String, data: String) -> R
 #[tauri::command]
 pub async fn bwbrowser_get_user_setting(setting_key: String) -> Result<Option<String>, String> {
   get_user_setting_impl(&setting_key).await
+}
+
+/// 公司级云端设置 KV(管理员写、同公司成员读)。需要服务端
+/// bwbrowser_sync.php 打上 save_company_setting/get_company_setting 补丁
+/// (见 .scratch/company_setting_patch.php);旧服务端返回「未知 action」,
+/// 调用方按错误降级即可。
+pub(crate) async fn company_setting_save(key: &str, data: &str) -> Result<(), String> {
+  let (username, password) = BWBROWSER_AUTH
+    .get_credentials()
+    .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+
+  let form_data = format!(
+    "action=save_company_setting&username={}&password={}&setting_key={}&data={}",
+    urlencode(&username),
+    urlencode(&password),
+    urlencode(key),
+    urlencode(data)
+  );
+
+  let resp = BWBROWSER_AUTH
+    .client
+    .post(BWBROWSER_API_URL)
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .body(form_data)
+    .send()
+    .await
+    .map_err(|e| format!("网络请求失败: {}", e))?;
+
+  let status = resp.status();
+  let body = resp
+    .text()
+    .await
+    .map_err(|e| format!("读取响应失败: {}", e))?;
+  let parsed: serde_json::Value = parse_api_response("save_company_setting", status, &body)?;
+  if !parsed
+    .get("success")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false)
+  {
+    let msg = parsed
+      .get("message")
+      .and_then(|v| v.as_str())
+      .unwrap_or("保存公司设置失败")
+      .to_string();
+    return Err(msg);
+  }
+  Ok(())
+}
+
+/// 读公司级设置。返回 (内容, 服务端 updated_at);远端未写过时返回 None。
+pub(crate) async fn company_setting_get(
+  key: &str,
+) -> Result<Option<(String, Option<String>)>, String> {
+  let (username, password) = BWBROWSER_AUTH
+    .get_credentials()
+    .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+
+  let form_data = format!(
+    "action=get_company_setting&username={}&password={}&setting_key={}",
+    urlencode(&username),
+    urlencode(&password),
+    urlencode(key)
+  );
+
+  let resp = BWBROWSER_AUTH
+    .client
+    .post(BWBROWSER_API_URL)
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .body(form_data)
+    .send()
+    .await
+    .map_err(|e| format!("网络请求失败: {}", e))?;
+
+  let status = resp.status();
+  let body = resp
+    .text()
+    .await
+    .map_err(|e| format!("读取响应失败: {}", e))?;
+  let parsed: serde_json::Value = parse_api_response("get_company_setting", status, &body)?;
+  if !parsed
+    .get("success")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false)
+  {
+    let msg = parsed
+      .get("message")
+      .and_then(|v| v.as_str())
+      .unwrap_or("读取公司设置失败")
+      .to_string();
+    return Err(msg);
+  }
+  let data = parsed
+    .get("data")
+    .and_then(|v| v.as_str())
+    .map(|s| s.to_string());
+  Ok(data.map(|d| {
+    (
+      d,
+      parsed
+        .get("updated_at")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string()),
+    )
+  }))
+}
+
+/// 删除公司级设置(KV)。`by_prefix` 为 true 时按前缀删除其下所有 key
+/// (插件分块 `extfile_<id>_0..N` 用一次请求清完)。需要服务端
+/// delete_company_setting 补丁(见 .scratch/company_setting_delete_patch.php)。
+pub(crate) async fn company_setting_delete(key: &str, by_prefix: bool) -> Result<(), String> {
+  let (username, password) = BWBROWSER_AUTH
+    .get_credentials()
+    .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+
+  let form_data = format!(
+    "action=delete_company_setting&username={}&password={}&setting_key={}&prefix={}",
+    urlencode(&username),
+    urlencode(&password),
+    urlencode(key),
+    if by_prefix { "1" } else { "0" }
+  );
+
+  let resp = BWBROWSER_AUTH
+    .client
+    .post(BWBROWSER_API_URL)
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .body(form_data)
+    .send()
+    .await
+    .map_err(|e| format!("网络请求失败: {}", e))?;
+
+  let status = resp.status();
+  let body = resp
+    .text()
+    .await
+    .map_err(|e| format!("读取响应失败: {}", e))?;
+  let parsed: serde_json::Value = parse_api_response("delete_company_setting", status, &body)?;
+  if !parsed
+    .get("success")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false)
+  {
+    let msg = parsed
+      .get("message")
+      .and_then(|v| v.as_str())
+      .unwrap_or("删除公司设置失败")
+      .to_string();
+    return Err(msg);
+  }
+  Ok(())
 }
 
 #[tauri::command]
@@ -6647,7 +6881,7 @@ async fn build_wayfern_config(
 /// 由「账号名 + 数据库唯一 id」派生本地 profile 名。
 /// 不同账号即使账号名相同（例如不同平台登记同一手机号）也各自独立，
 /// 不会命中同一个浏览器环境。账号名为空时退回纯 id 派生名。
-fn account_profile_name(account_name: &str, account_id: i64) -> String {
+pub(crate) fn account_profile_name(account_name: &str, account_id: i64) -> String {
   let name = account_name.trim();
   if name.is_empty() {
     format!("account_{}", account_id)
@@ -6876,7 +7110,7 @@ async fn launch_account_impl(
   emit_progress(2, "正在拉取账号信息...");
 
   // 0. 通过 account_id 从服务器获取最新的账号详情（确保 env_uuid 是最新的）
-  let (server_env_uuid, server_account_name, server_platform, server_proxy_node) =
+  let (server_env_uuid, server_account_name, server_platform, server_proxy_node, server_owner_id) =
     match BWBROWSER_AUTH.get_account_detail(account_id).await {
       Ok(detail) => {
         let env = detail.env_uuid.clone();
@@ -6895,7 +7129,7 @@ async fn launch_account_impl(
           "launch_account",
           &format!("  ✓ 从服务器获取最新账号详情: env_uuid={:?}", env),
         );
-        (env, name, plat, proxy)
+        (env, name, plat, proxy, detail.owner_id)
       }
       Err(e) => {
         log_bwbrowser_error(
@@ -6906,7 +7140,8 @@ async fn launch_account_impl(
           env_uuid,
           account_name.clone(),
           platform.clone(),
-          proxy_node.clone(),
+          proxy_node,
+          None,
         )
       }
     };
@@ -7432,6 +7667,17 @@ async fn launch_account_impl(
       .map_err(|e| format!("创建 profile 失败: {}", e))?
     }
   };
+
+  // 3.35 应用归属人的扩展分配：用户在扩展管理里绑定过的插件，浏览器
+  //     创建/启动前自动写进 profile（只覆盖空分组或其他自动分组，手动
+  //     分组不动）。取消绑定则不会在这里出现——unassign 已清掉。
+  //     先拉一次公司级绑定，让管理员机器新分配的插件在这台机器生效。
+  crate::extension_user_assign::pull_company_assignments().await;
+  crate::extension_user_assign::apply_owner_assignments(
+    server_owner_id,
+    &profile.id.to_string(),
+    profile.extension_group_id.as_deref(),
+  );
 
   // 3.4 把云端账号的登录凭据同步到 profile，驱动登录页自动填充。
   //     账号管理面板维护的是 BwbrowserAccount.login_account / login_password，

@@ -1120,6 +1120,17 @@ async fn run_single_download<R: Runtime>(
     args.push("Referer:https://www.douyin.com/".to_string());
   }
 
+  // 抖音：加载签名插件（官方提取器缺少 x-secsdk-web-signature，固定 403）
+  if is_douyin {
+    match ensure_douyin_plugin() {
+      Ok(dir) => {
+        args.push("--plugin-dirs".to_string());
+        args.push(dir.to_string_lossy().to_string());
+      }
+      Err(e) => log::warn!("[video_download] 抖音签名插件准备失败: {}", e),
+    }
+  }
+
   // ffmpeg 路径
   let ffmpeg_path = tools_dir().join(ffmpeg_filename());
   if ffmpeg_path.exists() {
@@ -1130,10 +1141,11 @@ async fn run_single_download<R: Runtime>(
   // cookie - 从浏览器导出
   let mut cookie_error: Option<String> = None;
   let is_tiktok = url.contains("tiktok.com");
-  let mut douyin_cookie_file: Option<PathBuf> = None;
   // TikTok 有专用 API 提取器，不需要 cookie
-  // 抖音需要从浏览器导出 cookie，否则 yt-dlp 会报 "Fresh cookies needed" 错误
-  if settings.cookie_from_browser && !is_tiktok {
+  // 抖音的访客 cookie 与请求签名都由插件自行注册，跳过浏览器 cookie 导出：
+  // 等待 CDP 必然超时（浏览器运行时独占 Cookie 库），而过期的 cookie 文件
+  // 会让接口只返回带水印的低清格式。
+  if settings.cookie_from_browser && !is_tiktok && !is_douyin {
     dl.set_task_status_text(task_id, "正在提取浏览器 Cookie...".to_string())
       .await;
     let _ = app.emit(
@@ -1144,7 +1156,7 @@ async fn run_single_download<R: Runtime>(
         "status": "downloading"
       }),
     );
-    match export_vps_cookies_to_file(force_refresh_cookie || is_douyin, dl, app, Some(url)).await {
+    match export_vps_cookies_to_file(force_refresh_cookie, dl, app, Some(url)).await {
       Ok(cookie_file) => {
         // 检查 cookie 文件是否包含对应平台的 cookie
         let cookie_content = std::fs::read_to_string(&cookie_file).unwrap_or_default();
@@ -1168,9 +1180,6 @@ async fn run_single_download<R: Runtime>(
             "[video_download] 使用浏览器 cookie: {}",
             cookie_file.display()
           );
-          if is_douyin {
-            douyin_cookie_file = Some(cookie_file.clone());
-          }
           args.push("--cookies".to_string());
           args.push(cookie_file.to_string_lossy().to_string());
           dl.set_task_status_text(task_id, "Cookie 提取完成，正在启动下载...".to_string())
@@ -1280,89 +1289,8 @@ async fn run_single_download<R: Runtime>(
     }),
   );
 
-  // 抖音用 Python API 桥接脚本（CLI 模式无法获取访客 cookie）
-  let use_douyin_bridge = is_douyin;
-
-  let mut yt_cmd = if use_douyin_bridge {
-    // 找到 douyin_download.py 脚本路径（与 src-tauri 同目录，编译后在 exe 同目录）
-    let script_path = {
-      let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-      // dev 模式：在 src-tauri 目录
-      let dev_path =
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("douyin_download.py");
-      let release_path = exe_dir.join("douyin_download.py");
-      if dev_path.exists() {
-        dev_path
-      } else if release_path.exists() {
-        release_path
-      } else {
-        dev_path
-      }
-    };
-
-    log::info!(
-      "[video_download] 抖音 Python 桥接: script={}, yt-dlp={}",
-      script_path.display(),
-      yt_dlp.display()
-    );
-
-    let output_dir = {
-      let inner = dl.inner.lock().await;
-      if inner.settings.download_dir.is_empty() {
-        dirs::download_dir().unwrap_or_else(|| PathBuf::from("."))
-      } else {
-        PathBuf::from(&inner.settings.download_dir)
-      }
-    };
-
-    let mut cmd = std::process::Command::new("python");
-    cmd
-      .arg(script_path)
-      .arg(url)
-      .arg(&output_dir)
-      .arg(yt_dlp)
-      .env("PYTHONIOENCODING", "utf-8")
-      .stdout(std::process::Stdio::piped())
-      .stderr(std::process::Stdio::piped());
-
-    if let Some(cf) = &douyin_cookie_file {
-      cmd.arg(cf.to_string_lossy().to_string());
-      log::info!("[video_download] 抖音桥接脚本传入 cookie: {}", cf.display());
-    } else {
-      cmd.arg("");
-    }
-
-    let max_h = {
-      let inner = dl.inner.lock().await;
-      inner.settings.max_height
-    };
-    cmd.arg(max_h.to_string());
-
-    // 传入 VPS 浏览器 profile 路径，Python 脚本可用 cookies_from_browser 读取
-    let pm = crate::profile::manager::ProfileManager::instance();
-    let profiles = pm.list_profiles().unwrap_or_default();
-    let vps_profile_for_path = profiles
-      .into_iter()
-      .find(|p| p.name.to_lowercase() == "vps登录");
-    if let Some(vps_p) = &vps_profile_for_path {
-      let profiles_dir = pm.get_profiles_dir();
-      let user_data_dir = vps_p.get_profile_data_path(&profiles_dir);
-      cmd.arg(user_data_dir.to_string_lossy().to_string());
-    } else {
-      cmd.arg("");
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-      use std::os::windows::process::CommandExt;
-      cmd.creation_flags(0x08000000);
-    }
-    cmd
-  } else {
-    // 其他平台用 yt-dlp CLI
+  // 抖音与其他平台统一走 yt-dlp CLI；抖音请求签名由上面的插件补上
+  let mut yt_cmd = {
     let mut cmd = std::process::Command::new(yt_dlp);
     cmd
       .args(args)
@@ -1546,73 +1474,6 @@ async fn run_single_download<R: Runtime>(
           stdout_lines.push(trimmed.to_string());
         } else {
           stderr_lines.push(trimmed.to_string());
-        }
-
-        // 抖音 Python 桥接：解析 JSON 输出
-        if use_douyin_bridge && trimmed.starts_with("{") {
-          if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            match msg_type {
-              "progress" => {
-                let percent = json.get("percent").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let speed = json.get("speed").and_then(|v| v.as_u64()).unwrap_or(0);
-                let downloaded = json.get("downloaded").and_then(|v| v.as_u64()).unwrap_or(0);
-                let total = json.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
-                let speed_text = format_size_per_sec(speed);
-                dl.update_task_progress(task_id, percent, speed_text.clone(), speed, downloaded, total).await;
-                let peak_text = {
-                  let inner = dl.inner.lock().await;
-                  inner.tasks.get(task_id).map(|t| t.peak_speed_text.clone()).unwrap_or_default()
-                };
-                let _ = app.emit("video-download:progress", &serde_json::json!({
-                  "taskId": task_id,
-                  "progress": percent,
-                  "speedText": speed_text,
-                  "peakSpeedText": peak_text,
-                  "downloaded": downloaded,
-                  "total": total,
-                  "status": "downloading"
-                }));
-              }
-              "finished" => {
-                if let Some(fname) = json.get("filename").and_then(|v| v.as_str()) {
-                  if !fname.is_empty() {
-                    dl.set_task_filename(task_id, fname.to_string()).await;
-                  }
-                }
-              }
-              "retry" => {
-                let attempt = json.get("attempt").and_then(|v| v.as_i64()).unwrap_or(0);
-                let message = json.get("message").and_then(|v| v.as_str()).unwrap_or("重试中");
-                dl.set_task_status_text(task_id, format!("{} (第 {} 次)", message, attempt)).await;
-                let _ = app.emit("video-download:status", &serde_json::json!({
-                  "taskId": task_id,
-                  "statusText": format!("{} (第 {} 次)", message, attempt),
-                  "status": "downloading"
-                }));
-              }
-              "done" => {
-                completed = true;
-                if let Some(title) = json.get("title").and_then(|v| v.as_str()) {
-                  if !title.is_empty() {
-                    dl.set_task_title(task_id, title.to_string()).await;
-                  }
-                }
-                if let Some(res) = json.get("resolution").and_then(|v| v.as_str()) {
-                  if !res.is_empty() {
-                    dl.set_task_resolution(task_id, res.to_string()).await;
-                  }
-                }
-              }
-              "error" => {
-                let message = json.get("message").and_then(|v| v.as_str()).unwrap_or("未知错误");
-                error_output.push_str(message);
-                error_output.push('\n');
-              }
-              _ => {}
-            }
-            continue;
-          }
         }
 
         // ERROR 行
@@ -2939,44 +2800,14 @@ async fn export_vps_cookies_to_file<R: Runtime>(
       Ok(cookie_path)
     }
     Err(cdp_err) => {
+      // CDP 不可用就直接走后面的回退，不在下载前空等浏览器起来
       log::warn!(
-        "[video_download] CDP 导出失败（浏览器可能未运行）: {}，自动启动 VPS 浏览器后重试",
+        "[video_download] CDP 导出失败（浏览器可能未运行）: {}，跳过等待",
         cdp_err
       );
-
-      // 自动启动 VPS 浏览器
-      log::info!("[video_download] 正在启动 VPS 浏览器以提取 Cookie...");
       let _ = app.emit("video-download:auto-open-vps", ());
 
-      // 轮询等待 CDP 可用（最多 30 秒）
-      for i in 1..=15 {
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-        log::info!("[video_download] 等待 VPS 浏览器 CDP 可用... (第 {} 次)", i);
-        // 抖音: 先导航到 douyin.com 再提取 cookie
-        if needs_douyin_nav {
-          let _ = crate::cookie_sync::navigate_to_url(&vps_profile, cookie_url).await;
-          tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-        }
-        match crate::cookie_sync::export_cookies_via_cdp(&vps_profile).await {
-          Ok(json) => {
-            let cookies: Vec<serde_json::Value> =
-              serde_json::from_str(&json).map_err(|e| format!("解析 cookie 失败: {}", e))?;
-            log::info!(
-              "[video_download] 启动后通过 CDP 导出到 {} 条 cookie",
-              cookies.len()
-            );
-            let txt = cookies_to_netscape(&cookies);
-            std::fs::write(&cookie_path, txt)
-              .map_err(|e| format!("写入 cookie 文件失败: {}", e))?;
-            dl.set_last_cookie_time(now_secs()).await;
-            log::info!("[video_download] Cookie 已刷新（CDP 启动后导出）");
-            return Ok(cookie_path);
-          }
-          Err(_) => continue,
-        }
-      }
-
-      // CDP 30 秒内仍不可用：设置允许时先回退系统浏览器，最后 SQLite
+      // 设置允许时先回退系统浏览器，最后 SQLite
       if system_fallback {
         if let Some(yt_dlp) = yt_dlp_path.as_ref() {
           if yt_dlp.exists() {
@@ -3904,6 +3735,30 @@ pub struct ToolStatus {
 fn tools_dir() -> PathBuf {
   let app_dir = crate::app_dirs::data_dir();
   app_dir.join("video-tools")
+}
+
+/// 抖音签名插件源码（编译期嵌入，运行时写入工具目录）
+const DOUYIN_PLUGIN_SOURCE: &str =
+  include_str!("../yt-dlp-plugins/douyin_fix/yt_dlp_plugins/extractor/douyin_fix.py");
+
+/// 把抖音签名插件写入工具目录，返回 `--plugin-dirs` 需要的目录
+fn ensure_douyin_plugin() -> Result<PathBuf, String> {
+  let plugin_dir = tools_dir().join("yt-dlp-plugins");
+  let plugin_file = plugin_dir
+    .join("douyin_fix")
+    .join("yt_dlp_plugins")
+    .join("extractor")
+    .join("douyin_fix.py");
+  let up_to_date = std::fs::read_to_string(&plugin_file)
+    .map(|content| content == DOUYIN_PLUGIN_SOURCE)
+    .unwrap_or(false);
+  if !up_to_date {
+    if let Some(parent) = plugin_file.parent() {
+      std::fs::create_dir_all(parent).map_err(|e| format!("创建插件目录失败: {e}"))?;
+    }
+    std::fs::write(&plugin_file, DOUYIN_PLUGIN_SOURCE).map_err(|e| format!("写入插件失败: {e}"))?;
+  }
+  Ok(plugin_dir)
 }
 
 /// yt-dlp 二进制文件名（按平台）

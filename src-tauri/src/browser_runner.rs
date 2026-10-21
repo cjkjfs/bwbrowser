@@ -659,11 +659,12 @@ impl BrowserRunner {
 
       // Install extensions if an extension group is assigned
       emit_launch_stage(profile, "extensions", None);
-      // PayPal 风控对启动注入面敏感：该平台跳过扩展组与收益护盾注入，
-      // 让加载面与裸内核浏览器一致，降低触发安全检测的概率
-      let paypal_no_extensions = shield_platform == Some("paypal");
+      // 云端账号启动一律不注入扩展（减小注入面，降低平台风控敏感度）；
+      // 本地启动（爆文库按钮、普通 profile 手动启动）照常注入——用户绑定
+      // 的扩展主要就是给爆文库这类本地浏览器用的。
+      let cloud_launch = shield_platform.is_some();
       let mut extension_paths = Vec::new();
-      if updated_profile.extension_group_id.is_some() && !paypal_no_extensions {
+      if updated_profile.extension_group_id.is_some() && !cloud_launch {
         let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
         match mgr.install_extensions_for_profile(&updated_profile, &profile_data_path) {
           Ok(paths) => {
@@ -680,11 +681,6 @@ impl BrowserRunner {
             log::warn!("Failed to install extensions for Wayfern profile: {e}");
           }
         }
-      } else if paypal_no_extensions && updated_profile.extension_group_id.is_some() {
-        log::info!(
-          "PayPal platform launch skips extension injection for profile: {}",
-          updated_profile.name
-        );
       }
 
       // Get proxy URL from config
@@ -696,7 +692,7 @@ impl BrowserRunner {
       // launch because the browser reads the folder only once, at startup.
       // PayPal launches skip it entirely — any injected extension widens the
       // fingerprint that PayPal's security check reacts to.
-      if !paypal_no_extensions {
+      if shield_platform != Some("paypal") {
         if let Some(shield) = crate::revenue_shield::extension_for_launch(
           &updated_profile.id.to_string(),
           shield_platform,

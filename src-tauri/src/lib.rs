@@ -73,6 +73,7 @@ mod downloader;
 mod ephemeral_dirs;
 mod extension_fetch;
 mod extension_manager;
+mod extension_user_assign;
 mod extraction;
 mod fingerprint_consistency;
 mod fingerprint_db;
@@ -224,10 +225,10 @@ use extension_fetch::fetch_extension_from_url;
 
 use extension_manager::{
   add_extension, add_extension_to_group, add_unpacked_extension, assign_extension_group_to_profile,
-  create_extension_group, delete_extension, delete_extension_group,
-  get_extension_group_for_profile, get_extension_icon, list_extension_groups, list_extensions,
-  remove_extension_from_group, update_extension, update_extension_from_path,
-  update_extension_group,
+  assign_extension_group_to_profiles_bulk, create_extension_group, delete_extension,
+  delete_extension_group, get_extension_group_for_profile, get_extension_icon,
+  list_extension_groups, list_extensions, remove_extension_from_group, update_extension,
+  update_extension_from_path, update_extension_group,
 };
 
 use group_bookmarks::{apply_group_bookmarks_to_profile, get_group_bookmarks, set_group_bookmarks};
@@ -3809,7 +3810,11 @@ pub fn run_with_builder(
       add_extension_to_group,
       remove_extension_from_group,
       assign_extension_group_to_profile,
+      assign_extension_group_to_profiles_bulk,
       get_extension_group_for_profile,
+      extension_user_assign::assign_extension_to_user,
+      extension_user_assign::unassign_extension_from_user,
+      extension_user_assign::list_extension_user_assignments,
       is_geoip_database_available,
       download_geoip_database,
       start_api_server,
@@ -4001,6 +4006,7 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_get_account_health_states,
       bwbrowser_cloud::bwbrowser_check_account_cookie_health,
       bwbrowser_cloud::bwbrowser_get_account_summary,
+      bwbrowser_cloud::bwbrowser_get_owner_profile_map,
       bwbrowser_cloud::bwbrowser_platform_names,
       bwbrowser_cloud::bwbrowser_list_cloud_users,
       bwbrowser_cloud::bwbrowser_list_companies,
