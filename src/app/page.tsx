@@ -11,6 +11,7 @@ import { AboutDialog } from "@/components/about-dialog";
 import { AccountPage } from "@/components/account-page";
 import { AgentPage, type AgentTab } from "@/components/agent-page";
 import { AiRewritePage } from "@/components/ai-rewrite-page";
+import { AudioSilenceRemover } from "@/components/audio-silence-remover";
 import { BwbrowserCloudAccountsDialog } from "@/components/bwbrowser-cloud-accounts";
 import { BwbrowserEnvManagementDialog } from "@/components/bwbrowser-env-management";
 import { BwbrowserLoginDialog } from "@/components/bwbrowser-login-dialog";
@@ -2504,6 +2505,19 @@ export default function Home() {
                       embedded={true}
                       onNavigateAiRewrite={() => setCurrentPage("aiRewrite")}
                     />
+                  </div>
+                )}
+
+                {/* 音频处理 - 嵌入式页面（始终挂载以保留状态，切走时用 CSS 隐藏） */}
+                {isBwbrowserLogin && (
+                  <div
+                    className={
+                      currentPage === "audioProcessor"
+                        ? "flex min-h-0 flex-1 flex-col"
+                        : "hidden"
+                    }
+                  >
+                    <AudioSilenceRemover />
                   </div>
                 )}
 

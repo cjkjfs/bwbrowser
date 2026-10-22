@@ -115,6 +115,7 @@ mod window_decorations;
 mod agent;
 mod ai_agent;
 mod ai_rewrite;
+mod audio_silence_remover;
 pub mod bwbrowser_cloud;
 pub mod cloud_auth;
 pub mod cloud_domain;
@@ -4090,6 +4091,10 @@ pub fn run_with_builder(
       video_downloader::video_download_delete_all,
       video_downloader::video_download_start_clipboard_monitor,
       video_downloader::video_download_stop_clipboard_monitor,
+      audio_silence_remover::audio_detect_silence,
+      audio_silence_remover::audio_remove_silence,
+      audio_silence_remover::audio_batch_process,
+      audio_silence_remover::audio_get_waveform,
       ai_rewrite::ai_rewrite_status,
       ai_rewrite::ai_rewrite_results,
       ai_rewrite::ai_rewrite_result,

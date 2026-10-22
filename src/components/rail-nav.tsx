@@ -17,6 +17,7 @@ import {
   LuGlobe,
   LuInfo,
   LuMonitorSmartphone,
+  LuMusic,
   LuNetwork,
   LuPuzzle,
   LuSearch,
@@ -64,6 +65,7 @@ export type AppPage =
   | "userManagement"
   | "remoteManagement"
   | "videoDownload"
+  | "audioProcessor"
   | "aiRewrite"
   | "import"
   | "shortcuts"
@@ -89,6 +91,7 @@ const RAIL_LABELS_ZH: Record<AppPage, string> = {
   userManagement: "用户管理",
   remoteManagement: "远程管理",
   videoDownload: "视频下载",
+  audioProcessor: "音频处理",
   aiRewrite: "AI 洗稿",
   import: "导入配置",
   shortcuts: "快捷键",
@@ -293,6 +296,7 @@ const TOP_ITEMS: RailItem[] = [
     labelKey: "rail.remoteManagement",
   },
   { page: "videoDownload", Icon: LuDownload, labelKey: "rail.videoDownload" },
+  { page: "audioProcessor", Icon: LuMusic, labelKey: "rail.audioProcessor" },
   { page: "aiRewrite", Icon: LuSparkles, labelKey: "rail.aiRewrite" },
   { page: "extensions", Icon: LuPuzzle, labelKey: "rail.extensions" },
   { page: "account", Icon: LuCloud, labelKey: "rail.account" },

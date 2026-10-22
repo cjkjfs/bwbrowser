@@ -434,6 +434,16 @@ export const commandCoverage = {
       "video_downloader::video_download_get_task_log_path",
     ],
   },
+  audioSilenceRemover: {
+    suite: "browser",
+    level: "contract",
+    commands: [
+      "audio_silence_remover::audio_detect_silence",
+      "audio_silence_remover::audio_remove_silence",
+      "audio_silence_remover::audio_batch_process",
+      "audio_silence_remover::audio_get_waveform",
+    ],
+  },
   bwbrowserUserManagement: {
     suite: "integrations",
     level: "contract",
