@@ -16,9 +16,11 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            ort_features: directml,cuda
             label: windows
           - os: macos-latest
             target: aarch64-apple-darwin
+            ort_features: coreml
             label: macos-arm
     runs-on: ${{ matrix.os }}
     steps:
@@ -117,7 +119,7 @@ jobs:
           releaseBody: ${{ steps.notes.outputs.notes }}
           releaseDraft: false
           prerelease: false
-          args: --target ${{ matrix.target }} --verbose
+          args: --target ${{ matrix.target }} --features ${{ matrix.ort_features }} --verbose
 
       - name: Create portable ZIP (Windows)
         if: matrix.label == 'windows'

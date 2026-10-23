@@ -31,7 +31,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-22.04, windows-latest]
+        include:
+          - os: macos-latest
+            ort_features: coreml
+          - os: ubuntu-22.04
+            ort_features: ""
+          - os: windows-latest
+            ort_features: directml,cuda
 
     runs-on: ${{ matrix.os }}
 
@@ -111,7 +117,14 @@ jobs:
         working-directory: src-tauri
 
       - name: Run clippy check and deny warnings
-        run: cargo clippy --all-targets --all-features -- -D warnings -D clippy::all
+        shell: bash
+        run: |
+          FEATURES="${{ matrix.ort_features }}"
+          if [ -n "$FEATURES" ]; then
+            cargo clippy --all-targets --features "$FEATURES" -- -D warnings -D clippy::all
+          else
+            cargo clippy --all-targets -- -D warnings -D clippy::all
+          fi
         working-directory: src-tauri
 
       - name: Run test suite

@@ -132,9 +132,11 @@ smoltcp = { version = "0.14", default-features = false, features = ["std", "medi
 # Tray icon decoding (main-process system tray)
 image = "0.25"
 # DINOv2 ONNX 推理（视频画面匹配特征提取）。download-binaries 自动获取预编译 runtime。
-# GPU 优先级：CUDA（NVIDIA）> DirectML（Win 自带）> CoreML（macOS）> CPU
-# lax-feature-matching：无全部组合的预编译包，按最接近的匹配
-ort = { version = "2.0.0-rc.15", default-features = false, features = ["download-binaries", "ndarray", "tls-rustls", "std", "directml", "coreml", "cuda", "lax-feature-matching"] }
+# 默认只启用纯 CPU 包（所有平台 dist 表均有 `none` 包，CI 全目标必然下载成功）。
+# GPU EP（DirectML/CoreML/CUDA）通过平台 feature 按需启用——prebuilt 包
+# 按平台只提供对应 EP（Win→directml，mac→coreml，linux→cuda13），全开会导致
+# download-binaries 在该平台找不到匹配组合（如 aarch64-apple-darwin 只有 coreml）。
+ort = { version = "2.0.0-rc.15", default-features = false, features = ["download-binaries", "ndarray", "tls-rustls", "std", "lax-feature-matching"] }
 ndarray = { version = "0.17", features = ["std"] }
 dirs = "6"
 crossbeam-channel = "0.5"
@@ -255,3 +257,9 @@ default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 e2e = []
 sidecar = []
+# ONNX GPU 加速（视频匹配）。默认关闭以让 CI 全平台用 `none` 纯 CPU 预编译包构建；
+# 需要 GPU 时按平台手动启用：Windows -> `--features directml`，macOS -> `--features coreml`。
+# 切勿同时全开：download-binaries 会因该平台无对应预编译组合而失败（如 aarch64 只有 coreml）。
+cuda = ["ort/cuda"]
+directml = ["ort/directml"]
+coreml = ["ort/coreml"]

@@ -430,8 +430,9 @@ fn build_session(
   let mut builder = ort::session::Session::builder(env).map_err(|e| e.to_string())?;
   builder = builder.with_intra_threads(4).map_err(|e| e.to_string())?;
 
-  // GPU 优先级：CUDA > DirectML > CoreML > CPU。GPU EP 初始化失败自动回退
-  #[cfg(target_os = "windows")]
+  // GPU 优先级：CUDA > DirectML > CoreML > CPU。GPU EP 初始化失败自动回退。
+  // EP 均按 feature gate：默认 CPU，`--features directml/coreml/cuda` 时启用对应预编译 EP。
+  #[cfg(all(target_os = "windows", feature = "cuda"))]
   {
     // 1) CUDA（NVIDIA 显卡 + CUDA 13 驱动）
     if let Ok(true) = <ort::ep::CUDA as ort::ep::ExecutionProvider>::is_available() {
@@ -445,7 +446,10 @@ fn build_session(
         }
       }
     }
+  }
 
+  #[cfg(all(target_os = "windows", feature = "directml"))]
+  {
     // 2) DirectML（系统自带，任何 DX12 显卡）
     if let Ok(true) = <ort::ep::DirectML as ort::ep::ExecutionProvider>::is_available() {
       let mut gpu_builder = ort::session::Session::builder(env).map_err(|e| e.to_string())?;
@@ -462,10 +466,9 @@ fn build_session(
     }
   }
 
-  #[cfg(not(target_os = "windows"))]
+  #[cfg(all(not(target_os = "windows"), feature = "cuda"))]
   {
     // 1) CUDA（NVIDIA）
-    #[cfg(feature = "cuda")]
     if let Ok(true) = <ort::ep::CUDA as ort::ep::ExecutionProvider>::is_available() {
       if let Ok(b) = ort::session::Session::builder(env) {
         if let Ok(b) = b.with_intra_threads(4) {
@@ -477,9 +480,11 @@ fn build_session(
         }
       }
     }
+  }
 
+  #[cfg(all(target_os = "macos", feature = "coreml"))]
+  {
     // 2) CoreML（macOS）
-    #[cfg(target_os = "macos")]
     if let Ok(true) = <ort::ep::CoreML as ort::ep::ExecutionProvider>::is_available() {
       let mut gpu_builder = ort::session::Session::builder(env).map_err(|e| e.to_string())?;
       gpu_builder = gpu_builder
