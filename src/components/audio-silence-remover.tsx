@@ -1,6 +1,7 @@
 // audio-silence-remover.tsx - 音频气口清除器组件
 
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -41,6 +42,8 @@ export function AudioSilenceRemover() {
     minSilenceDuration: 0.35,
     pace: "medium",
   });
+  // 参数面板收缩状态（低分辨率下收起参数保证开始处理按钮可见）
+  const [paramsOpen, setParamsOpen] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const resultAudioRef = useRef<HTMLAudioElement>(null);
@@ -66,6 +69,23 @@ export function AudioSilenceRemover() {
     }
     loadWaveform();
   }, [audioFile]);
+
+  // 参数变化自动保存
+  const updateParams = useCallback((next: ProcessParams) => {
+    setParams(next);
+    invoke("audio_silence_save_settings", { settings: next }).catch((error) =>
+      console.error("保存音频设置失败:", error),
+    );
+  }, []);
+
+  // 过滤参数持久化：启动时读取保存的参数
+  useEffect(() => {
+    invoke<ProcessParams>("audio_silence_get_settings")
+      .then((saved) => {
+        setParams(saved);
+      })
+      .catch((error) => console.error("读取音频设置失败:", error));
+  }, []);
 
   // 播放进度经 onTimeUpdate 驱动波形时间轴（元素随文件切换重新挂载，props 绑定最可靠）
   const handleOriginalTime = () => {
@@ -105,25 +125,52 @@ export function AudioSilenceRemover() {
     }
   };
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file?.type.startsWith("audio/")) {
-      const path = (file as any).path;
-      if (path) {
-        setAudioFile(path);
-        setAudioName(file.name);
-        setStats(null);
-        setSilenceSegments([]);
-        setResultWaveform(null);
-        setResultPath("");
-      }
-    }
+  // Tauri 原生拖放：WebView2 里 HTML5 drop 拿不到文件路径，必须走 onDragDropEvent
+  const dropZoneRef = useRef<HTMLDivElement | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const applyDroppedPath = useCallback((path: string) => {
+    setAudioFile(path);
+    setAudioName(path.split(/[/\\]/).pop() || "");
+    setStats(null);
+    setSilenceSegments([]);
+    setResultWaveform(null);
+    setResultPath("");
   }, []);
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    getCurrentWebview()
+      .onDragDropEvent((event) => {
+        const p = event.payload;
+        if (p.type === "leave") {
+          setDragOver(false);
+          return;
+        }
+        const rect = dropZoneRef.current?.getBoundingClientRect();
+        const scale = window.devicePixelRatio || 1;
+        const inside =
+          !!rect &&
+          p.position.x / scale >= rect.left &&
+          p.position.x / scale <= rect.right &&
+          p.position.y / scale >= rect.top &&
+          p.position.y / scale <= rect.bottom;
+        if (p.type === "enter" || p.type === "over") {
+          setDragOver(inside);
+          return;
+        }
+        setDragOver(false);
+        if (!inside) return;
+        const path = p.paths.find((f) =>
+          /\.(mp3|wav|m4a|ogg|flac|aac|wma)$/i.test(f),
+        );
+        if (path) applyDroppedPath(path);
+      })
+      .then((fn) => {
+        unlisten = fn;
+      });
+    return () => {
+      unlisten?.();
+    };
+  }, [applyDroppedPath]);
 
   const detectSilence = async () => {
     if (!audioFile) return;
@@ -186,7 +233,7 @@ export function AudioSilenceRemover() {
   // 慢/中等/快 预设直接套用一组过滤参数，自定义则保留手动值
   const applyPace = (pace: typeof params.pace) => {
     if (pace === "slow") {
-      setParams({
+      updateParams({
         pace,
         thresholdDb: -35,
         keepBefore: 0.25,
@@ -194,7 +241,7 @@ export function AudioSilenceRemover() {
         minSilenceDuration: 0.5,
       });
     } else if (pace === "medium") {
-      setParams({
+      updateParams({
         pace,
         thresholdDb: -28,
         keepBefore: 0.12,
@@ -202,7 +249,7 @@ export function AudioSilenceRemover() {
         minSilenceDuration: 0.35,
       });
     } else if (pace === "fast") {
-      setParams({
+      updateParams({
         pace,
         thresholdDb: -22,
         keepBefore: 0.05,
@@ -210,7 +257,7 @@ export function AudioSilenceRemover() {
         minSilenceDuration: 0.2,
       });
     } else {
-      setParams({ ...params, pace: "custom" });
+      updateParams({ ...params, pace: "custom" });
     }
   };
 
@@ -221,7 +268,7 @@ export function AudioSilenceRemover() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 max-w-[1400px]">
       <div>
         <h2 className="text-2xl font-bold mb-2">气口清除器</h2>
         <p className="text-muted-foreground">
@@ -231,12 +278,15 @@ export function AudioSilenceRemover() {
 
       {/* 文件上传区域 */}
       <div
+        ref={dropZoneRef}
         role="button"
         tabIndex={0}
-        className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary transition-colors"
+        className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+          dragOver
+            ? "border-primary bg-primary/5"
+            : "border-border hover:border-primary"
+        }`}
         onClick={handleSelectFile}
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
@@ -359,205 +409,237 @@ export function AudioSilenceRemover() {
         </div>
       )}
 
-      {/* 剪辑节奏 */}
+      {/* 过滤参数（可收缩，低分辨率下收起保证操作按钮可见） */}
       <div className="space-y-3">
-        <h3 className="font-semibold">剪辑节奏</h3>
-        <div className="grid grid-cols-4 gap-2">
-          {(["slow", "medium", "fast", "custom"] as const).map((pace) => (
-            <button
-              key={pace}
-              type="button"
-              onClick={() => applyPace(pace)}
-              className={`py-2 px-4 rounded ${
-                params.pace === pace
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-              }`}
-            >
-              {pace === "slow"
-                ? "慢"
-                : pace === "medium"
-                  ? "中等"
-                  : pace === "fast"
-                    ? "快"
-                    : "自定义"}
-            </button>
-          ))}
-        </div>
-        {params.pace === "custom" && (
-          <p className="text-sm text-muted-foreground">
-            手动设置静音阈值和片段前后保留时长
-          </p>
+        <button
+          type="button"
+          onClick={() => setParamsOpen(!paramsOpen)}
+          className="flex w-full items-center justify-between text-left"
+        >
+          <h3 className="font-semibold">剪辑节奏与过滤参数</h3>
+          <span className="text-xs text-muted-foreground">
+            {paramsOpen ? "收起 ▴" : "展开 ▾"}
+          </span>
+        </button>
+        {paramsOpen && (
+          <>
+            {/* 剪辑节奏 */}
+            <div className="space-y-3">
+              <h3 className="font-semibold">剪辑节奏</h3>
+              <div className="grid grid-cols-4 gap-2">
+                {(["slow", "medium", "fast", "custom"] as const).map((pace) => (
+                  <button
+                    key={pace}
+                    type="button"
+                    onClick={() => applyPace(pace)}
+                    className={`py-2 px-4 rounded ${
+                      params.pace === pace
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                    }`}
+                  >
+                    {pace === "slow"
+                      ? "慢"
+                      : pace === "medium"
+                        ? "中等"
+                        : pace === "fast"
+                          ? "快"
+                          : "自定义"}
+                  </button>
+                ))}
+              </div>
+              {params.pace === "custom" && (
+                <p className="text-sm text-muted-foreground">
+                  手动设置静音阈值和片段前后保留时长
+                </p>
+              )}
+            </div>
+
+            {/* 过滤参数 */}
+            <div className="space-y-4">
+              <h3 className="font-semibold">过滤参数</h3>
+
+              {/* 音量阈值 */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <label htmlFor="threshold-db" className="text-sm">
+                    如果音量小于
+                  </label>
+                  <input
+                    id="threshold-db"
+                    type="number"
+                    value={params.thresholdDb}
+                    onChange={(e) =>
+                      updateParams({
+                        ...params,
+                        thresholdDb: parseFloat(e.target.value),
+                      })
+                    }
+                    className="w-20 px-2 py-1 border rounded"
+                    step="1"
+                    min="-70"
+                    max="20"
+                  />
+                  <span className="text-sm">dB，则视为静音</span>
+                </div>
+                <input
+                  type="range"
+                  min="-70"
+                  max="20"
+                  step="1"
+                  value={params.thresholdDb}
+                  onChange={(e) =>
+                    updateParams({
+                      ...params,
+                      thresholdDb: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full"
+                  aria-label="音量阈值"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>-70 dB</span>
+                  <span>20 dB</span>
+                </div>
+              </div>
+
+              {/* 片段前保留 */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <label htmlFor="keep-before" className="text-sm">
+                    每个「有用片段」前，保留
+                  </label>
+                  <input
+                    id="keep-before"
+                    type="number"
+                    value={params.keepBefore}
+                    onChange={(e) =>
+                      updateParams({
+                        ...params,
+                        keepBefore: parseFloat(e.target.value),
+                      })
+                    }
+                    className="w-20 px-2 py-1 border rounded"
+                    step="0.1"
+                    min="0"
+                    max="2"
+                  />
+                  <span className="text-sm">秒</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={params.keepBefore}
+                  onChange={(e) =>
+                    updateParams({
+                      ...params,
+                      keepBefore: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full"
+                  aria-label="片段前保留时长"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>0 秒</span>
+                  <span>2 秒</span>
+                </div>
+              </div>
+
+              {/* 片段后保留 */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <label htmlFor="keep-after" className="text-sm">
+                    每个「有用片段」后，保留
+                  </label>
+                  <input
+                    id="keep-after"
+                    type="number"
+                    value={params.keepAfter}
+                    onChange={(e) =>
+                      updateParams({
+                        ...params,
+                        keepAfter: parseFloat(e.target.value),
+                      })
+                    }
+                    className="w-20 px-2 py-1 border rounded"
+                    step="0.1"
+                    min="0"
+                    max="2"
+                  />
+                  <span className="text-sm">秒</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={params.keepAfter}
+                  onChange={(e) =>
+                    updateParams({
+                      ...params,
+                      keepAfter: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full"
+                  aria-label="片段后保留时长"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>0 秒</span>
+                  <span>2 秒</span>
+                </div>
+              </div>
+
+              {/* 停顿阈值 */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <label htmlFor="min-silence" className="text-sm">
+                    停顿短于
+                  </label>
+                  <input
+                    id="min-silence"
+                    type="number"
+                    value={params.minSilenceDuration}
+                    onChange={(e) =>
+                      updateParams({
+                        ...params,
+                        minSilenceDuration: parseFloat(e.target.value),
+                      })
+                    }
+                    className="w-20 px-2 py-1 border rounded"
+                    step="0.05"
+                    min="0.05"
+                    max="3"
+                  />
+                  <span className="text-sm">秒时不剪</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.05"
+                  max="3"
+                  step="0.05"
+                  value={params.minSilenceDuration}
+                  onChange={(e) =>
+                    updateParams({
+                      ...params,
+                      minSilenceDuration: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full"
+                  aria-label="最小静音时长"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>0.05 秒</span>
+                  <span>3 秒</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  值越小剪得越狠，越接近"快"节奏；避免设得过小导致语句衔接生硬
+                </p>
+              </div>
+            </div>
+          </>
         )}
-      </div>
-
-      {/* 过滤参数 */}
-      <div className="space-y-4">
-        <h3 className="font-semibold">过滤参数</h3>
-
-        {/* 音量阈值 */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <label htmlFor="threshold-db" className="text-sm">
-              如果音量小于
-            </label>
-            <input
-              id="threshold-db"
-              type="number"
-              value={params.thresholdDb}
-              onChange={(e) =>
-                setParams({
-                  ...params,
-                  thresholdDb: parseFloat(e.target.value),
-                })
-              }
-              className="w-20 px-2 py-1 border rounded"
-              step="1"
-              min="-70"
-              max="20"
-            />
-            <span className="text-sm">dB，则视为静音</span>
-          </div>
-          <input
-            type="range"
-            min="-70"
-            max="20"
-            step="1"
-            value={params.thresholdDb}
-            onChange={(e) =>
-              setParams({ ...params, thresholdDb: parseFloat(e.target.value) })
-            }
-            className="w-full"
-            aria-label="音量阈值"
-          />
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>-70 dB</span>
-            <span>20 dB</span>
-          </div>
-        </div>
-
-        {/* 片段前保留 */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <label htmlFor="keep-before" className="text-sm">
-              每个「有用片段」前，保留
-            </label>
-            <input
-              id="keep-before"
-              type="number"
-              value={params.keepBefore}
-              onChange={(e) =>
-                setParams({ ...params, keepBefore: parseFloat(e.target.value) })
-              }
-              className="w-20 px-2 py-1 border rounded"
-              step="0.1"
-              min="0"
-              max="2"
-            />
-            <span className="text-sm">秒</span>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="2"
-            step="0.1"
-            value={params.keepBefore}
-            onChange={(e) =>
-              setParams({ ...params, keepBefore: parseFloat(e.target.value) })
-            }
-            className="w-full"
-            aria-label="片段前保留时长"
-          />
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>0 秒</span>
-            <span>2 秒</span>
-          </div>
-        </div>
-
-        {/* 片段后保留 */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <label htmlFor="keep-after" className="text-sm">
-              每个「有用片段」后，保留
-            </label>
-            <input
-              id="keep-after"
-              type="number"
-              value={params.keepAfter}
-              onChange={(e) =>
-                setParams({ ...params, keepAfter: parseFloat(e.target.value) })
-              }
-              className="w-20 px-2 py-1 border rounded"
-              step="0.1"
-              min="0"
-              max="2"
-            />
-            <span className="text-sm">秒</span>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="2"
-            step="0.1"
-            value={params.keepAfter}
-            onChange={(e) =>
-              setParams({ ...params, keepAfter: parseFloat(e.target.value) })
-            }
-            className="w-full"
-            aria-label="片段后保留时长"
-          />
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>0 秒</span>
-            <span>2 秒</span>
-          </div>
-        </div>
-
-        {/* 停顿阈值 */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <label htmlFor="min-silence" className="text-sm">
-              停顿短于
-            </label>
-            <input
-              id="min-silence"
-              type="number"
-              value={params.minSilenceDuration}
-              onChange={(e) =>
-                setParams({
-                  ...params,
-                  minSilenceDuration: parseFloat(e.target.value),
-                })
-              }
-              className="w-20 px-2 py-1 border rounded"
-              step="0.05"
-              min="0.05"
-              max="3"
-            />
-            <span className="text-sm">秒时不剪</span>
-          </div>
-          <input
-            type="range"
-            min="0.05"
-            max="3"
-            step="0.05"
-            value={params.minSilenceDuration}
-            onChange={(e) =>
-              setParams({
-                ...params,
-                minSilenceDuration: parseFloat(e.target.value),
-              })
-            }
-            className="w-full"
-            aria-label="最小静音时长"
-          />
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>0.05 秒</span>
-            <span>3 秒</span>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            值越小剪得越狠，越接近"快"节奏；避免设得过小导致语句衔接生硬
-          </p>
-        </div>
       </div>
 
       {/* 操作按钮 */}

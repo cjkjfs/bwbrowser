@@ -11,6 +11,7 @@ import { FiWifi } from "react-icons/fi";
 import { GoGear } from "react-icons/go";
 import {
   LuChevronRight,
+  LuClapperboard,
   LuCloud,
   LuCookie,
   LuDownload,
@@ -66,6 +67,7 @@ export type AppPage =
   | "remoteManagement"
   | "videoDownload"
   | "audioProcessor"
+  | "videoMatcher"
   | "aiRewrite"
   | "import"
   | "shortcuts"
@@ -92,6 +94,7 @@ const RAIL_LABELS_ZH: Record<AppPage, string> = {
   remoteManagement: "远程管理",
   videoDownload: "视频下载",
   audioProcessor: "音频处理",
+  videoMatcher: "视频工具",
   aiRewrite: "AI 洗稿",
   import: "导入配置",
   shortcuts: "快捷键",
@@ -297,12 +300,13 @@ const TOP_ITEMS: RailItem[] = [
   },
   { page: "videoDownload", Icon: LuDownload, labelKey: "rail.videoDownload" },
   { page: "audioProcessor", Icon: LuMusic, labelKey: "rail.audioProcessor" },
+  { page: "videoMatcher", Icon: LuClapperboard, labelKey: "rail.videoMatcher" },
   { page: "aiRewrite", Icon: LuSparkles, labelKey: "rail.aiRewrite" },
   { page: "extensions", Icon: LuPuzzle, labelKey: "rail.extensions" },
   { page: "account", Icon: LuCloud, labelKey: "rail.account" },
 ];
 
-const ADMIN_ONLY_PAGES: AppPage[] = ["profiles", "proxies"];
+const ADMIN_ONLY_PAGES: AppPage[] = [];
 
 const ADMIN_ROLES = ["manager", "admin", "super_admin"];
 
@@ -396,8 +400,18 @@ export function RailNav({
 }: RailNavProps) {
   const { t } = useTranslation();
   const { user } = useBwbrowserAuth();
-  const { canManageUsers, canDownloadVideos, canAiRewrite, canManageRemote } =
-    useBwbrowserPermissions();
+  const {
+    canManageUsers,
+    canDownloadVideos,
+    canAiRewrite,
+    canManageRemote,
+    canVideoTools,
+    canAudioProcessor,
+    canExtensions,
+    canProfileManagement,
+    canProxyCenter,
+    canCloudAccount,
+  } = useBwbrowserPermissions();
   const isAdmin = !!user?.teamRole && ADMIN_ROLES.includes(user.teamRole);
 
   // AI 洗稿进行中任务数：直接跟踪后端运行状态（任务运行时菜单显示「AI 洗稿(N)」且图标转动）。
@@ -450,6 +464,12 @@ export function RailNav({
     if (item.page === "remoteManagement" && !canManageRemote) return false;
     if (item.page === "videoDownload" && !canDownloadVideos) return false;
     if (item.page === "aiRewrite" && !canAiRewrite) return false;
+    if (item.page === "videoMatcher" && !canVideoTools) return false;
+    if (item.page === "audioProcessor" && !canAudioProcessor) return false;
+    if (item.page === "extensions" && !canExtensions) return false;
+    if (item.page === "profiles" && !canProfileManagement) return false;
+    if (item.page === "proxies" && !canProxyCenter) return false;
+    if (item.page === "account" && !canCloudAccount) return false;
     return true;
   });
   const {

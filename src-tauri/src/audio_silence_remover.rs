@@ -69,6 +69,60 @@ async fn ensure_ffmpeg<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<P
   }
 }
 
+// ---- 参数持久化（过滤参数下次启动自动读取） ----
+
+/// 音频处理设置（过滤参数 + 节奏）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AudioSettings {
+  pub threshold_db: f32,
+  pub keep_before: f32,
+  pub keep_after: f32,
+  pub min_silence_duration: f32,
+  pub pace: String,
+}
+
+impl Default for AudioSettings {
+  fn default() -> Self {
+    Self {
+      threshold_db: -28.0,
+      keep_before: 0.1,
+      keep_after: 0.1,
+      min_silence_duration: 0.35,
+      pace: "medium".to_string(),
+    }
+  }
+}
+
+fn audio_settings_path() -> PathBuf {
+  crate::app_dirs::data_dir().join("audio_silence_settings.json")
+}
+
+/// Tauri 命令：读取音频处理设置
+#[tauri::command]
+pub fn audio_silence_get_settings() -> AudioSettings {
+  let path = audio_settings_path();
+  if path.exists() {
+    if let Ok(content) = std::fs::read_to_string(&path) {
+      if let Ok(s) = serde_json::from_str::<AudioSettings>(&content) {
+        return s;
+      }
+    }
+  }
+  AudioSettings::default()
+}
+
+/// Tauri 命令：保存音频处理设置
+#[tauri::command]
+pub fn audio_silence_save_settings(settings: AudioSettings) -> Result<(), String> {
+  let path = audio_settings_path();
+  if let Some(parent) = path.parent() {
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+  }
+  let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+  std::fs::write(path, json).map_err(|e| e.to_string())
+}
+
 /// 检测音频文件中的静音段
 #[tauri::command]
 pub async fn audio_detect_silence(

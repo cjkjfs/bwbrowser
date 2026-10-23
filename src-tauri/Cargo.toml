@@ -1,6 +1,6 @@
 [package]
 name = "bwbrowser"
-version = "2.6.2"
+version = "2.6.3"
 description = "Simple Yet Powerful Anti-Detect Browser"
 authors = ["zhom@github"]
 edition = "2021"
@@ -131,6 +131,11 @@ smoltcp = { version = "0.14", default-features = false, features = ["std", "medi
 
 # Tray icon decoding (main-process system tray)
 image = "0.25"
+# DINOv2 ONNX 推理（视频画面匹配特征提取）。download-binaries 自动获取预编译 runtime。
+# GPU 优先级：CUDA（NVIDIA）> DirectML（Win 自带）> CoreML（macOS）> CPU
+# lax-feature-matching：无全部组合的预编译包，按最接近的匹配
+ort = { version = "2.0.0-rc.15", default-features = false, features = ["download-binaries", "ndarray", "tls-rustls", "std", "directml", "coreml", "cuda", "lax-feature-matching"] }
+ndarray = { version = "0.17", features = ["std"] }
 dirs = "6"
 crossbeam-channel = "0.5"
 sys-locale = "0.3"

@@ -8,3 +8,5 @@
 
 /binaries/**
 !**/.gitkeep
+# AI models are downloaded at runtime from CDN — never bundle/commit them (too large)
+resources/*.onnx

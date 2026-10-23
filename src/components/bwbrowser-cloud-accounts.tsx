@@ -52,6 +52,14 @@ import { ProxyFormDialog } from "@/components/proxy-form-dialog";
 import { AnimatedSwitch } from "@/components/ui/animated-switch";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -61,6 +69,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -731,6 +744,9 @@ export function BwbrowserCloudAccountsDialog({
   );
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // 添加账号弹窗内的可搜索下拉开关
+  const [addPlatformOpen, setAddPlatformOpen] = useState(false);
+  const [addOwnerOpen, setAddOwnerOpen] = useState(false);
   const [showPasswordIds, setShowPasswordIds] = useState<Set<number>>(
     new Set(),
   );
@@ -1623,7 +1639,9 @@ export function BwbrowserCloudAccountsDialog({
 
     // 批量下发：逐个账号调用，统计成功/失败后汇总提示（服务端按账号解析
     // 时区/语言，无法合并为一次请求）
+    let applyProxyNodeStr = "";
     const applyProxyNode = async (proxyNode: string) => {
+      applyProxyNodeStr = proxyNode;
       setIsSavingProxy(true);
       let ok = 0;
       let geoPending = 0;
@@ -1695,6 +1713,19 @@ export function BwbrowserCloudAccountsDialog({
         }
         setProxyDialogOpen(false);
         void refresh();
+        // 编辑账号弹窗开着时，同步其代理节点显示（单账号场景：直连=空串，其余=新节点串）
+        if (proxyDialogTargets.length === 1) {
+          const target = proxyDialogTargets[0];
+          setEditDetail((prev) =>
+            prev && prev.id === target.id
+              ? {
+                  ...prev,
+                  proxy_node:
+                    selectedProxyId === "__direct__" ? "" : applyProxyNodeStr,
+                }
+              : prev,
+          );
+        }
       } finally {
         setIsSavingProxy(false);
       }
@@ -3593,7 +3624,10 @@ export function BwbrowserCloudAccountsDialog({
                   className="gap-2"
                   onSelect={(e) => e.preventDefault()}
                   onClick={() =>
-                    setColumnVisibility((v) => ({ ...v, [key]: !v[key] }))
+                    handleColumnVisibilityChange((v) => ({
+                      ...v,
+                      [key]: !v[key],
+                    }))
                   }
                 >
                   <Checkbox
@@ -4844,7 +4878,18 @@ export function BwbrowserCloudAccountsDialog({
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <div className="text-xs font-medium">代理节点</div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium">代理节点</span>
+                      {(isManager || isSuperAdmin) && editAccount && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenProxyDialog([editAccount])}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          设置代理
+                        </button>
+                      )}
+                    </div>
                     <Input
                       value={editDetail?.proxy_node || "未设置"}
                       disabled
@@ -5310,26 +5355,65 @@ export function BwbrowserCloudAccountsDialog({
             </div>
             <div className="space-y-1">
               <div className="text-xs font-medium">选择平台</div>
-              <select
-                value={addForm.platform}
-                onChange={(e) =>
-                  setAddForm((p) => ({ ...p, platform: e.target.value }))
-                }
-                className="w-full rounded-md border bg-transparent px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                {Object.entries({
-                  ...PLATFORM_LABELS,
-                  ...remotePlatformLabels,
-                })
-                  .sort((a, b) =>
-                    zhCollator.compare(String(a[1]), String(b[1])),
-                  )
-                  .map(([key, label]) => (
-                    <option key={key} value={key}>
-                      {label}
-                    </option>
-                  ))}
-              </select>
+              <Popover open={addPlatformOpen} onOpenChange={setAddPlatformOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={addPlatformOpen}
+                    className="h-8 w-full justify-between px-3 text-xs font-normal"
+                  >
+                    <span className="truncate">
+                      {PLATFORM_LABELS[addForm.platform] ??
+                        remotePlatformLabels[addForm.platform] ??
+                        addForm.platform ??
+                        "选择平台"}
+                    </span>
+                    <LuChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[280px] p-0" align="start">
+                  <Command>
+                    <CommandInput
+                      placeholder="搜索平台..."
+                      className="h-8 text-xs"
+                    />
+                    <CommandList>
+                      <CommandEmpty>未找到平台</CommandEmpty>
+                      <CommandGroup>
+                        {Object.entries({
+                          ...PLATFORM_LABELS,
+                          ...remotePlatformLabels,
+                        })
+                          .sort((a, b) =>
+                            zhCollator.compare(String(a[1]), String(b[1])),
+                          )
+                          .map(([key, label]) => (
+                            <CommandItem
+                              key={key}
+                              value={`${label} ${key}`}
+                              onSelect={() => {
+                                setAddForm((p) => ({ ...p, platform: key }));
+                                setAddPlatformOpen(false);
+                              }}
+                              className="text-xs"
+                            >
+                              <LuCheck
+                                className={cn(
+                                  "mr-2 h-3 w-3",
+                                  addForm.platform === key
+                                    ? "opacity-100"
+                                    : "opacity-0",
+                                )}
+                              />
+                              {label}
+                            </CommandItem>
+                          ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 
@@ -5417,23 +5501,82 @@ export function BwbrowserCloudAccountsDialog({
             </div>
             <div className="space-y-1">
               <div className="text-xs font-medium">归属人</div>
-              <select
-                value={addForm.owner_id}
-                onChange={(e) =>
-                  setAddForm((p) => ({
-                    ...p,
-                    owner_id: Number(e.target.value),
-                  }))
-                }
-                className="w-full rounded-md border bg-transparent px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                <option value={0}>未指定</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.real_name || u.username || `用户${u.id}`}
-                  </option>
-                ))}
-              </select>
+              <Popover open={addOwnerOpen} onOpenChange={setAddOwnerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={addOwnerOpen}
+                    className="h-8 w-full justify-between px-3 text-xs font-normal"
+                  >
+                    <span className="truncate">
+                      {(() => {
+                        const u = users.find((x) => x.id === addForm.owner_id);
+                        return u
+                          ? u.real_name || u.username || `用户${u.id}`
+                          : "未指定";
+                      })()}
+                    </span>
+                    <LuChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[280px] p-0" align="start">
+                  <Command>
+                    <CommandInput
+                      placeholder="搜索归属人..."
+                      className="h-8 text-xs"
+                    />
+                    <CommandList>
+                      <CommandEmpty>未找到用户</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem
+                          value="__none__ 未指定"
+                          onSelect={() => {
+                            setAddForm((p) => ({ ...p, owner_id: 0 }));
+                            setAddOwnerOpen(false);
+                          }}
+                          className="text-xs"
+                        >
+                          <LuCheck
+                            className={cn(
+                              "mr-2 h-3 w-3",
+                              addForm.owner_id === 0
+                                ? "opacity-100"
+                                : "opacity-0",
+                            )}
+                          />
+                          未指定
+                        </CommandItem>
+                        {users.map((u) => {
+                          const name =
+                            u.real_name || u.username || `用户${u.id}`;
+                          return (
+                            <CommandItem
+                              key={u.id}
+                              value={`${name} ${u.username ?? ""}`}
+                              onSelect={() => {
+                                setAddForm((p) => ({ ...p, owner_id: u.id }));
+                                setAddOwnerOpen(false);
+                              }}
+                              className="text-xs"
+                            >
+                              <LuCheck
+                                className={cn(
+                                  "mr-2 h-3 w-3",
+                                  addForm.owner_id === u.id
+                                    ? "opacity-100"
+                                    : "opacity-0",
+                                )}
+                              />
+                              {name}
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 

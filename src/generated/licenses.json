@@ -1640,6 +1640,10 @@
     "license": "MIT"
   },
   {
+    "name": "http-range",
+    "license": "MIT"
+  },
+  {
     "name": "http-range-header",
     "license": "MIT"
   },
@@ -1984,6 +1988,10 @@
     "license": "MIT AND BSD-3-Clause"
   },
   {
+    "name": "matrixmultiply",
+    "license": "Apache-2.0 OR MIT"
+  },
+  {
     "name": "maxminddb",
     "license": "ISC"
   },
@@ -2264,6 +2272,10 @@
     "license": "Apache-2.0 OR MIT"
   },
   {
+    "name": "ndarray",
+    "license": "Apache-2.0 OR MIT"
+  },
+  {
     "name": "new_debug_unreachable",
     "license": "MIT"
   },
@@ -2461,6 +2473,14 @@
   },
   {
     "name": "ordered-stream",
+    "license": "Apache-2.0 OR MIT"
+  },
+  {
+    "name": "ort",
+    "license": "Apache-2.0 OR MIT"
+  },
+  {
+    "name": "ort-sys",
     "license": "Apache-2.0 OR MIT"
   },
   {
@@ -2738,6 +2758,10 @@
   {
     "name": "raw-window-handle",
     "license": "MIT OR Apache-2.0 OR Zlib"
+  },
+  {
+    "name": "rawpointer",
+    "license": "Apache-2.0 OR MIT"
   },
   {
     "name": "rayon",
@@ -3648,6 +3672,14 @@
     "license": "ISC"
   },
   {
+    "name": "ureq",
+    "license": "Apache-2.0 OR MIT"
+  },
+  {
+    "name": "ureq-proto",
+    "license": "Apache-2.0 OR MIT"
+  },
+  {
     "name": "url",
     "license": "Apache-2.0 OR MIT"
   },
@@ -3673,6 +3705,10 @@
   },
   {
     "name": "usvg",
+    "license": "Apache-2.0 OR MIT"
+  },
+  {
+    "name": "utf8-zero",
     "license": "Apache-2.0 OR MIT"
   },
   {
@@ -3778,6 +3814,10 @@
   {
     "name": "webkit2gtk-sys",
     "license": "MIT"
+  },
+  {
+    "name": "webpki-roots",
+    "license": "CDLA-Permissive-2.0"
   },
   {
     "name": "webview2-com",

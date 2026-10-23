@@ -139,6 +139,10 @@ mod team_lock;
 mod vault;
 mod version_updater;
 mod video_downloader;
+mod video_matcher;
+mod video_matcher_pr;
+mod video_matcher_queue;
+mod video_tools;
 pub mod vpn;
 mod vpn_extension_detect;
 pub mod vpn_worker_runner;
@@ -4095,6 +4099,33 @@ pub fn run_with_builder(
       audio_silence_remover::audio_remove_silence,
       audio_silence_remover::audio_batch_process,
       audio_silence_remover::audio_get_waveform,
+      audio_silence_remover::audio_silence_get_settings,
+      audio_silence_remover::audio_silence_save_settings,
+      video_matcher::video_extract_phash,
+      video_matcher::video_find_matches,
+      video_matcher::video_matcher_get_settings,
+      video_matcher::video_matcher_save_settings,
+      video_matcher::video_matcher_default_cache_dir,
+      video_matcher::video_matcher_clear_cache,
+      video_matcher::video_export_jianying_draft,
+      video_matcher::video_matcher_model_status,
+      video_matcher::video_matcher_delete_model,
+      video_matcher::video_matcher_download_model,
+      video_matcher::video_matcher_is_downloading,
+      video_matcher::video_matcher_cancel_download,
+      video_matcher::video_matcher_device,
+      video_matcher::video_matcher_warmup,
+      video_matcher_queue::video_matcher_add_task,
+      video_matcher_queue::video_matcher_list_tasks,
+      video_matcher_queue::video_matcher_cancel_task,
+      video_matcher_queue::video_matcher_delete_task,
+      video_matcher_queue::video_matcher_clear_finished_tasks,
+      video_matcher_queue::video_matcher_run_queue,
+      video_matcher_pr::video_export_pr_xml,
+      video_tools::video_tools_merge,
+      video_tools::video_tools_get_duration,
+      video_tools::video_tools_list_folder_videos,
+      video_tools::video_tools_split,
       ai_rewrite::ai_rewrite_status,
       ai_rewrite::ai_rewrite_results,
       ai_rewrite::ai_rewrite_result,

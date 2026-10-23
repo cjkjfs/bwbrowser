@@ -49,13 +49,26 @@ export function useBwbrowserPermissions() {
 
   const canManageUsers =
     isSuperAdmin || (permissions.allow_user_management ?? false);
-  const canDownloadVideos =
-    isSuperAdmin || (permissions.allow_video_download ?? false);
+  // 以下五个功能只按后台开关判断，超管也一样受控（超管给自己开权限即可）
+  const canDownloadVideos = permissions.allow_video_download ?? false;
   // AI 洗稿：独立权限（users.php allow_ai_rewrite），决定左侧「AI 洗稿」菜单是否出现。
-  const canAiRewrite = isSuperAdmin || (permissions.allow_ai_rewrite ?? false);
+  const canAiRewrite = permissions.allow_ai_rewrite ?? false;
   // 远程管理（控制端）：决定左侧「远程管理」菜单是否出现。
   const canManageRemote =
     isSuperAdmin || (permissions.allow_remote_management ?? false);
+  // 视频工具（视频匹配/快速合并/快速拆分）：users.php allow_video_tools
+  const canVideoTools =
+    isSuperAdmin || (permissions.allow_video_tools ?? false);
+  // 音频处理（气口清除器）：users.php allow_audio_processor
+  const canAudioProcessor =
+    isSuperAdmin || (permissions.allow_audio_processor ?? false);
+  // 扩展管理：users.php allow_extension_management
+  const canExtensions =
+    isSuperAdmin || (permissions.allow_extension_management ?? false);
+  // 环境管理 / 代理中心 / 账号中心：只按后台开关判断
+  const canProfileManagement = permissions.allow_profile_management ?? false;
+  const canProxyCenter = permissions.allow_proxy_center ?? false;
+  const canCloudAccount = permissions.allow_cloud_account ?? false;
 
   return {
     permissions,
@@ -65,6 +78,12 @@ export function useBwbrowserPermissions() {
     canDownloadVideos,
     canAiRewrite,
     canManageRemote,
+    canVideoTools,
+    canAudioProcessor,
+    canExtensions,
+    canProfileManagement,
+    canProxyCenter,
+    canCloudAccount,
     currentManagementUserId,
   };
 }

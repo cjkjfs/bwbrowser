@@ -3,13 +3,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LuCloud, LuLogOut, LuRefreshCw, LuUser } from "react-icons/lu";
+import { LuCloud, LuRefreshCw, LuUser } from "react-icons/lu";
 import {
   formatDate,
   formatHours,
   RemoteHoursMeter,
 } from "@/components/cookie-bot-shared";
-import { LoadingButton } from "@/components/loading-button";
 import { TeamUsagePanel } from "@/components/team-usage-panel";
 import {
   AnimatedTabs,
@@ -54,7 +53,7 @@ export function AccountPage({
   const { user: bwbrowserUser, refreshProfile: bwbrowserRefresh } =
     useBwbrowserAuth();
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [_isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Remote hours are plan truth, so they belong here rather than only next to
   // the controls that spend them. Until this landed, `remote-sessions/quota`
@@ -121,7 +120,7 @@ export function AccountPage({
     }
   };
 
-  const handleLogout = async () => {
+  const _handleLogout = async () => {
     setIsLoggingOut(true);
     try {
       await logout();
@@ -424,67 +423,39 @@ export function AccountPage({
 
                   <div className="mt-2 flex flex-wrap gap-2">
                     {bwbrowserUser ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={async () => {
-                            setIsRefreshing(true);
-                            try {
-                              await bwbrowserRefresh();
-                              showSuccessToast("已刷新");
-                            } catch (e) {
-                              showErrorToast(String(e));
-                            } finally {
-                              setIsRefreshing(false);
-                            }
-                          }}
-                          disabled={isRefreshing}
-                          className="h-8 gap-1.5 text-xs"
-                        >
-                          <LuRefreshCw className="size-3" />
-                          刷新
-                        </Button>
-                        <LoadingButton
-                          size="sm"
-                          variant="destructive"
-                          isLoading={isLoggingOut}
-                          disabled={isRefreshing}
-                          onClick={() => void handleLogout()}
-                          className="h-8 gap-1.5 text-xs"
-                        >
-                          <LuLogOut className="size-3" />
-                          退出登录
-                        </LoadingButton>
-                      </>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          setIsRefreshing(true);
+                          try {
+                            await bwbrowserRefresh();
+                            showSuccessToast("已刷新");
+                          } catch (e) {
+                            showErrorToast(String(e));
+                          } finally {
+                            setIsRefreshing(false);
+                          }
+                        }}
+                        disabled={isRefreshing}
+                        className="h-8 gap-1.5 text-xs"
+                      >
+                        <LuRefreshCw className="size-3" />
+                        刷新
+                      </Button>
                     ) : isLoggedIn ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            void handleRefresh();
-                          }}
-                          disabled={isRefreshing}
-                          className="h-8 gap-1.5 text-xs"
-                        >
-                          <LuRefreshCw className="size-3" />
-                          {t("account.refresh")}
-                        </Button>
-                        <LoadingButton
-                          size="sm"
-                          variant="destructive"
-                          isLoading={isLoggingOut}
-                          disabled={isRefreshing}
-                          onClick={() => {
-                            void handleLogout();
-                          }}
-                          className="h-8 gap-1.5 text-xs"
-                        >
-                          <LuLogOut className="size-3" />
-                          {t("account.logout")}
-                        </LoadingButton>
-                      </>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          void handleRefresh();
+                        }}
+                        disabled={isRefreshing}
+                        className="h-8 gap-1.5 text-xs"
+                      >
+                        <LuRefreshCw className="size-3" />
+                        {t("account.refresh")}
+                      </Button>
                     ) : (
                       <Button
                         size="sm"

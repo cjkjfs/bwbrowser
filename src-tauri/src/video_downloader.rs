@@ -725,7 +725,16 @@ impl VideoDownloader {
       let mut inner = self.inner.lock().await;
       if let Some(task) = inner.tasks.get_mut(task_id) {
         task.status = DownloadStatus::Error;
-        task.error_msg = Some(error);
+        // 截断超长错误（yt-dlp 的 URL 级报错可达数千字符），避免撑爆任务卡片
+        let truncated = if error.chars().count() > 300 {
+          format!(
+            "{}…（完整错误见下载日志）",
+            error.chars().take(300).collect::<String>()
+          )
+        } else {
+          error
+        };
+        task.error_msg = Some(truncated);
         task.finished_at = Some(now_secs());
       }
     }
@@ -952,6 +961,58 @@ impl VideoDownloader {
 }
 
 /// 运行单个 yt-dlp 下载
+/// 解析红果短剧/漫剧分享页，返回 MP4 直链。
+/// 已知入口（均重定向到同系分享页，移动端 UA 才返回含 play_url 的数据）：
+///   - novelquickapp.com/s/xxx （短剧）
+///   - kylin.hainanyuyue.com/s/xxx 等 hainanyuyue.com 域（漫剧，302 → hainanyuyue.com/share/...）
+///
+/// 数据载体两种格式：
+///   - novelquickapp：React 流式块里 `&quot;play_url&quot;:&quot;...&quot;`（HTML 实体转义）
+///   - hainanyuyue：`window._ROUTER_DATA = {...}` 里未转义 JSON `"play_url":"...\u002F..."`
+///
+/// 直链带签名有时效，拿到后立即下载。
+async fn resolve_hongguo_share_url(share_url: &str) -> Result<String, String> {
+  let resp = reqwest::Client::builder()
+    .user_agent("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36")
+    .timeout(std::time::Duration::from_secs(30))
+    .build()
+    .map_err(|e| e.to_string())?
+    .get(share_url)
+    .send()
+    .await
+    .map_err(|e| format!("请求分享页失败: {e}"))?;
+
+  if !resp.status().is_success() {
+    return Err(format!("分享页返回 HTTP {}", resp.status()));
+  }
+  let html = resp.text().await.map_err(|e| e.to_string())?;
+  log::info!("[video_download] 红果分享页抓取完成: {} bytes", html.len());
+
+  // 两种转义格式都尝试；取第一个 http 开头的直链
+  for m in PLAY_URL_RES.iter().flat_map(|re| re.captures_iter(&html)) {
+    let raw = m.get(1).map(|g| g.as_str()).unwrap_or("");
+    let url = raw
+      .replace("&amp;", "&")
+      .replace("\\u002F", "/")
+      .replace("\\/", "/");
+    if url.starts_with("http") {
+      return Ok(url);
+    }
+  }
+  Err("页面中没有找到视频直链（可能分享已过期）".to_string())
+}
+
+static PLAY_URL_RES: [once_cell::sync::Lazy<regex_lite::Regex>; 2] = [
+  // 格式 1：HTML 实体转义（novelquickapp React 流式块）
+  once_cell::sync::Lazy::new(|| {
+    regex_lite::Regex::new("&quot;play_url&quot;:&quot;(.*?)&quot;").expect("valid regex")
+  }),
+  // 格式 2：未转义 JSON，值里用 \u002F 表示斜杠（hainanyuyue _ROUTER_DATA）
+  once_cell::sync::Lazy::new(|| {
+    regex_lite::Regex::new(r#""play_url"\s*:\s*"([^"]+)""#).expect("valid regex")
+  }),
+];
+
 async fn run_single_download<R: Runtime>(
   yt_dlp: &PathBuf,
   task_id: &str,
@@ -1025,8 +1086,6 @@ async fn run_single_download<R: Runtime>(
     "Accept-Language:zh-CN,zh;q=0.9,en;q=0.8".to_string(),
     "-P".to_string(),
     output_dir.to_string_lossy().to_string(),
-    "-o".to_string(),
-    "%(uploader|Unknown)s_%(title).80B_%(id)s.%(ext)s".to_string(),
     // 把视频信息写入文件，避免和 stdout 进度输出混在一起
     "--print-to-file".to_string(),
     "before_dl:BW_INFO_TITLE:%(title)s".to_string(),
@@ -1041,6 +1100,55 @@ async fn run_single_download<R: Runtime>(
     "before_dl:BW_INFO_THUMBNAIL:%(thumbnail)s".to_string(),
     info_file.to_string_lossy().to_string(),
   ];
+
+  // 红果短剧/漫剧分享链接（yt-dlp 无提取器）：先解析出 MP4 直链再下载。
+  // 直链无标题且 URL 尾巴含大量 &=?，用默认模板会生成非法 Windows 文件名，
+  // 因此解析成功时强制固定输出文件名（原名_时间戳.mp4）。
+  let is_hongguo = url.contains("novelquickapp.com/s/")
+    || url.contains("hainanyuyue.com/s/")
+    || url.contains("hainanyuyue.com/share/");
+  let mut hongguo_fixed_name: Option<String> = None;
+  let url: String = if is_hongguo {
+    dl.set_task_status_text(task_id, "解析红果短剧分享链接...".to_string())
+      .await;
+    match resolve_hongguo_share_url(url).await {
+      Ok(direct) => {
+        log::info!(
+          "[video_download] 红果分享链接解析成功: {} -> direct mp4 ({} bytes)",
+          url,
+          direct.len()
+        );
+        dl.set_task_status_text(task_id, "解析成功，开始下载...".to_string())
+          .await;
+        let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let base = std::path::Path::new(&url)
+          .file_stem()
+          .map(|n| n.to_string_lossy().to_string())
+          .unwrap_or_else(|| "hongguo".to_string());
+        let base = base
+          .split(['?', '&'])
+          .next()
+          .unwrap_or("hongguo")
+          .to_string();
+        hongguo_fixed_name = Some(format!("{}_{}.%(ext)s", base, stamp));
+        direct
+      }
+      Err(e) => {
+        log::warn!("[video_download] 红果分享链接解析失败: {e}");
+        return Err(format!("红果短剧链接解析失败：{e}"));
+      }
+    }
+  } else {
+    url.to_string()
+  };
+  let url: &str = url.as_str();
+
+  // 输出文件名：红果直链无标题，URL 尾巴含非法字符，必须用固定名
+  args.push("-o".to_string());
+  args.push(
+    hongguo_fixed_name
+      .unwrap_or_else(|| "%(uploader|Unknown)s_%(title).80B_%(id)s.%(ext)s".to_string()),
+  );
 
   // 代理
   if let Some(proxy_url) = build_proxy_url(&settings.proxy_id) {

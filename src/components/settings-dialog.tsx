@@ -184,6 +184,8 @@ interface SettingsDialogProps {
   subPage?: boolean;
   /** A section to scroll to and focus as soon as the page opens. */
   initialSection?: string | null;
+  /** 登出成功后打开登录对话框 */
+  onOpenSignIn?: () => void;
 }
 
 export function SettingsDialog({
@@ -193,6 +195,7 @@ export function SettingsDialog({
   onOpenMore,
   subPage,
   initialSection = null,
+  onOpenSignIn,
 }: SettingsDialogProps) {
   const [settings, setSettings] = useState<AppSettings>({
     set_as_default_browser: false,
@@ -264,6 +267,21 @@ export function SettingsDialog({
   } | null>(null);
 
   const { t } = useTranslation();
+  const { logout } = useCloudAuth();
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      showSuccessToast(t("account.loggedOut"));
+      handleClose();
+      onOpenSignIn?.();
+    } catch (e) {
+      showErrorToast(String(e));
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const { setTheme } = useTheme();
   const {
     requestPermission,
@@ -2078,6 +2096,19 @@ export function SettingsDialog({
               >
                 {t("common.buttons.saveSettings")}
               </LoadingButton>
+              <LoadingButton
+                size="sm"
+                isLoading={isLoggingOut}
+                onClick={() => {
+                  handleLogout().catch((err: unknown) => {
+                    console.error(err);
+                  });
+                }}
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+              >
+                退出登录
+              </LoadingButton>
             </div>
           ) : (
             <DialogFooter className="shrink-0">
@@ -2094,6 +2125,18 @@ export function SettingsDialog({
                 disabled={isLoading || !hasChanges}
               >
                 {t("common.buttons.saveSettings")}
+              </LoadingButton>
+              <LoadingButton
+                isLoading={isLoggingOut}
+                onClick={() => {
+                  handleLogout().catch((err: unknown) => {
+                    console.error(err);
+                  });
+                }}
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+              >
+                退出登录
               </LoadingButton>
             </DialogFooter>
           )}

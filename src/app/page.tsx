@@ -69,6 +69,7 @@ import {
 } from "@/components/ui/dialog";
 import { UserManagementPage } from "@/components/user-management-page";
 import { VideoDownloadPage } from "@/components/video-download-page";
+import { VideoToolsPage } from "@/components/video-tools-page";
 import { WayfernConfigDialog } from "@/components/wayfern-config-dialog";
 import { WayfernTermsDialog } from "@/components/wayfern-terms-dialog";
 import { WelcomeDialog } from "@/components/welcome-dialog";
@@ -2496,9 +2497,9 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* 视频下载 - 嵌入式页面 */}
+                {/* 视频下载 - 嵌入式页面（内容超长时右侧滚动条） */}
                 {currentPage === "videoDownload" && isBwbrowserLogin && (
-                  <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <VideoDownloadPage
                       open={true}
                       onOpenChange={() => {}}
@@ -2513,11 +2514,24 @@ export default function Home() {
                   <div
                     className={
                       currentPage === "audioProcessor"
-                        ? "flex min-h-0 flex-1 flex-col"
+                        ? "flex min-h-0 flex-1 flex-col overflow-y-auto"
                         : "hidden"
                     }
                   >
                     <AudioSilenceRemover />
+                  </div>
+                )}
+
+                {/* 视频匹配 - 嵌入式页面（始终挂载以保留状态） */}
+                {isBwbrowserLogin && (
+                  <div
+                    className={
+                      currentPage === "videoMatcher"
+                        ? "flex min-h-0 flex-1 flex-col"
+                        : "hidden"
+                    }
+                  >
+                    <VideoToolsPage />
                   </div>
                 )}
 
@@ -2570,6 +2584,11 @@ export default function Home() {
                     }}
                     subPage={currentPage === "settings"}
                     initialSection={settingsInitialSection}
+                    onOpenSignIn={() => {
+                      setSettingsDialogOpen(false);
+                      setCurrentPage("profiles");
+                      setBwbrowserLoginDialogOpen(true);
+                    }}
                   />
                 )}
 
