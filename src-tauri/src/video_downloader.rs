@@ -1152,14 +1152,17 @@ async fn run_single_download<R: Runtime>(
     info_file.to_string_lossy().to_string(),
   ];
 
-  // 红果短剧/漫剧分享链接（yt-dlp 无提取器）：先解析出 MP4 直链再下载。
-  // 直链无标题且 URL 尾巴含大量 &=?，用默认模板会生成非法 Windows 文件名，
-  // 因此解析成功时强制固定输出文件名（原名_时间戳.mp4）。
+  // 分享链接（yt-dlp 无提取器的平台）：先经云端解析出直链再下载。
+  // 是否支持由云端路由判断（支持红果系/腾讯火龙漫剧等），客户端不再维护
+  // 平台域名清单——云端加了新平台，客户端无需发版。本地兜底只覆盖红果系。
   let is_hongguo = url.contains("novelquickapp.com/s/")
     || url.contains("hainanyuyue.com/s/")
     || url.contains("hainanyuyue.com/share/");
+  // 云端候选：红果系 + 已接入云端的其他平台（qq.com 漫剧分享页）
+  let is_cloud_candidate = is_hongguo
+    || (url.contains("qq.com/") && (url.contains("/kairos/share/") || url.contains("manju")));
   let mut hongguo_fixed_name: Option<String> = None;
-  let url: String = if is_hongguo {
+  let url: String = if is_cloud_candidate {
     dl.set_task_status_text(task_id, "解析分享链接...".to_string())
       .await;
     // 云端优先：解析逻辑在服务端，平台改版不用发客户端；失败回退本地解析
@@ -1169,6 +1172,11 @@ async fn run_single_download<R: Runtime>(
         Ok((direct, cloud_title))
       }
       Err(cloud_err) => {
+        // 本地兜底只有红果系解析；其他平台（如腾讯漫剧）没有本地实现，
+        // 直接把云端错误透传，避免产生误导性的 yt-dlp Unsupported URL
+        if !is_hongguo {
+          return Err(format!("云端解析失败：{cloud_err}"));
+        }
         log::warn!("[video_download] 云端解析失败，回退本地解析: {cloud_err}");
         dl.set_task_status_text(task_id, "云端解析不可用，使用本地解析...".to_string())
           .await;
