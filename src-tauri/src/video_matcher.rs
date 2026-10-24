@@ -1713,18 +1713,11 @@ pub async fn video_export_jianying_draft(
 
   // 尾部占位：对标真实总长 > 最后匹配段结束点时，剪映时间线会在尾部提前结束
   // （剪映总长由最后一个片段的 end 决定，顶层 duration 字段无效）。
-  // 用素材的最后 1 秒画面冻结追加，填满缺口，保证总长与对标一致。
-  // reference_duration 优先取后端用 FFmpeg 探测的对标真实时长（前端播放器
-  // 可能未加载，duration 为 NaN→0），探测失败才退回前端值。
-  let probe_dur = get_video_duration(&ffmpeg, &source_video)
-    .await
-    .unwrap_or(0.0);
-  let ref_dur = if probe_dur > 0.0 {
-    Some(probe_dur)
-  } else {
-    reference_duration
-  }
-  .unwrap_or_else(|| segments.iter().map(|s| s.source_end).fold(0.0f32, f32::max));
+  // 用素材的最后 1 秒画面循环追加，填满缺口，保证总长与对标一致。
+  // 注意：source_video 参数是【原视频（素材）】而非对标——不能探测它当对标时长；
+  // 对标总长由前端传入（对标播放器已加载的 duration）。
+  let ref_dur = reference_duration
+    .unwrap_or_else(|| segments.iter().map(|s| s.source_end).fold(0.0f32, f32::max));
   let last_end = segments.iter().map(|s| s.source_end).fold(0.0f32, f32::max);
   let gap = ref_dur - last_end;
   let freeze_dur = gap.max(0.0);
