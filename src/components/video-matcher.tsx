@@ -371,10 +371,11 @@ export function VideoMatchTab() {
         return;
       }
 
-      // 估算对标视频总时长（取最大 sourceEnd）
-      const refDuration = segments.reduce(
-        (max, s) => Math.max(max, s.sourceEnd),
-        0,
+      // 对标视频真实总时长（播放器已加载）；无播放器信息时退回最大 sourceEnd。
+      // 用「最大 sourceEnd」会让草稿在对标尾部无匹配时提前结束（看起来快进播完了）
+      const refDuration = Math.max(
+        sourceVideoRef.current?.duration ?? 0,
+        segments.reduce((max, s) => Math.max(max, s.sourceEnd), 0),
       );
 
       const path = await invoke<string>("video_export_jianying_draft", {
@@ -414,9 +415,10 @@ export function VideoMatchTab() {
         return;
       }
 
-      const refDuration = segments.reduce(
-        (max, s) => Math.max(max, s.sourceEnd),
-        0,
+      // 对标视频真实总时长（同剪映导出：尾部无匹配段时草稿不应提前结束）
+      const refDuration = Math.max(
+        sourceVideoRef.current?.duration ?? 0,
+        segments.reduce((max, s) => Math.max(max, s.sourceEnd), 0),
       );
 
       const path = await invoke<string>("video_export_pr_xml", {
