@@ -1022,17 +1022,11 @@ ${path}
                         type="button"
                         onClick={() => {
                           if (!t.segments) return;
-                          setResultTaskId(t.id);
-                          setSegments(t.segments);
-                          setSourceVideo(t.sourcePath);
-                          setTargetVideo(t.targetPath);
-                          setDraftPath("");
-                          // 直接用任务数据导出：setState 异步，此刻组件状态还是旧值
+                          // 导出但不展开结果面板：用参数直接导出
                           void exportDraftFor(
                             t.sourcePath,
                             t.targetPath,
                             t.segments,
-                            // 对标播放器若正加载同一文件才可用其 duration
                             sourceVideo === t.sourcePath
                               ? (sourceVideoRef.current?.duration ?? 0)
                               : 0,
