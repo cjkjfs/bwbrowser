@@ -1519,6 +1519,16 @@ function TaskCard({
   highlighted?: boolean;
 }) {
   const [showLogs, setShowLogs] = useState(false);
+  // 日志放大查看（更高的高度）；新日志到达时自动滚动到底部（贴底跟随）
+  const [logsExpanded, setLogsExpanded] = useState(false);
+  const logsBoxRef = useRef<HTMLDivElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 这些依赖是滚动触发器——新日志到达或高度变化时需重新判断是否贴底，效果体本身只读 DOM
+  useEffect(() => {
+    const el = logsBoxRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [task.logs.length, showLogs, logsExpanded]);
   const order = stageOrder(task.stage);
   const isDone = task.status === "done";
   const isError = task.status === "error";
@@ -1726,6 +1736,15 @@ function TaskCard({
             {task.speedText}
           </span>
         )}
+        {showLogs && (
+          <button
+            type="button"
+            className="shrink-0 text-[10px] text-primary hover:underline"
+            onClick={() => setLogsExpanded((v) => !v)}
+          >
+            {logsExpanded ? "还原" : "放大"}
+          </button>
+        )}
         <button
           type="button"
           className="ml-auto shrink-0 text-[10px] text-primary hover:underline"
@@ -1737,7 +1756,13 @@ function TaskCard({
 
       {/* 日志 */}
       {showLogs && (
-        <div className="mt-2 max-h-48 overflow-auto rounded-md bg-muted/50 p-2 font-mono text-[10px] leading-relaxed">
+        <div
+          ref={logsBoxRef}
+          className={cn(
+            "mt-2 overflow-auto rounded-md bg-muted/50 p-2 font-mono text-[10px] leading-relaxed",
+            logsExpanded ? "max-h-[420px]" : "max-h-48",
+          )}
+        >
           {task.logs.length === 0 ? (
             <div className="text-muted-foreground">暂无日志</div>
           ) : (
