@@ -286,6 +286,7 @@ async fn get_audio_duration(ffmpeg: &PathBuf, path: &str) -> Result<f32, String>
 
 /// 批量处理音频文件
 #[tauri::command]
+#[allow(dead_code)]
 pub async fn audio_batch_process(
   app: tauri::AppHandle,
   input_paths: Vec<String>,
@@ -342,6 +343,7 @@ pub async fn audio_batch_process(
 /// 音频处理结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct AudioProcessResult {
   pub input_path: String,
   pub output_path: String,

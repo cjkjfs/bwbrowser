@@ -1098,6 +1098,7 @@ pub fn video_matcher_clear_cache(cache_dir: Option<String>) -> Result<u32, Strin
 
 /// Tauri 命令：查找两个视频的匹配片段
 #[tauri::command]
+#[allow(dead_code)]
 pub async fn video_find_matches(
   app: tauri::AppHandle,
   source_path: String,
@@ -1254,6 +1255,7 @@ pub async fn video_find_matches(
 
 /// Tauri 命令：提取视频特征（供调试用）
 #[tauri::command]
+#[allow(dead_code)]
 pub async fn video_extract_phash(
   app: tauri::AppHandle,
   video_path: String,
@@ -1351,6 +1353,7 @@ static DOWNLOAD_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::Atomi
 
 /// Tauri 命令：查询指定模型是否正在下载
 #[tauri::command]
+#[allow(dead_code)]
 pub fn video_matcher_is_downloading(model_id: String) -> bool {
   use std::hash::{Hash, Hasher};
   let mut h = std::collections::hash_map::DefaultHasher::new();
