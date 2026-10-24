@@ -266,8 +266,9 @@ export function VideoMatchTab() {
   };
 
   // 把当前选择加入匹配任务队列（可连续添加多个，后端串行执行）
+  // 只选原视频、未选对标 = 预缓存任务：仅提前提取原视频特征入缓存
   const handleAddTask = async () => {
-    if (!sourceVideo || !targetVideo) return;
+    if (!targetVideo) return;
     try {
       await invoke("video_matcher_add_task", {
         sourcePath: sourceVideo,
@@ -278,6 +279,7 @@ export function VideoMatchTab() {
       // 加入队列后清空选择，方便继续添加下一对
       setSourceVideo("");
       setTargetVideo("");
+      setSegments([]);
     } catch (error) {
       alert(`添加任务失败: ${error}`);
     }
@@ -731,7 +733,21 @@ ${path}
       <div className="grid grid-cols-2 gap-4">
         {/* 对标视频 */}
         <div className="space-y-2">
-          <span className="text-sm font-medium">对标视频（参考）</span>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">对标视频（参考）</span>
+            {sourceVideo && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSourceVideo("");
+                  setSegments([]);
+                }}
+                className="text-xs text-muted-foreground hover:text-destructive"
+              >
+                移除
+              </button>
+            )}
+          </div>
           <div
             role="button"
             tabIndex={0}
@@ -766,7 +782,21 @@ ${path}
 
         {/* 原视频 */}
         <div className="space-y-2">
-          <span className="text-sm font-medium">原视频（素材）</span>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">原视频（素材）</span>
+            {targetVideo && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTargetVideo("");
+                  setSegments([]);
+                }}
+                className="text-xs text-muted-foreground hover:text-destructive"
+              >
+                移除
+              </button>
+            )}
+          </div>
           <div
             role="button"
             tabIndex={0}
@@ -797,6 +827,10 @@ ${path}
               <p className="text-muted-foreground">点击选择原视频</p>
             )}
           </div>
+          <p className="text-xs text-muted-foreground">
+            只选原视频不选对标，点「加入匹配」=
+            提前缓存该视频特征（可连续加入多集，后台排队提取）
+          </p>
         </div>
       </div>
 
@@ -846,14 +880,14 @@ ${path}
         </div>
       </div>
 
-      {/* 操作按钮：加入队列（可连续添加多个任务） */}
+      {/* 操作按钮：加入队列（可连续添加多个任务；仅选原视频 = 预缓存） */}
       <button
         type="button"
         onClick={handleAddTask}
-        disabled={!sourceVideo || !targetVideo}
+        disabled={!targetVideo}
         className="w-full px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50"
       >
-        加入匹配队列
+        {sourceVideo ? "加入匹配队列" : "加入队列（预缓存原视频）"}
       </button>
 
       {/* 任务列表 */}

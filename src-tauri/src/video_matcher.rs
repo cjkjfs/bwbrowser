@@ -148,7 +148,7 @@ pub fn resolve_cache_dir(settings: &VideoMatcherSettings) -> PathBuf {
 }
 
 /// 视频 ID（基于路径+大小。不含 mtime：剪映等软件可能触碰文件导致缓存永远失效）
-fn video_id(video_path: &str) -> String {
+pub fn video_id_for(video_path: &str) -> String {
   use std::hash::{Hash, Hasher};
   // 正规化路径（小写盘符/正斜杠统一），避免同一文件因路径书写差异得到不同 id
   let normalized = video_path.replace('/', "\\").to_lowercase();
@@ -163,7 +163,7 @@ fn video_id(video_path: &str) -> String {
 }
 
 /// 缓存文件路径
-fn cache_path(cache_dir: &Path, video_id: &str, extractor: &str, interval: f32) -> PathBuf {
+pub fn cache_path_for(cache_dir: &Path, video_id: &str, extractor: &str, interval: f32) -> PathBuf {
   cache_dir.join(format!("{}_{}_{:.2}.bin", video_id, extractor, interval))
 }
 
@@ -257,7 +257,11 @@ fn save_cache(cache_file: &Path, features: &[FrameFeature]) -> Result<(), String
       bytes.extend_from_slice(&v.to_le_bytes());
     }
   }
-  std::fs::write(cache_file, bytes).map_err(|e| e.to_string())
+  // 原子写入：先写临时文件再 rename，避免共享盘上多用户同时首缓存时
+  // 互相读到半截文件（rename 在同一目录内是原子的，Windows/Unix/SMB 均成立）
+  let tmp = cache_file.with_extension("tmp");
+  std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
+  std::fs::rename(&tmp, cache_file).map_err(|e| e.to_string())
 }
 
 /// 余弦相似度（向量均已归一化时即点积）
@@ -674,8 +678,8 @@ pub async fn extract_frame_hashes<R: tauri::Runtime>(
 ) -> Result<Vec<FrameFeature>, String> {
   use tauri::Emitter;
 
-  let vid = video_id(video_path);
-  let cache_file = cache_path(cache_dir, &vid, extractor, interval_sec);
+  let vid = video_id_for(video_path);
+  let cache_file = cache_path_for(cache_dir, &vid, extractor, interval_sec);
 
   // 尝试读缓存（精确键 → 回退：video_id 算法变更后按规模匹配旧文件）
   let feature_dim = model_registry(extractor)
@@ -1130,8 +1134,8 @@ pub async fn video_find_matches(
   };
 
   let has_cache = |p: &str| {
-    let vid = video_id(p);
-    cache_path(&cache_dir, &vid, &extractor, interval).exists()
+    let vid = video_id_for(p);
+    cache_path_for(&cache_dir, &vid, &extractor, interval).exists()
   };
   let src_cached = has_cache(&source_path);
   let tgt_cached = has_cache(&target_path);

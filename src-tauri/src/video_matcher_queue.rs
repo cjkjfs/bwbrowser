@@ -26,7 +26,7 @@ pub enum MatcherTaskStatus {
 #[serde(rename_all = "camelCase")]
 pub struct MatcherTask {
   pub id: String,
-  pub source_path: String, // 对标视频
+  pub source_path: String, // 对标视频；为空 = 预缓存任务（仅提取原视频特征）
   pub target_path: String, // 原视频
   pub status: MatcherTaskStatus,
   pub percent: u32,
@@ -39,30 +39,31 @@ pub struct MatcherTask {
 }
 
 /// 进程内任务表（不持久化：应用重启后任务列表清空，特征缓存仍在）
-static MATCHER_TASKS: once_cell::sync::Lazy<std::sync::Mutex<Vec<MatcherTask>>> =
+pub static MATCHER_TASKS: once_cell::sync::Lazy<std::sync::Mutex<Vec<MatcherTask>>> =
   once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
 
 /// 通知任务列表变化
-fn emit_tasks_changed<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+pub fn emit_tasks_changed<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
   use tauri::Emitter;
   let _ = app.emit("video-matcher-tasks-changed", ());
 }
 
 /// Tauri 命令：添加匹配任务（进入队列尾部）
+/// source_path 为空 = 预缓存任务：只提取 target_path 的特征入缓存
 #[tauri::command]
 pub fn video_matcher_add_task(
   app: tauri::AppHandle,
   source_path: String,
   target_path: String,
 ) -> Result<String, String> {
-  if source_path.is_empty() || target_path.is_empty() {
-    return Err("对标视频和原视频都必须选择".to_string());
-  }
-  if !Path::new(&source_path).exists() {
-    return Err(format!("对标视频不存在: {source_path}"));
+  if target_path.is_empty() {
+    return Err("必须选择原视频".to_string());
   }
   if !Path::new(&target_path).exists() {
     return Err(format!("原视频不存在: {target_path}"));
+  }
+  if !source_path.is_empty() && !Path::new(&source_path).exists() {
+    return Err(format!("对标视频不存在: {source_path}"));
   }
   let id = uuid::Uuid::new_v4().to_string();
   let task = MatcherTask {
@@ -201,9 +202,13 @@ pub async fn video_matcher_run_queue(app: tauri::AppHandle) -> Result<(), String
               Ok(segments) => {
                 t.status = MatcherTaskStatus::Completed;
                 t.percent = 100;
-                t.message = format!("匹配完成，{} 个片段", segments.len());
-                t.segment_count = segments.len() as u32;
-                t.segments = Some(segments);
+                if t.source_path.is_empty() {
+                  t.message = "预缓存完成".to_string();
+                } else {
+                  t.message = format!("匹配完成，{} 个片段", segments.len());
+                  t.segment_count = segments.len() as u32;
+                  t.segments = Some(segments);
+                }
               }
               Err(e) => {
                 t.status = MatcherTaskStatus::Failed;
@@ -221,7 +226,8 @@ pub async fn video_matcher_run_queue(app: tauri::AppHandle) -> Result<(), String
   Ok(())
 }
 
-/// 单任务执行体：复用特征提取与匹配逻辑，进度写回任务表并发事件
+/// 单任务执行体：预缓存任务仅提取特征；匹配任务复用特征提取与匹配逻辑。
+/// 进度写回任务表并发事件。
 async fn run_match_task<R: tauri::Runtime>(
   app: &tauri::AppHandle<R>,
   task_id: &str,
@@ -262,6 +268,23 @@ async fn run_match_task<R: tauri::Runtime>(
   log::info!(
     "[video_matcher] 任务 {task_id} 开始 | 对标: {source_path} | 原片: {target_path} | 模型: {extractor} | 阈值: {threshold} | min_frames: {min_frames} | 间隔: {interval}s"
   );
+
+  // 预缓存任务（source_path 为空）：只提取原视频特征入缓存
+  if source_path.is_empty() {
+    update(10, "预缓存特征提取...".to_string());
+    extract_frame_hashes(
+      app,
+      target_path,
+      interval,
+      &cache_dir,
+      &extractor,
+      "预缓存",
+      10,
+      85,
+    )
+    .await?;
+    return Ok(Vec::new());
+  }
 
   update(2, "提取对标视频特征...".to_string());
   let source_hashes = extract_frame_hashes(

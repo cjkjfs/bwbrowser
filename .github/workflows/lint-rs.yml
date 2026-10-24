@@ -34,7 +34,7 @@ jobs:
         include:
           - os: macos-latest
             ort_features: coreml
-          - os: ubuntu-22.04
+          - os: ubuntu-24.04
             ort_features: ""
           - os: windows-latest
             ort_features: directml,cuda
@@ -72,7 +72,7 @@ jobs:
         run: cargo install cargo-audit
 
       - name: Install dependencies (Ubuntu only)
-        if: matrix.os == 'ubuntu-22.04'
+        if: matrix.os == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev openvpn unzip
