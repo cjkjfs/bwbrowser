@@ -961,8 +961,15 @@ ${path}
                       <button
                         type="button"
                         onClick={() => {
-                          loadTaskResult(t);
-                          void handleExportDraft();
+                          // 直接载入结果（不 toggle），再触发导出
+                          if (t.segments) {
+                            setResultTaskId(t.id);
+                            setSegments(t.segments);
+                            setSourceVideo(t.sourcePath);
+                            setTargetVideo(t.targetPath);
+                            setDraftPath("");
+                            void handleExportDraft();
+                          }
                         }}
                         className="px-2 py-1 text-xs rounded bg-success/10 text-success hover:bg-success/20"
                       >
