@@ -40,7 +40,7 @@ if errorlevel 1 (
 
 echo.
 echo [4/4] 构建 Tauri 应用 (NSIS 安装包)...
-call pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis
+call pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis -- --features directml,cuda
 if errorlevel 1 (
     echo 错误: Tauri 构建失败
     pause

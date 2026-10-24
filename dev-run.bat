@@ -39,7 +39,7 @@ echo.
 :run
 echo Starting...
 echo.
-call pnpm tauri dev
+call pnpm tauri dev -- --features directml,cuda
 
 echo.
 echo App exited.

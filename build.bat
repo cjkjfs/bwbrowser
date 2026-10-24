@@ -74,7 +74,7 @@ echo.
 echo Building ...
 echo.
 
-pnpm tauri build
+pnpm tauri build -- --features directml,cuda
 if errorlevel 1 (
     echo.
     echo ============================================

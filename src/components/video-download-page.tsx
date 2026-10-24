@@ -1709,11 +1709,56 @@ function TaskRow({
       <div className="flex-1 min-w-0 overflow-hidden">
         <div>
           <div>
-            {/* 状态行：badge + 速度 + 操作按钮（ml-auto 推到行尾），与文本分离 */}
-            <div className="flex items-center gap-2 mb-1">
+            {/* 状态行：操作按钮在左（badge 左侧），速度/剩余量跟随 badge */}
+            <div className="flex items-center gap-1 mb-1">
+              {task.status === "downloading" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onPause}
+                  title="暂停"
+                >
+                  <LuPause className="w-4 h-4" />
+                </Button>
+              )}
+              {task.status === "paused" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onResume}
+                  title="继续"
+                >
+                  <LuPlay className="w-4 h-4" />
+                </Button>
+              )}
+              {task.status === "error" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onRetry}
+                  title="重试"
+                >
+                  <LuRotateCcw className="w-4 h-4" />
+                </Button>
+              )}
+              {(task.status === "waiting" ||
+                task.status === "downloading" ||
+                task.status === "paused") && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onCancel}
+                  title="取消"
+                >
+                  <LuX className="w-4 h-4" />
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={onDelete} title="删除">
+                <LuTrash2 className="w-4 h-4" />
+              </Button>
               <Badge
                 variant={config.variant}
-                className="text-[10px] h-4 px-1.5 font-normal shrink-0"
+                className="text-[10px] h-4 px-1.5 font-normal shrink-0 ml-1"
               >
                 <StatusIcon className="w-3 h-3 mr-0.5" />
                 {config.label}
@@ -1728,58 +1773,6 @@ function TaskRow({
                   剩余 {formatSize(remaining)}
                 </span>
               )}
-              <div className="ml-auto flex items-center gap-1 shrink-0">
-                {task.status === "downloading" && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={onPause}
-                    title="暂停"
-                  >
-                    <LuPause className="w-4 h-4" />
-                  </Button>
-                )}
-                {task.status === "paused" && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={onResume}
-                    title="继续"
-                  >
-                    <LuPlay className="w-4 h-4" />
-                  </Button>
-                )}
-                {task.status === "error" && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={onRetry}
-                    title="重试"
-                  >
-                    <LuRotateCcw className="w-4 h-4" />
-                  </Button>
-                )}
-                {(task.status === "waiting" ||
-                  task.status === "downloading" ||
-                  task.status === "paused") && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={onCancel}
-                    title="取消"
-                  >
-                    <LuX className="w-4 h-4" />
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={onDelete}
-                  title="删除"
-                >
-                  <LuTrash2 className="w-4 h-4" />
-                </Button>
-              </div>
             </div>
             <p
               className="text-sm font-medium truncate break-all"

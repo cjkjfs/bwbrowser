@@ -70,7 +70,7 @@ echo   首次构建需要较长时间，请耐心等待...
 echo.
 
 cd src-tauri
-cargo tauri build --bundles nsis
+cargo tauri build --bundles nsis --features directml,cuda
 
 if %errorlevel% equ 0 (
     echo.
