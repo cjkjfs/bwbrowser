@@ -356,6 +356,66 @@ export function VideoMatchTab() {
     }
   };
 
+  // 带参导出：任务列表按钮直接传入该任务的对标/素材/片段，不依赖组件状态
+  // （setState 异步，onClick 里先 set 再调本函数时闭包里还是旧值）
+  const exportDraftFor = async (
+    refVideo: string,
+    materialVideo: string,
+    segs: MatchSegment[],
+    refPlayerDuration: number,
+  ) => {
+    if (segs.length === 0) return;
+    setExporting(true);
+    try {
+      const outputDir = await open({
+        directory: true,
+        multiple: false,
+        title: "选择剪映草稿保存目录",
+      });
+      if (!outputDir) {
+        setExporting(false);
+        return;
+      }
+
+      // 对标总长：播放器已加载同一文件则直接用，否则用隐藏 video 探测
+      let refDuration = refPlayerDuration;
+      if (!(refDuration > 0) && refVideo) {
+        refDuration = await new Promise<number>((resolve) => {
+          const v = document.createElement("video");
+          v.preload = "metadata";
+          v.src = convertFileSrc(refVideo);
+          const done = (d: number) => resolve(Number.isFinite(d) ? d : 0);
+          v.onloadedmetadata = () => done(v.duration);
+          v.onerror = () => done(0);
+          setTimeout(() => done(0), 8000);
+        });
+      }
+      refDuration = Math.max(
+        refDuration,
+        segs.reduce((max, s) => Math.max(max, s.sourceEnd), 0),
+      );
+
+      const path = await invoke<string>("video_export_jianying_draft", {
+        segments: segs,
+        sourceVideo: materialVideo, // 原视频是素材
+        outputDir,
+        draftName:
+          materialVideo
+            .split(/[/\\]/)
+            .pop()
+            ?.replace(/\.[^.]+$/, "") ?? "导出",
+        referenceDuration: refDuration,
+      });
+      setDraftPath(path);
+      alert(`草稿已导出:\n${path}\n\n在剪映首页即可看到该草稿。`);
+    } catch (error) {
+      console.error("导出失败:", error);
+      alert(`导出失败: ${error}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleExportDraft = async () => {
     if (!sourceVideo || segments.length === 0) return;
 
@@ -961,15 +1021,22 @@ ${path}
                       <button
                         type="button"
                         onClick={() => {
-                          // 直接载入结果（不 toggle），再触发导出
-                          if (t.segments) {
-                            setResultTaskId(t.id);
-                            setSegments(t.segments);
-                            setSourceVideo(t.sourcePath);
-                            setTargetVideo(t.targetPath);
-                            setDraftPath("");
-                            void handleExportDraft();
-                          }
+                          if (!t.segments) return;
+                          setResultTaskId(t.id);
+                          setSegments(t.segments);
+                          setSourceVideo(t.sourcePath);
+                          setTargetVideo(t.targetPath);
+                          setDraftPath("");
+                          // 直接用任务数据导出：setState 异步，此刻组件状态还是旧值
+                          void exportDraftFor(
+                            t.sourcePath,
+                            t.targetPath,
+                            t.segments,
+                            // 对标播放器若正加载同一文件才可用其 duration
+                            sourceVideo === t.sourcePath
+                              ? (sourceVideoRef.current?.duration ?? 0)
+                              : 0,
+                          );
                         }}
                         className="px-2 py-1 text-xs rounded bg-success/10 text-success hover:bg-success/20"
                       >
