@@ -116,6 +116,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
         with:
           projectPath: ./src-tauri
           tagName: ${{ github.ref_name }}

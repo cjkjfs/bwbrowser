@@ -250,6 +250,7 @@ jobs:
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f #v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
           BUILD_TAG: "nightly-${{ steps.timestamp.outputs.timestamp }}"
           GITHUB_REF_NAME: "nightly-${{ steps.timestamp.outputs.timestamp }}"
           GITHUB_SHA: ${{ github.sha }}
