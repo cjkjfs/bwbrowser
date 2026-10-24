@@ -1779,8 +1779,9 @@ pub async fn video_export_jianying_draft(
     .collect();
   seg_gaps.sort_by(|a, b| a.partial_cmp(b).unwrap());
   let median_gap = seg_gaps.get(seg_gaps.len() / 2).copied().unwrap_or(0.0);
-  // 空缺阈值：中位间隙的 2 倍且至少 0.5s（帧时间戳的量化误差 ~0.33s 不算空缺）
-  let gap_threshold = (median_gap * 2.0).max(0.5);
+  // 空缺阈值：略高于一个帧间隔（0.33s 级的量化误差相邻帧不算空缺），
+  // 超过 1.5 倍帧间隔即视为真空缺。中位间隙≈帧间隔，用它做单位。
+  let gap_threshold = (median_gap * 1.5).max(0.35);
 
   let mut placeholder_photo_id = uuid::Uuid::new_v4().to_string();
   let mut placeholder_segments: Vec<serde_json::Value> = Vec::new();
