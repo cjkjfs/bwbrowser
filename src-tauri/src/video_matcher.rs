@@ -1918,7 +1918,7 @@ pub async fn video_export_jianying_draft(
         "category_id": "",
         "file_size": std::fs::metadata(&material_path).map(|m| m.len()).unwrap_or(0),
       }],
-      "photos": (if placeholder_photo_id.is_empty() {
+      "images": (if placeholder_photo_id.is_empty() {
         vec![]
       } else {
         vec![serde_json::json!({
