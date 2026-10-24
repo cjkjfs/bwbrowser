@@ -12,3 +12,9 @@ rustflags = ["-C", "link-arg=-Wl,-platform_version,macOS,14.0,14.0"]
 
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "link-arg=-Wl,-platform_version,macOS,14.0,14.0"]
+
+# tauri-action 子进程链会丢失 workflow env（#97/#98 日志证明 rustc 基线仍是
+# 11.0 → 链接命令第一个 -mmacosx-version-min=11.0.0 赢）。cargo 的 [env] 段
+# 对构建进程强制注入，rustc 1.72+ 读 MACOSX_DEPLOYMENT_TARGET 调整 Apple 基线。
+[env]
+MACOSX_DEPLOYMENT_TARGET = "14.0"
