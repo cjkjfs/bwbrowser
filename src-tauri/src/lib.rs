@@ -129,6 +129,8 @@ mod cookie_paste;
 mod cookie_sync;
 pub mod events;
 mod login_autofill;
+#[cfg(all(target_os = "macos", feature = "coreml"))]
+mod macos_link_stub;
 mod mcp_integrations;
 mod mcp_remote;
 mod mcp_server;
