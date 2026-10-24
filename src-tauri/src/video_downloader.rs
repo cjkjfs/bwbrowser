@@ -960,6 +960,57 @@ impl VideoDownloader {
   }
 }
 
+/// 云端解析分享链接（bwbrowser_resolve.php）：解析逻辑集中在服务端，
+/// 平台改版时改 PHP 即可，客户端不用发版。登录用户凭据做鉴权。
+async fn resolve_share_url_via_cloud(share_url: &str) -> Result<(String, Option<String>), String> {
+  use crate::bwbrowser_cloud::BWBROWSER_AUTH;
+  use crate::cloud_domain::BWBROWSER_API_URL;
+
+  let Some((username, password)) = BWBROWSER_AUTH.get_credentials() else {
+    return Err("未登录 BW Browser 账号，无法使用云端解析".to_string());
+  };
+
+  let form = format!(
+    "action=resolve&username={}&password={}&url={}",
+    crate::bwbrowser_cloud::urlencode(&username),
+    crate::bwbrowser_cloud::urlencode(&password),
+    crate::bwbrowser_cloud::urlencode(share_url),
+  );
+
+  let resolve_url = BWBROWSER_API_URL.replace("bwbrowser_sync.php", "bwbrowser_resolve.php");
+  let resp = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(40))
+    .build()
+    .map_err(|e| e.to_string())?
+    .post(&resolve_url)
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .body(form)
+    .send()
+    .await
+    .map_err(|e| format!("云端解析请求失败: {e}"))?;
+
+  let status = resp.status();
+  let body = resp.text().await.map_err(|e| e.to_string())?;
+  let v: serde_json::Value =
+    serde_json::from_str(&body).map_err(|_| format!("云端解析返回非 JSON（HTTP {status}）"))?;
+
+  if v["success"].as_bool() != Some(true) {
+    let msg = v["message"].as_str().unwrap_or("云端解析失败").to_string();
+    return Err(msg);
+  }
+  let play_url = v["data"]["play_url"]
+    .as_str()
+    .ok_or("云端解析返回缺少 play_url")?
+    .to_string();
+  let title = v["data"]["title"].as_str().map(|s| s.to_string());
+  log::info!(
+    "[video_download] 云端解析成功: source={} url_len={}",
+    v["data"]["source"].as_str().unwrap_or("?"),
+    play_url.len()
+  );
+  Ok((play_url, title))
+}
+
 /// 运行单个 yt-dlp 下载
 /// 解析红果短剧/漫剧分享页，返回 MP4 直链。
 /// 已知入口（均重定向到同系分享页，移动端 UA 才返回含 play_url 的数据）：
@@ -1109,33 +1160,62 @@ async fn run_single_download<R: Runtime>(
     || url.contains("hainanyuyue.com/share/");
   let mut hongguo_fixed_name: Option<String> = None;
   let url: String = if is_hongguo {
-    dl.set_task_status_text(task_id, "解析红果短剧分享链接...".to_string())
+    dl.set_task_status_text(task_id, "解析分享链接...".to_string())
       .await;
-    match resolve_hongguo_share_url(url).await {
-      Ok(direct) => {
+    // 云端优先：解析逻辑在服务端，平台改版不用发客户端；失败回退本地解析
+    let resolved = match resolve_share_url_via_cloud(url).await {
+      Ok((direct, cloud_title)) => {
+        log::info!("[video_download] 云端解析成功（title={cloud_title:?}）");
+        Ok((direct, cloud_title))
+      }
+      Err(cloud_err) => {
+        log::warn!("[video_download] 云端解析失败，回退本地解析: {cloud_err}");
+        dl.set_task_status_text(task_id, "云端解析不可用，使用本地解析...".to_string())
+          .await;
+        resolve_hongguo_share_url(url).await.map(|d| (d, None))
+      }
+    };
+    match resolved {
+      Ok((direct, cloud_title)) => {
         log::info!(
-          "[video_download] 红果分享链接解析成功: {} -> direct mp4 ({} bytes)",
+          "[video_download] 分享链接解析成功: {} -> direct ({} bytes)",
           url,
           direct.len()
         );
         dl.set_task_status_text(task_id, "解析成功，开始下载...".to_string())
           .await;
         let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let base = std::path::Path::new(&url)
-          .file_stem()
-          .map(|n| n.to_string_lossy().to_string())
-          .unwrap_or_else(|| "hongguo".to_string());
-        let base = base
-          .split(['?', '&'])
-          .next()
-          .unwrap_or("hongguo")
-          .to_string();
+        // 有云端标题用标题做文件名（云端能拿到时更友好），否则退回 URL 主干
+        let base = cloud_title
+          .filter(|t| !t.trim().is_empty())
+          .map(|t| {
+            t.trim()
+              .chars()
+              .map(|c| {
+                if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                  '_'
+                } else {
+                  c
+                }
+              })
+              .collect::<String>()
+          })
+          .unwrap_or_else(|| {
+            std::path::Path::new(url)
+              .file_stem()
+              .map(|n| n.to_string_lossy().to_string())
+              .unwrap_or_else(|| "hongguo".to_string())
+              .split(['?', '&'])
+              .next()
+              .unwrap_or("hongguo")
+              .to_string()
+          });
         hongguo_fixed_name = Some(format!("{}_{}.%(ext)s", base, stamp));
         direct
       }
       Err(e) => {
-        log::warn!("[video_download] 红果分享链接解析失败: {e}");
-        return Err(format!("红果短剧链接解析失败：{e}"));
+        log::warn!("[video_download] 分享链接解析失败: {e}");
+        return Err(format!("短剧链接解析失败：{e}"));
       }
     }
   } else {
