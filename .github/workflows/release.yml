@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 env:
-  # 与 rolling-release 相同原因：ort CoreML 预编译包要求 macOS 13+ 部署目标
-  MACOSX_DEPLOYMENT_TARGET: "13.0"
+  # 与 rolling-release 相同原因：ort CoreML 预编译包要求 macOS 14+ 部署目标
+  MACOSX_DEPLOYMENT_TARGET: "14.0"
 
 jobs:
   release:

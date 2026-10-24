@@ -3,11 +3,12 @@
 
 incremental = true
 
-# ort 的 macOS 预编译包按 macOS 13.4 构建：部署目标低于 13 时链接缺
-# ___isPlatformVersionAtLeast 符号（build for newer macOS than linked）。
-# 在链接器层面强制 13.0，不依赖 CI 环境变量（tauri-action 子进程可能不带）。
+# ort 的 CoreML 预编译包引用 ___isPlatformVersionAtLeast，该 libSystem 符号在
+# macOS 14+（Xcode 15 SDK）才对外可见：部署目标 13.0 仍报 undefined symbol。
+# 在链接器层面强制 14.0，不依赖 CI 环境变量（tauri-action 子进程可能不带）。
+# 代价：macOS 版要求系统 >= 14（Windows/Linux 不受影响）。
 [target.aarch64-apple-darwin]
-rustflags = ["-C", "link-arg=-mmacosx-version-min=13.0"]
+rustflags = ["-C", "link-arg=-mmacosx-version-min=14.0"]
 
 [target.x86_64-apple-darwin]
-rustflags = ["-C", "link-arg=-mmacosx-version-min=13.0"]
+rustflags = ["-C", "link-arg=-mmacosx-version-min=14.0"]
