@@ -2,3 +2,12 @@
 # Omit jobs setting to use all cores
 
 incremental = true
+
+# ort 的 macOS 预编译包按 macOS 13.4 构建：部署目标低于 13 时链接缺
+# ___isPlatformVersionAtLeast 符号（build for newer macOS than linked）。
+# 在链接器层面强制 13.0，不依赖 CI 环境变量（tauri-action 子进程可能不带）。
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-mmacosx-version-min=13.0"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-mmacosx-version-min=13.0"]
