@@ -1711,9 +1711,77 @@ pub async fn video_export_jianying_draft(
     }));
   }
 
-  // 草稿总时长：对标视频总时长（对齐模式留空未匹配部分）
+  // 尾部占位：对标真实总长 > 最后匹配段结束点时，剪映时间线会在尾部提前结束
+  // （剪映总长由最后一个片段的 end 决定，顶层 duration 字段无效）。
+  // 用素材的最后 1 秒画面冻结追加，填满缺口，保证总长与对标一致。
   let ref_dur = reference_duration
     .unwrap_or_else(|| segments.iter().map(|s| s.source_end).fold(0.0f32, f32::max));
+  let last_end = segments.iter().map(|s| s.source_end).fold(0.0f32, f32::max);
+  let gap = ref_dur - last_end;
+  let freeze_dur = gap.max(0.0);
+  if freeze_dur > 0.04 {
+    let last = segments
+      .iter()
+      .max_by(|a, b| a.source_end.partial_cmp(&b.source_end).unwrap());
+    if let Some(last) = last {
+      let seg_id = uuid::Uuid::new_v4().to_string();
+      // 冻结帧：source_timerange 取素材末端 0.04s 一帧，配合 speed 极慢拉满 freeze_dur
+      // （剪映无直接 freeze 字段，用极长 source 片段 + 高 speed 的逆做法：取极短素材 + 极慢 speed）
+      // 简化实现：直接引用素材结尾 1 秒循环播放（is_loop=true）铺满缺口
+      let freeze_speed = 1.0f32;
+      let tail_start = (last.target_end - 1.0).max(0.0);
+      speed_materials.push(serde_json::json!({
+        "id": seg_id,
+        "material_id": seg_id,
+        "type": "speed",
+        "speed": freeze_speed,
+        "mode": 0,
+        "curve_speed": null,
+      }));
+      video_segments.push(serde_json::json!({
+        "id": seg_id,
+        "material_id": mat_id,
+        "target_timerange": {
+          "start": sec_to_us(last_end),
+          "duration": sec_to_us(freeze_dur),
+        },
+        "source_timerange": {
+          "start": sec_to_us(tail_start),
+          "duration": sec_to_us(1.0_f32.min(freeze_dur)),
+        },
+        "extra_material_refs": [seg_id],
+        "clip": {
+          "alpha": 1.0,
+          "rotation": 0,
+          "scale": {"x": 1.0, "y": 1.0},
+          "transform": {"x": 0.0, "y": 0.0},
+          "flip": {"horizontal": false, "vertical": false},
+        },
+        "speed": freeze_speed,
+        "volume": 0.0,
+        "visible": true,
+        "render_index": 999,
+        "render_uniform_index": -1,
+        "common_keyframes": [],
+        "uniform_scale": {"on": true, "value": 1.0},
+        "group_id": "",
+        "track_render_index": 0,
+        "enable_adjust": true,
+        "enable_color_curves": true,
+        "enable_color_match_adjust": false,
+        "enable_color_wheels": true,
+        "enable_lut": true,
+        "enable_smart_color_adjust": false,
+        "is_loop": true,
+        "cartoon": false,
+        "intensifies_audio": false,
+        "last_nonzero_volume": 0.0,
+      }));
+      log::info!(
+        "[video_matcher] 尾部占位: 对标 {ref_dur:.1}s > 最后匹配 {last_end:.1}s，追加 {freeze_dur:.1}s 静帧循环（素材 {tail_start:.1}s 起，静音）"
+      );
+    }
+  }
 
   let draft_content = serde_json::json!({
     "id": draft_id,
