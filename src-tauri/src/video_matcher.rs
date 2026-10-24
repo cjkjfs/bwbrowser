@@ -1640,10 +1640,10 @@ pub async fn video_export_jianying_draft(
   let mut video_segments = Vec::new();
   let mut speed_materials = Vec::new();
 
-  // 无缝拼接：target start 用「前一段的 end」而非对标的帧时间戳。
-  // 抽帧间隔量化使各段实际时长略短于帧间隔，若直接用帧时间戳做 start，
-  // 段间会留下 0.33s 级小空隙（76 段累积可达 27s），剪映将其前移补齐后
-  // 总时长缩短，观感即「比对标提前播完」。
+  // 时间线布局（用户指定）：占位图与匹配片段放【同一轨道】，空缺处留真实间隙。
+  // 每段时间线位置 = 对标帧时间戳；时长 = 到下一帧时间戳的间隔（帧间隔 0.33s 级），
+  // 这样相邻帧时间戳之间既无重叠也无累积空隙，占位图插在空缺处后整条时间轴
+  // 与对标 1:1 对齐。cursor 仅用于兜底（最后一帧时间戳之后的部分）。
   let mut cursor = 0.0f32;
 
   for (idx, seg) in segments.iter().enumerate() {
@@ -1651,11 +1651,17 @@ pub async fn video_export_jianying_draft(
     let speed_id = uuid::Uuid::new_v4().to_string();
 
     // CutMatch export_from_segments 同款变速对齐：
-    // 时间线位置/时长 = 对标段；素材截取完整原片段；
+    // 时间线位置 = 对标帧时间戳；素材截取完整原片段；
     // speed = 素材时长/对标时长（0.25~4.0 限幅），剪映按 speed 自动变速，
     // 保证每段画面节奏与对标一致（对标作者对素材做的加减速被还原）
-    let timeline_dur = (seg.source_end - seg.source_start).max(0.04);
-    let timeline_start = cursor;
+    let timeline_start = seg.source_start;
+    // 段长 = 下一帧时间戳 - 当前帧时间戳（保证与下一段无缝衔接）
+    let next_start = segments
+      .get(idx + 1)
+      .map(|n| n.source_start)
+      .unwrap_or(seg.source_end);
+    let timeline_dur =
+      (next_start - timeline_start).max((seg.source_end - seg.source_start).max(0.04));
     let src_start = seg.target_start;
     let src_dur = (seg.target_end - seg.target_start).max(0.04);
     let raw_speed = src_dur / timeline_dur;
@@ -1850,7 +1856,19 @@ pub async fn video_export_jianying_draft(
     log::warn!("[video_matcher] 占位图生成失败，跳过空缺轨道");
   }
 
-  let mut all_tracks = vec![serde_json::json!({
+  // 占位图与匹配片段放【同一轨道】：空缺处主轨留真实间隙，占位图插在间隙里，
+  // 剪映时间轴 1:1 对应对标，缺哪缺多久直接可见（用户指定布局）
+  if !placeholder_segments.is_empty() {
+    video_segments.extend(placeholder_segments.iter().cloned());
+    video_segments.sort_by_key(|s| {
+      s.get("target_timerange")
+        .and_then(|t| t.get("start"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0)
+    });
+  }
+
+  let all_tracks = vec![serde_json::json!({
     "id": uuid::Uuid::new_v4().to_string(),
     "type": "video",
     "name": "主轨道",
@@ -1859,18 +1877,6 @@ pub async fn video_export_jianying_draft(
     "flag": 0,
     "is_default_name": true,
   })];
-  // 占位轨道：有照片素材且有空缺段时追加（数组序即剪映分层，占位在下层提示）
-  if !placeholder_segments.is_empty() {
-    all_tracks.push(serde_json::json!({
-      "id": uuid::Uuid::new_v4().to_string(),
-      "type": "video",
-      "name": "空缺占位（需补素材）",
-      "segments": placeholder_segments,
-      "attribute": 0,
-      "flag": 0,
-      "is_default_name": false,
-    }));
-  }
 
   let draft_content = serde_json::json!({
     "id": draft_id,
