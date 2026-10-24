@@ -1724,10 +1724,9 @@ pub async fn video_export_jianying_draft(
   // 对标总长由前端传入（对标播放器已加载的 duration）。
   let ref_dur = reference_duration
     .unwrap_or_else(|| segments.iter().map(|s| s.source_end).fold(0.0f32, f32::max));
-  // 对标的最后匹配点（仅用于计算原素材尾部起点），时间线末尾用 cursor
-  let last_match_end = segments.iter().map(|s| s.source_end).fold(0.0f32, f32::max);
-  // last_end = 无缝拼接后时间线的实际末尾（cursor），而非对标的最后匹配点
-  let last_end = cursor.max(last_match_end);
+  // 时间线实际末尾 = 无缝拼接游标（cursor）。不能用对标的最后匹配点
+  // （那是对标坐标，主轨无缝拼接后可能远短于此），否则尾部空缺被漏算。
+  let last_end = cursor;
   // 空缺占位轨道（见下方 placeholder 段）会覆盖包括尾部在内的所有空缺区间
 
   // ---------- 空缺占位图轨道 ----------
@@ -1800,7 +1799,7 @@ pub async fn video_export_jianying_draft(
         holes.push((w[0].1, w[1].0));
       }
     }
-    // 尾部空缺（cursor 与 last_match_end 无缝拼接后仍短于对标总长的部分）
+    // 尾部空缺（主轨无缝拼接末尾仍短于对标总长的部分）
     if ref_dur - last_end > gap_threshold {
       holes.push((last_end, ref_dur));
     }
