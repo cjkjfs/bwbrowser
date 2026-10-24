@@ -1728,39 +1728,92 @@ pub async fn video_export_jianying_draft(
   let last_match_end = segments.iter().map(|s| s.source_end).fold(0.0f32, f32::max);
   // last_end = 无缝拼接后时间线的实际末尾（cursor），而非对标的最后匹配点
   let last_end = cursor.max(last_match_end);
-  let gap = ref_dur - last_end;
-  let freeze_dur = gap.max(0.0);
-  if freeze_dur > 0.04 {
-    let last = segments
-      .iter()
-      .max_by(|a, b| a.source_end.partial_cmp(&b.source_end).unwrap());
-    if let Some(last) = last {
-      let seg_id = uuid::Uuid::new_v4().to_string();
-      // 冻结帧：source_timerange 取素材末端 0.04s 一帧，配合 speed 极慢拉满 freeze_dur
-      // （剪映无直接 freeze 字段，用极长 source 片段 + 高 speed 的逆做法：取极短素材 + 极慢 speed）
-      // 简化实现：直接引用素材结尾 1 秒循环播放（is_loop=true）铺满缺口
-      let freeze_speed = 1.0f32;
-      let tail_start = (last.target_end - 1.0).max(0.0);
-      speed_materials.push(serde_json::json!({
-        "id": seg_id,
-        "material_id": seg_id,
-        "type": "speed",
-        "speed": freeze_speed,
-        "mode": 0,
-        "curve_speed": null,
-      }));
-      video_segments.push(serde_json::json!({
-        "id": seg_id,
-        "material_id": mat_id,
+  // 空缺占位轨道（见下方 placeholder 段）会覆盖包括尾部在内的所有空缺区间
+
+  // ---------- 空缺占位图轨道 ----------
+  // 主轨道是无缝拼接的真实匹配画面；对标的空缺区间（头部/中间/尾部没有匹配到
+  // 的部分）在第二轨道放一张"空缺占位图"，撑满对标总长——时间轴直观对齐，
+  // 缺哪缺多久一眼可见，用户在剪映里自行决定替换素材。
+  // （替代旧的尾部循环片段方案：循环画面会掩盖"缺素材"这一事实）
+  let placeholder_png = draft_dir.join("materials").join("empty_slot.png");
+  let placeholder_abs = placeholder_png
+    .to_string_lossy()
+    .replace("\\\\?\\", "")
+    .replace('\\', "/");
+  // 生成一张 1920x1080 深灰底、写有"空缺画面"字样的 PNG（纯 FFmpeg lavfi，无字体依赖）
+  let _ = tokio::process::Command::new(&ffmpeg)
+    .args([
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=0x2b2b2b:s=1920x1080:d=0.1",
+      "-vf",
+      "drawbox=x=860:y=460:w=200:h=160:color=0x555555@1:t=fill",
+      "-frames:v",
+      "1",
+    ])
+    .arg(&placeholder_png)
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::null())
+    .output()
+    .await;
+
+  let placeholder_ok = placeholder_png.exists()
+    && std::fs::metadata(&placeholder_png)
+      .map(|m| m.len() > 1000)
+      .unwrap_or(false);
+
+  // 计算主轨道覆盖的对标区间（用对标帧时间戳判断空缺），相邻匹配间隔超过
+  // 一个抽帧间隔即视为空缺。前端传入的间隔无从知晓，用段间实际差距估算。
+  let mut covered: Vec<(f32, f32)> = segments
+    .iter()
+    .map(|s| (s.source_start, s.source_end))
+    .collect();
+  covered.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+  // 相邻段间隙大于中位段长视为空缺（避免把正常的段间隔当空缺）
+  let mut seg_gaps: Vec<f32> = covered
+    .windows(2)
+    .map(|w| w[1].0 - w[0].1)
+    .filter(|g| *g > 0.02)
+    .collect();
+  seg_gaps.sort_by(|a, b| a.partial_cmp(b).unwrap());
+  let median_gap = seg_gaps.get(seg_gaps.len() / 2).copied().unwrap_or(0.0);
+  // 空缺阈值：中位间隙的 2 倍且至少 0.5s（帧时间戳的量化误差 ~0.33s 不算空缺）
+  let gap_threshold = (median_gap * 2.0).max(0.5);
+
+  let mut placeholder_photo_id = uuid::Uuid::new_v4().to_string();
+  let mut placeholder_segments: Vec<serde_json::Value> = Vec::new();
+  if placeholder_ok {
+    let mut holes: Vec<(f32, f32)> = Vec::new();
+    // 头部空缺
+    if let Some(first) = covered.first() {
+      if first.0 > gap_threshold {
+        holes.push((0.0, first.0));
+      }
+    }
+    // 中间空缺
+    for w in covered.windows(2) {
+      let gap_len = w[1].0 - w[0].1;
+      if gap_len > gap_threshold {
+        holes.push((w[0].1, w[1].0));
+      }
+    }
+    // 尾部空缺（cursor 与 last_match_end 无缝拼接后仍短于对标总长的部分）
+    if ref_dur - last_end > gap_threshold {
+      holes.push((last_end, ref_dur));
+    }
+
+    for (hole_start, hole_end) in holes {
+      placeholder_segments.push(serde_json::json!({
+        "id": uuid::Uuid::new_v4().to_string(),
+        "material_id": placeholder_photo_id,
         "target_timerange": {
-          "start": sec_to_us(last_end),
-          "duration": sec_to_us(freeze_dur),
+          "start": sec_to_us(hole_start),
+          "duration": sec_to_us(hole_end - hole_start),
         },
-        "source_timerange": {
-          "start": sec_to_us(tail_start),
-          "duration": sec_to_us(1.0_f32.min(freeze_dur)),
-        },
-        "extra_material_refs": [seg_id],
+        "source_timerange": null,
+        "extra_material_refs": [],
         "clip": {
           "alpha": 1.0,
           "rotation": 0,
@@ -1768,30 +1821,55 @@ pub async fn video_export_jianying_draft(
           "transform": {"x": 0.0, "y": 0.0},
           "flip": {"horizontal": false, "vertical": false},
         },
-        "speed": freeze_speed,
         "volume": 0.0,
         "visible": true,
-        "render_index": 999,
+        "render_index": 0,
         "render_uniform_index": -1,
         "common_keyframes": [],
         "uniform_scale": {"on": true, "value": 1.0},
         "group_id": "",
-        "track_render_index": 0,
+        "track_render_index": 1,
         "enable_adjust": true,
         "enable_color_curves": true,
         "enable_color_match_adjust": false,
         "enable_color_wheels": true,
         "enable_lut": true,
         "enable_smart_color_adjust": false,
-        "is_loop": true,
+        "is_loop": false,
         "cartoon": false,
         "intensifies_audio": false,
         "last_nonzero_volume": 0.0,
       }));
-      log::info!(
-        "[video_matcher] 尾部占位: 对标 {ref_dur:.1}s > 最后匹配 {last_end:.1}s，追加 {freeze_dur:.1}s 静帧循环（素材 {tail_start:.1}s 起，静音）"
-      );
     }
+    log::info!(
+      "[video_matcher] 空缺占位: 对标 {ref_dur:.1}s，检出 {} 处空缺（阈值 {gap_threshold:.2}s），主轨道末尾 {last_end:.1}s",
+      placeholder_segments.len()
+    );
+  } else {
+    placeholder_photo_id = String::new();
+    log::warn!("[video_matcher] 占位图生成失败，跳过空缺轨道");
+  }
+
+  let mut all_tracks = vec![serde_json::json!({
+    "id": uuid::Uuid::new_v4().to_string(),
+    "type": "video",
+    "name": "主轨道",
+    "segments": video_segments,
+    "attribute": 0,
+    "flag": 0,
+    "is_default_name": true,
+  })];
+  // 占位轨道：有照片素材且有空缺段时追加（数组序即剪映分层，占位在下层提示）
+  if !placeholder_segments.is_empty() {
+    all_tracks.push(serde_json::json!({
+      "id": uuid::Uuid::new_v4().to_string(),
+      "type": "video",
+      "name": "空缺占位（需补素材）",
+      "segments": placeholder_segments,
+      "attribute": 0,
+      "flag": 0,
+      "is_default_name": false,
+    }));
   }
 
   let draft_content = serde_json::json!({
@@ -1812,17 +1890,7 @@ pub async fn video_export_jianying_draft(
       "app_version": "12.0.0",
       "os": "win",
     },
-    "tracks": [
-      {
-        "id": uuid::Uuid::new_v4().to_string(),
-        "type": "video",
-        "name": "主轨道",
-        "segments": video_segments,
-        "attribute": 0,
-        "flag": 0,
-        "is_default_name": true,
-      },
-    ],
+    "tracks": all_tracks,
     "materials": {
       "videos": [{
         "id": mat_id,
@@ -1850,6 +1918,26 @@ pub async fn video_export_jianying_draft(
         "category_id": "",
         "file_size": std::fs::metadata(&material_path).map(|m| m.len()).unwrap_or(0),
       }],
+      "photos": (if placeholder_photo_id.is_empty() {
+        vec![]
+      } else {
+        vec![serde_json::json!({
+          "id": placeholder_photo_id,
+          "material_id": placeholder_photo_id,
+          "material_name": "empty_slot.png",
+          "path": placeholder_abs,
+          "media_path": "",
+          "type": "photo",
+          "width": 1920,
+          "height": 1080,
+          "source_platform": 0,
+          "category_name": "local",
+          "local_material_id": "",
+          "check_flag": 63487,
+          "crop_ratio": "free",
+          "crop_scale": 1.0,
+        })]
+      }),
       "audios": [],
       "texts": [],
       "stickers": [],
