@@ -19,6 +19,11 @@
 /.next/
 /out/
 /dist/
+# 构建缓存备份：Tailwind v4 自动扫描未忽略的文件，.bak 里的二进制缓存
+# 会被提取成乱码"类名"生成非法 CSS（.\[app-\:..]），导致 globals.css 解析失败
+.next.bak/
+dist.bak/
+*.bak/
 
 # production
 /build

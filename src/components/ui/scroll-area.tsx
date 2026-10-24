@@ -7,9 +7,14 @@ import { cn } from "@/lib/utils";
 
 function ScrollArea({
   className,
+  blockViewport = false,
   children,
   ...props
-}: React.ComponentProps<typeof ScrollAreaPrimitive.Root>) {
+}: React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
+  /** Radix viewport 的内层 div 默认 display:table，超长无空格内容会撑破容器；
+   *  开启后强制该层为 block，使 truncate/break-all 在受限宽度下生效 */
+  blockViewport?: boolean;
+}) {
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
@@ -18,7 +23,10 @@ function ScrollArea({
     >
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
+        className={cn(
+          "size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1",
+          blockViewport && "[&>div]:block [&>div]:min-w-0",
+        )}
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

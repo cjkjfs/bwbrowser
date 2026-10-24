@@ -22,6 +22,10 @@ permissions:
 env:
   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+  # ort 的 CoreML 预编译包按 macOS 13.4 构建；部署目标 11.0 链接时缺
+  # ___isPlatformVersionAtLeast 符号（build for newer macOS than linked）。
+  # 提到 13.0 与预编译包一致（Tauri 官方最低要求本就是 10.13+，13.0 无碍）。
+  MACOSX_DEPLOYMENT_TARGET: "13.0"
 
 jobs:
   security-scan:

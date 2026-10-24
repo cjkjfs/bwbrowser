@@ -1106,7 +1106,10 @@ export function VideoDownloadPage({
           </div>
         </div>
 
-        <ScrollArea className="flex-1 min-h-0 border rounded-lg">
+        {/* Radix ScrollArea 的 viewport 内层 div 是 display:table，最小宽度随内容增长：
+            超长无空格字符串（视频链接、yt-dlp 报错）会把它撑出视口并挤出按钮。
+            blockViewport 让该层回到 block 布局，truncate/break-all 才能生效。 */}
+        <ScrollArea blockViewport className="flex-1 min-h-0 border rounded-lg">
           {tasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
               <LuDownload className="w-12 h-12 mb-3 opacity-30" />
@@ -1685,8 +1688,8 @@ function TaskRow({
           type="button"
           className={
             task.filename
-              ? "shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
-              : "shrink-0 cursor-default"
+              ? "shrink-0 cursor-pointer hover:opacity-80 transition-opacity mt-1"
+              : "shrink-0 cursor-default mt-1"
           }
           onClick={() => {
             if (task.filename) onOpenFile(task.filename);
@@ -1703,74 +1706,100 @@ function TaskRow({
           />
         </button>
       )}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 overflow-hidden">
+        <div>
+          <div>
+            {/* 状态行：badge + 速度 + 操作按钮（ml-auto 推到行尾），与文本分离 */}
             <div className="flex items-center gap-2 mb-1">
               <Badge
                 variant={config.variant}
-                className="text-[10px] h-4 px-1.5 font-normal"
+                className="text-[10px] h-4 px-1.5 font-normal shrink-0"
               >
                 <StatusIcon className="w-3 h-3 mr-0.5" />
                 {config.label}
               </Badge>
               {task.speed_text && task.status === "downloading" && (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-muted-foreground shrink-0">
                   {task.speed_text}
                 </span>
               )}
               {task.total > 0 && task.status === "downloading" && (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-muted-foreground shrink-0">
                   剩余 {formatSize(remaining)}
                 </span>
               )}
+              <div className="ml-auto flex items-center gap-1 shrink-0">
+                {task.status === "downloading" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onPause}
+                    title="暂停"
+                  >
+                    <LuPause className="w-4 h-4" />
+                  </Button>
+                )}
+                {task.status === "paused" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onResume}
+                    title="继续"
+                  >
+                    <LuPlay className="w-4 h-4" />
+                  </Button>
+                )}
+                {task.status === "error" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onRetry}
+                    title="重试"
+                  >
+                    <LuRotateCcw className="w-4 h-4" />
+                  </Button>
+                )}
+                {(task.status === "waiting" ||
+                  task.status === "downloading" ||
+                  task.status === "paused") && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onCancel}
+                    title="取消"
+                  >
+                    <LuX className="w-4 h-4" />
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onDelete}
+                  title="删除"
+                >
+                  <LuTrash2 className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
             <p
-              className="text-sm font-medium truncate"
+              className="text-sm font-medium truncate break-all"
               title={task.title || task.filename || task.url}
             >
               {task.title || task.filename || task.url}
             </p>
             {!task.title && task.filename && (
               <p
-                className="text-xs text-muted-foreground truncate"
+                className="text-xs text-muted-foreground truncate break-all"
                 title={task.url}
               >
                 {task.url}
               </p>
             )}
             {task.error_msg && (
-              <p className="text-xs text-destructive mt-1 line-clamp-2">
+              <p className="text-xs text-destructive mt-1 line-clamp-2 break-all">
                 {task.error_msg}
               </p>
             )}
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            {task.status === "downloading" && (
-              <Button variant="ghost" size="sm" onClick={onPause} title="暂停">
-                <LuPause className="w-4 h-4" />
-              </Button>
-            )}
-            {task.status === "paused" && (
-              <Button variant="ghost" size="sm" onClick={onResume} title="继续">
-                <LuPlay className="w-4 h-4" />
-              </Button>
-            )}
-            {task.status === "error" && (
-              <Button variant="ghost" size="sm" onClick={onRetry} title="重试">
-                <LuRotateCcw className="w-4 h-4" />
-              </Button>
-            )}
-            {(task.status === "waiting" ||
-              task.status === "downloading" ||
-              task.status === "paused") && (
-              <Button variant="ghost" size="sm" onClick={onCancel} title="取消">
-                <LuX className="w-4 h-4" />
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" onClick={onDelete} title="删除">
-              <LuTrash2 className="w-4 h-4" />
-            </Button>
           </div>
         </div>
 
