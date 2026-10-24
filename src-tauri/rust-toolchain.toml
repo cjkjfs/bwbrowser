@@ -1,2 +1,7 @@
 [toolchain]
-channel = "nightly"
+# 与 .github/workflows/{lint-rs,release,rolling-release}.yml 的 `nightly-2026-10-16`
+# 保持一致。此前这里是浮动的 "nightly"，会覆盖 CI 安装并带 rustfmt/clippy 的那个
+# 固定版本，导致每个平台都在 `cargo fmt --all -- --check` 上因
+# "'cargo-fmt' is not installed for the toolchain 'nightly-...'" 直接失败。
+channel = "nightly-2026-10-16"
+components = ["rustfmt", "clippy"]
