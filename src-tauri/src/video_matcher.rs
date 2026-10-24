@@ -1640,6 +1640,12 @@ pub async fn video_export_jianying_draft(
   let mut video_segments = Vec::new();
   let mut speed_materials = Vec::new();
 
+  // 无缝拼接：target start 用「前一段的 end」而非对标的帧时间戳。
+  // 抽帧间隔量化使各段实际时长略短于帧间隔，若直接用帧时间戳做 start，
+  // 段间会留下 0.33s 级小空隙（76 段累积可达 27s），剪映将其前移补齐后
+  // 总时长缩短，观感即「比对标提前播完」。
+  let mut cursor = 0.0f32;
+
   for (idx, seg) in segments.iter().enumerate() {
     let seg_id = uuid::Uuid::new_v4().to_string();
     let speed_id = uuid::Uuid::new_v4().to_string();
@@ -1648,17 +1654,18 @@ pub async fn video_export_jianying_draft(
     // 时间线位置/时长 = 对标段；素材截取完整原片段；
     // speed = 素材时长/对标时长（0.25~4.0 限幅），剪映按 speed 自动变速，
     // 保证每段画面节奏与对标一致（对标作者对素材做的加减速被还原）
-    let timeline_start = seg.source_start;
     let timeline_dur = (seg.source_end - seg.source_start).max(0.04);
+    let timeline_start = cursor;
     let src_start = seg.target_start;
     let src_dur = (seg.target_end - seg.target_start).max(0.04);
     let raw_speed = src_dur / timeline_dur;
     let speed = raw_speed.clamp(0.25, 4.0);
     // 速度被限幅后，实际取用的素材时长 = 时间线时长 × speed（保持时间线时长恒定）
     let src_used_dur = timeline_dur * speed;
+    cursor = timeline_start + timeline_dur;
 
     log::info!(
-      "[video_matcher] 片段{idx}: 对标 {timeline_start:.1}+{timeline_dur:.1}s 素材 {src_start:.1}+{src_used_dur:.1}s speed={speed:.2} (素材完整长 {src_dur:.1}s)"
+      "[video_matcher] 片段{idx}: 时间线 {timeline_start:.1}+{timeline_dur:.1}s 素材 {src_start:.1}+{src_used_dur:.1}s speed={speed:.2} (素材完整长 {src_dur:.1}s)"
     );
 
     speed_materials.push(serde_json::json!({
@@ -1711,14 +1718,16 @@ pub async fn video_export_jianying_draft(
     }));
   }
 
-  // 尾部占位：对标真实总长 > 最后匹配段结束点时，剪映时间线会在尾部提前结束
-  // （剪映总长由最后一个片段的 end 决定，顶层 duration 字段无效）。
-  // 用素材的最后 1 秒画面循环追加，填满缺口，保证总长与对标一致。
+  // 尾部占位：无缝拼接后的时间线游标（cursor）若短于对标总长，追加素材结尾
+  // 1 秒循环画面铺满缺口（剪映总长由最后一个片段的 end 决定）。
   // 注意：source_video 参数是【原视频（素材）】而非对标——不能探测它当对标时长；
   // 对标总长由前端传入（对标播放器已加载的 duration）。
   let ref_dur = reference_duration
     .unwrap_or_else(|| segments.iter().map(|s| s.source_end).fold(0.0f32, f32::max));
-  let last_end = segments.iter().map(|s| s.source_end).fold(0.0f32, f32::max);
+  // 对标的最后匹配点（仅用于计算原素材尾部起点），时间线末尾用 cursor
+  let last_match_end = segments.iter().map(|s| s.source_end).fold(0.0f32, f32::max);
+  // last_end = 无缝拼接后时间线的实际末尾（cursor），而非对标的最后匹配点
+  let last_end = cursor.max(last_match_end);
   let gap = ref_dur - last_end;
   let freeze_dur = gap.max(0.0);
   if freeze_dur > 0.04 {
