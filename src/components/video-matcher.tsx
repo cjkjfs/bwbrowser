@@ -957,6 +957,18 @@ ${path}
                         {t.segmentCount})
                       </button>
                     )}
+                    {t.status === "completed" && t.segments && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          loadTaskResult(t);
+                          void handleExportDraft();
+                        }}
+                        className="px-2 py-1 text-xs rounded bg-success/10 text-success hover:bg-success/20"
+                      >
+                        导出剪映草稿
+                      </button>
+                    )}
                     {(t.status === "waiting" || t.status === "running") && (
                       <button
                         type="button"
