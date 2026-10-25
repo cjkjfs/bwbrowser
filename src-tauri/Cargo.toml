@@ -108,6 +108,9 @@ sha2 = "0.11"
 # alongside the `ring` this crate already ships through boringtun. Moving up is a
 # build-toolchain decision for every platform, not a routine dependency refresh.
 shadowsocks = { version = ">=1.24, <1.26", default-features = false, features = ["aead-cipher"] }
+# aws-lc-sys (pulled in by shadowsocks 1.25's aead-cipher): use the vendor's
+# prebuilt NASM objects so the Windows build does not require a NASM install.
+aws-lc-sys = { version = "0.46", features = ["prebuilt-nasm"] }
 hyper = { version = "1.10", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"

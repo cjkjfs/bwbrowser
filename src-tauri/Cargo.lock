@@ -858,6 +858,7 @@ dependencies = [
  "argon2",
  "async-socks5",
  "async-trait",
+ "aws-lc-sys",
  "axum",
  "base64 0.23.1",
  "blake3",

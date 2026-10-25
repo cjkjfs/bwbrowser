@@ -787,9 +787,12 @@ impl Extractor {
         .map_err(|e| format!("Failed to read ZIP entry at index {i}: {e}"))?;
 
       // Use enclosed_name to prevent path traversal; do not modify names otherwise
-      let enclosed = entry
-        .enclosed_name()
-        .ok_or_else(|| format!("ZIP contains an invalid entry path: {}", entry.name()))?;
+      let enclosed = entry.enclosed_name().ok_or_else(|| {
+        format!(
+          "ZIP contains an invalid entry path: {}",
+          String::from_utf8_lossy(entry.name_raw())
+        )
+      })?;
 
       let outpath = dest_dir.join(enclosed);
 

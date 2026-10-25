@@ -220,7 +220,7 @@ pub fn export_to(
   }
   let file = fs::File::create(destination).map_err(|e| err("could not create the archive", e))?;
   let mut writer = zip::ZipWriter::new(file);
-  let options: zip::write::FileOptions<'_, ()> =
+  let options: zip::write::FileOptions<'_, '_, ()> =
     zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
   writer
@@ -582,7 +582,14 @@ mod tests {
   fn entries(path: &Path) -> Vec<String> {
     let mut archive = open_archive(path).unwrap();
     (0..archive.len())
-      .map(|i| archive.by_index(i).unwrap().name().to_string())
+      .map(|i| {
+        archive
+          .by_index(i)
+          .unwrap()
+          .name()
+          .map(|s| s.to_string())
+          .unwrap_or_default()
+      })
       .collect()
   }
 
@@ -708,7 +715,7 @@ mod tests {
     {
       let file = fs::File::create(&hostile).unwrap();
       let mut writer = zip::ZipWriter::new(file);
-      let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+      let options: zip::write::FileOptions<'_, '_, ()> = zip::write::FileOptions::default();
       writer.start_file("manifest.json", options).unwrap();
       writer.write_all(b"{}").unwrap();
       writer.start_file("data/../../escaped", options).unwrap();
@@ -729,7 +736,7 @@ mod tests {
     {
       let file = fs::File::create(&archive).unwrap();
       let mut writer = zip::ZipWriter::new(file);
-      let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+      let options: zip::write::FileOptions<'_, '_, ()> = zip::write::FileOptions::default();
       writer.start_file("manifest.json", options).unwrap();
       writer
         .write_all(
