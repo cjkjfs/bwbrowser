@@ -200,7 +200,6 @@ mod imp {
 mod imp {
   use std::sync::Mutex;
 
-  use core_graphics::display::CGDisplay;
   use core_graphics::event::{
     CGEvent, CGEventTapLocation, CGEventType, CGMouseButton, ScrollEventUnit,
   };
