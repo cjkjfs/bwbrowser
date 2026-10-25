@@ -10,7 +10,9 @@ use std::time::Duration;
 
 use lazy_static::lazy_static;
 use rig_agent::{Agent, AgentBuilder};
-use rig_core::completion::message::{ToolName, UserContent};
+use rig_core::completion::message::{
+  DocumentSourceKind, Image, ImageMediaType, ToolName, UserContent,
+};
 use rig_core::completion::message::{ToolResult as RigToolResult, ToolResultContent};
 use rig_core::completion::Message;
 use rig_core::operation::Completion;
@@ -44,6 +46,9 @@ lazy_static! {
 pub struct AgentChatTurn {
   pub role: String,
   pub content: String,
+  /// 本轮附带的图片（base64 裸数据或 data URL），仅对最后一条 user 消息生效。
+  #[serde(default)]
+  pub images: Option<Vec<String>>,
 }
 
 /// 一次工具调用的可展示步骤（前端渲染在回复上方的过程区）。
@@ -1682,14 +1687,89 @@ pub async fn ai_agent_chat(
     })
     .collect();
   let prompt = last.content.trim();
-  let response = agent
-    .chat(prompt, &mut history)
-    .await
-    .map_err(|e| code_err("AI_AGENT_LLM_FAILED", Some(&e.to_string())))?;
+  // 带图时最后一条 user 消息走多模态（文本 + 图片），纯文本走原路径。
+  let response = if last.role == "user" && last.images.as_ref().is_some_and(|v| !v.is_empty()) {
+    let mut content: Vec<UserContent> = Vec::new();
+    if !prompt.is_empty() {
+      content.push(UserContent::text(prompt.to_string()));
+    }
+    for img in last.images.as_deref().unwrap_or_default() {
+      match parse_image_payload(img) {
+        Ok(image) => content.push(UserContent::Image(image)),
+        Err(e) => return Err(code_err("AI_AGENT_IMAGE_INVALID", Some(&e))),
+      }
+    }
+    if content.is_empty() {
+      return Err(code_err("AI_AGENT_EMPTY_CONVERSATION", None));
+    }
+    agent
+      .chat(Message::User { content }, &mut history)
+      .await
+      .map_err(|e| code_err("AI_AGENT_LLM_FAILED", Some(&e.to_string())))?
+  } else {
+    agent
+      .chat(prompt, &mut history)
+      .await
+      .map_err(|e| code_err("AI_AGENT_LLM_FAILED", Some(&e.to_string())))?
+  };
   Ok(AgentChatReply {
     reply: response.output(),
     steps: steps_from_messages(response.messages()),
   })
+}
+
+/// 解析前端传来的图片载荷：data URL（data:image/png;base64,xxx）或裸 base64。
+fn parse_image_payload(payload: &str) -> Result<Image, String> {
+  let payload = payload.trim();
+  if payload.is_empty() {
+    return Err("图片数据为空".to_string());
+  }
+  let (mime, b64) = if let Some(rest) = payload.strip_prefix("data:") {
+    let (mime_part, b64_part) = rest
+      .split_once(';')
+      .ok_or_else(|| "data URL 格式无效".to_string())?;
+    let b64 = b64_part
+      .strip_prefix("base64,")
+      .ok_or_else(|| "data URL 缺少 base64 标记".to_string())?;
+    (mime_part, b64)
+  } else {
+    // 裸 base64：按文件头猜 MIME
+    let mime = sniff_image_mime(payload).unwrap_or("image/png");
+    (mime, payload)
+  };
+  let media_type = match mime {
+    "image/jpeg" | "image/jpg" => Some(ImageMediaType::JPEG),
+    "image/png" => Some(ImageMediaType::PNG),
+    "image/gif" => Some(ImageMediaType::GIF),
+    "image/webp" => Some(ImageMediaType::WEBP),
+    _ => None,
+  };
+  Ok(Image {
+    data: DocumentSourceKind::Base64(b64.to_string()),
+    media_type,
+    detail: None,
+    native: None,
+  })
+}
+
+/// 从 base64 前缀嗅探图片 MIME（JPEG/PNG/GIF/WEBP 文件头）。
+fn sniff_image_mime(b64: &str) -> Option<&'static str> {
+  use base64::Engine as _;
+  let cleaned: String = b64
+    .chars()
+    .take(24)
+    .filter(|c| !c.is_whitespace())
+    .collect();
+  let bytes = base64::engine::general_purpose::STANDARD
+    .decode(cleaned.as_bytes())
+    .ok()?;
+  match bytes.as_slice() {
+    [0xff, 0xd8, ..] => Some("image/jpeg"),
+    [0x89, b'P', b'N', b'G', ..] => Some("image/png"),
+    [b'G', b'I', b'F', ..] => Some("image/gif"),
+    [b'R', b'I', b'F', b'F', ..] => Some("image/webp"),
+    _ => None,
+  }
 }
 
 #[cfg(test)]

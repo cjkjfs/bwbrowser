@@ -47,6 +47,8 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   steps?: AgentChatStep[];
+  /** 用户消息附带的图片（data URL，仅用于本地回显；发请求时转 base64）。 */
+  images?: string[];
 }
 
 /** 一个独立对话：标题取首条用户消息前 20 字，空串时 UI 显示「新对话」。 */
@@ -61,6 +63,36 @@ const SESSIONS_KEY = "ai-assistant-sessions";
 const ACTIVE_SESSION_KEY = "ai-assistant-active-session";
 const LEGACY_HISTORY_KEY = "ai-assistant-history";
 const SESSION_TITLE_MAX = 20;
+/** 单图 base64 上限（约 8MB 原图，base64 后约 10.6MB 字符）。 */
+const MAX_IMAGE_CHARS = 11_000_000;
+/** 单条消息最多附带图片数。 */
+const MAX_IMAGES_PER_MESSAGE = 4;
+
+/** 读取 File 为 data URL（reject 时返回 null 由调用方提示）。 */
+function fileToDataUrl(file: File): Promise<string | null> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      resolve(typeof reader.result === "string" ? reader.result : null);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
+}
+
+/** 从剪贴板/拖拽事件里收集图片文件。 */
+function collectImageFiles(
+  items: Iterable<DataTransferItem> | FileList,
+): File[] {
+  const out: File[] = [];
+  for (const item of items) {
+    const file =
+      "kind" in item && item.kind === "file"
+        ? item.getAsFile()
+        : (item as File);
+    if (file?.type.startsWith("image/")) out.push(file);
+  }
+  return out;
+}
 
 /** 校验并规整消息数组；损坏条目直接丢弃。 */
 function sanitizeMessages(parsed: unknown): ChatMessage[] {
@@ -78,6 +110,9 @@ function sanitizeMessages(parsed: unknown): ChatMessage[] {
         role: c.role,
         content: c.content,
         ...(Array.isArray(c.steps) ? { steps: c.steps } : {}),
+        ...(Array.isArray(c.images) && c.images.length
+          ? { images: c.images }
+          : {}),
       });
     }
   }
@@ -165,6 +200,7 @@ export function AiAssistantPage({
     }
   });
   const [input, setInput] = useState("");
+  const [pendingImages, setPendingImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   /** 用户通过原生选择器授权给助手的本地文件夹（只读）。 */
   const [allowedFolders, setAllowedFolders] = useState<string[]>([]);
@@ -227,24 +263,67 @@ export function AiAssistantPage({
     [active.id],
   );
 
+  const addImages = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+    setPendingImages((prev) => {
+      const slots = MAX_IMAGES_PER_MESSAGE - prev.length;
+      if (slots <= 0) {
+        toast.info(`最多附带 ${MAX_IMAGES_PER_MESSAGE} 张图片`);
+        return prev;
+      }
+      const accepted = files
+        .slice(0, slots)
+        .filter((f) => f.size <= 10 * 1024 * 1024);
+      const oversize = files.length - accepted.length;
+      if (oversize > 0) toast.info(`${oversize} 张图片超过 10MB，已跳过`);
+      void Promise.all(accepted.map(fileToDataUrl)).then((urls) => {
+        const ok = urls.filter(
+          (u): u is string => u !== null && u.length <= MAX_IMAGE_CHARS,
+        );
+        if (ok.length < accepted.length) toast.info("部分图片读取失败或过大");
+        if (ok.length)
+          setPendingImages((p) =>
+            [...p, ...ok].slice(0, MAX_IMAGES_PER_MESSAGE),
+          );
+      });
+      return prev;
+    });
+  }, []);
+
   const send = useCallback(async () => {
     const text = input.trim();
-    if (!text || busy) return;
-    const userMsg: ChatMessage = { id: newId(), role: "user", content: text };
+    if ((!text && pendingImages.length === 0) || busy) return;
+    const images = pendingImages.length ? pendingImages : undefined;
+    const userMsg: ChatMessage = {
+      id: newId(),
+      role: "user",
+      content: text,
+      ...(images ? { images } : {}),
+    };
     const history = [...messages, userMsg];
     const sessionId = active.id;
     setSessions((prev) =>
       prev.map((s) =>
         s.id === sessionId
-          ? { ...s, title: s.title || sessionTitle(text), messages: history }
+          ? {
+              ...s,
+              title: s.title || sessionTitle(text || "图片"),
+              messages: history,
+            }
           : s,
       ),
     );
     setInput("");
+    setPendingImages([]);
     setBusy(true);
     try {
       const reply = await invoke<AgentChatReply>("ai_agent_chat", {
-        messages: history.map((m) => ({ role: m.role, content: m.content })),
+        messages: history.map((m) => ({
+          role: m.role,
+          content: m.content,
+          // 仅最后一条 user 消息带图（后端也只对该位置生效）
+          ...(m.id === userMsg.id && images ? { images } : {}),
+        })),
         allowedFolders,
       });
       setSessions((prev) =>
@@ -270,7 +349,7 @@ export function AiAssistantPage({
     } finally {
       setBusy(false);
     }
-  }, [input, busy, messages, active.id, allowedFolders, t]);
+  }, [input, busy, messages, active.id, allowedFolders, t, pendingImages]);
 
   const pickFolder = useCallback(async () => {
     const picked = await open({ directory: true, multiple: true });
@@ -492,9 +571,26 @@ export function AiAssistantPage({
                   {m.role === "assistant" ? (
                     <MarkdownContent content={m.content} />
                   ) : (
-                    <p className="whitespace-pre-wrap break-words">
-                      {m.content}
-                    </p>
+                    <div className="flex flex-col gap-1.5">
+                      {m.images && m.images.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {m.images.map((img, i) => (
+                            // biome-ignore lint/performance/noImgElement: dynamic base64 chat image, next/image cannot optimize data URLs
+                            <img
+                              key={i}
+                              src={img}
+                              alt={`图片 ${i + 1}`}
+                              className="max-h-40 max-w-60 rounded-md border border-primary-foreground/20 object-cover"
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {m.content && (
+                        <p className="whitespace-pre-wrap break-words">
+                          {m.content}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
                 {m.role === "assistant" && (
@@ -575,6 +671,30 @@ export function AiAssistantPage({
         </div>
       )}
 
+      {pendingImages.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {pendingImages.map((img, i) => (
+            <div key={`${i}-${img.slice(-16)}`} className="group relative">
+              {/* biome-ignore lint/performance/noImgElement: dynamic base64 attachment thumbnail */}
+              <img
+                src={img}
+                alt={`附件 ${i + 1}`}
+                className="size-16 rounded-md border border-border object-cover"
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  setPendingImages((prev) => prev.filter((_, j) => j !== i))
+                }
+                aria-label="移除图片"
+                className="absolute -right-1.5 -top-1.5 hidden rounded-full bg-destructive p-0.5 text-destructive-foreground group-hover:block"
+              >
+                <LuX className="size-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex items-end gap-2">
         <Button
           variant="ghost"
@@ -611,6 +731,20 @@ export function AiAssistantPage({
               void send();
             }
           }}
+          onPaste={(e) => {
+            const imgs = collectImageFiles(e.clipboardData.items);
+            if (imgs.length) {
+              e.preventDefault();
+              void addImages(imgs);
+            }
+          }}
+          onDrop={(e) => {
+            const imgs = collectImageFiles(e.dataTransfer.files);
+            if (imgs.length) {
+              e.preventDefault();
+              void addImages(imgs);
+            }
+          }}
           placeholder={t("aiAssistant.placeholder")}
           className="min-h-11 flex-1 resize-none"
           rows={1}
@@ -619,7 +753,7 @@ export function AiAssistantPage({
         <Button
           size="icon"
           onClick={() => void send()}
-          disabled={busy || !input.trim()}
+          disabled={busy || (!input.trim() && pendingImages.length === 0)}
           aria-label={t("aiAssistant.send")}
         >
           {busy ? (
