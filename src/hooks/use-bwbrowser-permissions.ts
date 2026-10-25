@@ -25,10 +25,11 @@ export function useBwbrowserPermissions() {
     if (!isLoggedIn) {
       setPermissions({});
       setIsSuperAdmin(false);
-      setPermissionsReady(true);
+      setPermissionsReady(false);
       setCurrentManagementUserId(null);
       return;
     }
+    setPermissionsReady(false);
     let cancelled = false;
     invoke<CurrentManagementUser>("bwbrowser_get_current_management_user")
       .then((result) => {
@@ -69,6 +70,8 @@ export function useBwbrowserPermissions() {
   const canProfileManagement = permissions.allow_profile_management ?? false;
   const canProxyCenter = permissions.allow_proxy_center ?? false;
   const canCloudAccount = permissions.allow_cloud_account ?? false;
+  // 云端账号（左侧菜单「云端账号」页面）：users.php allow_cloud_accounts
+  const canCloudAccounts = permissions.allow_cloud_accounts ?? false;
 
   return {
     permissions,
@@ -84,6 +87,7 @@ export function useBwbrowserPermissions() {
     canProfileManagement,
     canProxyCenter,
     canCloudAccount,
+    canCloudAccounts,
     currentManagementUserId,
   };
 }

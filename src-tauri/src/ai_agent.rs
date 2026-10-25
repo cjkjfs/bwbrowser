@@ -67,13 +67,27 @@ pub struct AgentChatReply {
 // 工具只允许读这份清单内的路径，LLM 无法自行指定系统任意位置。
 // ============================================================
 
+/// 系统级白名单：这些目录始终对智能助手开放，无需用户手动选择。
+/// 用于访问项目源码、VPS 配置等管理层常用目录。
+const SYSTEM_ALLOWED_FOLDERS: &[&str] = &[r"D:\bian\vps", r"d:\bian\vps"];
+
 /// 校验 path 是否位于某个已授权文件夹内（canonicalize 后做前缀匹配）。
+/// 同时检查用户授权列表和系统白名单。
 fn path_is_allowed(path: &str, allowed: &[String]) -> Result<std::path::PathBuf, String> {
+  let target =
+    std::fs::canonicalize(path).map_err(|e| format!("路径不存在或不可访问：{path}（{e}）"))?;
+  // 先检查系统白名单（无需用户手动授权）
+  for &folder in SYSTEM_ALLOWED_FOLDERS {
+    if let Ok(root) = std::fs::canonicalize(folder) {
+      if target.starts_with(&root) {
+        return Ok(target);
+      }
+    }
+  }
+  // 再检查用户授权列表
   if allowed.is_empty() {
     return Err("未授权任何文件夹：请先在对话上方点击「选择文件夹」".to_string());
   }
-  let target =
-    std::fs::canonicalize(path).map_err(|e| format!("路径不存在或不可访问：{path}（{e}）"))?;
   for folder in allowed {
     if let Ok(root) = std::fs::canonicalize(folder) {
       if target.starts_with(&root) {
@@ -147,9 +161,6 @@ async fn write_text_file_impl(
   content: &str,
   allowed: &[String],
 ) -> Result<Value, String> {
-  if allowed.is_empty() {
-    return Err("未授权任何文件夹：请先在对话上方点击「选择文件夹」".to_string());
-  }
   if content.len() > 512 * 1024 {
     return Err(format!(
       "内容超过 512KB（{} 字节），不支持写入",
@@ -171,11 +182,26 @@ async fn write_text_file_impl(
       .map_err(|e| format!("父目录不存在：{}（{e}）", parent.to_string_lossy()))?
   };
   let mut authorized = false;
-  for folder in allowed {
+  // 先检查系统白名单
+  for &folder in SYSTEM_ALLOWED_FOLDERS {
     if let Ok(root) = std::fs::canonicalize(folder) {
       if check_root.starts_with(&root) {
         authorized = true;
         break;
+      }
+    }
+  }
+  // 再检查用户授权列表
+  if !authorized {
+    if allowed.is_empty() {
+      return Err("未授权任何文件夹：请先在对话上方点击「选择文件夹」".to_string());
+    }
+    for folder in allowed {
+      if let Ok(root) = std::fs::canonicalize(folder) {
+        if check_root.starts_with(&root) {
+          authorized = true;
+          break;
+        }
       }
     }
   }
@@ -353,7 +379,7 @@ fn code_err(code: &str, message: Option<&str>) -> String {
 // Agent 构建
 // ============================================================
 
-const PREAMBLE: &str = "你是 BW Browser 内置的 AI 助手，可以调用工具查询与执行：视频库（query_videos）、洗稿成果列表（query_results）、单条成果详情（get_rewrite_result）、代理中心线路（list_proxies）、发起洗稿任务（start_rewrite_tasks）、提取视频文案（extract_transcript，给链接直接下载转写出文案，不洗稿）、查洗稿任务进度（query_running_tasks）、平台数据更新（cron_update）、实时拉取账号主页视频（fetch_account_videos）、实时拉取视频最新数据（fetch_video_data）、列本地文件夹（list_folder）、读本地文本文件（read_text_file）、写本地文本文件（write_text_file，可创建/覆盖 HTML/JS/Markdown 等文本文件）、在用户提供的 VPS 上执行命令（vps_exec）。\n\n## 业务背景\nBW Browser 是 TikTok 短视频矩阵运营工具，本机用户是管理层（老板/管理员），带一个运营团队。核心概念：\n- **云端账号矩阵**：数百个 TikTok 等平台的运营账号，每个账号有「归属人」（负责运营它的员工）、赛道（体育/动漫等内容方向）、粉丝数、视频数、总播放量、备注。用 list_team_members 查团队、query_accounts 查账号。\n- **员工/运营人**：账号的归属人就是账号运营人，有入职时间、赛道分工、在职状态；管理层关心每人的账号数、更新频率、播放产出（对应后台「员工概况」报表）。\n- **AI 洗稿流水线**：下载参考视频→转写文案→AI 改写→评分，产出供员工二创发布；「断更」指账号连续多天没发新视频。\n- **代理中心**：TikTok 运营必需的代理节点（list_proxies），账号绑定代理保证 IP 稳定。\n回答运营问题时结合以上背景和工具查到的真实数据，不要凭空猜。\n\
+const PREAMBLE: &str = "你是 BW Browser 内置的 AI 助手，可以调用工具查询与执行：视频库（query_videos）、洗稿成果列表（query_results）、单条成果详情（get_rewrite_result）、代理中心线路（list_proxies）、发起洗稿任务（start_rewrite_tasks）、提取视频文案（extract_transcript，给链接直接下载转写出文案，不洗稿）、查洗稿任务进度（query_running_tasks）、平台数据更新（cron_update）、实时拉取账号主页视频（fetch_account_videos）、实时拉取视频最新数据（fetch_video_data）、列本地文件夹（list_folder）、读本地文本文件（read_text_file）、写本地文本文件（write_text_file，可创建/覆盖 HTML/JS/Markdown 等文本文件）、在用户提供的 VPS 上执行命令（vps_exec）、抓取网页正文（web_fetch，给链接即分析该页面）、全网关键词搜索（web_search，发现库里没有的对标/热点）。\n\n## 业务背景\nBW Browser 是 TikTok 短视频矩阵运营工具，本机用户是管理层（老板/管理员），带一个运营团队。核心概念：\n- **云端账号矩阵**：数百个 TikTok 等平台的运营账号，每个账号有「归属人」（负责运营它的员工）、赛道（体育/动漫等内容方向）、粉丝数、视频数、总播放量、备注。用 list_team_members 查团队、query_accounts 查账号。\n- **员工/运营人**：账号的归属人就是账号运营人，有入职时间、赛道分工、在职状态；管理层关心每人的账号数、更新频率、播放产出（对应后台「员工概况」报表）。\n- **AI 洗稿流水线**：下载参考视频→转写文案→AI 改写→评分，产出供员工二创发布；「断更」指账号连续多天没发新视频。\n- **代理中心**：TikTok 运营必需的代理节点（list_proxies），账号绑定代理保证 IP 稳定。\n回答运营问题时结合以上背景和工具查到的真实数据，不要凭空猜。\n\
 \n\
 数据边界（必须严格遵守，回答口径保持一致）：\n\
 - 所有工具返回的数据都在当前登录公司可见范围内：自有账号 + 对标账号，由云端服务器按登录账号过滤，不存在其他公司的数据。\n\
@@ -371,7 +397,8 @@ const PREAMBLE: &str = "你是 BW Browser 内置的 AI 助手，可以调用工�
 8. VPS 的硬规则：连接信息（主机/端口/用户名/密码）必须由用户在对话里提供，不要主动索要，也不要猜测。执行前向用户复述将运行的命令；破坏性命令（rm、mkfs、dd、reboot、shutdown、重启服务等）必须有用户的明确同意才能执行。连接信息只在当轮使用。\n\
 9. 用户问数据归属、隔离或“是不是别家公司的数据”时，用上面的数据边界回答。\n\
 10. 触发数据更新的硬规则：cron_update 的 action=run 会按次计费并让服务器后台更新当前公司的平台账号数据（tiktok / youtube / douyin）。调用 run 前必须先告知用户平台与单价（先用 action=prices 查价目、余额），得到用户明确同意后才能 run；run 成功后告知用户约 5 分钟内完成，稍后可用 action=status 查进度、query_videos 看新数据。status 和 prices 是只读免费查询，可随意使用。\n\
-11. 实时拉取的硬规则：fetch_account_videos / fetch_video_data 每次调用都会扣费（走公司配置的上游数据 API，播放量/发布时间为拉取时刻的实时值）。调用前必须告知用户将拉取什么（哪个账号/哪个视频）并征得同意；拿到数据后重点解读发布时间、播放量、点赞率等指标，可用于洗稿前的重点分析。查询视频库里已有的数据用 query_videos（免费），只有用户要「最新实时数据」时才用拉取工具。";
+11. 实时拉取的硬规则：fetch_account_videos / fetch_video_data 每次调用都会扣费（走公司配置的上游数据 API，播放量/发布时间为拉取时刻的实时值）。调用前必须告知用户将拉取什么（哪个账号/哪个视频）并征得同意；拿到数据后重点解读发布时间、播放量、点赞率等指标，可用于洗稿前的重点分析。查询视频库里已有的数据用 query_videos（免费），只有用户要「最新实时数据」时才用拉取工具。\n\
+12. 联网搜索的硬规则：用户要求「搜索 / 查找 / 发现 / 找对标 / 查热点」时，**必须调用 web_search 工具**，拿到真实搜索结果后再回答；绝对不要说自己「无法搜索 / 不能联网 / 没有搜索能力」。web_fetch 用于分析具体链接页面，web_search 用于发现新内容。";
 
 /// 工具闭包需要的应用句柄（发起洗稿任务要用），对话命令首次调用时注入。
 static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
@@ -380,6 +407,11 @@ static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::
 /// Agent 是缓存的，授权清单是每轮变的，所以放全局而不是闭包捕获。
 static ALLOWED_FOLDERS: std::sync::LazyLock<tokio::sync::Mutex<Vec<String>>> =
   std::sync::LazyLock::new(|| tokio::sync::Mutex::new(Vec::new()));
+
+/// 当前 LLM 端点解析出的代理 URL：web_fetch / web_search 复用同一出口，
+/// 让联网工具与模型请求走同一条线路（海外站点尤其需要）。Agent 构建时写入。
+static WEB_PROXY: std::sync::LazyLock<tokio::sync::Mutex<Option<String>>> =
+  std::sync::LazyLock::new(|| tokio::sync::Mutex::new(None));
 
 /// LLM 端点指纹：任一字段（含代理）变化都触发 Agent 重建。
 fn endpoint_fingerprint(ep: &AiEndpointConfig) -> String {
@@ -433,6 +465,8 @@ async fn build_model(ep: &AiEndpointConfig) -> Result<DynModel<Completion>, Stri
   let proxy_url = crate::ai_rewrite::resolve_proxy_url(&ep.proxy)
     .await
     .map_err(|e| code_err("AI_AGENT_PROXY_FAILED", Some(&e)))?;
+  // 记录当前线路，web_fetch / web_search 复用同一代理出口
+  *WEB_PROXY.lock().await = proxy_url.clone();
   log_line(proxy_url.as_deref());
   let http = build_http_transport(proxy_url.as_deref())
     .map_err(|e| code_err("AI_AGENT_PROXY_FAILED", Some(&e)))?;
@@ -487,6 +521,8 @@ async fn build_agent(ep: &AiEndpointConfig) -> Result<Agent, String> {
       .dynamic_tool(tool_read_text_file())
       .dynamic_tool(tool_write_text_file())
       .dynamic_tool(tool_vps_exec())
+      .dynamic_tool(tool_web_fetch())
+      .dynamic_tool(tool_web_search())
       .build(),
   )
 }
@@ -1278,6 +1314,276 @@ fn tool_vps_exec() -> DynamicTool {
 }
 
 // ============================================================
+// 联网工具：web_fetch（抓网页转文本）/ web_search（关键词搜索）
+// ============================================================
+
+/// 常见 HTML 实体解码（够用即可，联网文本抽取不追求完备）。
+fn decode_entities(s: &str) -> String {
+  let named = [
+    ("&amp;", "&"),
+    ("&lt;", "<"),
+    ("&gt;", ">"),
+    ("&quot;", "\""),
+    ("&apos;", "'"),
+    ("&nbsp;", " "),
+    ("&mdash;", "—"),
+    ("&ndash;", "–"),
+    ("&hellip;", "…"),
+    ("&middot;", "·"),
+    ("&copy;", "©"),
+    ("&reg;", "®"),
+    ("&times;", "×"),
+  ];
+  let mut out = s.to_string();
+  for (k, v) in named {
+    out = out.replace(k, v);
+  }
+  let dec = |ent: &str| -> Option<char> {
+    let body = ent.trim_start_matches("&#").trim_end_matches(';');
+    let cp = if let Some(hex) = body.strip_prefix('x').or_else(|| body.strip_prefix('X')) {
+      u32::from_str_radix(hex, 16).ok()
+    } else {
+      body.parse::<u32>().ok()
+    }?;
+    char::from_u32(cp)
+  };
+  if let Ok(re) = regex_lite::Regex::new(r"&#x?[0-9a-fA-F]+;") {
+    let mut result = String::new();
+    let mut last = 0;
+    for m in re.find_iter(&out) {
+      result.push_str(&out[last..m.start()]);
+      match dec(m.as_str()) {
+        Some(c) => result.push(c),
+        None => result.push_str(m.as_str()),
+      }
+      last = m.end();
+    }
+    result.push_str(&out[last..]);
+    out = result;
+  }
+  out
+}
+
+/// 把 HTML 粗略转成纯文本：换行的块级标签转 \n，去脚本/样式/注释，剥标签，解实体，压空行。
+fn html_to_text(html: &str) -> String {
+  let strip = |pattern: &str, text: &str| -> String {
+    match regex_lite::Regex::new(pattern) {
+      Ok(re) => re.replace_all(text, "").to_string(),
+      Err(_) => text.to_string(),
+    }
+  };
+  let mut s = html.to_string();
+  for (pat, rep) in [
+    (r"(?i)<br\s*/?>", "\n"),
+    (
+      r"(?i)</(p|div|li|tr|h[1-6]|section|article|header|footer|ul|ol|blockquote|table)>",
+      "\n",
+    ),
+  ] {
+    if let Ok(re) = regex_lite::Regex::new(pat) {
+      s = re.replace_all(&s, rep).to_string();
+    }
+  }
+  for pat in [
+    r"(?is)<script[\s\S]*?</script>",
+    r"(?is)<style[\s\S]*?</style>",
+    r"(?is)<noscript[\s\S]*?</noscript>",
+    r"(?is)<svg[\s\S]*?</svg>",
+    r"(?is)<!--[\s\S]*?-->",
+    r"(?s)<[^>]+>",
+  ] {
+    s = strip(pat, &s);
+  }
+  s = decode_entities(&s);
+  let mut lines: Vec<String> = Vec::new();
+  for line in s.lines() {
+    let trimmed = line.split_whitespace().collect::<Vec<_>>().join(" ");
+    if trimmed.is_empty() {
+      if lines.last().is_some_and(|l| !l.is_empty()) {
+        lines.push(String::new());
+      }
+    } else {
+      lines.push(trimmed);
+    }
+  }
+  while lines.last().is_some_and(|l| l.is_empty()) {
+    lines.pop();
+  }
+  lines.join("\n")
+}
+
+/// 构造走当前 LLM 线路代理的 HTTP 客户端（联网工具与模型请求同一出口）。
+async fn web_client() -> Result<reqwest::Client, String> {
+  let proxy = WEB_PROXY.lock().await.clone();
+  let mut builder = reqwest::Client::builder()
+    .timeout(Duration::from_secs(30))
+    .connect_timeout(Duration::from_secs(15))
+    .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+    .redirect(reqwest::redirect::Policy::limited(6));
+  if let Some(url) = proxy {
+    builder = builder.proxy(reqwest::Proxy::all(url).map_err(|e| format!("代理地址无效：{e}"))?);
+  }
+  builder
+    .build()
+    .map_err(|e| format!("构建 HTTP 客户端失败：{e}"))
+}
+
+/// 抓单个 URL → 纯文本（截断）。公开只读，无鉴权、无副作用。
+async fn fetch_one_url(url: &str, max_chars: usize) -> Value {
+  if !(url.starts_with("http://") || url.starts_with("https://")) {
+    return json!({ "url": url, "ok": false, "error": "只支持 http/https 链接" });
+  }
+  let client = match web_client().await {
+    Ok(c) => c,
+    Err(e) => return json!({ "url": url, "ok": false, "error": e }),
+  };
+  match client.get(url).send().await {
+    Ok(resp) => {
+      let status = resp.status().as_u16();
+      let final_url = resp.url().to_string();
+      match resp.text().await {
+        Ok(body) => {
+          let text = html_to_text(&body);
+          let full = text.chars().count();
+          let truncated: String = text.chars().take(max_chars).collect();
+          json!({
+              "url": final_url,
+              "status": status,
+              "ok": status < 400,
+              "text": truncated,
+              "note": if full > max_chars {
+                  format!("正文共 {full} 字，已截断到 {max_chars}")
+              } else {
+                  String::new()
+              },
+          })
+        }
+        Err(e) => {
+          json!({ "url": url, "status": status, "ok": false, "error": format!("读取响应失败：{e}") })
+        }
+      }
+    }
+    Err(e) => json!({ "url": url, "ok": false, "error": format!("请求失败：{e}") }),
+  }
+}
+
+fn tool_web_fetch() -> DynamicTool {
+  DynamicTool::new(
+    ToolName::new("web_fetch").expect("tool name is static and valid"),
+    "抓取一个或多个网页并返回正文纯文本（公开页面只读，走与模型相同的网络线路）。用户发来链接、或让你看某个网址/分析某页面内容时用。输入完整 http(s) 链接，一次最多 5 个。SPA/需登录页面可能取不到正文，此时如实说明而不是编造。",
+    json!({
+        "type": "object",
+        "properties": {
+            "urls": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "要抓取的网页链接，1-5 个"
+            },
+            "max_chars": { "type": "integer", "description": "每个页面正文最多返回字符数，500-20000，默认 6000" }
+        },
+        "required": ["urls"]
+    }),
+    move |args: Value| {
+      Box::pin(async move {
+        let urls: Vec<String> = args
+          .get("urls")
+          .and_then(Value::as_array)
+          .map(|arr| {
+            arr.iter()
+              .filter_map(|v| v.as_str().map(str::to_string))
+              .take(5)
+              .collect()
+          })
+          .unwrap_or_default();
+        if urls.is_empty() {
+          return Err(tool_err("缺少 urls 参数"));
+        }
+        let max_chars = arg_u32(&args, "max_chars").unwrap_or(6000).clamp(500, 20000) as usize;
+        let mut results = Vec::new();
+        for u in urls {
+          results.push(fetch_one_url(u.trim(), max_chars).await);
+        }
+        tool_output(json!({ "results": results })).await
+      })
+    },
+  )
+}
+
+/// 从 DuckDuckGo 的 HTML 结果里抽取若干条 {title,url,snippet}。
+async fn duckduckgo_search(query: &str, limit: usize) -> Result<Value, String> {
+  let client = web_client().await?;
+  let resp = client
+    .post("https://html.duckduckgo.com/html/")
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .body(format!("q={}&kl=wt-wt", urlencoding::encode(query)))
+    .send()
+    .await
+    .map_err(|e| format!("搜索请求失败：{e}"))?;
+  let body = resp
+    .text()
+    .await
+    .map_err(|e| format!("读取搜索结果失败：{e}"))?;
+  let link_re =
+    regex_lite::Regex::new(r#"(?s)class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>"#)
+      .map_err(|e| e.to_string())?;
+  let snip_re = regex_lite::Regex::new(r"(?s)class=.result__snippet.[^>]*>([\s\S]*?)</a>").unwrap();
+  let snippets: Vec<String> = snip_re
+    .captures_iter(&body)
+    .map(|c| decode_entities(&html_to_text(c.get(1).map(|m| m.as_str()).unwrap_or(""))))
+    .collect();
+  let mut results = Vec::new();
+  for (i, cap) in link_re.captures_iter(&body).take(limit).enumerate() {
+    let href = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+    // 真实链接藏在 uddg=<urlencoded> 参数里
+    let real_url = href
+      .split("uddg=")
+      .nth(1)
+      .map(|rest| rest.split('&').next().unwrap_or(rest))
+      .map(|enc| {
+        urlencoding::decode(enc)
+          .map(|s| s.to_string())
+          .unwrap_or_else(|_| enc.to_string())
+      })
+      .unwrap_or_else(|| href.to_string());
+    let title = decode_entities(&html_to_text(cap.get(2).map(|m| m.as_str()).unwrap_or("")));
+    results.push(json!({
+        "title": title,
+        "url": real_url,
+        "snippet": snippets.get(i).cloned().unwrap_or_default(),
+    }));
+  }
+  Ok(json!({ "query": query, "results": results }))
+}
+
+fn tool_web_search() -> DynamicTool {
+  DynamicTool::new(
+    ToolName::new("web_search").expect("tool name is static and valid"),
+    "全网关键词搜索（DuckDuckGo），返回标题/链接/摘要列表。用于发现新的对标账号、查热点、找某赛道爆款——库里没有的、用户想「搜索/找新的」时用。免费。拿到链接后可用 web_fetch 深入分析具体页面。",
+    json!({
+        "type": "object",
+        "properties": {
+            "query": { "type": "string", "description": "搜索关键词（可含平台名，如 tiktok 体育 账号）" },
+            "limit": { "type": "integer", "description": "返回条数，1-15，默认 8" }
+        },
+        "required": ["query"]
+    }),
+    move |args: Value| {
+      Box::pin(async move {
+        let query = arg_str(&args, "query").unwrap_or_default();
+        if query.trim().is_empty() {
+          return Err(tool_err("缺少 query 参数"));
+        }
+        let limit = arg_u32(&args, "limit").unwrap_or(8).clamp(1, 15) as usize;
+        let value = duckduckgo_search(query.trim(), limit)
+          .await
+          .map_err(tool_err)?;
+        tool_output(value).await
+      })
+    },
+  )
+}
+
+// ============================================================
 // 对话命令
 // ============================================================
 
@@ -1389,6 +1695,40 @@ pub async fn ai_agent_chat(
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn html_to_text_strips_scripts_and_blocks() {
+    let html = "<div><script>var x=1;</script><style>p{}</style><h1>标题</h1><p>第一段&nbsp;文字</p><ul><li>项目一</li><li>项目二</li></ul></div>";
+    let text = html_to_text(html);
+    assert!(text.contains("标题"));
+    assert!(text.contains("第一段 文字"));
+    assert!(text.contains("项目一"));
+    assert!(text.contains("项目二"));
+    assert!(!text.contains("var x"));
+    assert!(!text.contains("p{}"));
+    assert!(!text.contains('<'));
+  }
+
+  #[test]
+  fn html_to_text_collapses_whitespace() {
+    let html = "<p>   很多      空格   </p><p>下一段</p>";
+    let text = html_to_text(html);
+    assert!(text.contains("很多 空格"));
+    assert!(!text.ends_with('\n'));
+  }
+
+  #[test]
+  fn decode_entities_named_and_numeric() {
+    assert_eq!(decode_entities("a &amp; b &lt;c&gt;"), "a & b <c>");
+    assert_eq!(decode_entities("&#65;&#x42;"), "AB");
+  }
+
+  #[tokio::test]
+  async fn fetch_rejects_non_http_scheme() {
+    let v = fetch_one_url("javascript:alert(1)", 1000).await;
+    assert_eq!(v["ok"], json!(false));
+    assert!(v["error"].as_str().unwrap().contains("http"));
+  }
 
   #[test]
   fn truncate_json_caps_long_strings() {

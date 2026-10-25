@@ -2527,15 +2527,14 @@ export function BwbrowserCloudAccountsDialog({
             className="flex items-center gap-1 text-xs font-medium"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            账号昵称
+            账号名称
             <LuChevronsUpDown className="h-3 w-3 opacity-50" />
           </button>
         ),
         cell: ({ row }) => {
           const account = row.original;
           const avatarUrl = resolveAvatarUrl(account.avatar_url);
-          const displayName =
-            account.pure_username || account.account_name || account.nickname;
+          const displayName = account.account_name;
           // 健康检测：图标颜色即结果（绿=健康，黄=需重新登录，灰=未检测）
           const h = healthStates[account.id];
           const hStatus = h?.status ?? "unknown";
@@ -3556,7 +3555,7 @@ export function BwbrowserCloudAccountsDialog({
         <div className="relative flex-1 max-w-md">
           <LuSearch className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="搜索账号昵称、登录账号、归属人、备注..."
+            placeholder="搜索账号名称、登录账号、归属人、备注..."
             value={keyword}
             onChange={handleSearchChange}
             className="h-8 pl-8 text-xs"

@@ -411,6 +411,7 @@ export function RailNav({
     canProfileManagement,
     canProxyCenter,
     canCloudAccount,
+    canCloudAccounts,
   } = useBwbrowserPermissions();
   const isAdmin = !!user?.teamRole && ADMIN_ROLES.includes(user.teamRole);
 
@@ -469,6 +470,7 @@ export function RailNav({
     if (item.page === "extensions" && !canExtensions) return false;
     if (item.page === "profiles" && !canProfileManagement) return false;
     if (item.page === "proxies" && !canProxyCenter) return false;
+    if (item.page === "cloudAccounts" && !canCloudAccounts) return false;
     if (item.page === "account" && !canCloudAccount) return false;
     return true;
   });

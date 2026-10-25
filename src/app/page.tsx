@@ -75,6 +75,7 @@ import { WayfernTermsDialog } from "@/components/wayfern-terms-dialog";
 import { WelcomeDialog } from "@/components/welcome-dialog";
 import { WindowResizeWarningDialog } from "@/components/window-resize-warning-dialog";
 import { useAppUpdateNotifications } from "@/hooks/use-app-update-notifications";
+import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import { useCloudAuth } from "@/hooks/use-cloud-auth";
 import { useCommercialTrial } from "@/hooks/use-commercial-trial";
 import { cookieBotScopeFor, useCookieBot } from "@/hooks/use-cookie-bot";
@@ -364,6 +365,7 @@ export default function Home() {
     isBwbrowserLogin,
   } = useCloudAuth();
   const crossOsUnlocked = getEntitlements(cloudUser).crossOsFingerprints;
+  useBwbrowserPermissions();
 
   // 应用启动时，自动弹出 Bwbrowser 登录对话框
   // 即使已登录也弹：记住密码时显示倒计时自动登录，用户可取消后切换账号
@@ -704,6 +706,67 @@ export default function Home() {
     },
     [isBwbrowserLogin],
   );
+
+  // 登录后默认落点：云端账号 → 视频下载 → 音频处理 → 视频工具 → AI洗稿 →
+  // 账号中心 → 系统设置，权限读取失败时安全落到系统设置。
+  const landingAppliedRef = useRef(false);
+  const applyLanding = useCallback(async () => {
+    if (landingAppliedRef.current) return;
+    landingAppliedRef.current = true;
+    try {
+      const user = await invoke<{
+        success: boolean;
+        is_super_admin?: boolean;
+        permissions?: Record<string, boolean>;
+      }>("bwbrowser_get_current_management_user");
+      const permissions = user.permissions ?? {};
+      const isSuperAdmin = user.is_super_admin ?? false;
+      // 登录后默认落点：云端账号 → 视频下载 → 音频处理 → 视频工具 → AI洗稿 →
+      // 账号中心 → 系统设置，哪个权限开就停哪里，全没开则系统设置兜底。
+      const candidates: AppPage[] = [
+        ...(permissions.allow_cloud_accounts
+          ? ["cloudAccounts" as AppPage]
+          : []),
+        ...(permissions.allow_video_download
+          ? ["videoDownload" as AppPage]
+          : []),
+        ...(isSuperAdmin || permissions.allow_audio_processor
+          ? ["audioProcessor" as AppPage]
+          : []),
+        ...(isSuperAdmin || permissions.allow_video_tools
+          ? ["videoMatcher" as AppPage]
+          : []),
+        ...(permissions.allow_ai_rewrite ? ["aiRewrite" as AppPage] : []),
+        ...(permissions.allow_cloud_account ? ["account" as AppPage] : []),
+        "settings",
+      ];
+      const landing = candidates[0];
+      handleRailNavigate(user.success ? landing : "settings");
+    } catch (error) {
+      console.error("登录后读取页面权限失败:", error);
+      handleRailNavigate("settings");
+    }
+  }, [handleRailNavigate]);
+
+  // 方式 A：登录对话框关闭时触发（手动登录 / 自动登录）
+  const onLoginDialogClose = useCallback(
+    (loginOccurred?: boolean) => {
+      setBwbrowserLoginDialogOpen(false);
+      if (loginOccurred) void applyLanding();
+    },
+    [applyLanding],
+  );
+
+  // 方式 B：监听登录态变化兜底（启动时已登录、对话框未弹出等场景）
+  useEffect(() => {
+    if (!isBwbrowserLogin) {
+      landingAppliedRef.current = false;
+      return;
+    }
+    if (!bwbrowserLoginDialogOpen) {
+      void applyLanding();
+    }
+  }, [isBwbrowserLogin, bwbrowserLoginDialogOpen, applyLanding]);
 
   const runTipAction = useCallback(
     (action: TipAction) => {
@@ -2355,9 +2418,7 @@ export default function Home() {
         <BwbrowserLoginDialog
           isOpen={bwbrowserLoginDialogOpen}
           hideCloseButton={false}
-          onClose={(_loginOccurred) => {
-            setBwbrowserLoginDialogOpen(false);
-          }}
+          onClose={onLoginDialogClose}
         />
       )}
 
