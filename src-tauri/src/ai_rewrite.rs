@@ -811,9 +811,12 @@ fn unzip_to(zip_path: &Path, dest: &Path) -> Result<(), String> {
   let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("读取压缩包失败：{e}"))?;
   for i in 0..archive.len() {
     let mut entry = archive.by_index(i).map_err(|e| format!("解压失败：{e}"))?;
-    let enclosed = entry
-      .enclosed_name()
-      .ok_or_else(|| format!("压缩包含非法路径：{}", entry.name()))?;
+    let enclosed = entry.enclosed_name().ok_or_else(|| {
+      format!(
+        "压缩包含非法路径：{}",
+        String::from_utf8_lossy(entry.name_raw())
+      )
+    })?;
     let out_path = dest.join(enclosed);
     if entry.is_dir() {
       std::fs::create_dir_all(&out_path).map_err(|e| format!("创建目录失败：{e}"))?;

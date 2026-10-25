@@ -1,6 +1,6 @@
 [package]
 name = "bwbrowser"
-version = "2.6.4"
+version = "2.6.5"
 description = "Simple Yet Powerful Anti-Detect Browser"
 authors = ["zhom@github"]
 edition = "2021"
@@ -73,7 +73,7 @@ base64 = { version = "0.23", default-features = false, features = ["std"] }
 libc = "0.2"
 async-trait = "0.1"
 futures-util = "0.3"
-zip = { version = "8", default-features = false, features = ["deflate-flate2"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 tar = "0"
 bzip2 = "0"
 flate2 = "1"
@@ -94,8 +94,8 @@ axum = { version = "0.8.9", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["cors"] }
 rand = "0.10.2"
-utoipa = { version = "5", features = ["axum_extras", "chrono"] }
-utoipa-axum = "0.2"
+utoipa = { version = "6", features = ["axum_extras", "chrono"] }
+utoipa-axum = "0.3"
 argon2 = "0.6"
 aes-gcm = "0.11"
 aes = "0.9"
@@ -107,7 +107,10 @@ sha2 = "0.11"
 # aws-lc crypto backend (a C/assembly library needing cmake, and NASM on Windows)
 # alongside the `ring` this crate already ships through boringtun. Moving up is a
 # build-toolchain decision for every platform, not a routine dependency refresh.
-shadowsocks = { version = ">=1.24, <1.25", default-features = false, features = ["aead-cipher"] }
+shadowsocks = { version = ">=1.24, <1.26", default-features = false, features = ["aead-cipher"] }
+# aws-lc-sys (pulled in by shadowsocks 1.25's aead-cipher): use the vendor's
+# prebuilt NASM objects so the Windows build does not require a NASM install.
+aws-lc-sys = { version = "0.46", features = ["prebuilt-nasm"] }
 hyper = { version = "1.10", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
@@ -122,7 +125,7 @@ serde_yaml = "0.9"
 thiserror = "2.0"
 regex-lite = "0.1"
 tempfile = "3"
-maxminddb = "0.30"
+maxminddb = "0.32"
 quick-xml = { version = "0.42", features = ["serialize"] }
 
 # VPN support
@@ -138,16 +141,16 @@ image = "0.25"
 # download-binaries 在该平台找不到匹配组合（如 aarch64-apple-darwin 只有 coreml）。
 ort = { version = "2.0.0-rc.15", default-features = false, features = ["download-binaries", "ndarray", "tls-rustls", "std", "lax-feature-matching"] }
 ndarray = { version = "0.17", features = ["std"] }
-dirs = "6"
+dirs = "7"
 crossbeam-channel = "0.5"
 sys-locale = "0.3"
-jsonc-parser = { version = "0.33", features = ["cst", "serde_json"] }
+jsonc-parser = { version = "0.34", features = ["cst", "serde_json"] }
 toml_edit = "0.25"
 
 # AI Agent（rig）：LLM 编排 + 多轮工具调用；HTTP 层走项目自身的 reqwest 0.13（可注入代理）
-rig-core = { version = "0.44", default-features = false, features = ["reqwest", "native-tls"] }
-rig-agent = { version = "0.44", default-features = false }
-rig-reqwest = { version = "0.44", default-features = false, features = ["native-tls"] }
+rig-core = { version = "0.45", default-features = false, features = ["reqwest", "native-tls"] }
+rig-agent = { version = "0.45", default-features = false }
+rig-reqwest = { version = "0.45", default-features = false, features = ["native-tls"] }
 # AI 助手的 VPS 工具（vps_exec）：用户在对话里提供连接信息后执行远程命令。
 # ring 后端避开 aws-lc-rs 的 CMake/NASM 构建依赖。
 russh = { version = "0.64", default-features = false, features = ["ring", "flate2", "rsa"] }

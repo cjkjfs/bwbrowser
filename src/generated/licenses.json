@@ -588,6 +588,14 @@
     "license": "BSD-3-Clause"
   },
   {
+    "name": "aws-lc-rs",
+    "license": "ISC AND (Apache-2.0 OR ISC)"
+  },
+  {
+    "name": "aws-lc-sys",
+    "license": "ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0)"
+  },
+  {
     "name": "axum",
     "license": "MIT"
   },
@@ -2252,14 +2260,6 @@
     "license": "Apache-2.0 OR MIT"
   },
   {
-    "name": "multiversion",
-    "license": "Apache-2.0 OR MIT"
-  },
-  {
-    "name": "multiversion-macros",
-    "license": "Apache-2.0 OR MIT"
-  },
-  {
     "name": "multiversion_no_op",
     "license": "Apache-2.0 OR MIT"
   },
@@ -2916,6 +2916,10 @@
     "license": "MIT"
   },
   {
+    "name": "rig-memory",
+    "license": "MIT"
+  },
+  {
     "name": "rig-reqwest",
     "license": "MIT"
   },
@@ -2926,10 +2930,6 @@
   {
     "name": "ring",
     "license": "Apache-2.0 AND ISC"
-  },
-  {
-    "name": "ring-compat",
-    "license": "Apache-2.0 OR MIT"
   },
   {
     "name": "roxmltree",
@@ -3148,20 +3148,16 @@
     "license": "MIT"
   },
   {
+    "name": "shake",
+    "license": "Apache-2.0 OR MIT"
+  },
+  {
     "name": "shared_child",
     "license": "MIT"
   },
   {
     "name": "sharp",
     "license": "Apache-2.0"
-  },
-  {
-    "name": "sigchld",
-    "license": "MIT"
-  },
-  {
-    "name": "signal-hook",
-    "license": "Apache-2.0 OR MIT"
   },
   {
     "name": "signal-hook-registry",
