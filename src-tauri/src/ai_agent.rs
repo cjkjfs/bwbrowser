@@ -49,6 +49,10 @@ pub struct AgentChatTurn {
   /// 本轮附带的图片（base64 裸数据或 data URL），仅对最后一条 user 消息生效。
   #[serde(default)]
   pub images: Option<Vec<String>>,
+  /// 本轮附带的本地视频文件路径（仅最后一条 user 消息生效）。
+  /// 后端自动抽帧 + 本地转写，把帧图与文案并入多模态消息。
+  #[serde(default)]
+  pub videos: Option<Vec<String>>,
 }
 
 /// 一次工具调用的可展示步骤（前端渲染在回复上方的过程区）。
@@ -391,19 +395,18 @@ const PREAMBLE: &str = "你是 BW Browser 内置的 AI 助手，可以调用工�
 - account_id 是账号入库编号（每个自有/对标账号各有一个编号），不是“公司ID”。绝对不要把 account_id 解读成公司归属，也不要输出“拉取了全库 / 其他公司数据”这类结论。\n\
 - account_type：own=自有账号，benchmark=对标账号。视频库里绝大多数是对标账号属于正常现象，那是贵公司配置的对标名单。\n\
 \n\
-回答规则：\n\
-1. 需要数据时先调用工具，再根据结果回答，不要凭空编造；工具结果里没有的信息就说没有。\n\
+回答规则（原则：用户是老板，意图明确就直接执行，能少问就少问，绝不因「谨慎」而拒绝做能力范围内的事）：\n\
+1. 需要数据时先调用工具，再根据结果回答，不要凭空编造；工具结果里没有的信息就说没有。查询类工具（query_videos / query_results / get_rewrite_result / list_proxies / list_team_members / query_accounts / query_running_tasks / list_folder / read_text_file / web_fetch / web_search）免费且无副作用，随时直接调用，不需要任何确认。\n\
 2. 提炼关键信息后作答，不要整段粘贴原始 JSON；列表很长时挑重点，说明总数与分页。\n\
-3. 用户要“完整文案 / 给我全文 / 原文”时，把 get_rewrite_result 返回的洗稿文案（钩子、正文、结尾引导）完整输出，不要概括截断。\n\
-4. 直接给结论，不要每轮都罗列一堆选项反问；最多保留一个必要的追问。\n\
+3. 用户要「完整文案 / 给我全文 / 原文」时，把 get_rewrite_result 返回的洗稿文案（钩子、正文、结尾引导）完整输出，不要概括截断。\n\
+4. 直接给结论，不要罗列一堆选项反问。用户意图清楚就立即执行，做完汇报结果；只有真正无法从上下文判断时才问，且最多问一句。\n\
 5. 用用户的语言回答（默认简体中文），保持简洁。\n\
-6. 发起洗稿任务：用户给出视频链接、或明确点名某个视频要洗稿/分析时，直接调用 start_rewrite_tasks，不要再向用户确认（点名即授权）；只有意图模糊（没说清处理哪个视频）时才问一次。一次最多 3 条，用户要求更多时说明限制并分批。任务发起后会自动出现在应用的任务列表（洗稿页任务 Tab），用户可直接看到实时进度，不要反问“要不要查进度”；发起后用 query_running_tasks 查一次当前阶段做简报，完成后用 query_results 查成果。\n\
-7. 本地文件夹：list_folder / read_text_file / write_text_file 只能访问用户通过「选择文件夹」按钮授权的目录，工具会拒绝其他路径，被拒绝就告知用户请先选择对应文件夹，不要换路径绕过。用户让你做文件（网页、脚本、文档）时，用 write_text_file 直接把完整内容写进授权目录里的新文件，不要再说“没有文件写入能力”。\n\
-8. VPS 的硬规则：连接信息（主机/端口/用户名/密码）必须由用户在对话里提供，不要主动索要，也不要猜测。执行前向用户复述将运行的命令；破坏性命令（rm、mkfs、dd、reboot、shutdown、重启服务等）必须有用户的明确同意才能执行。连接信息只在当轮使用。\n\
-9. 用户问数据归属、隔离或“是不是别家公司的数据”时，用上面的数据边界回答。\n\
-10. 触发数据更新的硬规则：cron_update 的 action=run 会按次计费并让服务器后台更新当前公司的平台账号数据（tiktok / youtube / douyin）。调用 run 前必须先告知用户平台与单价（先用 action=prices 查价目、余额），得到用户明确同意后才能 run；run 成功后告知用户约 5 分钟内完成，稍后可用 action=status 查进度、query_videos 看新数据。status 和 prices 是只读免费查询，可随意使用。\n\
-11. 实时拉取的硬规则：fetch_account_videos / fetch_video_data 每次调用都会扣费（走公司配置的上游数据 API，播放量/发布时间为拉取时刻的实时值）。调用前必须告知用户将拉取什么（哪个账号/哪个视频）并征得同意；拿到数据后重点解读发布时间、播放量、点赞率等指标，可用于洗稿前的重点分析。查询视频库里已有的数据用 query_videos（免费），只有用户要「最新实时数据」时才用拉取工具。\n\
-12. 联网搜索的硬规则：用户要求「搜索 / 查找 / 发现 / 找对标 / 查热点」时，**必须调用 web_search 工具**，拿到真实搜索结果后再回答；绝对不要说自己「无法搜索 / 不能联网 / 没有搜索能力」。web_fetch 用于分析具体链接页面，web_search 用于发现新内容。";
+6. 发起洗稿任务：用户给出视频链接、或明确点名某个视频要洗稿/分析时，直接调用 start_rewrite_tasks，不再确认（点名即授权），数量上不设限——用户给几条就提交几条。任务发起后会自动出现在应用的任务列表（洗稿页任务 Tab），用户可直接看到实时进度；发起后用 query_running_tasks 查一次当前阶段做简报，完成后用 query_results 查成果。\n\
+7. 本地文件夹：list_folder / read_text_file / write_text_file 能访问用户授权的目录及系统常用工作目录，工具会拒绝越界路径，被拒绝就告知用户换路径或先授权。用户让你做文件（网页、脚本、文档）时，用 write_text_file 直接写，不要说「没有文件写入能力」。\n\
+8. VPS：连接信息由用户在对话里提供（不给就问一句）。直接执行用户要的命令，先执行后汇报；只有破坏性命令（rm -rf、mkfs、dd、reboot、shutdown、drop database）才需要一句确认。连接信息只在当轮使用。\n\
+9. 用户问数据归属、隔离或「是不是别家公司的数据」时，用上面的数据边界回答。\n\
+10. 扣费操作（cron_update 的 run、fetch_account_videos / fetch_video_data）：用户明确要求拉最新数据或更新平台数据时直接执行，执行后告知发生了扣费与结果即可，不必事先反复确认；同一轮对话中用户已同意过的扣费操作，后续同类调用不再重复确认。status / prices / query_videos 等只读查询随时可用。\n\
+11. 联网搜索：用户要求「搜索 / 查找 / 发现 / 找对标 / 查热点」时，**必须调用 web_search 工具**，拿到真实搜索结果后再回答；绝对不要说自己「无法搜索 / 不能联网」。web_fetch 用于分析具体链接页面。";
 
 /// 工具闭包需要的应用句柄（发起洗稿任务要用），对话命令首次调用时注入。
 static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
@@ -741,12 +744,12 @@ fn tool_list_proxies() -> DynamicTool {
 }
 
 /// 一次发起洗稿任务的条数上限：防止单轮对话烧掉过多服务器额度。
-const MAX_START_ITEMS: usize = 3;
+const MAX_START_ITEMS: usize = 20;
 
 fn tool_start_rewrite_tasks() -> DynamicTool {
   DynamicTool::new(
     ToolName::new("start_rewrite_tasks").expect("tool name is static and valid"),
-    "发起洗稿任务（后台执行，立即返回任务清单，任务会出现在应用任务列表并实时更新）。items 里每项需带 source_url（或 play_url），可带 video_id/title/platform。一次最多 3 条；用户已明确给出链接或点名视频时直接调用，无需再次确认。",
+    "发起洗稿任务（后台执行，立即返回任务清单，任务会出现在应用任务列表并实时更新）。items 里每项需带 source_url（或 play_url），可带 video_id/title/platform。用户给几条就提交几条，不设人为限制；用户已明确给出链接或点名视频时直接调用，无需再次确认。",
     json!({
         "type": "object",
         "properties": {
@@ -792,7 +795,7 @@ fn tool_start_rewrite_tasks() -> DynamicTool {
           if truncated {
             map.insert(
               "note".to_string(),
-              json!(format!("一次最多发起 {MAX_START_ITEMS} 条，已只取前 {MAX_START_ITEMS} 条；请告知用户分批处理。")),
+              json!(format!("单次上限 {MAX_START_ITEMS} 条，已只取前 {MAX_START_ITEMS} 条；请告知用户剩余条目可再发一轮提交。")),
             );
           }
           map.insert(
@@ -1656,6 +1659,15 @@ fn steps_from_messages(messages: &[Message]) -> Vec<AgentChatStep> {
   steps
 }
 
+/// 视频粘贴落盘的临时目录（前端 writeFile 用）。存在即返回，不清理旧文件
+/// （由系统临时目录策略兜底）。
+#[tauri::command]
+pub fn ai_agent_tmp_dir() -> Result<String, String> {
+  let dir = std::env::temp_dir().join("bw-agent-videos");
+  std::fs::create_dir_all(&dir).map_err(|e| format!("创建临时目录失败：{e}"))?;
+  Ok(dir.to_string_lossy().to_string())
+}
+
 /// AI 助手对话：前端全量传入历史（最后一条必须是 user）与已授权的本地文件夹，
 /// 返回最终回复与工具执行步骤。历史由前端持有，后端不落盘。
 #[tauri::command]
@@ -1672,7 +1684,7 @@ pub async fn ai_agent_chat(
   let Some(last) = messages.last() else {
     return Err(code_err("AI_AGENT_EMPTY_CONVERSATION", None));
   };
-  if last.role != "user" || last.content.trim().is_empty() {
+  if last.role != "user" {
     return Err(code_err("AI_AGENT_EMPTY_CONVERSATION", None));
   }
   let agent = current_agent().await?;
@@ -1687,14 +1699,38 @@ pub async fn ai_agent_chat(
     })
     .collect();
   let prompt = last.content.trim();
-  // 带图时最后一条 user 消息走多模态（文本 + 图片），纯文本走原路径。
-  let response = if last.role == "user" && last.images.as_ref().is_some_and(|v| !v.is_empty()) {
+  let has_images = last.images.as_ref().is_some_and(|v| !v.is_empty());
+  let has_videos = last.videos.as_ref().is_some_and(|v| !v.is_empty());
+  let mut video_steps: Vec<AgentChatStep> = Vec::new();
+
+  // 视频附件：抽帧 + 本地转写，产出帧 base64 列表与文字材料
+  let mut video_frames: Vec<String> = Vec::new();
+  let mut video_texts: Vec<String> = Vec::new();
+  if has_videos {
+    let result = analyze_video_attachments(last.videos.as_deref().unwrap_or_default()).await;
+    video_frames = result.frames;
+    video_texts = result.texts;
+    video_steps = result.steps;
+  }
+
+  let multimodal = has_images || !video_frames.is_empty() || !video_texts.is_empty();
+  let response = if multimodal {
     let mut content: Vec<UserContent> = Vec::new();
     if !prompt.is_empty() {
       content.push(UserContent::text(prompt.to_string()));
     }
+    // 视频文字材料（元数据 + 转写）先入文本，帧图随后
+    if !video_texts.is_empty() {
+      content.push(UserContent::text(video_texts.join("\n\n")));
+    }
     for img in last.images.as_deref().unwrap_or_default() {
       match parse_image_payload(img) {
+        Ok(image) => content.push(UserContent::Image(image)),
+        Err(e) => return Err(code_err("AI_AGENT_IMAGE_INVALID", Some(&e))),
+      }
+    }
+    for frame in &video_frames {
+      match parse_image_payload(frame) {
         Ok(image) => content.push(UserContent::Image(image)),
         Err(e) => return Err(code_err("AI_AGENT_IMAGE_INVALID", Some(&e))),
       }
@@ -1707,15 +1743,332 @@ pub async fn ai_agent_chat(
       .await
       .map_err(|e| code_err("AI_AGENT_LLM_FAILED", Some(&e.to_string())))?
   } else {
+    if prompt.is_empty() {
+      return Err(code_err("AI_AGENT_EMPTY_CONVERSATION", None));
+    }
     agent
       .chat(prompt, &mut history)
       .await
       .map_err(|e| code_err("AI_AGENT_LLM_FAILED", Some(&e.to_string())))?
   };
+  let mut steps = video_steps;
+  steps.extend(steps_from_messages(response.messages()));
   Ok(AgentChatReply {
     reply: response.output(),
-    steps: steps_from_messages(response.messages()),
+    steps,
   })
+}
+
+/// 视频附件分析结果：帧 base64（data URL）、文字材料、可展示步骤。
+struct VideoAnalysisResult {
+  frames: Vec<String>,
+  texts: Vec<String>,
+  steps: Vec<AgentChatStep>,
+}
+
+const VIDEO_MAX_FRAMES: usize = 6;
+const VIDEO_MAX_SIZE_BYTES: u64 = 500 * 1024 * 1024;
+const VIDEO_MAX_DURATION_SECS: f64 = 900.0;
+
+/// 对每个本地视频：ffprobe 元数据 → ffmpeg 均匀抽帧（≤6 张 512px JPG）→
+/// 提取音轨交 faster-whisper 本地转写。单视频失败不阻断整体（记录错误步骤）。
+async fn analyze_video_attachments(paths: &[String]) -> VideoAnalysisResult {
+  let mut result = VideoAnalysisResult {
+    frames: Vec::new(),
+    texts: Vec::new(),
+    steps: Vec::new(),
+  };
+  for path in paths {
+    let step = |name: &str, detail: String, is_error: bool| AgentChatStep {
+      kind: "tool_result".to_string(),
+      name: name.to_string(),
+      detail,
+      is_error,
+    };
+    let p = std::path::PathBuf::from(path.trim().trim_matches('"'));
+    let file_name = p
+      .file_name()
+      .map(|n| n.to_string_lossy().to_string())
+      .unwrap_or_else(|| path.clone());
+    if !p.exists() {
+      result
+        .steps
+        .push(step("video_analyze", format!("文件不存在：{path}"), true));
+      continue;
+    }
+    let meta = match std::fs::metadata(&p) {
+      Ok(m) => m,
+      Err(e) => {
+        result
+          .steps
+          .push(step("video_analyze", format!("读取文件失败：{e}"), true));
+        continue;
+      }
+    };
+    if meta.len() > VIDEO_MAX_SIZE_BYTES {
+      result.steps.push(step(
+        "video_analyze",
+        format!("视频超过 500MB：{file_name}"),
+        true,
+      ));
+      continue;
+    }
+
+    let tools = crate::video_downloader::tools_dir();
+    let ffmpeg = tools.join("ffmpeg.exe");
+    let ffprobe = tools.join("ffprobe.exe");
+    let ffmpeg = if ffmpeg.exists() {
+      ffmpeg
+    } else {
+      std::path::PathBuf::from("ffmpeg")
+    };
+    let ffprobe = if ffprobe.exists() {
+      ffprobe
+    } else {
+      std::path::PathBuf::from("ffprobe")
+    };
+
+    // 1. 元数据（时长/分辨率）
+    let probe = tokio::process::Command::new(&ffprobe)
+      .args([
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-show_entries",
+        "stream=width,height,codec_type",
+        "-of",
+        "json",
+      ])
+      .arg(&p)
+      .output()
+      .await;
+    let mut duration: f64 = 0.0;
+    let mut resolution = String::new();
+    if let Ok(out) = probe {
+      if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+        duration = v["format"]["duration"]
+          .as_str()
+          .and_then(|s| s.parse().ok())
+          .unwrap_or(0.0);
+        for s in v["streams"].as_array().unwrap_or(&Vec::new()) {
+          if s["codec_type"] == "video" && resolution.is_empty() {
+            resolution = format!(
+              "{}x{}",
+              s["width"].as_u64().unwrap_or(0),
+              s["height"].as_u64().unwrap_or(0)
+            );
+          }
+        }
+      }
+    }
+    if duration > VIDEO_MAX_DURATION_SECS {
+      result.steps.push(step(
+        "video_analyze",
+        format!("视频超过 15 分钟（{duration:.0}s）：{file_name}"),
+        true,
+      ));
+      continue;
+    }
+    result.texts.push(format!(
+      "【视频 {}】时长 {:.1}s，分辨率 {}（以下为按时间均匀抽取的关键帧画面与完整旁白转写）",
+      file_name,
+      duration,
+      if resolution.is_empty() {
+        "未知".to_string()
+      } else {
+        resolution
+      }
+    ));
+
+    // 2. 抽帧：临时目录，均匀取 ≤6 帧
+    let tmp = std::env::temp_dir().join(format!("bw-agent-video-{}", std::process::id()));
+    let _ = tokio::fs::create_dir_all(&tmp).await;
+    let frame_count = VIDEO_MAX_FRAMES.min(duration.max(1.0) as usize).max(1);
+    let fps_arg = if duration > 1.0 {
+      format!("fps={}/{}", frame_count, duration)
+    } else {
+      "fps=1".to_string()
+    };
+    let extract = tokio::process::Command::new(&ffmpeg)
+      .args(["-y", "-v", "error", "-i"])
+      .arg(&p)
+      .args([
+        "-vf",
+        &format!("{fps_arg},scale=512:-2"),
+        "-frames:v",
+        &VIDEO_MAX_FRAMES.to_string(),
+        "-q:v",
+        "4",
+      ])
+      .arg(tmp.join("frame_%d.jpg"))
+      .output()
+      .await;
+    match extract {
+      Ok(out) if out.status.success() => {
+        let mut names: Vec<String> = Vec::new();
+        if let Ok(mut rd) = tokio::fs::read_dir(&tmp).await {
+          while let Ok(Some(e)) = rd.next_entry().await {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with("frame_") && name.ends_with(".jpg") {
+              names.push(name);
+            }
+          }
+        }
+        names.sort();
+        let mut taken = 0;
+        for name in names {
+          if taken >= VIDEO_MAX_FRAMES {
+            break;
+          }
+          if let Ok(bytes) = tokio::fs::read(tmp.join(&name)).await {
+            use base64::Engine as _;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            result.frames.push(format!("data:image/jpeg;base64,{b64}"));
+            taken += 1;
+          }
+        }
+        result.steps.push(step(
+          "video_analyze",
+          format!("{file_name}：抽取 {taken} 张关键帧"),
+          false,
+        ));
+      }
+      Ok(out) => {
+        let err = String::from_utf8_lossy(&out.stderr);
+        result.steps.push(step(
+          "video_analyze",
+          format!("{file_name}：抽帧失败（{}）", truncate_str(&err, 120)),
+          true,
+        ));
+      }
+      Err(e) => {
+        result.steps.push(step(
+          "video_analyze",
+          format!("{file_name}：ffmpeg 启动失败：{e}"),
+          true,
+        ));
+      }
+    }
+
+    // 3. 音轨转写（本地 faster-whisper；无音轨/失败静默跳过——画面仍可分析）
+    let audio = tmp.join("audio.wav");
+    let audio_ok = tokio::process::Command::new(&ffmpeg)
+      .args(["-y", "-v", "error", "-i"])
+      .arg(&p)
+      .args(["-vn", "-ac", "1", "-ar", "16000", "-f", "wav"])
+      .arg(&audio)
+      .output()
+      .await
+      .map(|o| o.status.success())
+      .unwrap_or(false);
+    if audio_ok {
+      let cfg = crate::ai_rewrite::local_asr_config();
+      let python = crate::ai_rewrite::local_python_path();
+      let script = crate::ai_rewrite::LOCAL_ASR_PY;
+      let audio_for_task = audio.clone();
+      let tx = tokio::task::spawn_blocking(move || {
+        run_whisper_blocking(&python, script, &audio_for_task, &cfg.model, &cfg.language)
+      });
+      match tx.await {
+        Ok(Ok(text)) if !text.trim().is_empty() => {
+          let chars: usize = text.chars().count();
+          let clipped: String = text.chars().take(6000).collect();
+          result
+            .texts
+            .push(format!("【旁白转写（{} 字符）】\n{}", chars, clipped));
+          result.steps.push(step(
+            "video_analyze",
+            format!("{file_name}：转写完成（{chars} 字符）"),
+            false,
+          ));
+        }
+        Ok(Ok(_)) => {
+          result.steps.push(step(
+            "video_analyze",
+            format!("{file_name}：无有效语音"),
+            false,
+          ));
+        }
+        Ok(Err(e)) => {
+          result.steps.push(step(
+            "video_analyze",
+            format!(
+              "{file_name}：本地转写失败（{}）；仅按画面分析",
+              truncate_str(&e, 120)
+            ),
+            true,
+          ));
+        }
+        Err(e) => {
+          result.steps.push(step(
+            "video_analyze",
+            format!("{file_name}：转写任务异常：{e}"),
+            true,
+          ));
+        }
+      }
+    }
+    // 清理临时目录
+    let _ = tokio::fs::remove_dir_all(&tmp).await;
+  }
+  result
+}
+
+/// 阻塞式跑 faster-whisper（spawn_blocking 上下文）：与 ai_rewrite 的
+/// LOCAL_ASR_PY 协议一致——stdin 传脚本，argv 传 [model, audio, language]，
+/// stdout 逐行 JSON，取 type=text 段拼接。
+fn run_whisper_blocking(
+  python: &str,
+  script: &str,
+  audio: &std::path::Path,
+  model: &str,
+  language: &str,
+) -> Result<String, String> {
+  use std::io::{BufRead, Write};
+  let mut child = std::process::Command::new(python)
+    .arg("-")
+    .arg(model)
+    .arg(audio)
+    .arg(language)
+    .env("PYTHONIOENCODING", "utf-8")
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null())
+    .spawn()
+    .map_err(|e| format!("启动 Python 失败：{e}"))?;
+  if let Some(mut stdin) = child.stdin.take() {
+    let _ = stdin.write_all(script.as_bytes());
+  }
+  let stdout = child.stdout.take().ok_or("无法读取转写输出")?;
+  let mut text = String::new();
+  let reader = std::io::BufReader::new(stdout);
+  for line in reader.lines() {
+    let line = line.map_err(|e| e.to_string())?;
+    // LOCAL_ASR_PY 协议：进度/错误行 + 最终 {"type":"done","text":...} 一次输出
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+      match v["type"].as_str() {
+        Some("done") => {
+          text = v["text"].as_str().unwrap_or("").to_string();
+        }
+        Some("error") => {
+          return Err(v["message"].as_str().unwrap_or("转写错误").to_string());
+        }
+        _ => {}
+      }
+    }
+  }
+  let _ = child.wait();
+  Ok(text)
+}
+
+fn truncate_str(s: &str, max: usize) -> String {
+  if s.chars().count() <= max {
+    s.to_string()
+  } else {
+    let clipped: String = s.chars().take(max).collect();
+    format!("{clipped}…")
+  }
 }
 
 /// 解析前端传来的图片载荷：data URL（data:image/png;base64,xxx）或裸 base64。

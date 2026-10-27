@@ -1022,6 +1022,60 @@ async fn resolve_share_url_via_cloud(share_url: &str) -> Result<(String, Option<
 ///   - hainanyuyue：`window._ROUTER_DATA = {...}` 里未转义 JSON `"play_url":"...\u002F..."`
 ///
 /// 直链带签名有时效，拿到后立即下载。
+/// wco.tv/wcostream 解析脚本（编译期嵌入）：curl_cffi 模拟 Chrome TLS 过
+/// Cloudflare，四步链路拿真实 CDN mp4 直链。stdout 单行 JSON。
+const WCO_RESOLVER_PY: &str = include_str!("wco_resolver.py");
+
+/// wco 视频解析：本地托管 Python（faster-whisper 同环境）跑解析脚本，
+/// 返回 (直链, 标题)。失败返回可读错误。
+async fn resolve_wco_url(page_url: &str) -> Result<(String, String), String> {
+  use tokio::io::AsyncWriteExt;
+
+  let python = crate::ai_rewrite::local_python_path();
+  let mut cmd = tokio::process::Command::new(&python);
+  cmd
+    .arg("-")
+    .arg(page_url)
+    .env("PYTHONIOENCODING", "utf-8")
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped());
+
+  let mut child = cmd.spawn().map_err(|e| {
+    format!(
+      "启动 Python（{python}）失败：{e}；解析 wco 需要 Python 环境（AI 洗稿本地转写已配置过）"
+    )
+  })?;
+  if let Some(mut stdin) = child.stdin.take() {
+    let _ = stdin.write_all(WCO_RESOLVER_PY.as_bytes()).await;
+    drop(stdin);
+  }
+  let output = child
+    .wait_with_output()
+    .await
+    .map_err(|e| format!("等待解析进程失败：{e}"))?;
+
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  // 取最后一行 JSON（脚本只输出一行，防 stderr 混入）
+  let line = stdout
+    .lines()
+    .rev()
+    .find(|l| l.trim_start().starts_with('{'))
+    .ok_or_else(|| format!("解析器无有效输出：{}", &stdout[..stdout.len().min(120)]))?;
+
+  let v: serde_json::Value =
+    serde_json::from_str(line).map_err(|e| format!("解析器输出异常：{e}"))?;
+  if v["ok"].as_bool() != Some(true) {
+    return Err(v["error"].as_str().unwrap_or("未知错误").to_string());
+  }
+  let url = v["url"]
+    .as_str()
+    .ok_or_else(|| "解析结果缺少 url".to_string())?
+    .to_string();
+  let title = v["title"].as_str().unwrap_or("wco_video").to_string();
+  Ok((url, title))
+}
+
 async fn resolve_hongguo_share_url(share_url: &str) -> Result<String, String> {
   let resp = reqwest::Client::builder()
     .user_agent("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36")
@@ -1158,11 +1212,47 @@ async fn run_single_download<R: Runtime>(
   let is_hongguo = url.contains("novelquickapp.com/s/")
     || url.contains("hainanyuyue.com/s/")
     || url.contains("hainanyuyue.com/share/");
+  // wco.tv / wcostream 系列：Cloudflare + 自研混淆，yt-dlp 过不了；
+  // 走本地 Python 解析器（curl_cffi 模拟 Chrome TLS）拿真实 CDN 直链
+  let is_wco = url.contains("wco.tv/")
+    || url.contains("wcostream.")
+    || url.contains("wcofun.")
+    || url.contains("wcostream.org/");
   // 云端候选：红果系 + 已接入云端的其他平台（qq.com 漫剧分享页）
   let is_cloud_candidate = is_hongguo
     || (url.contains("qq.com/") && (url.contains("/kairos/share/") || url.contains("manju")));
   let mut hongguo_fixed_name: Option<String> = None;
-  let url: String = if is_cloud_candidate {
+  let url: String = if is_wco {
+    // wco 系列：本地 Python 解析器（curl_cffi 模拟 Chrome TLS 过 Cloudflare）。
+    // 直链有时效且绑定会话，解析后立即下载，不能当作普通 URL 复用。
+    dl.set_task_status_text(task_id, "解析 wco 视频源...".to_string())
+      .await;
+    match resolve_wco_url(url).await {
+      Ok((direct, title)) => {
+        log::info!("[video_download] wco 解析成功（title={title:?}）");
+        dl.set_task_status_text(task_id, "解析成功，开始下载...".to_string())
+          .await;
+        let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let base = title
+          .trim()
+          .chars()
+          .map(|c| {
+            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+              '_'
+            } else {
+              c
+            }
+          })
+          .collect::<String>();
+        hongguo_fixed_name = Some(format!("{}_{}.%(ext)s", base, stamp));
+        direct
+      }
+      Err(e) => {
+        log::warn!("[video_download] wco 解析失败: {e}");
+        return Err(format!("wco 视频解析失败：{e}"));
+      }
+    }
+  } else if is_cloud_candidate {
     dl.set_task_status_text(task_id, "解析分享链接...".to_string())
       .await;
     // 云端优先：解析逻辑在服务端，平台改版不用发客户端；失败回退本地解析
@@ -3928,7 +4018,7 @@ pub struct ToolStatus {
 }
 
 /// 获取工具目录
-fn tools_dir() -> PathBuf {
+pub(crate) fn tools_dir() -> PathBuf {
   let app_dir = crate::app_dirs::data_dir();
   app_dir.join("video-tools")
 }

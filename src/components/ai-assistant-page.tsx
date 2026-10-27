@@ -1,11 +1,14 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
+import { writeFile } from "@tauri-apps/plugin-fs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   LuBot,
+  LuClapperboard,
   LuFolderOpen,
   LuLoader,
   LuPlus,
@@ -49,6 +52,8 @@ interface ChatMessage {
   steps?: AgentChatStep[];
   /** 用户消息附带的图片（data URL，仅用于本地回显；发请求时转 base64）。 */
   images?: string[];
+  /** 用户消息附带的本地视频路径（仅用于回显；后端按路径抽帧+转写）。 */
+  videos?: string[];
 }
 
 /** 一个独立对话：标题取首条用户消息前 20 字，空串时 UI 显示「新对话」。 */
@@ -79,17 +84,23 @@ function fileToDataUrl(file: File): Promise<string | null> {
   });
 }
 
-/** 从剪贴板/拖拽事件里收集图片文件。 */
+/** 从剪贴板/拖拽事件里收集图片文件；同内容去重（Windows 截图工具会在
+ * items 里同时放 file 条目与 string 条目，同一张图出现两次）。 */
 function collectImageFiles(
   items: Iterable<DataTransferItem> | FileList,
 ): File[] {
   const out: File[] = [];
+  const seen = new Set<string>();
   for (const item of items) {
     const file =
       "kind" in item && item.kind === "file"
         ? item.getAsFile()
         : (item as File);
-    if (file?.type.startsWith("image/")) out.push(file);
+    if (!file?.type.startsWith("image/")) continue;
+    const key = `${file.name}|${file.size}|${file.lastModified}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(file);
   }
   return out;
 }
@@ -112,6 +123,9 @@ function sanitizeMessages(parsed: unknown): ChatMessage[] {
         ...(Array.isArray(c.steps) ? { steps: c.steps } : {}),
         ...(Array.isArray(c.images) && c.images.length
           ? { images: c.images }
+          : {}),
+        ...(Array.isArray(c.videos) && c.videos.length
+          ? { videos: c.videos }
           : {}),
       });
     }
@@ -201,6 +215,9 @@ export function AiAssistantPage({
   });
   const [input, setInput] = useState("");
   const [pendingImages, setPendingImages] = useState<string[]>([]);
+  const [pendingVideos, setPendingVideos] = useState<string[]>([]);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [busy, setBusy] = useState(false);
   /** 用户通过原生选择器授权给助手的本地文件夹（只读）。 */
   const [allowedFolders, setAllowedFolders] = useState<string[]>([]);
@@ -277,28 +294,138 @@ export function AiAssistantPage({
       const oversize = files.length - accepted.length;
       if (oversize > 0) toast.info(`${oversize} 张图片超过 10MB，已跳过`);
       void Promise.all(accepted.map(fileToDataUrl)).then((urls) => {
-        const ok = urls.filter(
-          (u): u is string => u !== null && u.length <= MAX_IMAGE_CHARS,
-        );
-        if (ok.length < accepted.length) toast.info("部分图片读取失败或过大");
+        // 内容级去重：剪贴板同一张图可能以 file+string 两条目各来一次
+        const seen = new Set<string>();
+        const ok = urls.filter((u): u is string => {
+          if (u === null || u.length > MAX_IMAGE_CHARS) return false;
+          if (seen.has(u)) return false;
+          seen.add(u);
+          return true;
+        });
+        if (ok.length < accepted.length && accepted.length > 1)
+          toast.info("部分图片读取失败或过大");
         if (ok.length)
-          setPendingImages((p) =>
-            [...p, ...ok].slice(0, MAX_IMAGES_PER_MESSAGE),
-          );
+          setPendingImages((p) => {
+            // 与已附图片也做内容去重：两次快速 paste 事件可能各带同一张图
+            const merged = new Set(p);
+            const added: string[] = [];
+            for (const u of ok) {
+              if (merged.has(u)) continue;
+              merged.add(u);
+              added.push(u);
+            }
+            return [...p, ...added].slice(0, MAX_IMAGES_PER_MESSAGE);
+          });
       });
       return prev;
     });
   }, []);
 
+  const pendingVideosRef = useRef<string[]>([]);
+  pendingVideosRef.current = pendingVideos;
+
+  const addVideoPaths = useCallback((paths: string[]) => {
+    const VIDEO_EXTS = /\.(mp4|mov|avi|mkv|webm|flv|wmv|m4v|ts)$/i;
+    const vids = paths.filter((p) => VIDEO_EXTS.test(p));
+    if (vids.length === 0) return false;
+    // 已挂起列表 + 本批内部都去重：拖放事件可能在一次操作里重复投递同一路径
+    const existing = new Set(pendingVideosRef.current);
+    const fresh = vids.filter((v) => !existing.has(v));
+    if (fresh.length === 0) return false;
+    for (const v of fresh) existing.add(v);
+    setPendingVideos([...pendingVideosRef.current, ...fresh].slice(0, 2));
+    return true;
+  }, []);
+
+  /** 粘贴的视频 File 落盘到应用临时目录，返回可交给后端的本地路径。 */
+  const materializePastedVideo = useCallback(async (file: File) => {
+    const ext = (
+      file.name.match(/\.[a-z0-9]{2,5}$/i)?.[0] ?? ".mp4"
+    ).toLowerCase();
+    const base =
+      file.name.replace(/\.[a-z0-9]{2,5}$/i, "").slice(0, 40) || "video";
+    const dir = await invoke<string>("ai_agent_tmp_dir");
+    const path = `${dir}\\${Date.now()}-${base}${ext}`;
+    const buf = new Uint8Array(await file.arrayBuffer());
+    await writeFile(path, buf);
+    return path;
+  }, []);
+
+  // Tauri 原生拖放：WebView2 里 HTML5 drop 拿不到文件路径，视频走 onDragDropEvent
+  const dropZoneRef = useRef<HTMLDivElement | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    getCurrentWebview()
+      .onDragDropEvent((event) => {
+        const p = event.payload;
+        if (p.type === "leave") {
+          setDragOver(false);
+          return;
+        }
+        const rect = dropZoneRef.current?.getBoundingClientRect();
+        const scale = window.devicePixelRatio || 1;
+        const inside =
+          !!rect &&
+          p.position.x / scale >= rect.left &&
+          p.position.x / scale <= rect.right &&
+          p.position.y / scale >= rect.top &&
+          p.position.y / scale <= rect.bottom;
+        if (p.type === "enter" || p.type === "over") {
+          setDragOver(inside);
+          return;
+        }
+        setDragOver(false);
+        if (!inside) return;
+        addVideoPaths(p.paths);
+      })
+      .then((fn) => {
+        unlisten = fn;
+      });
+    return () => {
+      unlisten?.();
+    };
+  }, [addVideoPaths]);
+
+  const pickVideo = useCallback(async () => {
+    const picked = await open({
+      multiple: true,
+      filters: [
+        {
+          name: "视频",
+          extensions: [
+            "mp4",
+            "mov",
+            "avi",
+            "mkv",
+            "webm",
+            "flv",
+            "wmv",
+            "m4v",
+            "ts",
+          ],
+        },
+      ],
+    });
+    if (!picked) return;
+    addVideoPaths(Array.isArray(picked) ? picked : [picked]);
+  }, [addVideoPaths]);
+
   const send = useCallback(async () => {
     const text = input.trim();
-    if ((!text && pendingImages.length === 0) || busy) return;
+    if (
+      (!text && pendingImages.length === 0 && pendingVideos.length === 0) ||
+      busy
+    )
+      return;
     const images = pendingImages.length ? pendingImages : undefined;
+    const videos = pendingVideos.length ? pendingVideos : undefined;
     const userMsg: ChatMessage = {
       id: newId(),
       role: "user",
       content: text,
       ...(images ? { images } : {}),
+      ...(videos ? { videos } : {}),
     };
     const history = [...messages, userMsg];
     const sessionId = active.id;
@@ -307,7 +434,8 @@ export function AiAssistantPage({
         s.id === sessionId
           ? {
               ...s,
-              title: s.title || sessionTitle(text || "图片"),
+              title:
+                s.title || sessionTitle(text || (videos ? "视频" : "图片")),
               messages: history,
             }
           : s,
@@ -315,14 +443,16 @@ export function AiAssistantPage({
     );
     setInput("");
     setPendingImages([]);
+    setPendingVideos([]);
     setBusy(true);
     try {
       const reply = await invoke<AgentChatReply>("ai_agent_chat", {
         messages: history.map((m) => ({
           role: m.role,
           content: m.content,
-          // 仅最后一条 user 消息带图（后端也只对该位置生效）
+          // 仅最后一条 user 消息带图/视频（后端也只对该位置生效）
           ...(m.id === userMsg.id && images ? { images } : {}),
+          ...(m.id === userMsg.id && videos ? { videos } : {}),
         })),
         allowedFolders,
       });
@@ -349,7 +479,16 @@ export function AiAssistantPage({
     } finally {
       setBusy(false);
     }
-  }, [input, busy, messages, active.id, allowedFolders, t, pendingImages]);
+  }, [
+    input,
+    busy,
+    messages,
+    active.id,
+    allowedFolders,
+    t,
+    pendingImages,
+    pendingVideos,
+  ]);
 
   const pickFolder = useCallback(async () => {
     const picked = await open({ directory: true, multiple: true });
@@ -413,6 +552,10 @@ export function AiAssistantPage({
     [sessions, activeId, active.id, busy, t],
   );
 
+  const renameSession = useCallback((id: string, title: string) => {
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title } : s)));
+  }, []);
+
   const hasMessages = messages.length > 0;
 
   return (
@@ -468,9 +611,37 @@ export function AiAssistantPage({
                 type="button"
                 className="truncate"
                 onClick={() => setActiveId(s.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setRenamingId(s.id);
+                  setRenameValue(s.title || "");
+                }}
                 title={s.title || t("aiAssistant.defaultSessionTitle")}
               >
-                {s.title || t("aiAssistant.defaultSessionTitle")}
+                {renamingId === s.id ? (
+                  <input
+                    // biome-ignore lint/a11y/noAutofocus: inline rename editor, focus is the point
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={() => {
+                      const v = renameValue.trim();
+                      if (v) renameSession(s.id, v);
+                      setRenamingId(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        (e.target as HTMLInputElement).blur();
+                      }
+                      if (e.key === "Escape") setRenamingId(null);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-full min-w-16 rounded border border-primary/60 bg-background px-1 py-0 text-xs outline-none"
+                  />
+                ) : (
+                  s.title || t("aiAssistant.defaultSessionTitle")
+                )}
               </button>
               <button
                 type="button"
@@ -585,6 +756,21 @@ export function AiAssistantPage({
                           ))}
                         </div>
                       )}
+                      {m.videos && m.videos.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {m.videos.map((vid, i) => (
+                            <span
+                              key={i}
+                              className="inline-flex max-w-60 items-center gap-1 rounded border border-primary-foreground/20 bg-primary-foreground/10 px-1.5 py-1 text-xs"
+                            >
+                              <LuClapperboard className="size-3 shrink-0" />
+                              <span className="truncate">
+                                {vid.split(/[/\\]/).pop()}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {m.content && (
                         <p className="whitespace-pre-wrap break-words">
                           {m.content}
@@ -671,7 +857,7 @@ export function AiAssistantPage({
         </div>
       )}
 
-      {pendingImages.length > 0 && (
+      {(pendingImages.length > 0 || pendingVideos.length > 0) && (
         <div className="mb-2 flex flex-wrap gap-2">
           {pendingImages.map((img, i) => (
             <div key={`${i}-${img.slice(-16)}`} className="group relative">
@@ -679,7 +865,7 @@ export function AiAssistantPage({
               <img
                 src={img}
                 alt={`附件 ${i + 1}`}
-                className="size-16 rounded-md border border-border object-cover"
+                className="size-24 rounded-md border border-border object-cover"
               />
               <button
                 type="button"
@@ -693,9 +879,49 @@ export function AiAssistantPage({
               </button>
             </div>
           ))}
+          {pendingVideos.map((vid, i) => (
+            <div
+              key={`${i}-${vid}`}
+              className="group relative flex h-24 w-40 flex-col justify-center gap-1 rounded-md border border-border bg-muted/50 px-2"
+            >
+              <LuClapperboard className="size-5 text-muted-foreground" />
+              <span
+                className="line-clamp-2 break-all text-[10px] text-muted-foreground"
+                title={vid}
+              >
+                {vid.split(/[/\\]/).pop()}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setPendingVideos((prev) => prev.filter((_, j) => j !== i))
+                }
+                aria-label="移除视频"
+                className="absolute -right-1.5 -top-1.5 hidden rounded-full bg-destructive p-0.5 text-destructive-foreground group-hover:block"
+              >
+                <LuX className="size-3" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
-      <div className="flex items-end gap-2">
+      <div
+        ref={dropZoneRef}
+        className={cn(
+          "flex items-end gap-2",
+          dragOver && "rounded-md ring-2 ring-primary ring-offset-1",
+        )}
+      >
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => void pickVideo()}
+          aria-label="选择视频"
+          title="添加视频（自动抽帧+转写分析）"
+          className="shrink-0 text-muted-foreground"
+        >
+          <LuClapperboard className="size-4" />
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -733,9 +959,28 @@ export function AiAssistantPage({
           }}
           onPaste={(e) => {
             const imgs = collectImageFiles(e.clipboardData.items);
+            const VIDEO_EXTS = /\.(mp4|mov|avi|mkv|webm|flv|wmv|m4v|ts)$/i;
+            const vids = Array.from(e.clipboardData.files).filter((f) =>
+              VIDEO_EXTS.test(f.name),
+            );
             if (imgs.length) {
               e.preventDefault();
               void addImages(imgs);
+              return;
+            }
+            if (vids.length) {
+              e.preventDefault();
+              void (async () => {
+                try {
+                  const paths: string[] = [];
+                  for (const f of vids.slice(0, 2)) {
+                    paths.push(await materializePastedVideo(f));
+                  }
+                  addVideoPaths(paths);
+                } catch (err) {
+                  toast.error(`视频粘贴失败：${String(err)}`);
+                }
+              })();
             }
           }}
           onDrop={(e) => {
@@ -746,14 +991,19 @@ export function AiAssistantPage({
             }
           }}
           placeholder={t("aiAssistant.placeholder")}
-          className="min-h-11 flex-1 resize-none"
-          rows={1}
+          className="max-h-48 min-h-20 flex-1 resize-none"
+          rows={3}
           disabled={busy}
         />
         <Button
           size="icon"
           onClick={() => void send()}
-          disabled={busy || (!input.trim() && pendingImages.length === 0)}
+          disabled={
+            busy ||
+            (!input.trim() &&
+              pendingImages.length === 0 &&
+              pendingVideos.length === 0)
+          }
           aria-label={t("aiAssistant.send")}
         >
           {busy ? (

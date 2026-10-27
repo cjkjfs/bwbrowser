@@ -18,6 +18,8 @@ export interface BwbrowserAccount {
   pure_username?: string;
   nickname?: string;
   platform?: string;
+  /** YouTube 频道 ID（UC 开头），编辑账号可修改 */
+  channel_id?: string;
   tags?: string;
   tags_list?: string[];
   category?: string;

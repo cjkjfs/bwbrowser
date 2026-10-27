@@ -242,7 +242,7 @@ fn local_asr_store_path() -> PathBuf {
   crate::app_dirs::data_dir().join("ai-rewrite-local-asr.json")
 }
 
-fn local_asr_config() -> LocalAsrConfig {
+pub(crate) fn local_asr_config() -> LocalAsrConfig {
   let path = local_asr_store_path();
   std::fs::read_to_string(&path)
     .ok()
@@ -308,7 +308,7 @@ fn python_candidates() -> Vec<(String, &'static str)> {
 }
 
 /// 本地 Python 解释器路径：按候选优先级取第一个。
-fn local_python_path() -> String {
+pub(crate) fn local_python_path() -> String {
   python_candidates()
     .into_iter()
     .next()
@@ -1786,7 +1786,7 @@ async fn asr_transcribe(
 
 /// 本地转录的 Python 脚本：faster-whisper 逐段转写，进度/结果按 JSON 行打到 stdout。
 /// 有 CUDA 时自动用 GPU（float16），否则 CPU（int8）；VAD 过滤跳过静音段减少幻觉。
-const LOCAL_ASR_PY: &str = r#"import sys, json
+pub(crate) const LOCAL_ASR_PY: &str = r#"import sys, json
 
 def out(obj):
     print(json.dumps(obj, ensure_ascii=False), flush=True)
@@ -1914,7 +1914,7 @@ out({"type": "done", "text": transcript_text, "segments": parts, "duration": tot
 
 /// 本地 faster-whisper 转写：spawn Python 子进程，逐行解析进度，
 /// 停止标志置位时杀掉子进程。返回与 asr_transcribe 相同的三元组。
-async fn local_transcribe(
+pub(crate) async fn local_transcribe(
   audio_path: &Path,
   cfg: &LocalAsrConfig,
   on_progress: &(dyn Fn(&str, u32, String) + Send + Sync),

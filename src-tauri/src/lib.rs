@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use tauri::{Emitter, Listener, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 #[cfg(not(feature = "e2e"))]
 use tauri_plugin_deep_link::DeepLinkExt;
-use tauri_plugin_log::{Target, TargetKind};
+use tauri_plugin_log::Builder as LogBuilder;
 
 // Store pending URLs that need to be handled when the window is ready
 static PENDING_URLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -2613,74 +2613,12 @@ pub fn run_with_builder(
     pending.push(url.clone());
   }
 
-  let log_file_name = app_dirs::app_name();
-
-  // Honor DONUTBROWSER_DATA_ROOT and portable mode: logs go to <root>/logs or
-  // <exe dir>/logs instead of the platform default app log dir, so all on-disk
-  // state lives under one root rather than leaking onto the host machine.
-  let file_log_target = match app_dirs::log_dir_override() {
-    Some(path) => Target::new(TargetKind::Folder {
-      path,
-      file_name: Some(log_file_name.to_string()),
-    }),
-    None => Target::new(TargetKind::LogDir {
-      file_name: Some(log_file_name.to_string()),
-    }),
-  };
-
   let builder = configure_builder(tauri::Builder::default());
 
-  // Release 模式下，只有 bwbrowser_debug.log 文件存在时才写日志
-  let log_enabled = if cfg!(debug_assertions) {
-    true
-  } else {
-    let debug_flag = std::env::var_os("LOCALAPPDATA")
-      .map(std::path::PathBuf::from)
-      .map(|base| base.join(app_dirs::app_name()).join("bwbrowser_debug.log"))
-      .map(|p| p.exists())
-      .unwrap_or(false);
-    if debug_flag {
-      eprintln!("[log] bwbrowser_debug.log detected, logging enabled");
-    }
-    debug_flag
-  };
-
-  let log_level = if log_enabled {
-    log::LevelFilter::Info
-  } else {
-    log::LevelFilter::Off
-  };
-
-  let mut log_plugin = tauri_plugin_log::Builder::new()
-    .clear_targets()
-    .level(log_level)
-    .max_file_size(5 * 1024 * 1024)
-    .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(10))
-    .format(|out, message, record| {
-      use chrono::Local;
-      let now = Local::now();
-      let timestamp = format!(
-        "{}.{:03}",
-        now.format("%Y-%m-%d %H:%M:%S"),
-        now.timestamp_subsec_millis()
-      );
-      out.finish(format_args!(
-        "[{}][{}][{}] {}",
-        timestamp,
-        record.target(),
-        record.level(),
-        message
-      ))
-    });
-
-  if log_enabled {
-    log_plugin = log_plugin
-      .target(Target::new(TargetKind::Stdout))
-      .target(Target::new(TargetKind::Webview))
-      .target(file_log_target);
-  }
-
-  let builder = builder.plugin(log_plugin.build());
+  // 日志策略：**不写任何本地日志文件**（Dev/Release 一致）。调试日志统一由云端
+  // 后台「超管中心 → 同步调试日志」开关控制（服务端落盘），避免账号操作明细
+  // 在员工本机留存。级别 Off：log::info! 等调用全部为无操作。
+  let builder = builder.plugin(LogBuilder::new().level(log::LevelFilter::Off).build());
 
   #[cfg(not(feature = "e2e"))]
   let builder = builder.plugin(tauri_plugin_single_instance::init(
@@ -2766,6 +2704,17 @@ pub fn run_with_builder(
       // in. Runs before anything reads `cache_dir()`, so a relocated install
       // stops writing to the system drive from its very next lookup.
       data_root::migrate_legacy_cache_dir();
+
+      // 启动时同步一次云端「同步调试日志」开关（已登录会话才生效；未登录静默失败）
+      {
+        tauri::async_runtime::spawn(async move {
+          if crate::bwbrowser_cloud::bwbrowser_get_user().is_some() {
+            if let Ok(perms) = crate::bwbrowser_cloud::BWBROWSER_AUTH.get_permissions().await {
+              crate::bwbrowser_cloud::set_local_debug_log_enabled(perms.debug_log_enabled);
+            }
+          }
+        });
+      }
 
       // Recover ephemeral dir mappings from RAM-backed storage (tmpfs/ramdisk)
       ephemeral_dirs::recover_ephemeral_dirs();
@@ -4143,6 +4092,7 @@ pub fn run_with_builder(
       ai_rewrite::ai_rewrite_download_local_model,
       ai_rewrite::ai_rewrite_check_local_env,
       ai_rewrite::ai_rewrite_install_local_env,
+      ai_agent::ai_agent_tmp_dir,
       ai_agent::ai_agent_chat,
     ])
     .build(tauri::generate_context!())

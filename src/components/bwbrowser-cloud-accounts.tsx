@@ -857,6 +857,7 @@ export function BwbrowserCloudAccountsDialog({
     bind_phone: "",
     safe_link: "",
     backup_email: "",
+    channel_id: "",
     owner_id: 0 as number,
   });
   const [editPerms, setEditPerms] = useState<{
@@ -1258,6 +1259,9 @@ export function BwbrowserCloudAccountsDialog({
         bind_phone: account.bind_phone ?? "",
         safe_link: account.safe_link ?? "",
         backup_email: account.backup_email ?? "",
+        channel_id:
+          (account as BwbrowserAccount & { channel_id?: string }).channel_id ??
+          "",
         owner_id: account.owner_id ?? 0,
       });
 
@@ -1327,6 +1331,9 @@ export function BwbrowserCloudAccountsDialog({
           bind_phone: detail.bind_phone ?? prev.bind_phone,
           safe_link: detail.safe_link ?? prev.safe_link,
           backup_email: detail.backup_email ?? prev.backup_email,
+          channel_id:
+            (detail as BwbrowserAccount & { channel_id?: string }).channel_id ??
+            prev.channel_id,
           owner_id: detail.owner_id ?? prev.owner_id,
         }));
       } catch (e) {
@@ -4458,6 +4465,41 @@ export function BwbrowserCloudAccountsDialog({
                         {isSelected && (
                           <LuCheck className="h-3.5 w-3.5 text-primary" />
                         )}
+                        {proxy.is_cloud_managed && (
+                          <button
+                            type="button"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const numericId = Number(
+                                proxy.id.replace(/^bwbrowser_/, ""),
+                              );
+                              if (!numericId) return;
+                              const ok = await dialogConfirm(
+                                `确定删除节点「${proxy.name}」吗？\n删除后使用该节点的账号将失去代理。`,
+                                { title: "删除节点", kind: "warning" },
+                              ).catch(() => false);
+                              if (!ok) return;
+                              try {
+                                await invoke("bwbrowser_delete_proxy", {
+                                  proxyId: numericId,
+                                });
+                                if (selectedProxyId === proxy.id) {
+                                  setSelectedProxyId(null);
+                                }
+                                showSuccessToast("节点已删除");
+                                void refreshCloudProxyList();
+                              } catch (err) {
+                                showErrorToast(
+                                  `删除失败: ${translateBackendError(t, err)}`,
+                                );
+                              }
+                            }}
+                            title="删除该节点"
+                            className="ml-1 inline-flex items-center text-[11px] text-muted-foreground hover:text-destructive"
+                          >
+                            <LuTrash2 className="h-3 w-3" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -4847,6 +4889,24 @@ export function BwbrowserCloudAccountsDialog({
                       )}
                     />
                   </div>
+                  {(editForm.platform === "youtube" ||
+                    editForm.platform === "YouTube") && (
+                    <div className="space-y-1">
+                      <div className="text-xs font-medium">
+                        ▶ YouTube Channel ID
+                      </div>
+                      <Input
+                        value={editForm.channel_id}
+                        onChange={(e) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            channel_id: e.target.value,
+                          }))
+                        }
+                        placeholder="UC 开头的频道 ID"
+                      />
+                    </div>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -5279,6 +5339,7 @@ export function BwbrowserCloudAccountsDialog({
                   ownerId: editPerms.canEditAll
                     ? editForm.owner_id || null
                     : null,
+                  channelId: editForm.channel_id.trim() || null,
                 });
                 showSuccessToast("保存成功");
                 setEditDialogOpen(false);

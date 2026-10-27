@@ -590,13 +590,24 @@ pub(crate) fn urlencode(s: &str) -> String {
     .collect()
 }
 
+/// 客户端本地调试日志开关：由云端「同步调试日志」开关经 get_permissions 同步。
+/// 默认关（未登录/未拉到权限时不写本地日志，防敏感信息落盘）。
+static LOCAL_DEBUG_LOG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_local_debug_log_enabled(enabled: bool) {
+  LOCAL_DEBUG_LOG.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// 打印 Bwbrowser API 日志
+/// 云端开关开启时额外写入本地 bwbrowser_debug.log（排障用）；关闭时仅终端输出。
 pub fn log_bwbrowser(action: &str, msg: &str) {
   let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
   let line = format!("[{}][Bwbrowser][{}] {}", timestamp, action, msg);
   println!("{}", line);
   log::info!("{}", line);
-  write_log_file(&line);
+  if LOCAL_DEBUG_LOG.load(std::sync::atomic::Ordering::Relaxed) {
+    write_debug_file(&line);
+  }
 }
 
 /// 解析 JSON 响应体，对空响应和非 JSON 内容给出友好错误。
@@ -738,7 +749,25 @@ pub fn log_bwbrowser_error(action: &str, err: &str) {
   let line = format!("[{}][Bwbrowser][{}][ERROR] {}", timestamp, action, err);
   eprintln!("{}", line);
   log::error!("{}", line);
-  write_log_file(&line);
+  if LOCAL_DEBUG_LOG.load(std::sync::atomic::Ordering::Relaxed) {
+    write_debug_file(&line);
+  }
+}
+
+/// 写本地调试日志文件（数据目录 bwbrowser_debug.log）。仅在云端开关开启时被调用。
+fn write_debug_file(line: &str) {
+  use std::io::Write;
+  let path = crate::app_dirs::data_dir().join("bwbrowser_debug.log");
+  if let Some(parent) = path.parent() {
+    let _ = std::fs::create_dir_all(parent);
+  }
+  if let Ok(mut file) = std::fs::OpenOptions::new()
+    .create(true)
+    .append(true)
+    .open(&path)
+  {
+    let _ = writeln!(file, "{}", line);
+  }
 }
 
 /// 统一解析云端 API 响应，附带 HTTP 状态码校验和友好错误提示
@@ -795,29 +824,6 @@ fn parse_api_response<T: serde::de::DeserializeOwned>(
   }
 }
 
-/// 直接写入日志文件（后备，不依赖 tauri-plugin-log）
-fn write_log_file(line: &str) {
-  use std::io::Write;
-  let log_path = bwbrowser_log_path();
-  if let Some(path) = log_path {
-    if let Some(parent) = path.parent() {
-      let _ = std::fs::create_dir_all(parent);
-    }
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-      .create(true)
-      .append(true)
-      .open(&path)
-    {
-      let _ = writeln!(file, "{}", line);
-    }
-  }
-}
-
-/// 获取 bwbrowser 专用日志文件路径
-fn bwbrowser_log_path() -> Option<std::path::PathBuf> {
-  Some(crate::app_dirs::data_dir().join("bwbrowser_debug.log"))
-}
-
 /// 隐藏密码，用于日志显示
 fn mask_password(pwd: &str) -> String {
   if pwd.is_empty() {
@@ -861,6 +867,12 @@ pub async fn bwbrowser_login<R: Runtime>(
   let state = BWBROWSER_AUTH.login(&app, &username, &password).await?;
   // 登录成功后后台拉一次公司级绑定（管理员分配的插件与绑定跨机器预热）
   tokio::spawn(crate::extension_user_assign::pull_company_assignments());
+  // 登录成功即同步一次云端「同步调试日志」开关到本地日志写入
+  tokio::spawn(async move {
+    if let Ok(perms) = BWBROWSER_AUTH.get_permissions().await {
+      set_local_debug_log_enabled(perms.debug_log_enabled);
+    }
+  });
   Ok(state)
 }
 
@@ -4904,6 +4916,7 @@ pub async fn bwbrowser_update_account_info(
   bind_phone: Option<String>,
   safe_link: Option<String>,
   backup_email: Option<String>,
+  channel_id: Option<String>,
 ) -> Result<(), String> {
   let (username, password) = BWBROWSER_AUTH
     .get_credentials()
@@ -4954,6 +4967,9 @@ pub async fn bwbrowser_update_account_info(
   }
   if let Some(v) = backup_email {
     params.push(format!("backup_email={}", urlencode(&v)));
+  }
+  if let Some(v) = channel_id {
+    params.push(format!("channel_id={}", urlencode(&v)));
   }
 
   let form_data = params.join("&");
@@ -5485,6 +5501,9 @@ pub struct BwbrowserPermissions {
   pub allow_2fa: bool,
   #[serde(default)]
   pub allow_sms_management: bool,
+  /// 云端「同步调试日志」开关：客户端据此决定是否写本地日志文件
+  #[serde(default)]
+  pub debug_log_enabled: bool,
   pub module_permissions: Option<serde_json::Value>,
 }
 
@@ -5556,6 +5575,9 @@ impl BwbrowserAuthManager {
         perms.role, perms.is_super_admin, perms.is_manager
       ),
     );
+
+    // 云端「同步调试日志」开关 → 客户端本地日志文件写入
+    set_local_debug_log_enabled(perms.debug_log_enabled);
 
     Ok(perms)
   }
