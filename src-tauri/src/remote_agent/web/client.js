@@ -397,7 +397,9 @@ function handleH264Frame(w, h, annexb) {
       output: renderVideoFrame,
       error: (e) => {
         console.error("VideoDecoder error:", e);
-        try { h264State.dec.close(); } catch (_) {}
+        try {
+          h264State.dec.close();
+        } catch (_) {}
         h264State = null;
       },
     });
@@ -414,13 +416,18 @@ function handleH264Frame(w, h, annexb) {
     h264State.dec.decode(chunk);
   } catch (e) {
     console.warn("decode failed:", e);
-    try { h264State.dec.close(); } catch (_) {}
+    try {
+      h264State.dec.close();
+    } catch (_) {}
     h264State = null; // 重建后等下一个关键帧
   }
 }
 
 function renderVideoFrame(frame) {
-  if (canvas.width !== frame.codedWidth || canvas.height !== frame.codedHeight) {
+  if (
+    canvas.width !== frame.codedWidth ||
+    canvas.height !== frame.codedHeight
+  ) {
     canvas.width = frame.codedWidth;
     canvas.height = frame.codedHeight;
     baseScale = calcFitScale();
