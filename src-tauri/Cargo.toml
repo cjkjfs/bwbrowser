@@ -1,6 +1,6 @@
 [package]
 name = "bwbrowser"
-version = "2.6.6"
+version = "2.6.7"
 description = "Simple Yet Powerful Anti-Detect Browser"
 authors = ["zhom@github"]
 edition = "2021"
@@ -154,6 +154,7 @@ rig-reqwest = { version = "0.45", default-features = false, features = ["native-
 # AI 助手的 VPS 工具（vps_exec）：用户在对话里提供连接信息后执行远程命令。
 # ring 后端避开 aws-lc-rs 的 CMake/NASM 构建依赖。
 russh = { version = "0.64", default-features = false, features = ["ring", "flate2", "rsa"] }
+openh264 = "0.9.9"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31", features = ["signal", "process"] }
@@ -202,6 +203,11 @@ windows = { version = "0.62", features = [
   "Win32_Security_Cryptography",
   # Remote agent (被控端): GDI screen capture + cursor overlay
   "Win32_Graphics_Gdi",
+  # Remote agent: DXGI Desktop Duplication capture (fast path, single monitor)
+  "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D11",
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
   "Win32_UI_HiDpi",
   # Remote agent: SendInput mouse/keyboard injection
   "Win32_UI_Input_KeyboardAndMouse",

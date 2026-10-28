@@ -290,6 +290,11 @@ function handleBinaryFrame(buffer) {
   const w = dv.getUint32(0);
   const h = dv.getUint32(4);
   const len = dv.getUint32(8);
+  // 16 字节头带 "H264" tag：WebCodecs 硬解；否则按旧 JPEG 处理
+  if (buffer.byteLength >= 16 && dv.getUint32(12) === 0x48323634) {
+    handleH264Frame(w, h, buffer.slice(16, 16 + len));
+    return;
+  }
   const jpegData = buffer.slice(12, 12 + len);
 
   const blob = new Blob([jpegData], { type: "image/jpeg" });
@@ -325,6 +330,120 @@ function handleBinaryFrame(buffer) {
     URL.revokeObjectURL(url);
   };
   img.src = url;
+}
+
+// ==================== H264 (WebCodecs AVCC 硬解) ====================
+// 被控端 openh264 输出 Annex B；WebCodecs 需要 avcC description + 长度前缀 NAL。
+// 首个关键帧的 SPS/PPS 用来构造 avcC，之后缓重复用。
+let h264State = null;
+
+function splitAnnexB(u8) {
+  const nals = [];
+  let start = -1;
+  let i = 0;
+  while (i < u8.length - 3) {
+    if (u8[i] === 0 && u8[i + 1] === 0 && u8[i + 2] === 0 && u8[i + 3] === 1) {
+      if (start >= 0) nals.push(u8.subarray(start, i));
+      start = i + 4;
+      i += 4;
+    } else i++;
+  }
+  if (start >= 0) nals.push(u8.subarray(start));
+  return nals;
+}
+
+function buildAvcc(sps, pps) {
+  const out = [];
+  out.push(1, sps[1], sps[2], sps[3], 0xff, 0xe1);
+  out.push((sps.length >> 8) & 0xff, sps.length & 0xff);
+  for (const b of sps) out.push(b);
+  out.push(1);
+  out.push((pps.length >> 8) & 0xff, pps.length & 0xff);
+  for (const b of pps) out.push(b);
+  return new Uint8Array(out).buffer;
+}
+
+function toAvccLengthPrefixed(nals) {
+  let len = 0;
+  for (const n of nals) len += 4 + n.length;
+  const out = new Uint8Array(len);
+  let o = 0;
+  for (const n of nals) {
+    out[o++] = (n.length >>> 24) & 0xff;
+    out[o++] = (n.length >>> 16) & 0xff;
+    out[o++] = (n.length >>> 8) & 0xff;
+    out[o++] = n.length & 0xff;
+    out.set(n, o);
+    o += n.length;
+  }
+  return out.buffer;
+}
+
+function handleH264Frame(w, h, annexb) {
+  if (typeof VideoDecoder === "undefined") return;
+  const u8 = annexb instanceof Uint8Array ? annexb : new Uint8Array(annexb);
+  const nals = splitAnnexB(u8);
+  if (!nals.length) return;
+  const sps = nals.find((n) => (n[0] & 0x1f) === 7);
+  const pps = nals.find((n) => (n[0] & 0x1f) === 8);
+  const isKey = nals.some((n) => {
+    const t = n[0] & 0x1f;
+    return t === 5 || t === 7 || t === 8;
+  });
+  if (!h264State) {
+    // 等到带 SPS/PPS 的关键帧才建解码器（中途接入的 delta 帧无法解）
+    if (!sps || !pps) return;
+    const dec = new VideoDecoder({
+      output: renderVideoFrame,
+      error: (e) => {
+        console.error("VideoDecoder error:", e);
+        try { h264State.dec.close(); } catch (_) {}
+        h264State = null;
+      },
+    });
+    dec.configure({ codec: "avc1.640029", description: buildAvcc(sps, pps) });
+    h264State = { dec };
+  }
+  if (h264State.dec.state !== "configured") return;
+  const chunk = new EncodedVideoChunk({
+    type: isKey ? "key" : "delta",
+    timestamp: Math.round(performance.now() * 1000),
+    data: toAvccLengthPrefixed(nals),
+  });
+  try {
+    h264State.dec.decode(chunk);
+  } catch (e) {
+    console.warn("decode failed:", e);
+    try { h264State.dec.close(); } catch (_) {}
+    h264State = null; // 重建后等下一个关键帧
+  }
+}
+
+function renderVideoFrame(frame) {
+  if (canvas.width !== frame.codedWidth || canvas.height !== frame.codedHeight) {
+    canvas.width = frame.codedWidth;
+    canvas.height = frame.codedHeight;
+    baseScale = calcFitScale();
+    userZoom = 1.0;
+    panX = 0;
+    panY = 0;
+  }
+  ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+  frame.close();
+  clampPan();
+  updateCanvasTransform();
+
+  frameCount++;
+  const now = performance.now();
+  if (now - lastFpsTime > 1000) {
+    const fps = Math.round((frameCount * 1000) / (now - lastFpsTime));
+    const el = document.getElementById("connStatus");
+    if (el) el.textContent = `已连接 ${fps}fps(H264)`;
+    frameCount = 0;
+    lastFpsTime = now;
+  }
+  const overlay = document.getElementById("loadingOverlay");
+  if (overlay) overlay.style.display = "none";
 }
 
 function startHeartbeat() {

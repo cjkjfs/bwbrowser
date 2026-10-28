@@ -12,7 +12,7 @@ use super::capture;
 use super::encode;
 use super::files;
 use super::input;
-use super::protocol::{frame_header, ClientCommand};
+use super::protocol::{frame_header, frame_header_h264, ClientCommand};
 use super::vps;
 use super::{hostname, os_name, AgentStatus, RemoteAgentConfig};
 use crate::cloud_domain::RELAY_URL;
@@ -73,6 +73,10 @@ struct SessionCtx {
   last_sent: Option<Instant>,
   /// 上次截屏检查时刻（静止画面下把截屏检查降到 ~7Hz，省 CPU）
   last_poll: Option<Instant>,
+  /// H264 编码可用（失败一次即永久回退 JPEG，避免刷错误）
+  h264_ok: bool,
+  /// 下一帧强制 IDR（viewer 新接入/重新开始推流）
+  force_key: bool,
 }
 
 impl SessionCtx {
@@ -91,6 +95,8 @@ impl SessionCtx {
       prev_bgra: None,
       last_sent: None,
       last_poll: None,
+      h264_ok: true,
+      force_key: true,
     }
   }
 
@@ -145,6 +151,7 @@ impl SessionCtx {
           self.streaming = true;
           // viewer 新接入必须立刻见到首帧，即使画面与上次会话结束时相同
           self.invalidate_frame();
+          self.force_key = true;
         }
       }
       ClientCommand::StopStream => {
@@ -341,6 +348,7 @@ fn capture_jpeg_blocking(
   scale: f32,
   monitor: usize,
   prev: Option<Vec<u8>>,
+  skip_jpeg: bool,
 ) -> Result<CapturedFrame, String> {
   let frame = capture::capture_screen_monitor(monitor)?;
   let changed = prev.as_deref() != Some(frame.bgra.as_slice());
@@ -354,7 +362,12 @@ fn capture_jpeg_blocking(
       bgra: prev,
     });
   }
-  let (tw, th, jpeg) = encode::bgra_to_jpeg(&frame.bgra, frame.w, frame.h, quality, scale)?;
+  // H264 模式跳过 JPEG 编码（省一整次全分辨率 CPU 压缩，H264 用不到它）
+  let (tw, th, jpeg) = if skip_jpeg {
+    (frame.w, frame.h, Vec::new())
+  } else {
+    encode::bgra_to_jpeg(&frame.bgra, frame.w, frame.h, quality, scale)?
+  };
   Ok(CapturedFrame {
     w: tw,
     h: th,
@@ -374,10 +387,13 @@ where
 {
   let q = ctx.quality;
   let scale = ctx.scale;
+  let scale_for_reencode = scale;
   let monitor = ctx.monitor;
   let prev = ctx.prev_bgra.take();
-  let captured =
-    match tokio::task::spawn_blocking(move || capture_jpeg_blocking(q, scale, monitor, prev)).await
+  let h264 = ctx.h264_ok;
+  let mut captured =
+    match tokio::task::spawn_blocking(move || capture_jpeg_blocking(q, scale, monitor, prev, h264))
+      .await
     {
       Ok(Ok(frame)) => frame,
       Ok(Err(e)) => return Err(structured("REMOTE_DESKTOP_INTERNAL", e)),
@@ -390,11 +406,56 @@ where
     };
   let w = captured.w;
   let h = captured.h;
-  ctx.prev_bgra = captured.bgra;
+  // H264 需要完整 bgra 原帧；先取出来再决定归属
+  let bgra = captured.bgra.take();
+  ctx.prev_bgra = bgra.clone();
   if !captured.changed {
     return Ok(false);
   }
-  let mut payload = Vec::with_capacity(12 + captured.jpeg.len());
+  let mut payload = Vec::with_capacity(16 + captured.jpeg.len());
+  if ctx.h264_ok {
+    // H264 路径：全分辨率 bgra + scale 在阻塞线程里重编码（尺寸变化自动重建编码器）
+    match bgra.as_deref() {
+      Some(b) if b.len() == (w * h * 4) as usize => {
+        let fb = ctx.force_key;
+        ctx.force_key = false;
+        let b = b.to_vec();
+        match tokio::task::spawn_blocking(move || {
+          encode::encode_h264(&b, w, h, scale_for_reencode, fb)
+        })
+        .await
+        {
+          Ok(Ok((tw, th, bitstream))) if !bitstream.is_empty() => {
+            payload.extend_from_slice(&frame_header_h264(tw, th, bitstream.len() as u32));
+            payload.extend_from_slice(&bitstream);
+            sink
+              .send(payload.into())
+              .await
+              .map_err(|e| structured("REMOTE_DESKTOP_UNREACHABLE", format!("帧发送失败: {e}")))?;
+            return Ok(true);
+          }
+          Ok(Err(e)) => {
+            ctx.h264_ok = false;
+            log::warn!("H264 编码失败，本次及后续回退 JPEG: {e}");
+          }
+          Ok(Ok(_)) => {
+            // 空流（延迟帧等）：不发
+            return Ok(false);
+          }
+          Err(e) => {
+            return Err(structured(
+              "REMOTE_DESKTOP_INTERNAL",
+              format!("H264 编码任务异常: {e}"),
+            ))
+          }
+        }
+      }
+      _ => {
+        // H264 需要完整 bgra；拿不到就回退 JPEG
+        ctx.h264_ok = false;
+      }
+    }
+  }
   payload.extend_from_slice(&frame_header(w, h, captured.jpeg.len() as u32));
   payload.extend_from_slice(&captured.jpeg);
   sink

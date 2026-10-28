@@ -96,6 +96,17 @@ pub fn frame_header(w: u32, h: u32, len: u32) -> [u8; 12] {
   b
 }
 
+/// H264 帧魔数（紧跟在 12 字节头后）：viewer 以此区分 JPEG（无 tag）与 H264
+pub const H264_TAG: u32 = 0x4832_3634; // "H264"
+
+/// H264 帧 16 字节头：>III 头 + "H264" tag。JPEG 帧维持 12 字节头不变。
+pub fn frame_header_h264(w: u32, h: u32, len: u32) -> [u8; 16] {
+  let mut b = [0u8; 16];
+  b[0..12].copy_from_slice(&frame_header(w, h, len));
+  b[12..16].copy_from_slice(&H264_TAG.to_be_bytes());
+  b
+}
+
 #[cfg(test)]
 mod tests {
   use super::ClientCommand;

@@ -139,6 +139,21 @@ mod imp {
   }
 
   pub fn capture_screen_monitor(_index: usize) -> Result<Frame, String> {
+    // DXGI 快路径：仅单显示器（虚拟屏宽 == 主屏宽）时启用，失败回退 GDI
+    let virtual_w = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) };
+    let primary_w =
+      unsafe { GetSystemMetrics(windows::Win32::UI::WindowsAndMessaging::SM_CXSCREEN) };
+    if virtual_w == primary_w {
+      if let Some(f) = crate::remote_agent::dxgi::capture_dxgi() {
+        let mut bgra = f.bgra;
+        crate::remote_agent::dxgi::blend_cursor(&mut bgra, f.w, f.h);
+        return Ok(Frame {
+          w: f.w,
+          h: f.h,
+          bgra,
+        });
+      }
+    }
     capture_screen()
   }
 

@@ -10,6 +10,7 @@
 
 mod capture;
 pub mod control;
+pub mod dxgi;
 mod encode;
 pub mod file_transfer;
 mod files;
