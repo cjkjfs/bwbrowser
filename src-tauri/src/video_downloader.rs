@@ -86,6 +86,9 @@ pub struct DownloadSettings {
   #[serde(default = "default_true")]
   pub cookie_from_system_browser: bool,
   pub proxy_id: Option<String>, // None = 直连
+  /// 云端解析的账号 cookie 源（模式A）：归属自己的云端账号 id；None = VPS 登录
+  #[serde(default)]
+  pub cookie_account_id: Option<i64>,
 }
 
 fn default_true() -> bool {
@@ -110,6 +113,7 @@ impl Default for DownloadSettings {
       max_height: 0,
       auto_paste_download: false,
       cookie_from_browser: true,
+      cookie_account_id: None,
       cookie_from_system_browser: true,
       proxy_id: None,
     }
@@ -962,7 +966,10 @@ impl VideoDownloader {
 
 /// 云端解析分享链接（bwbrowser_resolve.php）：解析逻辑集中在服务端，
 /// 平台改版时改 PHP 即可，客户端不用发版。登录用户凭据做鉴权。
-async fn resolve_share_url_via_cloud(share_url: &str) -> Result<(String, Option<String>), String> {
+async fn resolve_share_url_via_cloud(
+  share_url: &str,
+  cookie_account_id: Option<i64>,
+) -> Result<(String, Option<String>), String> {
   use crate::bwbrowser_cloud::BWBROWSER_AUTH;
   use crate::cloud_domain::BWBROWSER_API_URL;
 
@@ -970,12 +977,16 @@ async fn resolve_share_url_via_cloud(share_url: &str) -> Result<(String, Option<
     return Err("未登录 BW Browser 账号，无法使用云端解析".to_string());
   };
 
-  let form = format!(
+  let mut form = format!(
     "action=resolve&username={}&password={}&url={}",
     crate::bwbrowser_cloud::urlencode(&username),
     crate::bwbrowser_cloud::urlencode(&password),
     crate::bwbrowser_cloud::urlencode(share_url),
   );
+  // 指定账号 cookie 源（模式A）：服务端按归属校验后注入 playwright 会话
+  if let Some(aid) = cookie_account_id {
+    form.push_str(&format!("&account_id={aid}"));
+  }
 
   let resolve_url = BWBROWSER_API_URL.replace("bwbrowser_sync.php", "bwbrowser_resolve.php");
   let resp = reqwest::Client::builder()
@@ -1256,7 +1267,7 @@ async fn run_single_download<R: Runtime>(
     dl.set_task_status_text(task_id, "解析分享链接...".to_string())
       .await;
     // 云端优先：解析逻辑在服务端，平台改版不用发客户端；失败回退本地解析
-    let resolved = match resolve_share_url_via_cloud(url).await {
+    let resolved = match resolve_share_url_via_cloud(url, settings.cookie_account_id).await {
       Ok((direct, cloud_title)) => {
         log::info!("[video_download] 云端解析成功（title={cloud_title:?}）");
         Ok((direct, cloud_title))

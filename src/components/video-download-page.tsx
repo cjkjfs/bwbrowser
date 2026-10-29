@@ -42,6 +42,9 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useBwbrowserAccounts } from "@/hooks/use-bwbrowser-accounts";
+import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
+import { useBwbrowserCompany } from "@/hooks/use-bwbrowser-company";
 import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import {
   type DownloadTask,
@@ -105,6 +108,20 @@ export function VideoDownloadPage({
   onNavigateAiRewrite,
 }: VideoDownloadPageProps) {
   const { canAiRewrite } = useBwbrowserPermissions();
+  // 云端账号列表：与云端账号页同源（同公司选择、同权限过滤）
+  const { isLoggedIn: bwLoggedIn } = useBwbrowserAuth();
+  const { isSuperAdmin: bwSuperAdmin } = useBwbrowserPermissions();
+  const { selectedCompanyId: bwSelectedCompanyId } = useBwbrowserCompany(
+    bwSuperAdmin,
+    bwLoggedIn,
+  );
+  const { accounts: bwAccounts } = useBwbrowserAccounts(bwSelectedCompanyId);
+  const [cookieAccQuery, setCookieAccQuery] = useState("");
+  const [dialogAccounts, setDialogAccounts] = useState<typeof bwAccounts>([]);
+  const [cookieSourceDialogOpen, setCookieSourceDialogOpen] = useState(false);
+  const [cookieSourcePicked, setCookieSourcePicked] = useState<number | null>(
+    null,
+  );
   const {
     tasks,
     settings,
@@ -838,6 +855,114 @@ export function VideoDownloadPage({
     [cancelTask],
   );
 
+  const selectedCookieAccount = useMemo(
+    () =>
+      settings.cookie_account_id
+        ? (dialogAccounts.find((a) => a.id === settings.cookie_account_id) ??
+          bwAccounts.find((a) => a.id === settings.cookie_account_id))
+        : undefined,
+    [dialogAccounts, bwAccounts, settings.cookie_account_id],
+  );
+  const cookieAccMatches = useMemo(() => {
+    const q = cookieAccQuery.trim().toLowerCase();
+    const hit = (v?: string | null) => (v || "").toLowerCase().includes(q);
+    const list = q
+      ? dialogAccounts.filter(
+          (a) =>
+            hit(a.phone_id) ||
+            hit(a.account_name) ||
+            hit(a.login_account) ||
+            hit(a.platform) ||
+            hit(a.owner_name) ||
+            hit(a.tags) ||
+            hit(a.remark),
+        )
+      : dialogAccounts;
+    return list;
+  }, [dialogAccounts, cookieAccQuery]);
+
+  // 打开选择弹窗：全量拉取账号（管理员可见本公司全部平台账号，不受分页 20 条限制）
+  const openCookieSourceDialog = useCallback(async () => {
+    setCookieSourcePicked(settings.cookie_account_id ?? null);
+    setCookieSourceDialogOpen(true);
+    try {
+      // 服务端 pageSize 上限 200：翻页拉全（与云端账号页总数一致）
+      const all: typeof bwAccounts = [];
+      for (let pg = 1; ; pg++) {
+        const result = await invoke<{
+          accounts: typeof bwAccounts;
+          total?: number;
+        }>("bwbrowser_list_accounts", {
+          page: pg,
+          pageSize: 200,
+          platform: null,
+          keyword: null,
+          ownerId: null,
+          companyId: bwSelectedCompanyId ?? null,
+          sortBy: null,
+          sortOrder: null,
+        });
+        const rows = result.accounts ?? [];
+        // 翻页之间服务端排序可能漂移，跨页重复的账号按 id 去重（重复会触发 React key 告警）
+        for (const row of rows) {
+          if (!all.some((a) => a.id === row.id)) all.push(row);
+        }
+        if (
+          rows.length < 200 ||
+          (result.total != null && all.length >= result.total)
+        ) {
+          break;
+        }
+      }
+      setDialogAccounts(all);
+    } catch {
+      setDialogAccounts(bwAccounts); // 拉取失败退回 hook 已加载的
+    }
+  }, [settings.cookie_account_id, bwAccounts, bwSelectedCompanyId]);
+
+  // 确定选择：选中账号时优先本机提取 Cookie（本机有该账号浏览器环境 →
+  // 导出并回传服务端，云端解析拿到最新登录态），本机没有则服务端已存 Cookie 兜底
+  const confirmCookieSource = useCallback(async () => {
+    const picked = cookieSourcePicked;
+    if (picked != null) {
+      const acc =
+        dialogAccounts.find((a) => a.id === picked) ??
+        bwAccounts.find((a) => a.id === picked);
+      if (acc) {
+        try {
+          const r = await invoke<{
+            pushed: boolean;
+            reason?: string;
+          }>("bwbrowser_push_local_account_cookie", {
+            accountId: picked,
+            accountName: acc.account_name,
+            platform: acc.platform ?? null,
+          });
+          if (r.pushed) {
+            toast.success("已用本机登录态更新服务端 Cookie");
+          } else if (r.reason === "no_local_profile") {
+            toast.info("本机无该账号浏览器环境，使用服务端已存 Cookie");
+          } else if (r.reason === "no_local_cookie") {
+            toast.info("本机该账号无 Cookie，使用服务端已存 Cookie");
+          }
+        } catch (e) {
+          toast.error(`本机 Cookie 上传失败：${e}，使用服务端已存 Cookie`);
+        }
+      }
+    }
+    updateSettings({
+      ...settings,
+      cookie_account_id: picked,
+    });
+    setCookieSourceDialogOpen(false);
+  }, [
+    cookieSourcePicked,
+    dialogAccounts,
+    bwAccounts,
+    settings,
+    updateSettings,
+  ]);
+
   // 切换 Cookie 设置
   const toggleCookieFromBrowser = useCallback(() => {
     updateSettings({
@@ -1293,6 +1418,28 @@ export function VideoDownloadPage({
               <div className="flex items-center justify-between pl-1 py-1 border-t">
                 <div className="space-y-0.5">
                   <div className="text-xs font-medium">
+                    Cookie 来源（云端解析）
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {selectedCookieAccount
+                      ? `账号：${selectedCookieAccount.phone_id || "无编号"} · ${selectedCookieAccount.account_name}（${selectedCookieAccount.login_account || "-"}）`
+                      : "VPS 登录导出（默认）"}
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => void openCookieSourceDialog()}
+                >
+                  设置
+                </Button>
+              </div>
+            )}
+            {settings.cookie_from_browser && (
+              <div className="flex items-center justify-between pl-1 py-1 border-t">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-medium">
                     取不到时从系统浏览器获取
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -1564,10 +1711,158 @@ export function VideoDownloadPage({
     </Tabs>
   );
 
+  const cookieSourceDialog = (
+    <Dialog
+      open={cookieSourceDialogOpen}
+      onOpenChange={(open) => {
+        setCookieSourceDialogOpen(open);
+        if (open) setCookieSourcePicked(settings.cookie_account_id ?? null);
+      }}
+    >
+      <DialogContent className="w-[760px] max-w-[95vw] p-0 overflow-hidden">
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <div className="text-sm font-semibold">Cookie 来源（云端解析）</div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={() => setCookieSourceDialogOpen(false)}
+          >
+            <LuX className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-2 border-b px-4 py-2">
+          <Input
+            value={cookieAccQuery}
+            onChange={(e) => setCookieAccQuery(e.target.value)}
+            placeholder="快速搜索：手机编号/账号名称/登录账号/平台/归属人/标签备注"
+            className="h-8 text-xs"
+          />
+          <span className="shrink-0 text-xs text-muted-foreground">
+            共 {cookieAccMatches.length} 个
+          </span>
+        </div>
+
+        <div className="max-h-[440px] overflow-y-auto">
+          <button
+            type="button"
+            className={`flex w-full items-center gap-3 border-b px-4 py-2 text-left transition-colors hover:bg-accent/50 ${
+              cookieSourcePicked === null ? "bg-primary/10" : ""
+            }`}
+            onClick={() => setCookieSourcePicked(null)}
+          >
+            <div className="w-4">
+              {cookieSourcePicked === null && (
+                <div className="size-3 rounded-full bg-primary" />
+              )}
+            </div>
+            <div className="text-xs font-medium text-foreground">
+              不使用账号（VPS 登录导出，默认）
+            </div>
+          </button>
+
+          <table className="w-full table-fixed">
+            <thead className="sticky top-0 bg-muted/50 backdrop-blur-sm">
+              <tr className="border-b">
+                <th className="w-8 px-3 py-2" />
+                <th className="w-[11%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                  手机编号
+                </th>
+                <th className="w-[19%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                  账号名称
+                </th>
+                <th className="w-[17%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                  登录账号
+                </th>
+                <th className="w-[9%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                  平台
+                </th>
+                <th className="w-[13%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                  归属人
+                </th>
+                <th className="w-[22%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                  标签备注
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {cookieAccMatches.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="p-6 text-center text-xs text-muted-foreground"
+                  >
+                    无匹配账号（需已同步平台登录 Cookie）
+                  </td>
+                </tr>
+              ) : (
+                cookieAccMatches.map((a) => (
+                  <tr
+                    key={a.id}
+                    onClick={() => setCookieSourcePicked(a.id)}
+                    className={`cursor-pointer border-b transition-colors ${
+                      cookieSourcePicked === a.id
+                        ? "bg-primary/10"
+                        : "hover:bg-muted/30"
+                    }`}
+                  >
+                    <td className="px-3 py-2">
+                      <div className="size-3">
+                        {cookieSourcePicked === a.id && (
+                          <div className="size-3 rounded-full bg-primary" />
+                        )}
+                      </div>
+                    </td>
+                    <td className="truncate px-2 py-2 text-xs">
+                      {a.phone_id || "—"}
+                    </td>
+                    <td className="truncate px-2 py-2 text-xs font-medium">
+                      {a.account_name}
+                    </td>
+                    <td className="truncate px-2 py-2 text-xs text-muted-foreground">
+                      {a.login_account || "—"}
+                    </td>
+                    <td className="px-2 py-2 text-xs">{a.platform || "—"}</td>
+                    <td className="truncate px-2 py-2 text-xs">
+                      {a.owner_name || "—"}
+                    </td>
+                    <td className="truncate px-2 py-2 text-xs text-muted-foreground">
+                      {a.tags || a.remark || "—"}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => setCookieSourceDialogOpen(false)}
+          >
+            取消
+          </Button>
+          <Button
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => void confirmCookieSource()}
+          >
+            确定
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (embedded) {
     return (
       <div className="flex h-full min-h-0 w-full flex-col gap-0 overflow-hidden p-6">
         {content}
+        {cookieSourceDialog}
       </div>
     );
   }
@@ -1585,6 +1880,7 @@ export function VideoDownloadPage({
         </DialogHeader>
 
         {content}
+        {cookieSourceDialog}
       </DialogContent>
     </Dialog>
   );

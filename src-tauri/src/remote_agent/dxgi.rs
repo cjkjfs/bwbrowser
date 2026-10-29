@@ -234,13 +234,11 @@ pub fn blend_cursor(bgra: &mut [u8], w: u32, h: u32) {
     let color_hbmp = icon.hbmColor;
     let bmp_of = |hb: HBITMAP| -> Option<(u32, u32, Vec<u8>, u32)> {
       let mut bm = windows::Win32::Graphics::Gdi::BITMAP::default();
-      if unsafe {
-        windows::Win32::Graphics::Gdi::GetObjectW(
-          hb.into(),
-          size_of::<windows::Win32::Graphics::Gdi::BITMAP>() as i32,
-          Some(&mut bm as *mut _ as *mut _),
-        )
-      } == 0
+      if windows::Win32::Graphics::Gdi::GetObjectW(
+        hb.into(),
+        size_of::<windows::Win32::Graphics::Gdi::BITMAP>() as i32,
+        Some(&mut bm as *mut _ as *mut _),
+      ) == 0
       {
         return None;
       }

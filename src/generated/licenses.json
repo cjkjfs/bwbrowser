@@ -2444,6 +2444,14 @@
     "license": "MIT"
   },
   {
+    "name": "openh264",
+    "license": "BSD-2-Clause"
+  },
+  {
+    "name": "openh264-sys2",
+    "license": "BSD-2-Clause"
+  },
+  {
     "name": "openssl",
     "license": "Apache-2.0"
   },
@@ -2986,6 +2994,10 @@
   {
     "name": "ryu",
     "license": "Apache-2.0 OR BSL-1.0"
+  },
+  {
+    "name": "safe_arch",
+    "license": "Zlib OR Apache-2.0 OR MIT"
   },
   {
     "name": "salsa20",
@@ -3830,6 +3842,10 @@
   {
     "name": "weezl",
     "license": "Apache-2.0 OR MIT"
+  },
+  {
+    "name": "wide",
+    "license": "Zlib OR Apache-2.0 OR MIT"
   },
   {
     "name": "winapi",

@@ -56,6 +56,8 @@ export interface BwbrowserAccount {
   backup_email?: string;
   // 套餐启动配额：false = 超出套餐配额，启动浏览器按钮置灰
   launch_allowed?: boolean;
+  /** 启动网址配置 JSON（{"include_platform":bool,"urls":[...]}），编辑账号维护 */
+  start_urls?: string | null;
 }
 
 export interface PlatformStat {

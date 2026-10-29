@@ -1444,6 +1444,22 @@ test("offline cloud, update, team-lock, trial, and synchronizer contracts are de
         }),
         notSignedIn,
       );
+      // The video-download cookie-source picker pushes the local profile's
+      // cookies before resolving. An account that matches no local profile
+      // (account_profile_name convention) must report "not pushed" so the
+      // resolve falls back to the server-stored cookie, never fabricate an
+      // upload.
+      const pushLocal = await app.invoke(
+        "bwbrowser_push_local_account_cookie",
+        {
+          accountId: 999999999,
+          accountName: "e2e-no-such-account",
+        },
+      );
+      assert.deepEqual(pushLocal, {
+        pushed: false,
+        reason: "no_local_profile",
+      });
       // The remote-management control side (控制端) rides the same Bwbrowser
       // token: signed out, listing a company's machines and resolving a
       // LAN-first target must refuse as a translatable code rather than reach

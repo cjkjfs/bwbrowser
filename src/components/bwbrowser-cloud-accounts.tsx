@@ -146,6 +146,41 @@ function resolveAvatarUrl(raw?: string): string | undefined {
   return v;
 }
 
+/** 解析账号 start_urls JSON（{"include_platform":bool,"urls":[...]}），坏数据/未配置回默认（平台网址开、无自选） */
+function parseAccountStartUrls(raw?: string | null): {
+  includePlatform: boolean;
+  urls: string[];
+} {
+  if (raw?.trim()) {
+    try {
+      const v: unknown = JSON.parse(raw);
+      const clean = (arr: unknown[]) =>
+        arr.filter((u): u is string => typeof u === "string" && !!u.trim());
+      if (Array.isArray(v)) {
+        return { includePlatform: true, urls: clean(v) };
+      }
+      if (v && typeof v === "object") {
+        const obj = v as { include_platform?: unknown; urls?: unknown };
+        return {
+          includePlatform: obj.include_platform !== false,
+          urls: Array.isArray(obj.urls) ? clean(obj.urls) : [],
+        };
+      }
+    } catch {
+      // 旧数据/坏 JSON 按未配置处理
+    }
+  }
+  return { includePlatform: true, urls: [] };
+}
+
+// 常用启动网址快捷项（编辑账号「启动网址」一键添加）
+const COMMON_START_URLS = [
+  { label: "Claude", url: "https://claude.ai/chat" },
+  { label: "ChatGPT", url: "https://chatgpt.com/" },
+  { label: "Gemini", url: "https://gemini.google.com/app" },
+  { label: "YouTube", url: "https://www.youtube.com" },
+];
+
 const PLATFORM_LABELS: Record<string, string> = {
   douyin: "抖音",
   tiktok: "TikTok",
@@ -234,6 +269,29 @@ interface CloudProxyUsageItem {
 // 平台显示名：直接用库里完整平台名，空值兜底
 function platformShort(p: string): string {
   return p || "其他";
+}
+
+// 节点使用归属人（去重姓名，多人全部返回，"、"分隔）——供节点列表「谁在用」列
+function usageOwnerNames(
+  usageList:
+    | {
+        proxy_node: string;
+        owner_real_name?: string;
+        owner_name?: string;
+        account_name?: string;
+        platform?: string;
+        phone_id?: string;
+      }[]
+    | undefined,
+): string {
+  if (!usageList || usageList.length === 0) return "";
+  const owners = new Set<string>();
+  for (const u of usageList) {
+    const real = u.owner_real_name || "";
+    const name = u.owner_name || "";
+    owners.add(real && name ? `${real}(${name})` : real || name || "-");
+  }
+  return [...owners].join("、");
 }
 
 // 账号表 proxy_node 有新旧两种格式（type:host:port[:user:pass] 与旧 host:port），
@@ -860,6 +918,12 @@ export function BwbrowserCloudAccountsDialog({
     channel_id: "",
     owner_id: 0 as number,
   });
+  // 启动网址（存 tiktok_accounts.start_urls，JSON {"include_platform":bool,"urls":[...]}）
+  const [editStartUrls, setEditStartUrls] = useState<{
+    includePlatform: boolean;
+    urls: string[];
+  }>({ includePlatform: true, urls: [] });
+  const [editStartUrlInput, setEditStartUrlInput] = useState("");
   const [editPerms, setEditPerms] = useState<{
     canViewPassword: boolean;
     canView2FA: boolean;
@@ -1264,6 +1328,8 @@ export function BwbrowserCloudAccountsDialog({
           "",
         owner_id: account.owner_id ?? 0,
       });
+      setEditStartUrls(parseAccountStartUrls(account.start_urls));
+      setEditStartUrlInput("");
 
       // 获取权限
       try {
@@ -1336,6 +1402,7 @@ export function BwbrowserCloudAccountsDialog({
             prev.channel_id,
           owner_id: detail.owner_id ?? prev.owner_id,
         }));
+        setEditStartUrls(parseAccountStartUrls(detail.start_urls));
       } catch (e) {
         console.error("获取账号详情失败:", e);
       } finally {
@@ -1344,6 +1411,17 @@ export function BwbrowserCloudAccountsDialog({
     },
     [isManager, isSuperAdmin, canViewPassword],
   );
+
+  // 启动浏览器时同时打开这些网址（对所有设备生效）
+  const addEditStartUrl = useCallback(() => {
+    const url = editStartUrlInput.trim();
+    if (!url || editStartUrls.urls.includes(url)) {
+      setEditStartUrlInput("");
+      return;
+    }
+    setEditStartUrls((p) => ({ ...p, urls: [...p.urls, url] }));
+    setEditStartUrlInput("");
+  }, [editStartUrlInput, editStartUrls.urls]);
 
   // 保存 2FA/短信链接
   const handleSaveCodes = useCallback(async () => {
@@ -4367,6 +4445,7 @@ export function BwbrowserCloudAccountsDialog({
                               `${u.phone_id || "-"}  ${ownerFull}  ${u.account_name || "-"}  ${ps}`,
                             );
                           }
+                          const owners = usageOwnerNames(usageList);
                           return (
                             <span
                               className="inline-block max-w-full cursor-help border-b border-dashed border-muted-foreground/40 text-[11px] leading-5"
@@ -4381,6 +4460,11 @@ export function BwbrowserCloudAccountsDialog({
                                   个
                                 </span>
                               ))}
+                              {owners && (
+                                <span className="mt-0.5 block whitespace-normal text-muted-foreground">
+                                  谁在用：{owners}
+                                </span>
+                              )}
                             </span>
                           );
                         })()}
@@ -4645,33 +4729,46 @@ export function BwbrowserCloudAccountsDialog({
               暂无可用代理，请先在代理中心添加
             </div>
           ) : (
-            vpsFilteredProxies.map((p: StoredProxy) => (
-              <button
-                key={p.id}
-                type="button"
-                className={`flex w-full items-center gap-3 border-b px-4 py-2 text-left transition-colors hover:bg-accent/50 ${
-                  vpsSelectedProxyId === p.id ? "bg-primary/10" : ""
-                }`}
-                onClick={() => setVpsSelectedProxyId(p.id)}
-              >
-                <div className="w-4">
-                  {vpsSelectedProxyId === p.id && (
-                    <div className="size-3 rounded-full bg-primary" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="truncate text-xs font-medium text-foreground">
-                    {p.name}
+            vpsFilteredProxies.map((p: StoredProxy) => {
+              const t = p.proxy_settings.proxy_type || "http";
+              const usageKey = /^(vless|trojan|ss)$/i.test(t)
+                ? p.proxy_settings.vless_uri || ""
+                : `${p.proxy_settings.host}:${p.proxy_settings.port}`;
+              const owners = usageOwnerNames(proxyUsage.get(usageKey));
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`flex w-full items-center gap-3 border-b px-4 py-2 text-left transition-colors hover:bg-accent/50 ${
+                    vpsSelectedProxyId === p.id ? "bg-primary/10" : ""
+                  }`}
+                  onClick={() => setVpsSelectedProxyId(p.id)}
+                >
+                  <div className="w-4">
+                    {vpsSelectedProxyId === p.id && (
+                      <div className="size-3 rounded-full bg-primary" />
+                    )}
                   </div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {p.proxy_settings.host}:{p.proxy_settings.port}
+                  <div className="flex-1 min-w-0">
+                    <div className="truncate text-xs font-medium text-foreground">
+                      {p.name}
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {p.proxy_settings.host}:{p.proxy_settings.port}
+                    </div>
+                    <div
+                      className="truncate text-[11px] text-muted-foreground/80"
+                      title={owners}
+                    >
+                      {owners ? `谁在用：${owners}` : "未使用"}
+                    </div>
                   </div>
-                </div>
-                <div className="shrink-0 text-[10px] uppercase text-muted-foreground">
-                  {p.proxy_settings.proxy_type}
-                </div>
-              </button>
-            ))
+                  <div className="shrink-0 text-[10px] uppercase text-muted-foreground">
+                    {p.proxy_settings.proxy_type}
+                  </div>
+                </button>
+              );
+            })
           )}
         </div>
 
@@ -4907,6 +5004,114 @@ export function BwbrowserCloudAccountsDialog({
                       />
                     </div>
                   )}
+                </div>
+                <div className="space-y-2">
+                  <div className="text-xs font-medium">启动网址</div>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2"
+                    onClick={() =>
+                      setEditStartUrls((p) => ({
+                        ...p,
+                        includePlatform: !p.includePlatform,
+                      }))
+                    }
+                  >
+                    <Checkbox
+                      checked={editStartUrls.includePlatform}
+                      onCheckedChange={(v) =>
+                        setEditStartUrls((p) => ({
+                          ...p,
+                          includePlatform: v === true,
+                        }))
+                      }
+                    />
+                    <span className="text-xs">打开默认平台网址</span>
+                  </button>
+                  {editStartUrls.urls.length > 0 && (
+                    <div className="space-y-1.5">
+                      {editStartUrls.urls.map((url) => (
+                        <div
+                          key={url}
+                          className="flex items-center gap-2 rounded border px-2 py-1.5"
+                        >
+                          <span
+                            className="min-w-0 flex-1 truncate text-xs"
+                            title={url}
+                          >
+                            {url}
+                          </span>
+                          <button
+                            type="button"
+                            className="text-muted-foreground transition-colors hover:text-destructive"
+                            onClick={() =>
+                              setEditStartUrls((p) => ({
+                                ...p,
+                                urls: p.urls.filter((u) => u !== url),
+                              }))
+                            }
+                            title="删除该网址"
+                          >
+                            <LuTrash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-1.5">
+                    {COMMON_START_URLS.map((c) => {
+                      const added = editStartUrls.urls.includes(c.url);
+                      return (
+                        <button
+                          key={c.url}
+                          type="button"
+                          className={cn(
+                            "rounded-full border px-2 py-0.5 text-[11px] transition-colors",
+                            added
+                              ? "border-primary/40 bg-primary/10 text-primary"
+                              : "text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                          )}
+                          onClick={() =>
+                            setEditStartUrls((p) =>
+                              added ? p : { ...p, urls: [...p.urls, c.url] },
+                            )
+                          }
+                          disabled={added}
+                          title={c.url}
+                        >
+                          {added ? "已添加 · " : "+ "}
+                          {c.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={editStartUrlInput}
+                      onChange={(e) => setEditStartUrlInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addEditStartUrl();
+                        }
+                      }}
+                      placeholder="输入网址，如 https://www.example.com"
+                      className="h-8 text-xs"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 shrink-0 text-xs"
+                      onClick={addEditStartUrl}
+                      disabled={!editStartUrlInput.trim()}
+                    >
+                      <LuPlus className="mr-1 h-3.5 w-3.5" />
+                      添加
+                    </Button>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    启动浏览器时同时打开这些网址，保存后云端生效（对所有设备）
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -5320,8 +5525,9 @@ export function BwbrowserCloudAccountsDialog({
                   accountName: editForm.account_name.trim() || null,
                   loginAccount: editForm.login_account.trim() || null,
                   loginPassword: editForm.login_password.trim() || null,
-                  remark: editForm.remark || null,
-                  tags: tagsStr || null,
+                  // 备注/标签：空串也要发送（清空=覆盖服务器），|| null 会把空值吞掉导致不更新
+                  remark: editForm.remark ?? "",
+                  tags: tagsStr,
                   category: editForm.category.trim() || null,
                   pureUsername: editForm.pure_username.trim() || null,
                   phoneId: editPerms.canEditAll
@@ -5340,6 +5546,11 @@ export function BwbrowserCloudAccountsDialog({
                     ? editForm.owner_id || null
                     : null,
                   channelId: editForm.channel_id.trim() || null,
+                  // 启动网址：始终发送（JSON，编辑账号维护），空 urls 数组 = 清除
+                  startUrls: JSON.stringify({
+                    include_platform: editStartUrls.includePlatform,
+                    urls: editStartUrls.urls,
+                  }),
                 });
                 showSuccessToast("保存成功");
                 setEditDialogOpen(false);

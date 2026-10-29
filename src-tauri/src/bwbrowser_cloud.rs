@@ -2393,6 +2393,9 @@ pub struct BwbrowserAccount {
   /// 账号所属公司；环境列表等请求以此为准，而不是页面当前选中的公司
   #[serde(default)]
   pub company_id: Option<i64>,
+  /// 启动网址配置（JSON: {"include_platform":bool,"urls":[...]}），编辑账号维护
+  #[serde(default)]
+  pub start_urls: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -4917,6 +4920,7 @@ pub async fn bwbrowser_update_account_info(
   safe_link: Option<String>,
   backup_email: Option<String>,
   channel_id: Option<String>,
+  start_urls: Option<String>,
 ) -> Result<(), String> {
   let (username, password) = BWBROWSER_AUTH
     .get_credentials()
@@ -4970,6 +4974,9 @@ pub async fn bwbrowser_update_account_info(
   }
   if let Some(v) = channel_id {
     params.push(format!("channel_id={}", urlencode(&v)));
+  }
+  if let Some(v) = start_urls {
+    params.push(format!("start_urls={}", urlencode(&v)));
   }
 
   let form_data = params.join("&");
@@ -5249,6 +5256,67 @@ pub async fn bwbrowser_delete_cloud_cookies(account_id: i64) -> Result<(), Strin
     &format!("✓ 账号 {} 服务器 Cookie 已删除", account_id),
   );
   Ok(())
+}
+
+/// 视频下载云端解析的 Cookie 源：选中账号确定时本机优先。本机有该账号的
+/// 浏览器环境（account_profile_name 命名约定）就导出本地 Cookie 回传服务端
+/// （tiktok_accounts.cookie），云端解析拿到的是最新登录态；本机没有环境或
+/// 没有 Cookie 时返回未推送，解析请求落到服务端已存 Cookie。
+#[tauri::command]
+pub async fn bwbrowser_push_local_account_cookie(
+  app_handle: tauri::AppHandle,
+  account_id: i64,
+  account_name: String,
+  platform: Option<String>,
+) -> Result<serde_json::Value, String> {
+  let profile_name = account_profile_name(&account_name, account_id);
+  let pm = crate::profile::manager::ProfileManager::instance();
+  let profile = pm.list_profiles().ok().and_then(|ps| {
+    ps.into_iter()
+      .find(|p| p.name.to_lowercase() == profile_name.to_lowercase())
+  });
+  let Some(profile) = profile else {
+    log_bwbrowser(
+      "push_local_cookie",
+      &format!("账号 {account_id} 未命中本机 profile（约定名 {profile_name}），不推送"),
+    );
+    return Ok(serde_json::json!({
+      "pushed": false,
+      "reason": "no_local_profile",
+    }));
+  };
+
+  let profile_id = profile.id.to_string();
+  let cookie_json = crate::cookie_manager::CookieManager::export_cookies(&profile_id, "json")?;
+  if cookie_json.trim().is_empty() || cookie_json == "[]" {
+    log_bwbrowser(
+      "push_local_cookie",
+      &format!("账号 {account_id} 本机 profile {profile_id} 无 Cookie"),
+    );
+    return Ok(serde_json::json!({
+      "pushed": false,
+      "reason": "no_local_cookie",
+    }));
+  }
+
+  log_bwbrowser(
+    "push_local_cookie",
+    &format!("账号 {account_id} 本机 profile {profile_id} 有 Cookie，回传服务端"),
+  );
+  // 用户显式选择本机为 Cookie 源，本机登录态即权威，跳过健康检查闸门。
+  let (uploaded, local_score, cloud_score) = sync_cookies_to_cloud(
+    &app_handle,
+    account_id,
+    &cookie_json,
+    platform.as_deref().unwrap_or(""),
+    true,
+  )
+  .await?;
+  Ok(serde_json::json!({
+    "pushed": uploaded,
+    "local_score": local_score,
+    "cloud_score": cloud_score,
+  }))
 }
 
 /// 删除本地 Cookie（清除指定账号的所有 Cookie 和浏览数据）
@@ -6912,6 +6980,38 @@ pub(crate) fn account_profile_name(account_name: &str, account_id: i64) -> Strin
   }
 }
 
+/// 解析账号 start_urls JSON（{"include_platform":bool,"urls":[...]}，编辑账号维护）。
+/// 兼容裸数组（视作 urls，平台网址保持打开）；未配置或解析失败返回 None（走旧行为）。
+fn parse_account_start_urls(raw: Option<&str>) -> Option<(bool, Vec<String>)> {
+  let raw = raw?.trim();
+  if raw.is_empty() {
+    return None;
+  }
+  let v: serde_json::Value = serde_json::from_str(raw).ok()?;
+  let clean = |arr: Vec<serde_json::Value>| -> Vec<String> {
+    arr
+      .into_iter()
+      .filter_map(|x| x.as_str().map(|s| s.trim().to_string()))
+      .filter(|s| !s.is_empty())
+      .collect()
+  };
+  match v {
+    serde_json::Value::Array(arr) => Some((true, clean(arr))),
+    obj => {
+      let include_platform = obj
+        .get("include_platform")
+        .and_then(|b| b.as_bool())
+        .unwrap_or(true);
+      let urls = obj
+        .get("urls")
+        .and_then(|u| u.as_array())
+        .map(|a| clean(a.to_vec()))
+        .unwrap_or_default();
+      Some((include_platform, urls))
+    }
+  }
+}
+
 /// 启动云端账号浏览器：自动查找/创建 profile、设置代理、绑定环境
 #[tauri::command]
 pub async fn bwbrowser_launch_account(
@@ -7132,41 +7232,55 @@ async fn launch_account_impl(
   emit_progress(2, "正在拉取账号信息...");
 
   // 0. 通过 account_id 从服务器获取最新的账号详情（确保 env_uuid 是最新的）
-  let (server_env_uuid, server_account_name, server_platform, server_proxy_node, server_owner_id) =
-    match BWBROWSER_AUTH.get_account_detail(account_id).await {
-      Ok(detail) => {
-        let env = detail.env_uuid.clone();
-        let name = if detail.account_name.is_empty() {
-          account_name.clone()
-        } else {
-          detail.account_name.clone()
-        };
-        let plat = detail.platform.clone().or(platform.clone());
-        let proxy = detail
-          .proxy_node
-          .clone()
-          .filter(|s| !s.is_empty())
-          .or(proxy_node.clone());
-        log_bwbrowser(
-          "launch_account",
-          &format!("  ✓ 从服务器获取最新账号详情: env_uuid={:?}", env),
-        );
-        (env, name, plat, proxy, detail.owner_id)
-      }
-      Err(e) => {
-        log_bwbrowser_error(
-          "launch_account",
-          &format!("  获取账号详情失败，使用传入参数: {}", e),
-        );
-        (
-          env_uuid,
-          account_name.clone(),
-          platform.clone(),
-          proxy_node,
-          None,
-        )
-      }
-    };
+  let (
+    server_env_uuid,
+    server_account_name,
+    server_platform,
+    server_proxy_node,
+    server_owner_id,
+    server_start_urls,
+  ) = match BWBROWSER_AUTH.get_account_detail(account_id).await {
+    Ok(detail) => {
+      let env = detail.env_uuid.clone();
+      let name = if detail.account_name.is_empty() {
+        account_name.clone()
+      } else {
+        detail.account_name.clone()
+      };
+      let plat = detail.platform.clone().or(platform.clone());
+      let proxy = detail
+        .proxy_node
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or(proxy_node.clone());
+      log_bwbrowser(
+        "launch_account",
+        &format!("  ✓ 从服务器获取最新账号详情: env_uuid={:?}", env),
+      );
+      (
+        env,
+        name,
+        plat,
+        proxy,
+        detail.owner_id,
+        detail.start_urls.clone(),
+      )
+    }
+    Err(e) => {
+      log_bwbrowser_error(
+        "launch_account",
+        &format!("  获取账号详情失败，使用传入参数: {}", e),
+      );
+      (
+        env_uuid,
+        account_name.clone(),
+        platform.clone(),
+        proxy_node,
+        None,
+        None,
+      )
+    }
+  };
 
   // 0.5 优先使用本地 profile 已有的 proxy_id（由 bwbrowser_update_account_proxy 设置）
   emit_progress(8, "已获取账号信息"); //     云端 API 可能因服务器同步延迟返回旧值，导致覆盖本地正确配置。
@@ -7803,11 +7917,27 @@ async fn launch_account_impl(
   // 4. 启动浏览器（使用 Advisory gate，不阻止指纹不匹配的启动）
   emit_progress(75, "启动浏览器内核..."); //    云端账号的指纹在启动时通过代理出口 IP 自动解析时区/语言
                                           //    提前获取平台 URL，作为启动 URL 直接传入（比 CDP 导航更可靠）
-  let launch_url = if let Some(ref p) = server_platform {
-    fetch_platform_url(p).await
+                                          // 启动网址：账号配置（编辑账号维护，tiktok_accounts.start_urls）优先；
+                                          // 未配置 = 旧行为（平台网址作启动页 + 环境全部 start_urls 开标签）。
+  let (include_platform, selected_urls, account_start_configured) =
+    match parse_account_start_urls(server_start_urls.as_deref()) {
+      Some((p, urls)) => (p, urls, true),
+      None => (true, Vec::new(), false),
+    };
+  let mut launch_url = if include_platform {
+    if let Some(ref p) = server_platform {
+      fetch_platform_url(p).await
+    } else {
+      None
+    }
   } else {
     None
   };
+  // 平台网址被取消（或平台无配置 URL）时，第一个自选网址顶当启动页，其余启动后开标签
+  let launch_from_selection = launch_url.is_none() && !selected_urls.is_empty();
+  if launch_from_selection {
+    launch_url = Some(selected_urls[0].clone());
+  }
   if let Some(ref url) = launch_url {
     log_bwbrowser(
       "launch_account",
@@ -8150,17 +8280,33 @@ async fn launch_account_impl(
     "",
   );
 
-  // 7. 启动成功后打开环境配置的 start_urls（额外标签，如 browserscan.net）
-  if let Ok(envs) = BWBROWSER_AUTH.list_cloud_envs(None).await {
-    let start_urls = envs
-      .iter()
-      .find(|e| final_env_uuid.is_some_and(|u| e.env_uuid == u))
-      .and_then(|e| e.start_urls.clone())
-      .unwrap_or_default();
+  // 7. 打开启动网址。账号配置了 start_urls → 开配置里的自选网址（平台网址已在启动页或被取消）；
+  //    未配置 → 旧行为：打开环境配置的 start_urls（额外标签，如 browserscan.net）
+  let extra_start_urls: Vec<String> = if launch_from_selection {
+    selected_urls[1..].to_vec()
+  } else if account_start_configured {
+    selected_urls
+  } else {
+    BWBROWSER_AUTH
+      .list_cloud_envs(None)
+      .await
+      .ok()
+      .and_then(|envs| {
+        envs
+          .iter()
+          .find(|e| final_env_uuid.is_some_and(|u| e.env_uuid == u))
+          .and_then(|e| e.start_urls.clone())
+      })
+      .unwrap_or_default()
+      .into_iter()
+      .map(|u| u.trim().to_string())
+      .filter(|u| !u.is_empty())
+      .collect()
+  };
+  if !extra_start_urls.is_empty() {
     let runner = crate::browser_runner::BrowserRunner::instance();
-    for url in start_urls.iter().filter(|u| !u.trim().is_empty()) {
-      let url = url.trim();
-      if launch_url_for_cookie.as_deref() == Some(url) {
+    for url in extra_start_urls.iter() {
+      if launch_url_for_cookie.as_deref() == Some(url.as_str()) {
         continue; // 已作为启动页打开，不重复开标签
       }
       match runner

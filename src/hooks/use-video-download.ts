@@ -36,6 +36,8 @@ export interface DownloadSettings {
   auto_paste_download: boolean;
   cookie_from_browser: boolean;
   cookie_from_system_browser: boolean;
+  /** 云端解析的账号 cookie 源：归属自己的云端账号 id；null = VPS 登录 */
+  cookie_account_id?: number | null;
   proxy_id: string | null;
 }
 
