@@ -3659,7 +3659,10 @@
     "loading": "Загрузка…",
     "onlineSummary": "{{online}}/{{total}} в сети",
     "connectLanSuccess": "Подключено к {{host}} по LAN",
-    "connectRelaySuccess": "LAN недоступна, открыта страница ретрансляции ({{host}})"
+    "connectRelaySuccess": "LAN недоступна, открыта страница ретрансляции ({{host}})",
+    "delete": "Удалить",
+    "deleteConfirm": "Удалить машину «{{name}}» из списка?",
+    "deleteSuccess": "Машина удалена"
   },
   "fileTransfer": {
     "title": "Передача файлов",

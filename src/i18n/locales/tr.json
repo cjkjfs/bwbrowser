@@ -3593,7 +3593,10 @@
     "loading": "Yükleniyor…",
     "onlineSummary": "{{online}}/{{total}} çevrimiçi",
     "connectLanSuccess": "{{host}} ile LAN üzerinden bağlanıldı",
-    "connectRelaySuccess": "LAN erişilemedi, aktarma denetim sayfası açıldı ({{host}})"
+    "connectRelaySuccess": "LAN erişilemedi, aktarma denetim sayfası açıldı ({{host}})",
+    "delete": "Sil",
+    "deleteConfirm": "\"{{name}}\" makinesini listeden silinsin mi?",
+    "deleteSuccess": "Makine silindi"
   },
   "fileTransfer": {
     "title": "Dosya aktarımı",

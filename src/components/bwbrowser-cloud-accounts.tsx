@@ -311,7 +311,7 @@ let remotePlatformLabels: Record<string, string> = {};
 
 // ==================== 设备 IP 映射表（SRC-IP-CIDR 提示） ====================
 // 用户粘贴的 Clash 风格分流清单（"SRC-IP-CIDR,192.168.168.5/32,us031-70.39.192.115"），
-// 仅存 localStorage 供设置代理弹窗展示提示，不进后端、不写任何账号数据。
+// 全公司共享一份，存公司级云端 KV；localStorage 仅作同步提示用的本机缓存。
 const SRC_IP_RULES_KEY = "bwbrowser_src_ip_rules";
 
 function parseSrcIpRules(text: string): Map<number, string> {
@@ -4156,22 +4156,35 @@ export function BwbrowserCloudAccountsDialog({
               className="ml-auto h-6 px-2 text-xs text-muted-foreground"
               onClick={async () => {
                 if (!srcIpRulesOpen) {
-                  let text = loadSrcIpRulesText();
-                  if (!text.trim()) {
-                    // 本机没有 → 尝试从云端拉取（换电脑/清缓存场景）
-                    try {
-                      const remote = await invoke<string | null>(
+                  // 打开时始终以云端公司 KV 为准（全公司共享一份），避免
+                  // 多台电脑各留旧数据互相漂移；旧的用户级设置作为迁移源
+                  let text = "";
+                  try {
+                    const remote = await invoke<string | null>(
+                      "bwbrowser_get_company_setting",
+                      { settingKey: "src_ip_rules" },
+                    );
+                    if (remote?.trim()) {
+                      text = remote;
+                    } else {
+                      // 迁移：公司 KV 还没有 → 继承旧的用户级设置
+                      const legacy = await invoke<string | null>(
                         "bwbrowser_get_user_setting",
                         { settingKey: "src_ip_rules" },
                       );
-                      if (remote?.trim()) {
-                        text = remote;
-                        localStorage.setItem(SRC_IP_RULES_KEY, remote);
+                      if (legacy?.trim()) {
+                        text = legacy;
+                        await invoke("bwbrowser_save_company_setting", {
+                          settingKey: "src_ip_rules",
+                          data: legacy,
+                        });
                       }
-                    } catch {
-                      // 未登录或网络失败：保持空，让用户手动粘贴
                     }
+                  } catch {
+                    // 未登录或网络失败 → 退回本机缓存，让用户手动粘贴
+                    text = loadSrcIpRulesText();
                   }
+                  localStorage.setItem(SRC_IP_RULES_KEY, text);
                   setSrcIpRulesText(text);
                 }
                 setSrcIpRulesOpen(!srcIpRulesOpen);
@@ -4200,14 +4213,14 @@ export function BwbrowserCloudAccountsDialog({
                   setSrcIpRuleHint(computeSrcIpRuleHint(proxyDialogTargets[0]));
                   setSrcIpRulesOpen(false);
                   try {
-                    await invoke("bwbrowser_save_user_setting", {
+                    await invoke("bwbrowser_save_company_setting", {
                       settingKey: "src_ip_rules",
                       data: text,
                     });
-                    showSuccessToast("映射表已保存并同步云端");
+                    showSuccessToast("映射表已保存（全公司共享）");
                   } catch {
                     showSuccessToast(
-                      "映射表已保存（云端同步失败，仅本机生效）",
+                      "映射表已保存本机，云端同步失败（仅管理员/经理可保存）",
                     );
                   }
                 }}

@@ -3626,7 +3626,10 @@
     "loading": "Carregando…",
     "onlineSummary": "{{online}}/{{total}} online",
     "connectLanSuccess": "Conectado a {{host}} pela LAN",
-    "connectRelaySuccess": "LAN inacessível, página de controle por retransmissão aberta ({{host}})"
+    "connectRelaySuccess": "LAN inacessível, página de controle por retransmissão aberta ({{host}})",
+    "delete": "Excluir",
+    "deleteConfirm": "Excluir a máquina \"{{name}}\" da lista?",
+    "deleteSuccess": "Máquina excluída"
   },
   "fileTransfer": {
     "title": "Transferência de arquivos",

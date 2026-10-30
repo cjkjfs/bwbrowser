@@ -355,6 +355,8 @@ export const commandCoverage = {
       "bwbrowser_cloud::bwbrowser_get_account_detail_full",
       "bwbrowser_cloud::bwbrowser_create_account",
       "bwbrowser_cloud::bwbrowser_get_account_cookies",
+      "bwbrowser_cloud::bwbrowser_get_company_setting",
+      "bwbrowser_cloud::bwbrowser_save_company_setting",
       "bwbrowser_cloud::bwbrowser_push_local_account_cookie",
       "bwbrowser_cloud::bwbrowser_delete_cloud_cookies",
       "bwbrowser_cloud::bwbrowser_delete_local_cookies",

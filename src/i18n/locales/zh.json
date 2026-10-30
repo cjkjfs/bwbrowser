@@ -3593,7 +3593,10 @@
     "loading": "加载中…",
     "onlineSummary": "{{online}}/{{total}} 在线",
     "connectLanSuccess": "已通过局域网直连 {{host}}",
-    "connectRelaySuccess": "局域网不可达，已打开中继控制页（{{host}}）"
+    "connectRelaySuccess": "局域网不可达，已打开中继控制页（{{host}}）",
+    "delete": "删除",
+    "deleteConfirm": "确定从列表删除机器「{{name}}」吗？",
+    "deleteSuccess": "机器已删除"
   },
   "fileTransfer": {
     "title": "文件传输",

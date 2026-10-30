@@ -3593,7 +3593,10 @@
     "loading": "Đang tải…",
     "onlineSummary": "{{online}}/{{total}} trực tuyến",
     "connectLanSuccess": "Đã kết nối tới {{host}} qua LAN",
-    "connectRelaySuccess": "Không tới được LAN, đã mở trang điều khiển chuyển tiếp ({{host}})"
+    "connectRelaySuccess": "Không tới được LAN, đã mở trang điều khiển chuyển tiếp ({{host}})",
+    "delete": "Xóa",
+    "deleteConfirm": "Xóa máy \"{{name}}\" khỏi danh sách?",
+    "deleteSuccess": "Đã xóa máy"
   },
   "fileTransfer": {
     "title": "Truyền tệp",

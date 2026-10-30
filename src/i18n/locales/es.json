@@ -3626,7 +3626,10 @@
     "loading": "Cargando…",
     "onlineSummary": "{{online}}/{{total}} en línea",
     "connectLanSuccess": "Conectado a {{host}} por la LAN",
-    "connectRelaySuccess": "LAN inaccesible, se abrió la página de control por retransmisión ({{host}})"
+    "connectRelaySuccess": "LAN inaccesible, se abrió la página de control por retransmisión ({{host}})",
+    "delete": "Eliminar",
+    "deleteConfirm": "¿Eliminar la máquina \"{{name}}\" de la lista?",
+    "deleteSuccess": "Máquina eliminada"
   },
   "fileTransfer": {
     "title": "Transferencia de archivos",

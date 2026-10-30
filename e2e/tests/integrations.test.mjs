@@ -1460,6 +1460,16 @@ test("offline cloud, update, team-lock, trial, and synchronizer contracts are de
         pushed: false,
         reason: "no_local_profile",
       });
+
+      // Company-wide KV (the SRC-IP mapping table rides it): a hermetic run
+      // has no cloud session, so both read and write refuse for that reason.
+      await app.invokeError("bwbrowser_get_company_setting", {
+        settingKey: "src_ip_rules",
+      });
+      await app.invokeError("bwbrowser_save_company_setting", {
+        settingKey: "src_ip_rules",
+        data: "SRC-IP-CIDR,192.168.168.5/32,us031-70.39.192.115",
+      });
       // The remote-management control side (控制端) rides the same Bwbrowser
       // token: signed out, listing a company's machines and resolving a
       // LAN-first target must refuse as a translatable code rather than reach

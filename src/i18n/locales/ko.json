@@ -3593,7 +3593,10 @@
     "loading": "불러오는 중…",
     "onlineSummary": "{{online}}/{{total}} 온라인",
     "connectLanSuccess": "{{host}}에 LAN으로 연결했습니다",
-    "connectRelaySuccess": "LAN에 연결할 수 없어 중계 제어 페이지를 열었습니다 ({{host}})"
+    "connectRelaySuccess": "LAN에 연결할 수 없어 중계 제어 페이지를 열었습니다 ({{host}})",
+    "delete": "삭제",
+    "deleteConfirm": "\"{{name}}\" 머신을 목록에서 삭제하시겠습니까?",
+    "deleteSuccess": "머신이 삭제되었습니다"
   },
   "fileTransfer": {
     "title": "파일 전송",

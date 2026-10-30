@@ -2868,6 +2868,25 @@ pub async fn bwbrowser_get_user_setting(setting_key: String) -> Result<Option<St
   get_user_setting_impl(&setting_key).await
 }
 
+/// 读取公司级云端设置 KV（全公司共享一份，登录用户均可读）。
+#[tauri::command]
+pub async fn bwbrowser_get_company_setting(setting_key: String) -> Result<Option<String>, String> {
+  Ok(
+    company_setting_get(&setting_key)
+      .await?
+      .map(|(data, _)| data),
+  )
+}
+
+/// 保存公司级云端设置 KV（仅管理员/经理可写，服务端校验）。
+#[tauri::command]
+pub async fn bwbrowser_save_company_setting(
+  setting_key: String,
+  data: String,
+) -> Result<(), String> {
+  company_setting_save(&setting_key, &data).await
+}
+
 /// 公司级云端设置 KV(管理员写、同公司成员读)。需要服务端
 /// bwbrowser_sync.php 打上 save_company_setting/get_company_setting 补丁
 /// (见 .scratch/company_setting_patch.php);旧服务端返回「未知 action」,

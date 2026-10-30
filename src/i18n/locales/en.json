@@ -3593,7 +3593,10 @@
     "loading": "Loading…",
     "onlineSummary": "{{online}}/{{total}} online",
     "connectLanSuccess": "Connected to {{host}} over the LAN",
-    "connectRelaySuccess": "LAN unreachable, opened the relay control page ({{host}})"
+    "connectRelaySuccess": "LAN unreachable, opened the relay control page ({{host}})",
+    "delete": "Delete",
+    "deleteConfirm": "Delete machine \"{{name}}\" from the list?",
+    "deleteSuccess": "Machine deleted"
   },
   "fileTransfer": {
     "title": "File transfer",

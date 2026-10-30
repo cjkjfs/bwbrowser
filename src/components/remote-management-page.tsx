@@ -2,6 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,6 +14,7 @@ import {
   LuMonitorSmartphone,
   LuMousePointerClick,
   LuRefreshCw,
+  LuTrash2,
 } from "react-icons/lu";
 import { toast } from "sonner";
 import {
@@ -171,6 +173,31 @@ export function RemoteManagementPage() {
       setIsLoading(false);
     }
   }, [selectedCompanyId, t]);
+
+  /** 删除无用/长期不在线的机器（服务端按远程管理权限校验）。 */
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const handleDeleteMachine = useCallback(
+    async (row: MachineRow) => {
+      const ok = await dialogConfirm(
+        t("remoteManagement.deleteConfirm", { name: row.hostname }),
+        { kind: "warning" },
+      );
+      if (!ok) return;
+      setDeletingId(row.clientId);
+      try {
+        await invoke("bwbrowser_remote_management_delete", {
+          clientId: row.clientId,
+        });
+        toast.success(t("remoteManagement.deleteSuccess"));
+        void loadMachines();
+      } catch (e) {
+        toast.error(translateBackendError(t, e));
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [loadMachines, t],
+  );
 
   useEffect(() => {
     void loadMachines();
@@ -429,6 +456,20 @@ export function RemoteManagementPage() {
                           {t(labelKey)}
                         </Button>
                       ))}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10"
+                        disabled={deletingId !== null}
+                        onClick={() => void handleDeleteMachine(row)}
+                      >
+                        {deletingId === row.clientId ? (
+                          <LuLoaderCircle className="w-3.5 h-3.5 mr-1 animate-spin" />
+                        ) : (
+                          <LuTrash2 className="w-3.5 h-3.5 mr-1" />
+                        )}
+                        {t("remoteManagement.delete")}
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>

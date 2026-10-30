@@ -3626,7 +3626,10 @@
     "loading": "Chargement…",
     "onlineSummary": "{{online}}/{{total}} en ligne",
     "connectLanSuccess": "Connecté à {{host}} via le LAN",
-    "connectRelaySuccess": "LAN injoignable, page de contrôle relais ouverte ({{host}})"
+    "connectRelaySuccess": "LAN injoignable, page de contrôle relais ouverte ({{host}})",
+    "delete": "Supprimer",
+    "deleteConfirm": "Supprimer la machine « {{name}} » de la liste ?",
+    "deleteSuccess": "Machine supprimée"
   },
   "fileTransfer": {
     "title": "Transfert de fichiers",

@@ -3977,6 +3977,8 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_list_companies,
       bwbrowser_cloud::bwbrowser_save_user_setting,
       bwbrowser_cloud::bwbrowser_get_user_setting,
+      bwbrowser_cloud::bwbrowser_get_company_setting,
+      bwbrowser_cloud::bwbrowser_save_company_setting,
       bwbrowser_cloud::bwbrowser_get_account_detail,
       bwbrowser_cloud::bwbrowser_update_account_proxy,
       bwbrowser_cloud::bwbrowser_list_proxy_usage,
