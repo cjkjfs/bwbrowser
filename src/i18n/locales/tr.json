@@ -1646,7 +1646,11 @@
       "accountsBatch": "Toplu hesap",
       "accountsBatchTitle": "{{n}} kullanıcı için toplu hesap seçimi",
       "selectAllMatches": "Eşleşenleri seç",
-      "clearMatches": "Eşleşenleri kaldır"
+      "clearMatches": "Eşleşenleri kaldır",
+      "clearAll": "Tüm atamaları temizle",
+      "clearing": "Temizleniyor...",
+      "clearAllConfirm": "Bu uzantı bağlı {{n}} kullanıcıdan kaldırılsın mı?",
+      "clearAllDone": "{{n}} kullanıcının ataması temizlendi"
     },
     "copyAssign": {
       "title": "Başka bir uzantıdan atamayı kopyala",

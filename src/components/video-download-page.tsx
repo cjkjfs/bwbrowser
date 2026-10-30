@@ -2,7 +2,10 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import {
+  confirm as dialogConfirm,
+  open as openDialog,
+} from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LuCheck,
@@ -1229,9 +1232,12 @@ export function VideoDownloadPage({
               variant="ghost"
               size="sm"
               onClick={() => {
-                if (confirm("确定要删除全部任务吗？")) {
-                  deleteAll();
-                }
+                void (async () => {
+                  const ok = await dialogConfirm("确定要删除全部任务吗？", {
+                    kind: "warning",
+                  });
+                  if (ok) deleteAll();
+                })();
               }}
               disabled={tasks.length === 0}
               className="text-destructive hover:text-destructive"
@@ -1519,7 +1525,7 @@ export function VideoDownloadPage({
               <div className="flex items-center justify-between pl-1 py-1 border-t">
                 <div className="space-y-0.5">
                   <div className="text-xs font-medium">
-                    Cookie 来源（云端解析）
+                    Cookie 来源（云端解析 + 下载）
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {selectedCookieAccount
@@ -1822,7 +1828,9 @@ export function VideoDownloadPage({
     >
       <DialogContent className="w-[760px] max-w-[95vw] p-0 overflow-hidden">
         <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="text-sm font-semibold">Cookie 来源（云端解析）</div>
+          <div className="text-sm font-semibold">
+            Cookie 来源（云端解析 + 下载）
+          </div>
           <Button
             variant="ghost"
             size="sm"

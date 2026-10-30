@@ -1652,7 +1652,11 @@
       "accountsBatch": "Cuentas en lote",
       "accountsBatchTitle": "Seleccionar cuentas en lote para {{n}} usuarios",
       "selectAllMatches": "Seleccionar coincidencias",
-      "clearMatches": "Quitar coincidencias"
+      "clearMatches": "Quitar coincidencias",
+      "clearAll": "Borrar todas las asignaciones",
+      "clearing": "Borrando...",
+      "clearAllConfirm": "¿Quitar esta extensión de los {{n}} usuarios asignados?",
+      "clearAllDone": "Se borraron las asignaciones de {{n}} usuarios"
     },
     "copyAssign": {
       "title": "Copiar asignación de otra extensión",

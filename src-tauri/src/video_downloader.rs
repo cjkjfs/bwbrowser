@@ -2995,6 +2995,93 @@ async fn extract_cookies_via_ytdlp(
 /// 从 VPS 登录 profile 提取 Cookie
 /// 优先级：yt-dlp --cookies-from-browser（最全面） > CDP（实时内存） > SQLite 数据库
 /// download_url 用于判断访问哪个网站提取对应平台的 cookie
+/// 指定 Cookie 源账号：从服务端 tiktok_accounts.cookie（playwright 风格
+/// JSON 数组）转换为 yt-dlp 的 Netscape cookie 文件。
+/// 返回 false = 账号没有 Cookie，调用方回退 VPS 登录 profile 提取。
+async fn export_account_cookies_to_file(
+  account_id: i64,
+  cookie_path: &std::path::Path,
+) -> Result<bool, String> {
+  let result = crate::bwbrowser_cloud::bwbrowser_get_account_cookies(account_id).await?;
+  let cookie_text = result
+    .get("cookie")
+    .and_then(serde_json::Value::as_str)
+    .unwrap_or_default();
+  if cookie_text.trim().is_empty() {
+    return Ok(false);
+  }
+  let arr: Vec<serde_json::Value> = match serde_json::from_str(cookie_text) {
+    Ok(v) => v,
+    Err(_) => return Ok(false),
+  };
+  if arr.is_empty() {
+    return Ok(false);
+  }
+  let mut lines = vec!["# Netscape HTTP Cookie File".to_string()];
+  for c in &arr {
+    let name = c
+      .get("name")
+      .and_then(serde_json::Value::as_str)
+      .unwrap_or("");
+    let value = c
+      .get("value")
+      .and_then(serde_json::Value::as_str)
+      .unwrap_or("");
+    if name.is_empty() {
+      continue;
+    }
+    let domain = c
+      .get("domain")
+      .and_then(serde_json::Value::as_str)
+      .unwrap_or("");
+    let path = c
+      .get("path")
+      .and_then(serde_json::Value::as_str)
+      .unwrap_or("/");
+    let secure = c
+      .get("secure")
+      .and_then(serde_json::Value::as_bool)
+      .unwrap_or(false);
+    let http_only = c
+      .get("httpOnly")
+      .and_then(serde_json::Value::as_bool)
+      .unwrap_or(false);
+    let mut expires = c
+      .get("expirationDate")
+      .and_then(serde_json::Value::as_i64)
+      .unwrap_or(-1);
+    // 会话 Cookie 在 Netscape 格式里的规范值是 0；-1 会被 yt-dlp 当
+    // "invalid expires" 整条跳过（连 YouTube 的关键登录 Cookie 都丢）。
+    if expires < 0 {
+      expires = 0;
+    }
+    let flag = if domain.starts_with('.') {
+      "TRUE"
+    } else {
+      "FALSE"
+    };
+    let host = if http_only {
+      format!("#HttpOnly_{domain}")
+    } else {
+      domain.to_string()
+    };
+    lines.push(format!(
+      "{host}	{flag}	{path}	{}	{expires}	{name}	{value}",
+      if secure { "TRUE" } else { "FALSE" }
+    ));
+  }
+  std::fs::write(
+    cookie_path,
+    lines.join(
+      "
+",
+    ) + "
+",
+  )
+  .map_err(|e| e.to_string())?;
+  Ok(true)
+}
+
 async fn export_vps_cookies_to_file<R: Runtime>(
   force_refresh: bool,
   dl: &VideoDownloader,
@@ -3049,6 +3136,28 @@ async fn export_vps_cookies_to_file<R: Runtime>(
     None => "youtube",
   };
   let cookie_path = tools_dir().join(format!("cookies_{}.txt", platform_tag));
+
+  // 设置了 Cookie 来源账号 → 直接用服务端该账号的 Cookie，
+  // 不再打开/提取 VPS 登录 profile；账号无 Cookie 时回退老链路。
+  let cookie_account_id = {
+    let inner = dl.inner.lock().await;
+    inner.settings.cookie_account_id
+  };
+  if let Some(aid) = cookie_account_id {
+    match export_account_cookies_to_file(aid, &cookie_path).await {
+      Ok(true) => {
+        dl.set_last_cookie_time(now_secs()).await;
+        log::info!("[video_download] Cookie 来自指定账号 {aid}（{platform_tag}）");
+        return Ok(cookie_path);
+      }
+      Ok(false) => {
+        log::info!("[video_download] 指定账号 {aid} 无 Cookie，回退 VPS 登录提取");
+      }
+      Err(e) => {
+        log::warn!("[video_download] 拉取账号 {aid} Cookie 失败（{e}），回退 VPS 登录提取");
+      }
+    }
+  }
 
   // 获取 yt-dlp 路径与系统浏览器回退开关
   let inner = dl.inner.lock().await;

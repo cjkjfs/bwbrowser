@@ -1646,7 +1646,11 @@
       "accountsBatch": "Batch accounts",
       "accountsBatchTitle": "Batch-select accounts for {{n}} users",
       "selectAllMatches": "Select all matches",
-      "clearMatches": "Clear matches"
+      "clearMatches": "Clear matches",
+      "clearAll": "Clear all bindings",
+      "clearing": "Clearing...",
+      "clearAllConfirm": "Remove this extension from all {{n}} bound users?",
+      "clearAllDone": "Cleared bindings for {{n}} users"
     },
     "copyAssign": {
       "title": "Copy assignment from another extension",

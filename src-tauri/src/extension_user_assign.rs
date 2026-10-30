@@ -189,10 +189,10 @@ pub fn apply_owner_assignments(
   };
   let extension_ids = assigned_extension_ids_for(owner_id, account_id);
   if extension_ids.is_empty() {
-    // 已取消全部绑定：其他机器上跟随本用户自动分组的 profile 要摘掉分组，
-    // 否则它会继续指向本机残留的自动分组、启动时照旧注入。
+    // 本账号无生效绑定：任何 `__user_` 自动分组都要摘掉（包括其他用户
+    // 误写上的残留），否则 profile 会继续指向残留分组、启动时照旧注入。
     if let Some(g) = current_group {
-      if is_user_auto_group(g, owner_id) {
+      if is_auto_group(g) {
         let pm = crate::profile::manager::ProfileManager::instance();
         if let Err(e) = pm.update_profile_extension_group(profile_id, None) {
           crate::bwbrowser_cloud::log_bwbrowser(
@@ -637,10 +637,17 @@ async fn reapply_users_profiles_bulk(
     for profile in &profiles {
       let pid = profile.id.to_string();
       let account_id = name_to_account.get(&profile.name.to_lowercase()).copied();
-      let extension_ids = ext_cache
-        .entry(account_id)
-        .or_insert_with(|| assigned_ids_from_items(&items, *user_id, account_id))
-        .clone();
+      // 注意：account_id 为 None（profile 名字未命中该用户的任何云端账号）
+      // 必须视作"不属于任何绑定"——不能走 assigned_ids_from_items 的 None
+      // 上下文，否则 vps_login 绑定会把分组盖到该用户所有本机 profile 上
+      // （正是"没设置的账号也加载插件"的根因）。
+      let extension_ids = match account_id {
+        Some(aid) => ext_cache
+          .entry(Some(aid))
+          .or_insert_with(|| assigned_ids_from_items(&items, *user_id, Some(aid)))
+          .clone(),
+        None => Vec::new(),
+      };
       if extension_ids.is_empty() {
         if let Some(g) = profile.extension_group_id.as_deref() {
           if is_user_auto_group(g, *user_id) {

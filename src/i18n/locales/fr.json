@@ -1652,7 +1652,11 @@
       "accountsBatch": "Comptes par lot",
       "accountsBatchTitle": "Sélection groupée des comptes de {{n}} utilisateurs",
       "selectAllMatches": "Tout sélectionner",
-      "clearMatches": "Effacer les correspondances"
+      "clearMatches": "Effacer les correspondances",
+      "clearAll": "Effacer toutes les affectations",
+      "clearing": "Effacement...",
+      "clearAllConfirm": "Retirer cette extension des {{n}} utilisateurs affectés ?",
+      "clearAllDone": "Affectations effacées pour {{n}} utilisateurs"
     },
     "copyAssign": {
       "title": "Copier l'affectation depuis une autre extension",

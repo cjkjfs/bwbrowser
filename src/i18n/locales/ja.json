@@ -1646,7 +1646,11 @@
       "accountsBatch": "一括アカウント",
       "accountsBatchTitle": "{{n}} 人のユーザーのアカウントを一括選択",
       "selectAllMatches": "検索結果を全選択",
-      "clearMatches": "検索結果を解除"
+      "clearMatches": "検索結果を解除",
+      "clearAll": "割り当てを全解除",
+      "clearing": "解除中...",
+      "clearAllConfirm": "この拡張機能を{{n}}人のユーザーから解除しますか？",
+      "clearAllDone": "{{n}}人のユーザーの割り当てを解除しました"
     },
     "copyAssign": {
       "title": "別の拡張機能から割り当てをコピー",

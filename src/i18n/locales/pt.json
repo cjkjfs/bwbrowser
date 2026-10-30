@@ -1652,7 +1652,11 @@
       "accountsBatch": "Contas em lote",
       "accountsBatchTitle": "Seleção em lote de contas de {{n}} usuários",
       "selectAllMatches": "Selecionar correspondências",
-      "clearMatches": "Limpar correspondências"
+      "clearMatches": "Limpar correspondências",
+      "clearAll": "Limpar todas as atribuições",
+      "clearing": "Limpando...",
+      "clearAllConfirm": "Remover esta extensão de todos os {{n}} usuários vinculados?",
+      "clearAllDone": "Atribuições limpas para {{n}} usuários"
     },
     "copyAssign": {
       "title": "Copiar atribuição de outra extensão",

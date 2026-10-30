@@ -1646,7 +1646,11 @@
       "accountsBatch": "Chọn tài khoản hàng loạt",
       "accountsBatchTitle": "Chọn hàng loạt tài khoản của {{n}} người dùng",
       "selectAllMatches": "Chọn tất cả kết quả",
-      "clearMatches": "Bỏ kết quả"
+      "clearMatches": "Bỏ kết quả",
+      "clearAll": "Xóa tất cả phân công",
+      "clearing": "Đang xóa...",
+      "clearAllConfirm": "Gỡ tiện ích này khỏi {{n}} người dùng đã gán?",
+      "clearAllDone": "Đã xóa phân công của {{n}} người dùng"
     },
     "copyAssign": {
       "title": "Sao chép phân công từ tiện ích khác",

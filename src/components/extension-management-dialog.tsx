@@ -11,7 +11,7 @@ import {
 } from "@tanstack/react-table";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { confirm as dialogConfirm, open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FaChrome } from "react-icons/fa";
@@ -587,14 +587,35 @@ export function ExtensionManagementDialog({
     async (userId: number, userName: string) => {
       setAssignAcctDialogUser({ id: userId, name: userName });
       setAssignAcctQuery("");
-      setAssignUsersAccountScopes((p) =>
-        p[userId] ? p : { ...p, [userId]: { accounts: [], vpsLogin: false } },
-      );
+      // 打开即预勾选该用户当前已绑定的范围（未绑定过则全不勾）
+      setAssignUsersAccountScopes((p) => {
+        if (p[userId]) return p;
+        const bound = assignUsersAssignments.find(
+          (a) =>
+            a.extension_id === assignUsersExtension?.id && a.user_id === userId,
+        );
+        return {
+          ...p,
+          [userId]: bound
+            ? {
+                accounts: Array.isArray(bound.account_ids)
+                  ? bound.account_ids
+                  : null,
+                vpsLogin: bound.vps_login === true,
+              }
+            : { accounts: [], vpsLogin: false },
+        };
+      });
       if (!assignUsersAcctLists[userId]) {
         void fetchAssignUserAccounts(userId);
       }
     },
-    [assignUsersAcctLists, fetchAssignUserAccounts],
+    [
+      assignUsersAcctLists,
+      assignUsersAssignments,
+      assignUsersExtension,
+      fetchAssignUserAccounts,
+    ],
   );
 
   const setAcctScope = (
@@ -694,6 +715,45 @@ export function ExtensionManagementDialog({
   };
 
   // 复制分配提交：单次后端调用完成复制 + 本地重算 + 公司 KV 同步
+  // 清空该插件对全部用户的绑定（走批量命令，自动清理本地分组并同步云端）
+  const [isClearingBindings, setIsClearingBindings] = useState(false);
+  const handleClearBindings = async () => {
+    const ext = assignUsersExtension;
+    if (!ext) return;
+    const boundUsers = [
+      ...new Set(
+        assignUsersAssignments
+          .filter((a) => a.extension_id === ext.id)
+          .map((a) => a.user_id),
+      ),
+    ];
+    if (boundUsers.length === 0) return;
+    const ok = await dialogConfirm(
+      t("extensions.assignUsers.clearAllConfirm", {
+        n: boundUsers.length,
+      }),
+      { kind: "warning" },
+    );
+    if (!ok) return;
+    setIsClearingBindings(true);
+    try {
+      await invoke("assign_extension_to_users_bulk", {
+        extensionId: ext.id,
+        toAssign: [],
+        toUnassign: boundUsers,
+      });
+      showSuccessToast(
+        t("extensions.assignUsers.clearAllDone", { n: boundUsers.length }),
+      );
+      setAssignUsersTargets([]);
+      setAssignUsersAccountScopes({});
+    } catch (err) {
+      showActionError(err, t("extensions.assignUsers.failed"));
+    } finally {
+      setIsClearingBindings(false);
+    }
+  };
+
   const handleCopyAssign = async () => {
     const target = copyAssignExtension;
     if (!target || !copySourceId) return;
@@ -2314,6 +2374,22 @@ export function ExtensionManagementDialog({
             </div>
           )}
           <DialogFooter>
+            {assignUsersExtension &&
+              assignUsersAssignments.some(
+                (a) => a.extension_id === assignUsersExtension.id,
+              ) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mr-auto text-xs text-destructive hover:bg-destructive/10"
+                  disabled={isClearingBindings || isAssigningUsers}
+                  onClick={() => void handleClearBindings()}
+                >
+                  {isClearingBindings
+                    ? t("extensions.assignUsers.clearing")
+                    : t("extensions.assignUsers.clearAll")}
+                </Button>
+              )}
             <Button variant="outline" onClick={() => closeAssignUsers()}>
               {t("common.buttons.cancel")}
             </Button>
@@ -2360,6 +2436,24 @@ export function ExtensionManagementDialog({
                   })
                 : ""}
             </DialogTitle>
+            {(() => {
+              const uid = assignAcctDialogUser?.id;
+              const bound = assignUsersAssignments.find(
+                (a) =>
+                  a.extension_id === assignUsersExtension?.id &&
+                  a.user_id === uid,
+              );
+              if (!bound) return null;
+              return (
+                <DialogDescription className="text-xs">
+                  {Array.isArray(bound.account_ids)
+                    ? t("extensions.assignUsers.accountsCount", {
+                        n: bound.account_ids.length,
+                      })
+                    : t("extensions.assignUsers.accountsAll")}
+                </DialogDescription>
+              );
+            })()}
           </DialogHeader>
           <div className="flex items-center gap-2 border-b px-4 py-2">
             <LuSearch className="size-3.5 shrink-0 text-muted-foreground" />

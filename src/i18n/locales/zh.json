@@ -1646,7 +1646,11 @@
       "accountsBatch": "批量选账号",
       "accountsBatchTitle": "为 {{n}} 个用户批量选账号",
       "selectAllMatches": "全选筛选结果",
-      "clearMatches": "清空筛选结果"
+      "clearMatches": "清空筛选结果",
+      "clearAll": "清空绑定",
+      "clearing": "清空中...",
+      "clearAllConfirm": "确定清空该插件对 {{n}} 个用户的全部绑定吗？",
+      "clearAllDone": "已清空 {{n}} 个用户的绑定"
     },
     "copyAssign": {
       "title": "从其他插件复制分配",

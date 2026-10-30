@@ -595,6 +595,7 @@ async fn agent_cycle(
     &cfg.uuid,
     &hostname(),
     &os_info,
+    env!("CARGO_PKG_VERSION"),
     &vps::local_ips_json(),
     "",
     cfg.port,

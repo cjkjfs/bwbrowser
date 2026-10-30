@@ -49,6 +49,8 @@ interface RemoteMachine {
   id: number;
   client_uuid: string;
   hostname: string;
+  /** 被控端 BW 版本号（注册时上报，老机器未上报为空） */
+  app_version: string;
   os_info: string;
   note: string;
   local_ips: string[];
@@ -78,6 +80,7 @@ interface RemoteTarget {
 interface MachineRow {
   key: string;
   hostname: string;
+  appVersion: string;
   /** 该机登录的爆文库账号：姓名（账号） */
   account: string;
   os: string;
@@ -246,6 +249,7 @@ export function RemoteManagementPage() {
     const merged: MachineRow[] = machines.map((m) => ({
       key: `cloud-${m.id}`,
       hostname: m.hostname || "",
+      appVersion: m.app_version || "",
       account:
         m.user_real_name && m.user_username
           ? `${m.user_real_name}（${m.user_username}）`
@@ -387,7 +391,14 @@ export function RemoteManagementPage() {
                     {idx + 1}
                   </TableCell>
                   <TableCell className="font-medium">
-                    <div>{row.hostname || "—"}</div>
+                    <div className="flex items-center gap-1.5">
+                      {row.hostname || "—"}
+                      {row.appVersion && (
+                        <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] font-normal text-muted-foreground">
+                          v{row.appVersion.replace(/^v/, "")}
+                        </span>
+                      )}
+                    </div>
                     {row.account && (
                       <button
                         type="button"

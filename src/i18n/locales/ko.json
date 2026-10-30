@@ -1646,7 +1646,11 @@
       "accountsBatch": "일괄 계정",
       "accountsBatchTitle": "{{n}}명 사용자의 계정 일괄 선택",
       "selectAllMatches": "검색 결과 전체 선택",
-      "clearMatches": "검색 결과 해제"
+      "clearMatches": "검색 결과 해제",
+      "clearAll": "모든 할당 해제",
+      "clearing": "해제 중...",
+      "clearAllConfirm": "이 확장 프로그램을 바인딩된 {{n}}명 사용자에게서 해제하시겠습니까?",
+      "clearAllDone": "{{n}}명 사용자의 할당이 해제되었습니다"
     },
     "copyAssign": {
       "title": "다른 확장 프로그램에서 할당 복사",

@@ -173,6 +173,8 @@ pub struct RemoteMachine {
   pub public_ip: String,
   pub connect_host: String,
   pub port: u16,
+  /// 被控端 BW 版本号（注册时上报，老机器未上报为空）
+  pub app_version: String,
   pub status: String,
   /// 该被控端登录的爆文库账号与姓名（`clients` 里 JOIN users 得来，未登录时为空）
   pub user_username: String,
@@ -200,6 +202,7 @@ fn parse_machine(v: &Value) -> RemoteMachine {
     public_ip: as_string(v.get("public_ip")),
     connect_host: as_string(v.get("connect_host")),
     port: as_i64(v.get("port")).clamp(0, 65535) as u16,
+    app_version: as_string(v.get("app_version")),
     status: as_string(v.get("status")),
     user_username: as_string(v.get("user_username")),
     user_real_name: as_string(v.get("user_real_name")),
