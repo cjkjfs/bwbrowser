@@ -226,6 +226,21 @@ pub async fn list_machines(company_id: Option<i64>) -> Result<RemoteMachinesResu
   })
 }
 
+/// 删除公司内的被控端机器（无用/长期不在线的清理）。服务端按
+/// 远程管理权限校验：超管删任意，普通远程管理员限本公司。
+pub async fn delete_machine(client_id: i64) -> Result<u64, String> {
+  let client = http_client()?;
+  let cid = client_id.to_string();
+  let body = authed_call(
+    &client,
+    ApiMethod::Post,
+    "delete_client",
+    &[("client_id", cid.as_str())],
+  )
+  .await?;
+  Ok(body.get("deleted").and_then(Value::as_u64).unwrap_or(0))
+}
+
 /// 连接目标：局域网优先，失败回退中继
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteTarget {

@@ -374,6 +374,7 @@ export const commandCoverage = {
     commands: [
       "bwbrowser_remote_management_machines",
       "bwbrowser_remote_management_target",
+      "bwbrowser_remote_management_delete",
     ],
   },
   remoteFileTransfer: {

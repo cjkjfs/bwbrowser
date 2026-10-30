@@ -659,12 +659,17 @@ impl BrowserRunner {
 
       // Install extensions if an extension group is assigned
       emit_launch_stage(profile, "extensions", None);
-      // 云端账号启动一律不注入扩展（减小注入面，降低平台风控敏感度）；
-      // 本地启动（爆文库按钮、普通 profile 手动启动）照常注入——用户绑定
-      // 的扩展主要就是给爆文库这类本地浏览器用的。
+      // 云端账号启动默认不注入扩展（减小注入面，降低平台风控敏感度）；
+      // 但「分配给用户」的自动分组（__user_ 前缀，管理员显式指派）例外，
+      // 云端账号启动也照常注入，否则账号子集分配永远不生效。
+      // 本地启动（爆文库按钮、普通 profile 手动启动）照常注入。
       let cloud_launch = shield_platform.is_some();
+      let group_is_user_assigned = updated_profile
+        .extension_group_id
+        .as_deref()
+        .is_some_and(crate::extension_user_assign::is_user_auto_group_id);
       let mut extension_paths = Vec::new();
-      if updated_profile.extension_group_id.is_some() && !cloud_launch {
+      if updated_profile.extension_group_id.is_some() && (!cloud_launch || group_is_user_assigned) {
         let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
         match mgr.install_extensions_for_profile(&updated_profile, &profile_data_path) {
           Ok(paths) => {

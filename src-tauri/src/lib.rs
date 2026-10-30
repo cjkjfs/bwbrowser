@@ -2175,6 +2175,12 @@ async fn bwbrowser_remote_management_target(
   remote_agent::control::connect_target(client_id, mode).await
 }
 
+/// 删除公司内被控端机器（远程管理操作列）。
+#[tauri::command]
+async fn bwbrowser_remote_management_delete(client_id: i64) -> Result<u64, String> {
+  remote_agent::control::delete_machine(client_id).await
+}
+
 // --- Remote file transfer (control side) ------------------------------------
 
 /// 解析文件传输目标：云端机器由后端给出局域网/中继 + 连接密码。
@@ -3896,6 +3902,7 @@ pub fn run_with_builder(
       // Remote management (control side)
       bwbrowser_remote_management_machines,
       bwbrowser_remote_management_target,
+      bwbrowser_remote_management_delete,
       // Remote file transfer (control side)
       bwbrowser_remote_files_target,
       bwbrowser_remote_files_list,

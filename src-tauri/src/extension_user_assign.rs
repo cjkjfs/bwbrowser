@@ -107,6 +107,17 @@ fn account_group_name(user_id: i64, account_id: i64) -> String {
   format!("{AUTO_GROUP_PREFIX}{user_id}_acct_{account_id}")
 }
 
+/// 分组 id 是否属于用户自动分组（名字 `__user_` 前缀，含账号限定分组）。
+/// 供启动链路判断：云端账号浏览器只注入管理员显式指派的这类分组。
+pub fn is_user_auto_group_id(group_id: &str) -> bool {
+  crate::extension_manager::EXTENSION_MANAGER
+    .lock()
+    .unwrap()
+    .get_group(group_id)
+    .map(|g| g.name.starts_with(AUTO_GROUP_PREFIX))
+    .unwrap_or(false)
+}
+
 /// 分组名是否属于该用户的自动分组（含账号限定分组）。
 fn is_user_auto_group(group_name: &str, user_id: i64) -> bool {
   group_name == user_group_name(user_id)
