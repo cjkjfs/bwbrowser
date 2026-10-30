@@ -175,6 +175,76 @@ fn urlencode(s: &str) -> String {
   encoded
 }
 
+/// 实际生效的下载代理。proxy_id 为 None 或 "follow" = 跟随模式：选了
+/// Cookie 源账号就用该账号在后台配置的登录节点（tiktok_accounts.proxy_node，
+/// 账号登录与 Cookie 提取同源），未选账号或节点不可用则直连；显式选了
+/// "direct" 或某个本地代理则照旧。
+async fn effective_proxy_url(settings: &DownloadSettings) -> Option<String> {
+  match settings.proxy_id.as_deref() {
+    None | Some("follow") => {
+      if let Some(aid) = settings.cookie_account_id {
+        cookie_account_proxy_url(aid).await
+      } else {
+        None
+      }
+    }
+    _ => build_proxy_url(&settings.proxy_id),
+  }
+}
+
+type ServerProxyCache =
+  tokio::sync::Mutex<std::collections::HashMap<i64, (std::time::Instant, Option<String>)>>;
+
+/// Cookie 源账号的后台节点转 yt-dlp 代理 URL（10 分钟缓存）。
+/// VLESS/Trojan 节点 yt-dlp 不支持，返回 None 回落本地。
+async fn cookie_account_proxy_url(account_id: i64) -> Option<String> {
+  static CACHE: std::sync::OnceLock<ServerProxyCache> = std::sync::OnceLock::new();
+  const TTL: std::time::Duration = std::time::Duration::from_secs(600);
+
+  let cache = CACHE.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()));
+  let mut guard = cache.lock().await;
+  if let Some((at, val)) = guard.get(&account_id) {
+    if at.elapsed() < TTL {
+      return val.clone();
+    }
+  }
+  let detail = crate::bwbrowser_cloud::BWBROWSER_AUTH
+    .get_account_detail(account_id)
+    .await
+    .ok();
+  let val = detail
+    .and_then(|d| d.proxy_node)
+    .as_deref()
+    .and_then(crate::cloud_proxy_manager::parse_proxy_node)
+    .and_then(|ps| {
+      match ps.proxy_type.as_str() {
+        "http" | "https" | "socks5" => {
+          let auth = match (&ps.username, &ps.password) {
+            (Some(u), Some(p)) if !u.is_empty() => {
+              format!("{}:{}@", urlencode(u), urlencode(p))
+            }
+            (Some(u), None) if !u.is_empty() => format!("{}@", urlencode(u)),
+            _ => String::new(),
+          };
+          let scheme = if ps.proxy_type == "socks5" {
+            "socks5"
+          } else {
+            "http"
+          };
+          Some(format!("{}://{}{}:{}", scheme, auth, ps.host, ps.port))
+        }
+        other => {
+          log::info!(
+            "[video_download] Cookie 源账号 {account_id} 的节点为 {other} 协议，yt-dlp 不支持，使用本地代理设置"
+          );
+          None
+        }
+      }
+    });
+  guard.insert(account_id, (std::time::Instant::now(), val.clone()));
+  val
+}
+
 /// 下载管理器
 pub struct VideoDownloader {
   inner: Mutex<DownloaderInner>,
@@ -1339,14 +1409,15 @@ async fn run_single_download<R: Runtime>(
       .unwrap_or_else(|| "%(uploader|Unknown)s_%(title).80B_%(id)s.%(ext)s".to_string()),
   );
 
-  // 代理
-  if let Some(proxy_url) = build_proxy_url(&settings.proxy_id) {
+  // 代理：服务端按用户指派的优先，未指派用本地选择
+  let effective_proxy = effective_proxy_url(settings).await;
+  if let Some(proxy_url) = effective_proxy.clone() {
     args.push("--proxy".to_string());
     args.push(proxy_url);
   }
 
   // 代理信息 + 完整命令 写入日志
-  let proxy_info = match build_proxy_url(&settings.proxy_id) {
+  let proxy_info = match effective_proxy {
     Some(url) => format!("代理: {}\n", url),
     None => "代理: 直连（不使用代理）\n".to_string(),
   };
@@ -2308,8 +2379,8 @@ pub async fn download_audio_for_asr<R: Runtime>(
     common.push(ffmpeg_path.to_string_lossy().to_string());
   }
 
-  // 代理：沿用「视频下载」页的代理设置
-  let proxy = build_proxy_url(&settings.proxy_id);
+  // 代理：沿用「视频下载」页的代理设置（服务端指派优先）
+  let proxy = effective_proxy_url(&settings).await;
   if let Some(ref proxy_url) = proxy {
     common.push("--proxy".to_string());
     common.push(proxy_url.clone());
@@ -2488,7 +2559,7 @@ pub async fn fetch_native_subtitles<R: Runtime>(
       .to_string_lossy()
       .to_string(),
   ];
-  if let Some(proxy_url) = build_proxy_url(&settings.proxy_id) {
+  if let Some(proxy_url) = effective_proxy_url(&settings).await {
     args.push("--proxy".to_string());
     args.push(proxy_url);
   }

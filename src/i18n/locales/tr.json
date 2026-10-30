@@ -1631,7 +1631,30 @@
       "unassignAction": "Atamayı kaldır",
       "saveAction": "Değişiklikleri kaydet",
       "savedChanges": "Değişiklikler kaydedildi",
-      "unassignedNoBrowsers": "Atama kaldırıldı — yeni tarayıcı açılışlarında yüklenmeyecek"
+      "unassignedNoBrowsers": "Atama kaldırıldı — yeni tarayıcı açılışlarında yüklenmeyecek",
+      "pickAccounts": "Hesaplar",
+      "accountsAll": "Tüm hesaplar",
+      "accountsCount": "{{n}} hesap",
+      "accountsLoading": "Hesaplar yükleniyor...",
+      "accountsEmpty": "Bu kullanıcının henüz hesabı yok",
+      "accountsError": "Hesaplar yüklenemedi",
+      "accountsHint": "Bir alt küme seçildiğinde uzantı yalnızca bu hesapların tarayıcılarına uygulanır",
+      "accountsTitle": "{{name}} hesapları",
+      "accountsSearch": "Ara: telefon ID / hesap adı / giriş",
+      "accountsDone": "Tamam",
+      "vpsLogin": "VPS girişi (Baowenku tarayıcısı)",
+      "accountsBatch": "Toplu hesap",
+      "accountsBatchTitle": "{{n}} kullanıcı için toplu hesap seçimi",
+      "selectAllMatches": "Eşleşenleri seç",
+      "clearMatches": "Eşleşenleri kaldır"
+    },
+    "copyAssign": {
+      "title": "Başka bir uzantıdan atamayı kopyala",
+      "sourceLabel": "Kaynak uzantı",
+      "confirm": "Kopyala",
+      "copying": "Kopyalanıyor...",
+      "success": "{{n}} atama kopyalandı",
+      "noSource": "Kaynak uzantının kopyalanacak ataması yok"
     }
   },
   "pro": {
@@ -2409,7 +2432,8 @@
     "aiAgentEmptyConversation": "Sohbet boş. Önce bir soru yazın.",
     "aiAgentProxyFailed": "Yapay zekâ asistanının proxy hattı kullanılamıyor: {{message}}",
     "aiAgentLlmFailed": "Yapay zekâ asistanının model isteği başarısız oldu: {{message}}",
-    "aiAgentProviderUnsupported": "Yapay zekâ asistanı bu model sağlayıcısını desteklemiyor: {{message}}"
+    "aiAgentProviderUnsupported": "Yapay zekâ asistanı bu model sağlayıcısını desteklemiyor: {{message}}",
+    "extensionAssignSameSource": "Kaynak ve hedef uzantı aynı"
   },
   "rail": {
     "cloudAccounts": "Bulut hesapları",

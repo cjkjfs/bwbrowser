@@ -1631,7 +1631,30 @@
       "unassignAction": "取消分配",
       "saveAction": "保存更改",
       "savedChanges": "已保存更改",
-      "unassignedNoBrowsers": "已取消分配 — 之后启动的浏览器不会再安装"
+      "unassignedNoBrowsers": "已取消分配 — 之后启动的浏览器不会再安装",
+      "pickAccounts": "账号",
+      "accountsAll": "全部账号",
+      "accountsCount": "{{n}} 个账号",
+      "accountsLoading": "账号加载中...",
+      "accountsEmpty": "该用户名下暂无账号",
+      "accountsError": "账号加载失败",
+      "accountsHint": "只勾选部分账号时，插件只装到这些账号的浏览器",
+      "accountsTitle": "{{name}} 的账号",
+      "accountsSearch": "快速搜索：手机编号/账号名称/登录账号",
+      "accountsDone": "完成",
+      "vpsLogin": "VPS 登录（爆文库浏览器）",
+      "accountsBatch": "批量选账号",
+      "accountsBatchTitle": "为 {{n}} 个用户批量选账号",
+      "selectAllMatches": "全选筛选结果",
+      "clearMatches": "清空筛选结果"
+    },
+    "copyAssign": {
+      "title": "从其他插件复制分配",
+      "sourceLabel": "源插件",
+      "confirm": "复制",
+      "copying": "复制中...",
+      "success": "已复制 {{n}} 条分配",
+      "noSource": "源插件没有可复制的分配"
     }
   },
   "pro": {
@@ -2409,7 +2432,8 @@
     "aiAgentEmptyConversation": "对话内容为空，请先输入问题。",
     "aiAgentProxyFailed": "AI 助手的代理线路不可用：{{message}}",
     "aiAgentLlmFailed": "AI 助手请求模型失败：{{message}}",
-    "aiAgentProviderUnsupported": "AI 助手不支持该模型提供商：{{message}}"
+    "aiAgentProviderUnsupported": "AI 助手不支持该模型提供商：{{message}}",
+    "extensionAssignSameSource": "源插件和目标插件相同"
   },
   "rail": {
     "cloudAccounts": "云端账号",

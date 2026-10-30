@@ -1643,7 +1643,30 @@
       "unassignAction": "Снять назначение",
       "saveAction": "Сохранить изменения",
       "savedChanges": "Изменения сохранены",
-      "unassignedNoBrowsers": "Назначение снято — в новых запусках расширение не установится"
+      "unassignedNoBrowsers": "Назначение снято — в новых запусках расширение не установится",
+      "pickAccounts": "Аккаунты",
+      "accountsAll": "Все аккаунты",
+      "accountsCount": "{{n}} аккаунтов",
+      "accountsLoading": "Загрузка аккаунтов...",
+      "accountsEmpty": "У этого пользователя пока нет аккаунтов",
+      "accountsError": "Не удалось загрузить аккаунты",
+      "accountsHint": "При выборе части аккаунтов расширение применяется только к их браузерам",
+      "accountsTitle": "Аккаунты: {{name}}",
+      "accountsSearch": "Поиск: ID телефона / имя / логин",
+      "accountsDone": "Готово",
+      "vpsLogin": "Вход VPS (браузер Баовэньку)",
+      "accountsBatch": "Массовый выбор",
+      "accountsBatchTitle": "Массовый выбор аккаунтов для {{n}} польз.",
+      "selectAllMatches": "Выбрать найденные",
+      "clearMatches": "Снять найденные"
+    },
+    "copyAssign": {
+      "title": "Копировать назначение из другого расширения",
+      "sourceLabel": "Исходное расширение",
+      "confirm": "Копировать",
+      "copying": "Копирование...",
+      "success": "Скопировано назначений: {{n}}",
+      "noSource": "У исходного расширения нет назначений для копирования"
     }
   },
   "pro": {
@@ -2429,7 +2452,8 @@
     "aiAgentEmptyConversation": "Разговор пуст. Сначала введите вопрос.",
     "aiAgentProxyFailed": "Прокси-линия ИИ-ассистента недоступна: {{message}}",
     "aiAgentLlmFailed": "Запрос к модели ИИ-ассистента не удался: {{message}}",
-    "aiAgentProviderUnsupported": "ИИ-ассистент не поддерживает этого поставщика моделей: {{message}}"
+    "aiAgentProviderUnsupported": "ИИ-ассистент не поддерживает этого поставщика моделей: {{message}}",
+    "extensionAssignSameSource": "Исходное и целевое расширения совпадают"
   },
   "rail": {
     "cloudAccounts": "Облачные аккаунты",

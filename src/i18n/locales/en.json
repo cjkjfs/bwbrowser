@@ -1631,7 +1631,30 @@
       "unassignAction": "Unassign",
       "saveAction": "Save changes",
       "savedChanges": "Changes saved",
-      "unassignedNoBrowsers": "Unassigned — new browser launches will no longer install it"
+      "unassignedNoBrowsers": "Unassigned — new browser launches will no longer install it",
+      "pickAccounts": "Accounts",
+      "accountsAll": "All accounts",
+      "accountsCount": "{{n}} accounts",
+      "accountsLoading": "Loading accounts...",
+      "accountsEmpty": "This user has no cloud accounts yet",
+      "accountsError": "Failed to load accounts",
+      "accountsHint": "With a subset selected, the extension only applies to those accounts' browsers",
+      "accountsTitle": "Accounts of {{name}}",
+      "accountsSearch": "Search: phone ID / account name / login",
+      "accountsDone": "Done",
+      "vpsLogin": "VPS login (Baowenku browser)",
+      "accountsBatch": "Batch accounts",
+      "accountsBatchTitle": "Batch-select accounts for {{n}} users",
+      "selectAllMatches": "Select all matches",
+      "clearMatches": "Clear matches"
+    },
+    "copyAssign": {
+      "title": "Copy assignment from another extension",
+      "sourceLabel": "Source extension",
+      "confirm": "Copy",
+      "copying": "Copying...",
+      "success": "Copied {{n}} assignments",
+      "noSource": "The source extension has no assignments to copy"
     }
   },
   "pro": {
@@ -2409,7 +2432,8 @@
     "aiAgentEmptyConversation": "The conversation is empty. Type a question first.",
     "aiAgentProxyFailed": "The AI assistant's proxy line is unavailable: {{message}}",
     "aiAgentLlmFailed": "The AI assistant's model request failed: {{message}}",
-    "aiAgentProviderUnsupported": "The AI assistant doesn't support this model provider: {{message}}"
+    "aiAgentProviderUnsupported": "The AI assistant doesn't support this model provider: {{message}}",
+    "extensionAssignSameSource": "Source and target extension are the same"
   },
   "rail": {
     "cloudAccounts": "Cloud Accounts",

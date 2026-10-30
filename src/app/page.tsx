@@ -450,8 +450,6 @@ export default function Home() {
   const [proxyManagementInitialTab, setProxyManagementInitialTab] = useState<
     "proxies" | "vpns"
   >("proxies");
-  const [extensionManagementInitialTab, setExtensionManagementInitialTab] =
-    useState<"extensions" | "groups">("extensions");
   const [integrationsInitialTab, setIntegrationsInitialTab] = useState<
     "api" | "mcp" | "remote"
   >("api");
@@ -823,14 +821,7 @@ export default function Home() {
           break;
         }
         case "goExtensions": {
-          // Mod+E: flip extensions↔groups tab inside the dialog when already there.
-          if (currentPage === "extensions") {
-            setExtensionManagementInitialTab((cur) =>
-              cur === "extensions" ? "groups" : "extensions",
-            );
-          } else {
-            handleRailNavigate("extensions");
-          }
+          handleRailNavigate("extensions");
           break;
         }
         case "goGroups":
@@ -2730,7 +2721,6 @@ export default function Home() {
                     }}
                     limitedMode={false}
                     subPage={currentPage === "extensions"}
-                    initialTab={extensionManagementInitialTab}
                   />
                 )}
 

@@ -1637,7 +1637,30 @@
       "unassignAction": "Remover atribuição",
       "saveAction": "Salvar alterações",
       "savedChanges": "Alterações salvas",
-      "unassignedNoBrowsers": "Atribuição removida — novas aberturas não o instalarão"
+      "unassignedNoBrowsers": "Atribuição removida — novas aberturas não o instalarão",
+      "pickAccounts": "Contas",
+      "accountsAll": "Todas as contas",
+      "accountsCount": "{{n}} contas",
+      "accountsLoading": "Carregando contas...",
+      "accountsEmpty": "Este usuário ainda não tem contas",
+      "accountsError": "Falha ao carregar contas",
+      "accountsHint": "Com um subconjunto selecionado, a extensão se aplica apenas aos navegadores dessas contas",
+      "accountsTitle": "Contas de {{name}}",
+      "accountsSearch": "Pesquisar: ID do telefone / nome / login",
+      "accountsDone": "Concluído",
+      "vpsLogin": "Login VPS (navegador Baowenku)",
+      "accountsBatch": "Contas em lote",
+      "accountsBatchTitle": "Seleção em lote de contas de {{n}} usuários",
+      "selectAllMatches": "Selecionar correspondências",
+      "clearMatches": "Limpar correspondências"
+    },
+    "copyAssign": {
+      "title": "Copiar atribuição de outra extensão",
+      "sourceLabel": "Extensão de origem",
+      "confirm": "Copiar",
+      "copying": "Copiando...",
+      "success": "{{n}} atribuições copiadas",
+      "noSource": "A extensão de origem não tem atribuições para copiar"
     }
   },
   "pro": {
@@ -2419,7 +2442,8 @@
     "aiAgentEmptyConversation": "A conversa está vazia. Digite uma pergunta primeiro.",
     "aiAgentProxyFailed": "A linha de proxy do assistente de IA está indisponível: {{message}}",
     "aiAgentLlmFailed": "A solicitação ao modelo do assistente de IA falhou: {{message}}",
-    "aiAgentProviderUnsupported": "O assistente de IA não é compatível com este fornecedor de modelos: {{message}}"
+    "aiAgentProviderUnsupported": "O assistente de IA não é compatível com este fornecedor de modelos: {{message}}",
+    "extensionAssignSameSource": "A extensão de origem e destino são a mesma"
   },
   "rail": {
     "cloudAccounts": "Contas na nuvem",

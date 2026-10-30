@@ -1029,6 +1029,7 @@ pub async fn bwbrowser_open_vps_login(
   // 不动）。云端账号启动不注入扩展，这里是唯一的插件落点。
   crate::extension_user_assign::apply_owner_assignments(
     BWBROWSER_AUTH.get_user_id(),
+    None,
     &profile.id.to_string(),
     profile.extension_group_id.as_deref(),
   );
@@ -7809,8 +7810,10 @@ async fn launch_account_impl(
   //     分组不动）。取消绑定则不会在这里出现——unassign 已清掉。
   //     先拉一次公司级绑定，让管理员机器新分配的插件在这台机器生效。
   crate::extension_user_assign::pull_company_assignments().await;
+  // 账号上下文：账号限定的扩展绑定只对该账号的浏览器生效
   crate::extension_user_assign::apply_owner_assignments(
     server_owner_id,
+    Some(account_id),
     &profile.id.to_string(),
     profile.extension_group_id.as_deref(),
   );

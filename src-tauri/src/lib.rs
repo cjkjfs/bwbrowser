@@ -3770,6 +3770,8 @@ pub fn run_with_builder(
       get_extension_group_for_profile,
       extension_user_assign::assign_extension_to_user,
       extension_user_assign::unassign_extension_from_user,
+      extension_user_assign::assign_extension_to_users_bulk,
+      extension_user_assign::copy_extension_assignments,
       extension_user_assign::list_extension_user_assignments,
       is_geoip_database_available,
       download_geoip_database,

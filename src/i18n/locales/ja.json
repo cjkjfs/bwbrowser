@@ -1631,7 +1631,30 @@
       "unassignAction": "割り当て解除",
       "saveAction": "変更を保存",
       "savedChanges": "変更を保存しました",
-      "unassignedNoBrowsers": "割り当てを解除しました — 今後起動するブラウザにはインストールされません"
+      "unassignedNoBrowsers": "割り当てを解除しました — 今後起動するブラウザにはインストールされません",
+      "pickAccounts": "アカウント",
+      "accountsAll": "すべてのアカウント",
+      "accountsCount": "{{n}} 件のアカウント",
+      "accountsLoading": "アカウントを読み込み中...",
+      "accountsEmpty": "このユーザーのアカウントはまだありません",
+      "accountsError": "アカウントの読み込みに失敗しました",
+      "accountsHint": "一部のアカウントを選択すると、そのアカウントのブラウザにのみ拡張機能が適用されます",
+      "accountsTitle": "{{name}} のアカウント",
+      "accountsSearch": "検索：電話ID / アカウント名 / ログイン",
+      "accountsDone": "完了",
+      "vpsLogin": "VPS ログイン（爆文库ブラウザ）",
+      "accountsBatch": "一括アカウント",
+      "accountsBatchTitle": "{{n}} 人のユーザーのアカウントを一括選択",
+      "selectAllMatches": "検索結果を全選択",
+      "clearMatches": "検索結果を解除"
+    },
+    "copyAssign": {
+      "title": "別の拡張機能から割り当てをコピー",
+      "sourceLabel": "コピー元の拡張機能",
+      "confirm": "コピー",
+      "copying": "コピー中...",
+      "success": "{{n}} 件の割り当てをコピーしました",
+      "noSource": "コピー元に割り当てがありません"
     }
   },
   "pro": {
@@ -2409,7 +2432,8 @@
     "aiAgentEmptyConversation": "会話が空です。先に質問を入力してください。",
     "aiAgentProxyFailed": "AI アシスタントのプロキシ回線が利用できません：{{message}}",
     "aiAgentLlmFailed": "AI アシスタントのモデルリクエストに失敗しました：{{message}}",
-    "aiAgentProviderUnsupported": "AI アシスタントはこのモデルプロバイダーに対応していません：{{message}}"
+    "aiAgentProviderUnsupported": "AI アシスタントはこのモデルプロバイダーに対応していません：{{message}}",
+    "extensionAssignSameSource": "コピー元とコピー先の拡張機能が同じです"
   },
   "rail": {
     "cloudAccounts": "クラウドアカウント",

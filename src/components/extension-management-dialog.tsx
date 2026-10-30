@@ -15,17 +15,17 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FaChrome } from "react-icons/fa";
-import { GoPlus } from "react-icons/go";
 import {
   LuChevronDown,
   LuChevronUp,
+  LuCopy,
   LuExternalLink,
   LuFolderOpen,
   LuGlobe,
   LuLink,
   LuPencil,
   LuPuzzle,
-  LuRefreshCw,
+  LuSearch,
   LuTrash2,
   LuUpload,
   LuUsers,
@@ -37,14 +37,12 @@ import {
   DataTableActionBarSelection,
 } from "@/components/data-table-action-bar";
 import { ProfileUsageButton } from "@/components/profile-usage-button";
-import { AnimatedSwitch } from "@/components/ui/animated-switch";
 import {
   AnimatedTabs,
   AnimatedTabsContent,
   AnimatedTabsList,
   AnimatedTabsTrigger,
 } from "@/components/ui/animated-tabs";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -107,7 +105,7 @@ function pathBaseName(path: string): string {
   return segments[segments.length - 1] ?? path;
 }
 
-function getSyncStatusDot(
+function _getSyncStatusDot(
   item: { sync_enabled?: boolean; last_sync?: number },
   liveStatus: SyncStatus | undefined,
   t: (key: string, options?: Record<string, unknown>) => string,
@@ -192,13 +190,15 @@ export function ExtensionManagementDialog({
   } | null>(null);
 
   // Group state
-  const [showCreateGroup, setShowCreateGroup] = useState(false);
-  const [newGroupName, setNewGroupName] = useState("");
-  const [editingGroup, setEditingGroup] = useState<ExtensionGroup | null>(null);
-  const [editGroupName, setEditGroupName] = useState("");
-  const [editGroupExtensionIds, setEditGroupExtensionIds] = useState<string[]>(
-    [],
+  const [_showCreateGroup, _setShowCreateGroup] = useState(false);
+  const [_newGroupName, _setNewGroupName] = useState("");
+  const [_editingGroup, _setEditingGroup] = useState<ExtensionGroup | null>(
+    null,
   );
+  const [_editGroupName, _setEditGroupName] = useState("");
+  const [_editGroupExtensionIds, _setEditGroupExtensionIds] = useState<
+    string[]
+  >([]);
 
   // Delete state
   const [extensionToDelete, setExtensionToDelete] = useState<Extension | null>(
@@ -232,12 +232,62 @@ export function ExtensionManagementDialog({
     Record<number, string[]>
   >({});
   const [assignUsersAssignments, setAssignUsersAssignments] = useState<
-    { extension_id: string; user_id: number }[]
+    {
+      extension_id: string;
+      user_id: number;
+      account_ids?: number[] | null;
+      vps_login?: boolean | null;
+    }[]
   >([]);
+  // 每个云端用户的账号范围：accounts null = 全部账号（旧行为），数组 = 勾选的账号 id
+  //（可为空数组 = 不装到任何账号）；vpsLogin = 同时作用于 VPS 登录（爆文库）
+  const [assignUsersAccountScopes, setAssignUsersAccountScopes] = useState<
+    Record<number, { accounts: number[] | null; vpsLogin: boolean }>
+  >({});
+  // 展开的账号选择面板 + 账号列表缓存（懒加载，含 VPS 未启动账号）
+  const [assignAcctDialogUser, setAssignAcctDialogUser] = useState<{
+    id: number;
+    name: string;
+  } | null>(null);
+  const [assignAcctQuery, setAssignAcctQuery] = useState("");
+  const [assignUsersAcctLists, setAssignUsersAcctLists] = useState<
+    Record<number, "loading" | "error" | { id: number; label: string }[]>
+  >({});
   const [isAssigningUsers, setIsAssigningUsers] = useState(false);
+  // 复制分配：把源插件的用户/账号范围绑定整份复制到目标插件（覆盖目标现有绑定）
+  const [copyAssignExtension, setCopyAssignExtension] =
+    useState<Extension | null>(null);
+  const [copySourceId, setCopySourceId] = useState<string>("");
+  const [copySourceCounts, setCopySourceCounts] = useState<
+    Record<string, number>
+  >({});
+  const [isCopyingAssign, setIsCopyingAssign] = useState(false);
+  // 打开复制弹窗时拉一次全量绑定，统计每个插件可复制的分配数
+  useEffect(() => {
+    if (!copyAssignExtension) return;
+    let active = true;
+    invoke<{ extension_id: string; user_id: number }[]>(
+      "list_extension_user_assignments",
+    )
+      .then((items) => {
+        if (!active) return;
+        const counts: Record<string, number> = {};
+        for (const a of items ?? []) {
+          counts[a.extension_id] = (counts[a.extension_id] ?? 0) + 1;
+        }
+        setCopySourceCounts(counts);
+      })
+      .catch(() => {
+        if (active) setCopySourceCounts({});
+      });
+    return () => {
+      active = false;
+    };
+  }, [copyAssignExtension]);
   const closeAssignUsers = () => {
     setAssignUsersGroup(null);
     setAssignUsersExtension(null);
+    setAssignAcctDialogUser(null);
   };
   const assignUsersSourceName =
     assignUsersGroup?.name ?? assignUsersExtension?.name ?? "";
@@ -245,7 +295,7 @@ export function ExtensionManagementDialog({
   // Table state
   const [extSorting, setExtSorting] = useState<SortingState>([]);
   const [extRowSelection, setExtRowSelection] = useState<RowSelectionState>({});
-  const [groupSorting, setGroupSorting] = useState<SortingState>([]);
+  const [_groupSorting, _setGroupSorting] = useState<SortingState>([]);
   const [groupRowSelection, setGroupRowSelection] = useState<RowSelectionState>(
     {},
   );
@@ -267,13 +317,13 @@ export function ExtensionManagementDialog({
   );
 
   // Sync state
-  const [extSyncStatus, setExtSyncStatus] = useState<
+  const [_extSyncStatus, setExtSyncStatus] = useState<
     Record<string, SyncStatus>
   >({});
-  const [isTogglingExtSync, setIsTogglingExtSync] = useState<
+  const [_isTogglingExtSync, _setIsTogglingExtSync] = useState<
     Record<string, boolean>
   >({});
-  const [isTogglingGroupSync, setIsTogglingGroupSync] = useState<
+  const [_isTogglingGroupSync, _setIsTogglingGroupSync] = useState<
     Record<string, boolean>
   >({});
 
@@ -423,25 +473,260 @@ export function ExtensionManagementDialog({
   ]);
 
   // 勾选态与已绑定态的差异：勾选新增的待绑定，取消勾选的待解绑。
+  // 范围（account_ids / vps_login）也算差异：已绑定但改了范围要重新提交。
   // 提交按钮的可用性与文案都以它为准（全部取消勾选也要能提交解绑）。
   const assignUsersDiff = useMemo(() => {
     const ext = assignUsersExtension;
-    if (!ext) return { toAssign: [] as number[], toUnassign: [] as number[] };
-    const desired = new Set(
+    if (!ext)
+      return {
+        toAssign: [] as {
+          userId: number;
+          accountIds: number[] | null;
+          vpsLogin: boolean;
+        }[],
+        toUnassign: [] as number[],
+      };
+    const desired = new Map<
+      number,
+      { accounts: number[] | null; vps: boolean }
+    >();
+    for (const key of assignUsersTargets) {
+      if (!key.startsWith("cloud:")) continue;
+      const uid = Number(key.slice("cloud:".length));
+      const s = assignUsersAccountScopes[uid];
+      desired.set(uid, {
+        accounts: s ? s.accounts : null,
+        vps: s ? s.vpsLogin === true : false,
+      });
+    }
+    const current = new Map<
+      number,
+      { accounts: number[] | null; vps: boolean }
+    >();
+    for (const a of assignUsersAssignments) {
+      if (a.extension_id !== ext.id) continue;
+      current.set(a.user_id, {
+        accounts: Array.isArray(a.account_ids) ? a.account_ids : null,
+        vps: a.vps_login === true,
+      });
+    }
+    const toAssign: {
+      userId: number;
+      accountIds: number[] | null;
+      vpsLogin: boolean;
+    }[] = [];
+    const toUnassign: number[] = [];
+    for (const [uid, scope] of desired) {
+      const cur = current.get(uid);
+      if (cur === undefined || JSON.stringify(cur) !== JSON.stringify(scope)) {
+        toAssign.push({
+          userId: uid,
+          accountIds: scope.accounts,
+          vpsLogin: scope.vps,
+        });
+      }
+    }
+    for (const uid of current.keys()) {
+      if (!desired.has(uid)) toUnassign.push(uid);
+    }
+    return { toAssign, toUnassign };
+  }, [
+    assignUsersAssignments,
+    assignUsersExtension,
+    assignUsersTargets,
+    assignUsersAccountScopes,
+  ]);
+
+  // 拉取单个用户的云端账号列表（翻页拉全），写入缓存
+  const fetchAssignUserAccounts = useCallback(async (userId: number) => {
+    setAssignUsersAcctLists((p) => ({ ...p, [userId]: "loading" }));
+    try {
+      const all: { id: number; label: string }[] = [];
+      for (let pg = 1; ; pg++) {
+        const result = await invoke<{
+          accounts: {
+            id: number;
+            account_name: string;
+            login_account?: string | null;
+            phone_id?: string | null;
+          }[];
+          total?: number;
+        }>("bwbrowser_list_accounts", {
+          page: pg,
+          pageSize: 200,
+          platform: null,
+          keyword: null,
+          ownerId: userId,
+          companyId: null,
+          sortBy: null,
+          sortOrder: null,
+        });
+        for (const a of result.accounts ?? []) {
+          const base = a.phone_id || a.account_name || `#${a.id}`;
+          all.push({
+            id: a.id,
+            label: a.login_account ? `${base} (${a.login_account})` : base,
+          });
+        }
+        if (
+          (result.accounts?.length ?? 0) < 200 ||
+          (result.total != null && all.length >= result.total)
+        ) {
+          break;
+        }
+      }
+      setAssignUsersAcctLists((p) => ({ ...p, [userId]: all }));
+    } catch {
+      setAssignUsersAcctLists((p) => ({ ...p, [userId]: "error" }));
+    }
+  }, []);
+
+  // 打开账号选择弹窗（懒拉云端账号列表，翻页拉全）。
+  // 默认一个都不勾（accounts=[] 且不含爆文库），由使用者显式选择。
+  const openAssignAcctDialog = useCallback(
+    async (userId: number, userName: string) => {
+      setAssignAcctDialogUser({ id: userId, name: userName });
+      setAssignAcctQuery("");
+      setAssignUsersAccountScopes((p) =>
+        p[userId] ? p : { ...p, [userId]: { accounts: [], vpsLogin: false } },
+      );
+      if (!assignUsersAcctLists[userId]) {
+        void fetchAssignUserAccounts(userId);
+      }
+    },
+    [assignUsersAcctLists, fetchAssignUserAccounts],
+  );
+
+  const setAcctScope = (
+    userId: number,
+    scope: { accounts: number[] | null; vpsLogin: boolean },
+  ) => {
+    setAssignUsersAccountScopes((p) => ({ ...p, [userId]: scope }));
+  };
+
+  // ==================== 批量选账号（多个已勾选用户一次筛选） ====================
+  const [batchAcctOpen, setBatchAcctOpen] = useState(false);
+  const [batchQuery, setBatchQuery] = useState("");
+  const batchUserIds = useMemo(
+    () =>
       assignUsersTargets
-        .filter((key) => key.startsWith("cloud:"))
-        .map((key) => Number(key.slice("cloud:".length))),
+        .filter((k) => k.startsWith("cloud:"))
+        .map((k) => Number(k.slice("cloud:".length))),
+    [assignUsersTargets],
+  );
+
+  const openBatchAcctDialog = useCallback(() => {
+    setBatchAcctOpen(true);
+    setBatchQuery("");
+    for (const uid of batchUserIds) {
+      if (!assignUsersAcctLists[uid]) void fetchAssignUserAccounts(uid);
+    }
+  }, [batchUserIds, assignUsersAcctLists, fetchAssignUserAccounts]);
+
+  // 批量 VPS 登录：勾选 = 所有已选用户都启用爆文库注入，取消 = 全部关闭
+  const batchVpsChecked =
+    batchUserIds.length > 0 &&
+    batchUserIds.every(
+      (uid) => assignUsersAccountScopes[uid]?.vpsLogin === true,
     );
-    const current = new Set(
-      assignUsersAssignments
-        .filter((a) => a.extension_id === ext.id)
-        .map((a) => a.user_id),
-    );
-    return {
-      toAssign: [...desired].filter((id) => !current.has(id)),
-      toUnassign: [...current].filter((id) => !desired.has(id)),
-    };
-  }, [assignUsersAssignments, assignUsersExtension, assignUsersTargets]);
+  const setBatchVps = (v: boolean) => {
+    setAssignUsersAccountScopes((p) => {
+      const next = { ...p };
+      for (const uid of batchUserIds) {
+        const cur = next[uid];
+        next[uid] = {
+          // 没开过账号选择弹窗的用户保持「全部账号」语义，勾 VPS 只加标记
+          accounts: cur ? cur.accounts : null,
+          vpsLogin: v,
+        };
+      }
+      return next;
+    });
+  };
+
+  // 全选筛选结果：把每个用户匹配到的账号并入其范围（不覆盖已勾的其他账号）
+  const selectAllBatchMatches = () => {
+    const q = batchQuery.trim().toLowerCase();
+    setAssignUsersAccountScopes((p) => {
+      const next = { ...p };
+      for (const uid of batchUserIds) {
+        const list = assignUsersAcctLists[uid];
+        if (!list || list === "loading" || list === "error") continue;
+        const matches = q
+          ? list.filter((a) => a.label.toLowerCase().includes(q))
+          : list;
+        if (matches.length === 0) continue;
+        const cur = next[uid] ?? { accounts: [], vpsLogin: false };
+        const curList = Array.isArray(cur.accounts) ? cur.accounts : [];
+        const merged = Array.from(
+          new Set([...curList, ...matches.map((m) => m.id)]),
+        );
+        next[uid] = {
+          accounts: merged.length === list.length ? null : merged,
+          vpsLogin: cur.vpsLogin,
+        };
+      }
+      return next;
+    });
+  };
+
+  // 清空筛选结果：从每个用户的范围里移除匹配到的账号
+  const clearBatchMatches = () => {
+    const q = batchQuery.trim().toLowerCase();
+    setAssignUsersAccountScopes((p) => {
+      const next = { ...p };
+      for (const uid of batchUserIds) {
+        const list = assignUsersAcctLists[uid];
+        if (!list || list === "loading" || list === "error") continue;
+        const matches = q
+          ? list.filter((a) => a.label.toLowerCase().includes(q))
+          : list;
+        if (matches.length === 0) continue;
+        const cur = next[uid];
+        const curList = Array.isArray(cur?.accounts) ? cur.accounts : [];
+        next[uid] = {
+          accounts: curList.filter((id) => !matches.some((m) => m.id === id)),
+          vpsLogin: cur ? cur.vpsLogin : false,
+        };
+      }
+      return next;
+    });
+  };
+
+  // 复制分配提交：单次后端调用完成复制 + 本地重算 + 公司 KV 同步
+  const handleCopyAssign = async () => {
+    const target = copyAssignExtension;
+    if (!target || !copySourceId) return;
+    setIsCopyingAssign(true);
+    try {
+      const result = await invoke<{ copied: number; assigned: number }>(
+        "copy_extension_assignments",
+        { fromExtensionId: copySourceId, toExtensionId: target.id },
+      );
+      if (result.copied === 0) {
+        showSuccessToast(t("extensions.copyAssign.noSource"));
+      } else {
+        showSuccessToast(
+          t("extensions.copyAssign.success", { n: result.copied }),
+        );
+      }
+      setCopyAssignExtension(null);
+    } catch (err) {
+      showActionError(err, t("extensions.assignUsers.failed"));
+    } finally {
+      setIsCopyingAssign(false);
+    }
+  };
+
+  // 账号选择弹窗的搜索过滤（手机编号/账号名称/登录账号）
+  const assignAcctMatches = useMemo(() => {
+    const uid = assignAcctDialogUser?.id;
+    const acct = uid === undefined ? [] : assignUsersAcctLists[uid];
+    if (!acct || acct === "loading" || acct === "error") return [];
+    const q = assignAcctQuery.trim().toLowerCase();
+    if (!q) return acct;
+    return acct.filter((a) => a.label.toLowerCase().includes(q));
+  }, [assignAcctDialogUser, assignUsersAcctLists, assignAcctQuery]);
 
   useEffect(() => {
     if (!assignUsersGroup && !assignUsersExtension) return;
@@ -485,9 +770,14 @@ export function ExtensionManagementDialog({
       .catch(() => {
         if (active) setAssignUsersOwnerProfiles({});
       });
-    invoke<{ extension_id: string; user_id: number }[]>(
-      "list_extension_user_assignments",
-    )
+    invoke<
+      {
+        extension_id: string;
+        user_id: number;
+        account_ids?: number[] | null;
+        vps_login?: boolean | null;
+      }[]
+    >("list_extension_user_assignments")
       .then((items) => {
         if (!active) return;
         setAssignUsersAssignments(items ?? []);
@@ -522,32 +812,35 @@ export function ExtensionManagementDialog({
       // 用户绑定模式：勾选 = 绑定到该云端用户（长期生效，名下浏览器自动装，
       // 取消勾选 = 自动卸载）。浏览器解析在后端按云端归属完成。
       const ext = assignUsersExtension;
-      const { toAssign, toUnassign } = assignUsersDiff;
-      if (toAssign.length === 0 && toUnassign.length === 0) {
+      if (
+        assignUsersDiff.toAssign.length === 0 &&
+        assignUsersDiff.toUnassign.length === 0
+      ) {
         showSuccessToast(t("extensions.assignUsers.nothingAssigned"));
         return;
       }
       setIsAssigningUsers(true);
       try {
-        let assigned = 0;
-        let skipped = 0;
-        let removed = 0;
-        for (const userId of toAssign) {
-          const result = await invoke<{ assigned: number; skipped: number }>(
-            "assign_extension_to_user",
-            { extensionId: ext.id, userId },
-          );
-          assigned += result.assigned;
-          skipped += result.skipped;
-        }
-        for (const userId of toUnassign) {
-          const result = await invoke<{ removed: number }>(
-            "unassign_extension_from_user",
-            { extensionId: ext.id, userId },
-          );
-          removed += result.removed;
-        }
-        if (toAssign.length > 0 && toUnassign.length > 0) {
+        // 单次批量调用：后端一次拉全云端账号、逐用户本地重算、只同步一次
+        // 公司 KV，避免逐用户串行 invoke 的多次网络往返把界面卡死
+        const result = await invoke<{
+          assigned: number;
+          skipped: number;
+          removed: number;
+        }>("assign_extension_to_users_bulk", {
+          extensionId: ext.id,
+          toAssign: assignUsersDiff.toAssign.map((t) => ({
+            userId: t.userId,
+            accountIds: t.accountIds,
+            vpsLogin: t.vpsLogin,
+          })),
+          toUnassign: assignUsersDiff.toUnassign,
+        });
+        const { assigned, skipped, removed } = result;
+        if (
+          assignUsersDiff.toAssign.length > 0 &&
+          assignUsersDiff.toUnassign.length > 0
+        ) {
           showSuccessToast(t("extensions.assignUsers.savedChanges"));
         } else if (assigned > 0) {
           showSuccessToast(
@@ -558,7 +851,7 @@ export function ExtensionManagementDialog({
                 })
               : t("extensions.assignUsers.success", { count: assigned }),
           );
-        } else if (toUnassign.length > 0) {
+        } else if (assignUsersDiff.toUnassign.length > 0) {
           // removed 是本机已清掉的浏览器数；用户还没在任何机器上启动浏览器时
           // 为 0，但绑定记录确实已取消，不能回落到「已绑定」的提示。
           showSuccessToast(
@@ -645,89 +938,6 @@ export function ExtensionManagementDialog({
     setEditLinkFolder(false);
   }, []);
 
-  const handleToggleExtSync = useCallback(
-    async (ext: Extension) => {
-      setIsTogglingExtSync((prev) => ({ ...prev, [ext.id]: true }));
-      try {
-        await invoke("set_extension_sync_enabled", {
-          extensionId: ext.id,
-          enabled: !ext.sync_enabled,
-        });
-        showSuccessToast(
-          ext.sync_enabled
-            ? t("extensions.syncDisabled")
-            : t("extensions.syncEnabled"),
-        );
-        void loadData();
-      } catch (err) {
-        showActionError(err, t("proxies.management.updateSyncFailed"));
-      } finally {
-        setIsTogglingExtSync((prev) => ({ ...prev, [ext.id]: false }));
-      }
-    },
-    [loadData, showActionError, t],
-  );
-
-  const handleToggleGroupSync = useCallback(
-    async (group: ExtensionGroup) => {
-      setIsTogglingGroupSync((prev) => ({ ...prev, [group.id]: true }));
-      try {
-        await invoke("set_extension_group_sync_enabled", {
-          extensionGroupId: group.id,
-          enabled: !group.sync_enabled,
-        });
-        showSuccessToast(
-          group.sync_enabled
-            ? t("extensions.syncDisabled")
-            : t("extensions.syncEnabled"),
-        );
-        void loadData();
-      } catch (err) {
-        showActionError(err, t("proxies.management.updateSyncFailed"));
-      } finally {
-        setIsTogglingGroupSync((prev) => ({ ...prev, [group.id]: false }));
-      }
-    },
-    [loadData, showActionError, t],
-  );
-
-  const handleUpdateExtension = useCallback(async () => {
-    if (!editingExtension || !editExtensionName.trim()) return;
-    try {
-      if (pendingUpdateSource?.kind === "folder") {
-        await invoke("update_extension_from_path", {
-          extensionId: editingExtension.id,
-          name: editExtensionName.trim(),
-          path: pendingUpdateSource.path,
-          link: editLinkFolder,
-        });
-      } else {
-        await invoke("update_extension", {
-          extensionId: editingExtension.id,
-          name: editExtensionName.trim(),
-          fileName: pendingUpdateSource?.fileName ?? null,
-          fileData: pendingUpdateSource?.data ?? null,
-        });
-      }
-      showSuccessToast(t("extensions.updateSuccess"));
-      closeEditExtension();
-      void loadData();
-    } catch (err) {
-      showActionError(err, t("extensions.updateFailed"));
-    }
-  }, [
-    editingExtension,
-    editExtensionName,
-    pendingUpdateSource,
-    editLinkFolder,
-    closeEditExtension,
-    loadData,
-    showActionError,
-    t,
-  ]);
-
-  /** Reads a picked archive into memory, shared by the import and the replace
-   * flows. Resolves to null when the file is rejected or unreadable. */
   const readArchiveFile = useCallback(
     (file: File): Promise<PendingSource | null> => {
       const isValid = ARCHIVE_EXTENSIONS.some((ext) =>
@@ -908,69 +1118,6 @@ export function ExtensionManagementDialog({
     }
   }, [extensionToDelete, loadData, showActionError, t]);
 
-  const handleCreateGroup = useCallback(async () => {
-    if (!newGroupName.trim()) return;
-    try {
-      await invoke("create_extension_group", { name: newGroupName.trim() });
-      showSuccessToast(t("extensions.groupCreateSuccess"));
-      setShowCreateGroup(false);
-      setNewGroupName("");
-      void loadData();
-    } catch (err) {
-      showActionError(err, t("extensions.groupCreateFailed"));
-    }
-  }, [newGroupName, loadData, showActionError, t]);
-
-  const handleSaveGroupEdits = useCallback(async () => {
-    if (!editingGroup || !editGroupName.trim()) return;
-    try {
-      // Update group name
-      await invoke("update_extension_group", {
-        groupId: editingGroup.id,
-        name: editGroupName.trim(),
-      });
-
-      // Compute diff of extensions
-      const originalIds = new Set(editingGroup.extension_ids);
-      const newIds = new Set(editGroupExtensionIds);
-
-      // Add new extensions
-      for (const extId of editGroupExtensionIds) {
-        if (!originalIds.has(extId)) {
-          await invoke("add_extension_to_group", {
-            groupId: editingGroup.id,
-            extensionId: extId,
-          });
-        }
-      }
-
-      // Remove removed extensions
-      for (const extId of editingGroup.extension_ids) {
-        if (!newIds.has(extId)) {
-          await invoke("remove_extension_from_group", {
-            groupId: editingGroup.id,
-            extensionId: extId,
-          });
-        }
-      }
-
-      showSuccessToast(t("extensions.groupUpdateSuccess"));
-      setEditingGroup(null);
-      setEditGroupName("");
-      setEditGroupExtensionIds([]);
-      void loadData();
-    } catch (err) {
-      showActionError(err, t("extensions.groupUpdateFailed"));
-    }
-  }, [
-    editingGroup,
-    editGroupName,
-    editGroupExtensionIds,
-    loadData,
-    showActionError,
-    t,
-  ]);
-
   const handleDeleteGroup = useCallback(async () => {
     if (!groupToDelete) return;
     setIsDeleting(true);
@@ -1034,75 +1181,6 @@ export function ExtensionManagementDialog({
     } finally {
       setIsDeleting(false);
     }
-  }, [selectedGroups, loadData, showActionError, t]);
-
-  const handleBulkToggleExtSync = useCallback(async () => {
-    if (selectedExtensions.length === 0) return;
-    const allOn = selectedExtensions.every((e) => e.sync_enabled);
-    const targetEnabled = !allOn;
-    // A linked extension has no payload to upload, so enabling sync on one is
-    // refused by the backend. Skip them instead of failing the whole batch.
-    const targets = targetEnabled
-      ? selectedExtensions.filter((ext) => !ext.linked_path)
-      : selectedExtensions;
-    if (targets.length === 0) {
-      showErrorToast(t("extensions.linkedNoSync"));
-      return;
-    }
-    const results = await Promise.allSettled(
-      targets.map((ext) =>
-        invoke("set_extension_sync_enabled", {
-          extensionId: ext.id,
-          enabled: targetEnabled,
-        }),
-      ),
-    );
-    const firstRejection = results.find((r) => r.status === "rejected") as
-      | PromiseRejectedResult
-      | undefined;
-    if (firstRejection) {
-      showActionError(
-        firstRejection.reason,
-        t("proxies.management.updateSyncFailed"),
-      );
-    } else {
-      showSuccessToast(
-        targetEnabled
-          ? t("extensions.syncEnabled")
-          : t("extensions.syncDisabled"),
-      );
-    }
-    void loadData();
-  }, [selectedExtensions, loadData, showActionError, t]);
-
-  const handleBulkToggleGroupSync = useCallback(async () => {
-    if (selectedGroups.length === 0) return;
-    const allOn = selectedGroups.every((g) => g.sync_enabled);
-    const targetEnabled = !allOn;
-    const results = await Promise.allSettled(
-      selectedGroups.map((group) =>
-        invoke("set_extension_group_sync_enabled", {
-          extensionGroupId: group.id,
-          enabled: targetEnabled,
-        }),
-      ),
-    );
-    const firstRejection = results.find((r) => r.status === "rejected") as
-      | PromiseRejectedResult
-      | undefined;
-    if (firstRejection) {
-      showActionError(
-        firstRejection.reason,
-        t("proxies.management.updateSyncFailed"),
-      );
-    } else {
-      showSuccessToast(
-        targetEnabled
-          ? t("extensions.syncEnabled")
-          : t("extensions.syncDisabled"),
-      );
-    }
-    void loadData();
   }, [selectedGroups, loadData, showActionError, t]);
 
   const renderCompatIcons = useCallback(
@@ -1183,7 +1261,42 @@ export function ExtensionManagementDialog({
     [t],
   );
 
-  const MAX_VISIBLE_ICONS = 3;
+  const _MAX_VISIBLE_ICONS = 3;
+
+  const handleUpdateExtension = useCallback(async () => {
+    if (!editingExtension || !editExtensionName.trim()) return;
+    try {
+      if (pendingUpdateSource?.kind === "folder") {
+        await invoke("update_extension_from_path", {
+          extensionId: editingExtension.id,
+          name: editExtensionName.trim(),
+          path: pendingUpdateSource.path,
+          link: editLinkFolder,
+        });
+      } else {
+        await invoke("update_extension", {
+          extensionId: editingExtension.id,
+          name: editExtensionName.trim(),
+          fileName: pendingUpdateSource?.fileName ?? null,
+          fileData: pendingUpdateSource?.data ?? null,
+        });
+      }
+      showSuccessToast(t("extensions.updateSuccess"));
+      closeEditExtension();
+      void loadData();
+    } catch (err) {
+      showActionError(err, t("extensions.updateFailed"));
+    }
+  }, [
+    editingExtension,
+    editExtensionName,
+    pendingUpdateSource,
+    editLinkFolder,
+    closeEditExtension,
+    loadData,
+    showActionError,
+    t,
+  ]);
 
   const extensionColumns = useMemo<ColumnDef<Extension>[]>(
     () => [
@@ -1301,53 +1414,6 @@ export function ExtensionManagementDialog({
         ),
       },
       {
-        id: "sync",
-        size: 88,
-        enableSorting: false,
-        header: () => t("proxies.management.syncCol"),
-        cell: ({ row }) => {
-          const ext = row.original;
-          const syncDot = getSyncStatusDot(ext, extSyncStatus[ext.id], t);
-          const isLinked = Boolean(ext.linked_path);
-          return (
-            <div className="flex shrink-0 items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div
-                    className={`size-2 rounded-full shrink-0 ${syncDot.color} ${
-                      syncDot.animate ? "animate-pulse" : ""
-                    }`}
-                  />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{syncDot.tooltip}</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex shrink-0 items-center">
-                    <AnimatedSwitch
-                      checked={ext.sync_enabled}
-                      onCheckedChange={() => void handleToggleExtSync(ext)}
-                      disabled={isLinked || isTogglingExtSync[ext.id]}
-                    />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>
-                    {isLinked
-                      ? t("extensions.linkedNoSync")
-                      : ext.sync_enabled
-                        ? t("syncTooltips.disable")
-                        : t("syncTooltips.enable")}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          );
-        },
-      },
-      {
         id: "actions",
         size: 104,
         enableSorting: false,
@@ -1417,9 +1483,6 @@ export function ExtensionManagementDialog({
       referencedProfiles,
       referencesFailed,
       extensionGroups,
-      extSyncStatus,
-      isTogglingExtSync,
-      handleToggleExtSync,
       renderExtensionIcon,
       renderCompatIcons,
       renderSource,
@@ -1432,277 +1495,6 @@ export function ExtensionManagementDialog({
     state: { sorting: extSorting, rowSelection: extRowSelection },
     onSortingChange: setExtSorting,
     onRowSelectionChange: setExtRowSelection,
-    enableRowSelection: () => !limitedMode,
-    getSortedRowModel: getSortedRowModel(),
-    getCoreRowModel: getCoreRowModel(),
-    getRowId: (row) => row.id,
-  });
-
-  const groupColumns = useMemo<ColumnDef<ExtensionGroup>[]>(
-    () => [
-      {
-        id: "select",
-        size: 36,
-        enableSorting: false,
-        header: ({ table }) => (
-          <Checkbox
-            checked={
-              table.getIsAllRowsSelected() ||
-              (table.getIsSomeRowsSelected() && "indeterminate")
-            }
-            onCheckedChange={(value) => {
-              table.toggleAllRowsSelected(!!value);
-            }}
-            aria-label={t("common.aria.selectAll")}
-          />
-        ),
-        cell: ({ row }) => (
-          <Checkbox
-            checked={row.getIsSelected()}
-            onCheckedChange={(value) => {
-              row.toggleSelected(!!value);
-            }}
-            aria-label={t("common.aria.selectRow")}
-          />
-        ),
-      },
-      {
-        accessorKey: "name",
-        enableSorting: true,
-        sortingFn: "alphanumeric",
-        header: ({ column }) => (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              column.toggleSorting(column.getIsSorted() === "asc");
-            }}
-            className="h-auto cursor-pointer justify-start p-0 text-left font-semibold"
-          >
-            {t("common.labels.name")}
-            {column.getIsSorted() === "asc" ? (
-              <LuChevronUp className="ml-2 size-4" />
-            ) : column.getIsSorted() === "desc" ? (
-              <LuChevronDown className="ml-2 size-4" />
-            ) : null}
-          </Button>
-        ),
-        cell: ({ row }) => (
-          <button
-            type="button"
-            className="block min-w-0 max-w-full truncate rounded-sm text-left text-sm font-medium hover:text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring"
-            onClick={() => {
-              setEditingGroup(row.original);
-              setEditGroupName(row.original.name);
-              setEditGroupExtensionIds([...row.original.extension_ids]);
-            }}
-          >
-            {row.original.name}
-          </button>
-        ),
-      },
-      {
-        id: "extensions",
-        size: 120,
-        enableSorting: false,
-        header: () => t("extensions.extensionsTab"),
-        cell: ({ row }) => {
-          const group = row.original;
-          const groupExts = group.extension_ids
-            .map((id) => extensions.find((e) => e.id === id))
-            .filter(Boolean) as Extension[];
-          const visibleExts = groupExts.slice(0, MAX_VISIBLE_ICONS);
-          const overflowCount = groupExts.length - MAX_VISIBLE_ICONS;
-          return (
-            <div className="flex min-w-0 items-center gap-1">
-              {visibleExts.map((ext) => (
-                <Tooltip key={ext.id}>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      {renderExtensionIcon(ext, "sm")}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>{ext.name}</TooltipContent>
-                </Tooltip>
-              ))}
-              {overflowCount > 0 && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Badge
-                      variant="secondary"
-                      className="h-5 shrink-0 px-1.5 text-xs"
-                    >
-                      +{overflowCount}
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <div className="space-y-0.5">
-                      {groupExts.slice(MAX_VISIBLE_ICONS).map((ext) => (
-                        <p key={ext.id} className="text-xs">
-                          {ext.name}
-                        </p>
-                      ))}
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-              {groupExts.length === 0 && (
-                <span className="min-w-0 truncate text-xs text-muted-foreground">
-                  {t("extensions.noExtensionsInGroup")}
-                </span>
-              )}
-            </div>
-          );
-        },
-      },
-      {
-        id: "usage",
-        size: 88,
-        enableSorting: false,
-        header: () => t("profiles.title"),
-        cell: ({ row }) => (
-          <ProfileUsageButton
-            label={t("appFeedback.assignedProfiles", {
-              name: row.original.name,
-            })}
-            failed={referencesFailed}
-            profiles={
-              referencedProfiles?.filter(
-                (profile) => profile.extension_group_id === row.original.id,
-              ) ?? null
-            }
-          />
-        ),
-      },
-      {
-        id: "sync",
-        size: 88,
-        enableSorting: false,
-        header: () => t("proxies.management.syncCol"),
-        cell: ({ row }) => {
-          const group = row.original;
-          const groupSyncDot = getSyncStatusDot(
-            group,
-            extSyncStatus[group.id],
-            t,
-          );
-          return (
-            <div className="flex shrink-0 items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div
-                    className={`size-2 rounded-full shrink-0 ${groupSyncDot.color} ${
-                      groupSyncDot.animate ? "animate-pulse" : ""
-                    }`}
-                  />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{groupSyncDot.tooltip}</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex shrink-0 items-center">
-                    <AnimatedSwitch
-                      checked={group.sync_enabled}
-                      onCheckedChange={() => void handleToggleGroupSync(group)}
-                      disabled={isTogglingGroupSync[group.id]}
-                    />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>
-                    {group.sync_enabled
-                      ? t("syncTooltips.disable")
-                      : t("syncTooltips.enable")}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          );
-        },
-      },
-      {
-        id: "actions",
-        size: 104,
-        enableSorting: false,
-        header: () => t("common.labels.actions"),
-        cell: ({ row }) => {
-          const group = row.original;
-          return (
-            <div className="flex shrink-0 justify-end gap-0.5">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="size-7 p-0"
-                    onClick={() => {
-                      setAssignUsersGroup(group);
-                      setAssignUsersTargets([]);
-                    }}
-                  >
-                    <LuUsers className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {t("extensions.assignUsers.title")}
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="size-7 p-0"
-                    onClick={() => {
-                      setEditingGroup(group);
-                      setEditGroupName(group.name);
-                      setEditGroupExtensionIds([...group.extension_ids]);
-                    }}
-                  >
-                    <LuPencil className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("common.buttons.edit")}</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="size-7 p-0"
-                    onClick={() => {
-                      setGroupToDelete(group);
-                    }}
-                  >
-                    <LuTrash2 className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("extensions.deleteGroup")}</TooltipContent>
-              </Tooltip>
-            </div>
-          );
-        },
-      },
-    ],
-    [
-      t,
-      referencedProfiles,
-      referencesFailed,
-      extensions,
-      extSyncStatus,
-      isTogglingGroupSync,
-      handleToggleGroupSync,
-      renderExtensionIcon,
-    ],
-  );
-
-  const groupTable = useReactTable({
-    data: extensionGroups,
-    columns: groupColumns,
-    state: { sorting: groupSorting, rowSelection: groupRowSelection },
-    onSortingChange: setGroupSorting,
-    onRowSelectionChange: setGroupRowSelection,
     enableRowSelection: () => !limitedMode,
     getSortedRowModel: getSortedRowModel(),
     getCoreRowModel: getCoreRowModel(),
@@ -1760,12 +1552,6 @@ export function ExtensionManagementDialog({
                     <span>{t("extensions.extensionsTab")}</span>
                     <span className="text-xs tabular-nums">
                       {extensions.length}
-                    </span>
-                  </AnimatedTabsTrigger>
-                  <AnimatedTabsTrigger value="groups" disabled={limitedMode}>
-                    <span>{t("extensions.groupsTab")}</span>
-                    <span className="text-xs tabular-nums">
-                      {extensionGroups.length}
                     </span>
                   </AnimatedTabsTrigger>
                 </AnimatedTabsList>
@@ -1834,26 +1620,6 @@ export function ExtensionManagementDialog({
                         </TooltipContent>
                       </Tooltip>
                     </>
-                  )}
-                  {activeTab === "groups" && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <RippleButton
-                          size="sm"
-                          disabled={limitedMode}
-                          onClick={() => setShowCreateGroup(true)}
-                          aria-label={t("extensions.newGroup")}
-                        >
-                          <GoPlus className="size-4" />
-                          <span className="hidden @2xl:inline">
-                            {t("extensions.newGroup")}
-                          </span>
-                        </RippleButton>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t("extensions.newGroup")}
-                      </TooltipContent>
-                    </Tooltip>
                   )}
                 </div>
               </div>
@@ -2099,131 +1865,6 @@ export function ExtensionManagementDialog({
                   )}
                 </div>
               </AnimatedTabsContent>
-
-              <AnimatedTabsContent
-                value="groups"
-                className="mt-4 min-h-0 flex-1 flex-col data-[state=active]:flex"
-              >
-                <div className="flex min-h-0 flex-1 flex-col gap-4">
-                  {/* Create group form */}
-                  {showCreateGroup && (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={newGroupName}
-                        onChange={(e) => {
-                          setNewGroupName(e.target.value);
-                        }}
-                        placeholder={t("extensions.groupNamePlaceholder")}
-                        className="flex-1"
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") void handleCreateGroup();
-                        }}
-                      />
-                      <RippleButton
-                        size="sm"
-                        onClick={() => void handleCreateGroup()}
-                        disabled={!newGroupName.trim()}
-                      >
-                        {t("common.buttons.create")}
-                      </RippleButton>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setShowCreateGroup(false);
-                          setNewGroupName("");
-                        }}
-                      >
-                        {t("common.buttons.cancel")}
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Groups list */}
-                  {extensionGroups.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">
-                      {t("extensions.noGroups")}
-                    </div>
-                  ) : (
-                    <FadingScrollArea
-                      className={cn(
-                        "min-h-0 flex-1",
-                        selectedGroups.length > 0 && "pb-16",
-                      )}
-                      style={
-                        {
-                          "--scroll-fade-top-offset": "32px",
-                        } as React.CSSProperties
-                      }
-                    >
-                      <Table
-                        className="w-full table-fixed"
-                        containerClassName="overflow-visible"
-                      >
-                        <TableHeader className="sticky top-0 z-10 bg-background [&_tr]:border-0">
-                          {groupTable.getHeaderGroups().map((headerGroup) => (
-                            <TableRow
-                              key={headerGroup.id}
-                              className="border-0!"
-                            >
-                              {headerGroup.headers.map((header) => (
-                                <TableHead
-                                  key={header.id}
-                                  style={{
-                                    width:
-                                      header.column.id === "name"
-                                        ? undefined
-                                        : `${header.column.getSize()}px`,
-                                  }}
-                                  className={cn(
-                                    header.column.id === "name" && "max-w-0",
-                                  )}
-                                >
-                                  {header.isPlaceholder
-                                    ? null
-                                    : flexRender(
-                                        header.column.columnDef.header,
-                                        header.getContext(),
-                                      )}
-                                </TableHead>
-                              ))}
-                            </TableRow>
-                          ))}
-                        </TableHeader>
-                        <TableBody>
-                          {groupTable.getRowModel().rows.map((row) => (
-                            <TableRow
-                              key={row.id}
-                              data-state={row.getIsSelected() && "selected"}
-                              className="border-0! hover:bg-muted"
-                            >
-                              {row.getVisibleCells().map((cell) => (
-                                <TableCell
-                                  key={cell.id}
-                                  style={{
-                                    width:
-                                      cell.column.id === "name"
-                                        ? undefined
-                                        : `${cell.column.getSize()}px`,
-                                  }}
-                                  className={cn(
-                                    cell.column.id === "name" && "max-w-0",
-                                  )}
-                                >
-                                  {flexRender(
-                                    cell.column.columnDef.cell,
-                                    cell.getContext(),
-                                  )}
-                                </TableCell>
-                              ))}
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </FadingScrollArea>
-                  )}
-                </div>
-              </AnimatedTabsContent>
             </AnimatedTabs>
           </div>
 
@@ -2234,144 +1875,6 @@ export function ExtensionManagementDialog({
               </RippleButton>
             </DialogFooter>
           )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Group editing dialog */}
-      <Dialog
-        open={editingGroup !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEditingGroup(null);
-            setEditGroupName("");
-            setEditGroupExtensionIds([]);
-          }
-        }}
-      >
-        <DialogContent className="flex max-h-[90vh] max-w-lg flex-col">
-          <DialogHeader>
-            <DialogTitle>{t("extensions.editGroup")}</DialogTitle>
-            <DialogDescription>
-              {t("extensions.editGroupDescription")}
-            </DialogDescription>
-          </DialogHeader>
-
-          <ScrollArea className="-mx-6 flex-1 overflow-y-auto px-6">
-            <div className="space-y-4">
-              {editingGroup && (
-                <AssignmentImpact
-                  sources={editGroupExtensionIds.map(
-                    (id) => extensions.find((ext) => ext.id === id)?.name ?? id,
-                  )}
-                  groups={[editingGroup]}
-                  profiles={referencedProfiles}
-                  failed={referencesFailed}
-                  pending={
-                    JSON.stringify(editGroupExtensionIds) !==
-                    JSON.stringify(editingGroup.extension_ids)
-                  }
-                />
-              )}
-              <div className="space-y-2">
-                <Label>{t("common.labels.name")}</Label>
-                <Input
-                  value={editGroupName}
-                  onChange={(e) => {
-                    setEditGroupName(e.target.value);
-                  }}
-                  placeholder={t("extensions.groupNamePlaceholder")}
-                />
-              </div>
-
-              {extensions.filter((e) => !editGroupExtensionIds.includes(e.id))
-                .length > 0 && (
-                <div className="space-y-2">
-                  <Label>{t("extensions.addToGroup")}</Label>
-                  <Select
-                    value=""
-                    onValueChange={(extId) => {
-                      setEditGroupExtensionIds((prev) => [...prev, extId]);
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={t("extensions.addToGroup")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {extensions
-                        .filter((e) => !editGroupExtensionIds.includes(e.id))
-                        .map((ext) => (
-                          <SelectItem key={ext.id} value={ext.id}>
-                            <div className="flex items-center gap-2">
-                              {renderExtensionIcon(ext, "sm")}
-                              {ext.name}
-                            </div>
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label>{t("extensions.groupExtensions")}</Label>
-                {editGroupExtensionIds.length === 0 ? (
-                  <div className="py-2 text-sm text-muted-foreground">
-                    {t("extensions.noExtensionsInGroup")}
-                  </div>
-                ) : (
-                  <div className="max-h-[min(40vh,320px)] space-y-1 overflow-y-auto">
-                    {editGroupExtensionIds.map((extId) => {
-                      const ext = extensions.find((e) => e.id === extId);
-                      if (!ext) return null;
-                      return (
-                        <div
-                          key={extId}
-                          className="flex items-center gap-2 rounded-md border px-2 py-1.5"
-                        >
-                          {renderExtensionIcon(ext, "sm")}
-                          <span className="min-w-0 flex-1 truncate text-sm">
-                            {ext.name}
-                          </span>
-                          {renderCompatIcons(ext.browser_compatibility)}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="size-6 shrink-0 p-0"
-                            onClick={() => {
-                              setEditGroupExtensionIds((prev) =>
-                                prev.filter((id) => id !== extId),
-                              );
-                            }}
-                          >
-                            <LuTrash2 className="size-3" />
-                          </Button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          </ScrollArea>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setEditingGroup(null);
-                setEditGroupName("");
-                setEditGroupExtensionIds([]);
-              }}
-            >
-              {t("common.buttons.cancel")}
-            </Button>
-            <RippleButton
-              onClick={() => void handleSaveGroupEdits()}
-              disabled={!editGroupName.trim()}
-            >
-              {t("common.buttons.save")}
-            </RippleButton>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -2623,7 +2126,7 @@ export function ExtensionManagementDialog({
           if (!open) closeAssignUsers();
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <LuUsers className="size-4" />
@@ -2653,35 +2156,89 @@ export function ExtensionManagementDialog({
             <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
               {assignUsersCloudOptions.length > 0 && (
                 <>
-                  <p className="px-2 pt-1 text-xs font-medium text-muted-foreground">
-                    {t("extensions.assignUsers.cloudSection")}
-                  </p>
-                  {assignUsersCloudOptions.map((option) => (
-                    <label
-                      key={option.key}
-                      htmlFor={`assign-users-${option.key}`}
-                      className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-accent"
-                    >
-                      <Checkbox
-                        id={`assign-users-${option.key}`}
-                        checked={assignUsersTargets.includes(option.key)}
-                        onCheckedChange={(checked) =>
-                          toggleAssignUsersTarget(option.key, checked === true)
-                        }
-                      />
-                      <span
-                        className="min-w-0 flex-1 truncate text-sm font-medium"
-                        title={option.name}
+                  <div className="flex items-center justify-between px-2 pt-1">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {t("extensions.assignUsers.cloudSection")}
+                    </p>
+                    {assignUsersExtension && batchUserIds.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-1.5 text-[11px]"
+                        onClick={openBatchAcctDialog}
                       >
-                        {option.name}
-                      </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {t("extensions.assignUsers.profileCount", {
-                          n: option.count,
-                        })}
-                      </span>
-                    </label>
-                  ))}
+                        {t("extensions.assignUsers.accountsBatch")}
+                      </Button>
+                    )}
+                  </div>
+                  {assignUsersCloudOptions.map((option) => {
+                    const uid = Number(option.key.slice("cloud:".length));
+                    const bound = assignUsersAssignments.find(
+                      (a) =>
+                        a.extension_id === assignUsersExtension?.id &&
+                        a.user_id === uid,
+                    );
+                    return (
+                      <div key={option.key}>
+                        <label
+                          htmlFor={`assign-users-${option.key}`}
+                          className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-accent"
+                        >
+                          <Checkbox
+                            id={`assign-users-${option.key}`}
+                            checked={assignUsersTargets.includes(option.key)}
+                            onCheckedChange={(checked) =>
+                              toggleAssignUsersTarget(
+                                option.key,
+                                checked === true,
+                              )
+                            }
+                          />
+                          <span
+                            className="min-w-0 flex-1 truncate text-sm font-medium"
+                            title={option.name}
+                          >
+                            {option.name}
+                          </span>
+                          {bound?.account_ids &&
+                            bound.account_ids.length > 0 && (
+                              <span className="shrink-0 text-[11px] text-muted-foreground">
+                                {t("extensions.assignUsers.accountsCount", {
+                                  n: bound.account_ids.length,
+                                })}
+                              </span>
+                            )}
+                          {bound?.vps_login === true && (
+                            <span className="shrink-0 rounded bg-primary/10 px-1 text-[11px] text-primary">
+                              VPS
+                            </span>
+                          )}
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            {t("extensions.assignUsers.profileCount", {
+                              n: option.count,
+                            })}
+                          </span>
+                          {assignUsersExtension && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 shrink-0 px-1.5 text-[11px]"
+                              onClick={() =>
+                                void openAssignAcctDialog(
+                                  uid,
+                                  assignUsersCloudUsers.find(
+                                    (u) => u.id === uid,
+                                  )?.name ?? option.name,
+                                )
+                              }
+                            >
+                              {t("extensions.assignUsers.pickAccounts")}
+                            </Button>
+                          )}
+                        </label>
+                      </div>
+                    );
+                  })}
                 </>
               )}
               {!assignUsersExtension &&
@@ -2786,6 +2343,371 @@ export function ExtensionManagementDialog({
         </DialogContent>
       </Dialog>
 
+      {/* 账号范围选择：快速搜索 + 勾选账号子集（含 VPS 未启动账号） */}
+      <Dialog
+        open={assignAcctDialogUser !== null}
+        onOpenChange={(open) => {
+          if (!open) setAssignAcctDialogUser(null);
+        }}
+      >
+        <DialogContent className="w-[680px] max-w-[95vw] p-0 overflow-hidden">
+          <DialogHeader className="border-b px-4 py-3">
+            <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+              <LuUsers className="size-4" />
+              {assignAcctDialogUser
+                ? t("extensions.assignUsers.accountsTitle", {
+                    name: assignAcctDialogUser.name,
+                  })
+                : ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center gap-2 border-b px-4 py-2">
+            <LuSearch className="size-3.5 shrink-0 text-muted-foreground" />
+            <Input
+              value={assignAcctQuery}
+              onChange={(e) => setAssignAcctQuery(e.target.value)}
+              placeholder={t("extensions.assignUsers.accountsSearch")}
+              className="h-8 text-xs"
+            />
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {t("extensions.assignUsers.profileCount", {
+                n: assignAcctMatches.length,
+              })}
+            </span>
+          </div>
+          <div className="max-h-[420px] overflow-y-auto px-4 py-2">
+            {(() => {
+              const uid = assignAcctDialogUser?.id;
+              const acct =
+                uid === undefined ? undefined : assignUsersAcctLists[uid];
+              if (acct === undefined || acct === "loading") {
+                return (
+                  <p className="py-8 text-center text-xs text-muted-foreground">
+                    {t("extensions.assignUsers.accountsLoading")}
+                  </p>
+                );
+              }
+              if (acct === "error") {
+                return (
+                  <p className="py-8 text-center text-xs text-destructive">
+                    {t("extensions.assignUsers.accountsError")}
+                  </p>
+                );
+              }
+              if (acct.length === 0) {
+                return (
+                  <p className="py-8 text-center text-xs text-muted-foreground">
+                    {t("extensions.assignUsers.accountsEmpty")}
+                  </p>
+                );
+              }
+              const scope =
+                uid === undefined ? undefined : assignUsersAccountScopes[uid];
+              const allSelected = scope ? scope.accounts === null : true;
+              const vpsLogin = scope ? scope.vpsLogin === true : false;
+              const matches = assignAcctMatches;
+              return (
+                <>
+                  <label
+                    htmlFor="assign-acct-all"
+                    className="flex cursor-pointer items-center gap-2 py-1.5 text-xs font-medium"
+                  >
+                    <Checkbox
+                      id="assign-acct-all"
+                      checked={allSelected}
+                      onCheckedChange={(v) =>
+                        uid !== undefined &&
+                        setAcctScope(uid, {
+                          accounts: v === true ? null : [],
+                          vpsLogin,
+                        })
+                      }
+                    />
+                    {t("extensions.assignUsers.accountsAll")}
+                  </label>
+                  <label
+                    htmlFor="assign-acct-vps"
+                    className="flex cursor-pointer items-center gap-2 pb-1.5 text-xs font-medium"
+                  >
+                    <Checkbox
+                      id="assign-acct-vps"
+                      checked={vpsLogin}
+                      onCheckedChange={(v) =>
+                        uid !== undefined &&
+                        setAcctScope(uid, {
+                          accounts: scope ? scope.accounts : null,
+                          vpsLogin: v === true,
+                        })
+                      }
+                    />
+                    {t("extensions.assignUsers.vpsLogin")}
+                  </label>
+                  <div className="space-y-0.5">
+                    {matches.map((a) => (
+                      <label
+                        key={a.id}
+                        htmlFor={`assign-acct-${a.id}`}
+                        className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs hover:bg-accent/50"
+                      >
+                        <Checkbox
+                          id={`assign-acct-${a.id}`}
+                          checked={
+                            allSelected ||
+                            (scope?.accounts ?? []).includes(a.id)
+                          }
+                          onCheckedChange={(v) => {
+                            if (uid === undefined) return;
+                            const cur = allSelected
+                              ? acct.map((x) => x.id)
+                              : [...(scope?.accounts ?? [])];
+                            const next =
+                              v === true
+                                ? cur.concat(a.id)
+                                : cur.filter((x) => x !== a.id);
+                            setAcctScope(uid, {
+                              accounts:
+                                next.length === acct.length ? null : next,
+                              vpsLogin,
+                            });
+                          }}
+                        />
+                        <span
+                          className="min-w-0 flex-1 truncate"
+                          title={a.label}
+                        >
+                          {a.label}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="pt-2 text-[11px] text-muted-foreground">
+                    {t("extensions.assignUsers.accountsHint")}
+                  </p>
+                </>
+              );
+            })()}
+          </div>
+          <div className="flex items-center justify-end border-t px-4 py-3">
+            <Button
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => setAssignAcctDialogUser(null)}
+            >
+              {t("extensions.assignUsers.accountsDone")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 复制分配：把源插件的用户/账号范围绑定整份复制到当前插件 */}
+      <Dialog
+        open={copyAssignExtension !== null}
+        onOpenChange={(open) => {
+          if (!open) setCopyAssignExtension(null);
+        }}
+      >
+        <DialogContent className="w-[440px] max-w-[95vw] p-0 overflow-hidden">
+          <DialogHeader className="border-b px-4 py-3">
+            <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+              <LuCopy className="size-4" />
+              {t("extensions.copyAssign.title")}
+            </DialogTitle>
+            <DialogDescription>{copyAssignExtension?.name}</DialogDescription>
+          </DialogHeader>
+          <div className="px-4 py-3">
+            <div className="text-xs font-medium">
+              {t("extensions.copyAssign.sourceLabel")}
+            </div>
+            <Select value={copySourceId} onValueChange={setCopySourceId}>
+              <SelectTrigger className="mt-1 h-8 text-xs">
+                <SelectValue
+                  placeholder={t("extensions.copyAssign.sourceLabel")}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {extensions
+                  .filter(
+                    (e) =>
+                      e.id !== copyAssignExtension?.id &&
+                      (copySourceCounts[e.id] ?? 0) > 0,
+                  )
+                  .map((e) => (
+                    <SelectItem key={e.id} value={e.id} className="text-xs">
+                      {e.name}（{copySourceCounts[e.id]}）
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            {copyAssignExtension !== null &&
+              extensions.filter(
+                (e) =>
+                  e.id !== copyAssignExtension?.id &&
+                  (copySourceCounts[e.id] ?? 0) > 0,
+              ).length === 0 && (
+                <p className="pt-2 text-[11px] text-muted-foreground">
+                  {t("extensions.copyAssign.noSource")}
+                </p>
+              )}
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => setCopyAssignExtension(null)}
+            >
+              {t("common.buttons.cancel")}
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs"
+              disabled={!copySourceId || isCopyingAssign}
+              onClick={() => void handleCopyAssign()}
+            >
+              {isCopyingAssign
+                ? t("extensions.copyAssign.copying")
+                : t("extensions.copyAssign.confirm")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 批量选账号：为所有已勾选用户一次筛选（如设备编号=素材）并勾选其账号 */}
+      <Dialog
+        open={batchAcctOpen}
+        onOpenChange={(open) => {
+          if (!open) setBatchAcctOpen(false);
+        }}
+      >
+        <DialogContent className="w-[680px] max-w-[95vw] p-0 overflow-hidden">
+          <DialogHeader className="border-b px-4 py-3">
+            <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+              <LuUsers className="size-4" />
+              {t("extensions.assignUsers.accountsBatchTitle", {
+                n: batchUserIds.length,
+              })}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center gap-2 border-b px-4 py-2">
+            <LuSearch className="size-3.5 shrink-0 text-muted-foreground" />
+            <Input
+              value={batchQuery}
+              onChange={(e) => setBatchQuery(e.target.value)}
+              placeholder={t("extensions.assignUsers.accountsSearch")}
+              className="h-8 text-xs"
+            />
+            <label
+              htmlFor="batch-acct-vps"
+              className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs"
+            >
+              <Checkbox
+                id="batch-acct-vps"
+                checked={batchVpsChecked}
+                onCheckedChange={(v) => setBatchVps(v === true)}
+              />
+              {t("extensions.assignUsers.vpsLogin")}
+            </label>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 text-xs"
+              onClick={selectAllBatchMatches}
+            >
+              {t("extensions.assignUsers.selectAllMatches")}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 text-xs"
+              onClick={clearBatchMatches}
+            >
+              {t("extensions.assignUsers.clearMatches")}
+            </Button>
+          </div>
+          <div className="max-h-[420px] overflow-y-auto px-4 py-2">
+            {batchUserIds.map((uid) => {
+              const list = assignUsersAcctLists[uid];
+              const uname =
+                assignUsersCloudUsers.find((u) => u.id === uid)?.name ??
+                `#${uid}`;
+              const q = batchQuery.trim().toLowerCase();
+              const matches =
+                list && list !== "loading" && list !== "error"
+                  ? q
+                    ? list.filter((a) => a.label.toLowerCase().includes(q))
+                    : list
+                  : [];
+              const scope = assignUsersAccountScopes[uid];
+              const allSelected = scope ? scope.accounts === null : false;
+              return (
+                <div key={uid} className="mb-3">
+                  <p className="py-1 text-xs font-semibold">
+                    {uname}
+                    <span className="ml-2 font-normal text-muted-foreground">
+                      {list === "loading" || list === undefined
+                        ? t("extensions.assignUsers.accountsLoading")
+                        : list === "error"
+                          ? t("extensions.assignUsers.accountsError")
+                          : t("extensions.assignUsers.accountsCount", {
+                              n: matches.length,
+                            })}
+                    </span>
+                  </p>
+                  {matches.length > 0 && (
+                    <div className="space-y-0.5">
+                      {matches.map((a) => (
+                        <label
+                          key={a.id}
+                          htmlFor={`batch-acct-${uid}-${a.id}`}
+                          className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-xs hover:bg-accent/50"
+                        >
+                          <Checkbox
+                            id={`batch-acct-${uid}-${a.id}`}
+                            checked={
+                              allSelected ||
+                              (scope?.accounts ?? []).includes(a.id)
+                            }
+                            onCheckedChange={(v) => {
+                              const cur = allSelected
+                                ? matches.map((x) => x.id)
+                                : [...(scope?.accounts ?? [])];
+                              const next =
+                                v === true
+                                  ? cur.concat(a.id)
+                                  : cur.filter((x) => x !== a.id);
+                              setAcctScope(uid, {
+                                accounts:
+                                  next.length === matches.length ? null : next,
+                                vpsLogin: scope ? scope.vpsLogin : false,
+                              });
+                            }}
+                          />
+                          <span
+                            className="min-w-0 flex-1 truncate"
+                            title={a.label}
+                          >
+                            {a.label}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-end border-t px-4 py-3">
+            <Button
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => setBatchAcctOpen(false)}
+            >
+              {t("extensions.assignUsers.accountsDone")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete extension confirmation */}
       <DeleteConfirmationDialog
         isOpen={extensionToDelete !== null}
@@ -2854,47 +2776,12 @@ export function ExtensionManagementDialog({
         <DataTableActionBar table={extTable}>
           <DataTableActionBarSelection table={extTable} />
           <DataTableActionBarAction
-            tooltip={t("syncTooltips.bulkToggle")}
-            size="icon"
-            onClick={() => {
-              void handleBulkToggleExtSync();
-            }}
-          >
-            <LuRefreshCw />
-          </DataTableActionBarAction>
-          <DataTableActionBarAction
             tooltip={t("common.buttons.delete")}
             variant="destructive"
             size="icon"
             className="border-destructive bg-destructive hover:bg-destructive"
             onClick={() => {
               setBulkExtDeleteOpen(true);
-            }}
-          >
-            <LuTrash2 />
-          </DataTableActionBarAction>
-        </DataTableActionBar>
-      )}
-
-      {isOpen && activeTab === "groups" && (
-        <DataTableActionBar table={groupTable}>
-          <DataTableActionBarSelection table={groupTable} />
-          <DataTableActionBarAction
-            tooltip={t("syncTooltips.bulkToggle")}
-            size="icon"
-            onClick={() => {
-              void handleBulkToggleGroupSync();
-            }}
-          >
-            <LuRefreshCw />
-          </DataTableActionBarAction>
-          <DataTableActionBarAction
-            tooltip={t("common.buttons.delete")}
-            variant="destructive"
-            size="icon"
-            className="border-destructive bg-destructive hover:bg-destructive"
-            onClick={() => {
-              setBulkGroupDeleteOpen(true);
             }}
           >
             <LuTrash2 />

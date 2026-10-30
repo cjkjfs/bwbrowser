@@ -1631,7 +1631,30 @@
       "unassignAction": "할당 해제",
       "saveAction": "변경 사항 저장",
       "savedChanges": "변경 사항 저장됨",
-      "unassignedNoBrowsers": "할당 해제됨 — 이후 실행되는 브라우저에는 설치되지 않습니다"
+      "unassignedNoBrowsers": "할당 해제됨 — 이후 실행되는 브라우저에는 설치되지 않습니다",
+      "pickAccounts": "계정",
+      "accountsAll": "전체 계정",
+      "accountsCount": "계정 {{n}}개",
+      "accountsLoading": "계정 불러오는 중...",
+      "accountsEmpty": "이 사용자의 계정이 아직 없습니다",
+      "accountsError": "계정 불러오기 실패",
+      "accountsHint": "일부 계정만 선택하면 해당 계정의 브라우저에만 확장 프로그램이 적용됩니다",
+      "accountsTitle": "{{name}}의 계정",
+      "accountsSearch": "검색: 휴대폰 ID / 계정 이름 / 로그인",
+      "accountsDone": "완료",
+      "vpsLogin": "VPS 로그인(바오원쿠 브라우저)",
+      "accountsBatch": "일괄 계정",
+      "accountsBatchTitle": "{{n}}명 사용자의 계정 일괄 선택",
+      "selectAllMatches": "검색 결과 전체 선택",
+      "clearMatches": "검색 결과 해제"
+    },
+    "copyAssign": {
+      "title": "다른 확장 프로그램에서 할당 복사",
+      "sourceLabel": "원본 확장 프로그램",
+      "confirm": "복사",
+      "copying": "복사 중...",
+      "success": "{{n}}개의 할당을 복사했습니다",
+      "noSource": "원본 확장 프로그램에 복사할 할당이 없습니다"
     }
   },
   "pro": {
@@ -2409,7 +2432,8 @@
     "aiAgentEmptyConversation": "대화가 비어 있습니다. 먼저 질문을 입력하세요.",
     "aiAgentProxyFailed": "AI 어시스턴트의 프록시 회선을 사용할 수 없습니다: {{message}}",
     "aiAgentLlmFailed": "AI 어시스턴트의 모델 요청이 실패했습니다: {{message}}",
-    "aiAgentProviderUnsupported": "AI 어시스턴트는 이 모델 공급자를 지원하지 않습니다: {{message}}"
+    "aiAgentProviderUnsupported": "AI 어시스턴트는 이 모델 공급자를 지원하지 않습니다: {{message}}",
+    "extensionAssignSameSource": "원본과 대상 확장 프로그램이 같습니다"
   },
   "rail": {
     "cloudAccounts": "클라우드 계정",

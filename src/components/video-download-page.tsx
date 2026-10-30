@@ -6,6 +6,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LuCheck,
+  LuChevronsUpDown,
   LuDownload,
   LuFileText,
   LuFolderOpen,
@@ -24,6 +25,14 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -31,6 +40,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -116,7 +130,9 @@ export function VideoDownloadPage({
     bwLoggedIn,
   );
   const { accounts: bwAccounts } = useBwbrowserAccounts(bwSelectedCompanyId);
+  const [proxySelectOpen, setProxySelectOpen] = useState(false);
   const [cookieAccQuery, setCookieAccQuery] = useState("");
+
   const [dialogAccounts, setDialogAccounts] = useState<typeof bwAccounts>([]);
   const [cookieSourceDialogOpen, setCookieSourceDialogOpen] = useState(false);
   const [cookieSourcePicked, setCookieSourcePicked] = useState<number | null>(
@@ -1354,37 +1370,122 @@ export function VideoDownloadPage({
           {/* 下载代理 */}
           <div className="space-y-2">
             <Label>下载代理</Label>
-            <Select
-              value={settings.proxy_id ?? "direct"}
-              onValueChange={(v) =>
-                updateSettings({
-                  ...settings,
-                  proxy_id: v === "direct" ? null : v,
-                })
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="direct">直连（不使用代理）</SelectItem>
-                {proxyList.length === 0 && (
-                  <SelectItem value="no-proxies" disabled>
-                    暂无代理，请先添加代理
-                  </SelectItem>
-                )}
-                {proxyList.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name} ({p.proxy_type}://{p.host}:{p.port})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {settings.proxy_id && (
+            <Popover open={proxySelectOpen} onOpenChange={setProxySelectOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={proxySelectOpen}
+                  className="h-9 w-full justify-between px-3 font-normal"
+                >
+                  <span className="min-w-0 flex-1 truncate text-left">
+                    {(() => {
+                      const pid = settings.proxy_id;
+                      if (pid === null) return "跟随 Cookie 源账号（推荐）";
+                      if (pid === "direct") return "直连（不使用代理）";
+                      const p = proxyList.find((x) => x.id === pid);
+                      return p
+                        ? `${p.name} (${p.proxy_type}://${p.host}:${p.port})`
+                        : "跟随 Cookie 源账号（推荐）";
+                    })()}
+                  </span>
+                  <LuChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                <Command>
+                  <CommandInput placeholder="搜索代理..." />
+                  <CommandList>
+                    <CommandEmpty>无匹配代理</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        value="follow 跟随 cookie 源账号"
+                        onSelect={() => {
+                          updateSettings({ ...settings, proxy_id: null });
+                          setProxySelectOpen(false);
+                        }}
+                      >
+                        <LuCheck
+                          className={`mr-2 size-4 ${
+                            settings.proxy_id === null
+                              ? "opacity-100"
+                              : "opacity-0"
+                          }`}
+                        />
+                        跟随 Cookie 源账号（推荐）
+                      </CommandItem>
+                      <CommandItem
+                        value="direct 直连"
+                        onSelect={() => {
+                          updateSettings({ ...settings, proxy_id: "direct" });
+                          setProxySelectOpen(false);
+                        }}
+                      >
+                        <LuCheck
+                          className={`mr-2 size-4 ${
+                            settings.proxy_id === "direct"
+                              ? "opacity-100"
+                              : "opacity-0"
+                          }`}
+                        />
+                        直连（不使用代理）
+                      </CommandItem>
+                    </CommandGroup>
+                    <CommandGroup heading="本地代理">
+                      {proxyList.length === 0 && (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                          暂无代理，请先添加代理
+                        </div>
+                      )}
+                      {proxyList.map((p) => (
+                        <CommandItem
+                          key={p.id}
+                          value={`${p.name} ${p.proxy_type}://${p.host}:${p.port}`}
+                          onSelect={() => {
+                            updateSettings({ ...settings, proxy_id: p.id });
+                            setProxySelectOpen(false);
+                          }}
+                        >
+                          <LuCheck
+                            className={`mr-2 size-4 ${
+                              settings.proxy_id === p.id
+                                ? "opacity-100"
+                                : "opacity-0"
+                            }`}
+                          />
+                          {p.name} ({p.proxy_type}://{p.host}:{p.port})
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {(settings.proxy_id === null || settings.proxy_id === "follow") &&
+              (settings.cookie_account_id ? (
+                <p className="text-xs text-muted-foreground">
+                  {selectedCookieAccount?.proxy_node
+                    ? "跟随模式：视频下载将使用该账号在后台配置的登录节点"
+                    : "跟随模式：该账号未配置节点，将直连下载"}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  跟随模式：未选 Cookie 源账号，当前直连。在下方「Cookie
+                  来源」选择账号后自动跟随其节点
+                </p>
+              ))}
+            {settings.proxy_id === "direct" && (
               <p className="text-xs text-muted-foreground">
-                视频下载将通过所选代理进行
+                视频下载将直连（不使用代理）
               </p>
             )}
+            {settings.proxy_id &&
+              settings.proxy_id !== "direct" &&
+              settings.proxy_id !== "follow" && (
+                <p className="text-xs text-muted-foreground">
+                  视频下载将通过所选代理进行
+                </p>
+              )}
           </div>
 
           {/* 使用浏览器 Cookie */}

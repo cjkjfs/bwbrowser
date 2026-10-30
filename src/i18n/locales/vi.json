@@ -1631,7 +1631,30 @@
       "unassignAction": "Bỏ gán",
       "saveAction": "Lưu thay đổi",
       "savedChanges": "Đã lưu thay đổi",
-      "unassignedNoBrowsers": "Đã bỏ gán — các lần mở trình duyệt sau sẽ không cài đặt nữa"
+      "unassignedNoBrowsers": "Đã bỏ gán — các lần mở trình duyệt sau sẽ không cài đặt nữa",
+      "pickAccounts": "Tài khoản",
+      "accountsAll": "Tất cả tài khoản",
+      "accountsCount": "{{n}} tài khoản",
+      "accountsLoading": "Đang tải tài khoản...",
+      "accountsEmpty": "Người dùng này chưa có tài khoản",
+      "accountsError": "Tải tài khoản thất bại",
+      "accountsHint": "Chỉ chọn một phần tài khoản thì tiện ích chỉ áp dụng cho trình duyệt của các tài khoản đó",
+      "accountsTitle": "Tài khoản của {{name}}",
+      "accountsSearch": "Tìm kiếm: ID điện thoại / tên / đăng nhập",
+      "accountsDone": "Xong",
+      "vpsLogin": "Đăng nhập VPS (trình duyệt Baowenku)",
+      "accountsBatch": "Chọn tài khoản hàng loạt",
+      "accountsBatchTitle": "Chọn hàng loạt tài khoản của {{n}} người dùng",
+      "selectAllMatches": "Chọn tất cả kết quả",
+      "clearMatches": "Bỏ kết quả"
+    },
+    "copyAssign": {
+      "title": "Sao chép phân công từ tiện ích khác",
+      "sourceLabel": "Tiện ích nguồn",
+      "confirm": "Sao chép",
+      "copying": "Đang sao chép...",
+      "success": "Đã sao chép {{n}} phân công",
+      "noSource": "Tiện ích nguồn không có phân công để sao chép"
     }
   },
   "pro": {
@@ -2409,7 +2432,8 @@
     "aiAgentEmptyConversation": "Cuộc trò chuyện đang trống. Hãy nhập câu hỏi trước.",
     "aiAgentProxyFailed": "Tuyến proxy của trợ lý AI không khả dụng: {{message}}",
     "aiAgentLlmFailed": "Yêu cầu tới mô hình của trợ lý AI thất bại: {{message}}",
-    "aiAgentProviderUnsupported": "Trợ lý AI không hỗ trợ nhà cung cấp mô hình này: {{message}}"
+    "aiAgentProviderUnsupported": "Trợ lý AI không hỗ trợ nhà cung cấp mô hình này: {{message}}",
+    "extensionAssignSameSource": "Tiện ích nguồn và đích trùng nhau"
   },
   "rail": {
     "cloudAccounts": "Tài khoản đám mây",

@@ -615,6 +615,28 @@ test("extensions, extension groups, VPN storage, DNS rules, and event-backed ass
       extensionId: extension.id,
       userId: 424242,
     });
+    // Bulk path shares the hermetic refusal: resolving the user's browsers
+    // needs the cloud account list, so a non-empty batch fails without a
+    // session while the empty batch short-circuits to a zero no-op.
+    assert.deepEqual(
+      await app.invoke("assign_extension_to_users_bulk", {
+        extensionId: extension.id,
+        toAssign: [],
+        toUnassign: [],
+      }),
+      { assigned: 0, skipped: 0, removed: 0 },
+    );
+    await app.invokeError("assign_extension_to_users_bulk", {
+      extensionId: extension.id,
+      toAssign: [{ userId: 424242, accountIds: null, vpsLogin: false }],
+      toUnassign: [],
+    });
+    // Copying a binding set onto itself is refused before any store work:
+    // the guard proves the copy command's body ran.
+    await app.invokeError("copy_extension_assignments", {
+      fromExtensionId: extension.id,
+      toExtensionId: extension.id,
+    });
     await app.invokeError("unassign_extension_from_user", {
       extensionId: extension.id,
       userId: 424242,

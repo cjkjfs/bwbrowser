@@ -1637,7 +1637,30 @@
       "unassignAction": "Retirer",
       "saveAction": "Enregistrer",
       "savedChanges": "Modifications enregistrées",
-      "unassignedNoBrowsers": "Attribution retirée — les nouveaux lancements ne l'installeront plus"
+      "unassignedNoBrowsers": "Attribution retirée — les nouveaux lancements ne l'installeront plus",
+      "pickAccounts": "Comptes",
+      "accountsAll": "Tous les comptes",
+      "accountsCount": "{{n}} comptes",
+      "accountsLoading": "Chargement des comptes...",
+      "accountsEmpty": "Cet utilisateur n'a pas encore de comptes",
+      "accountsError": "Échec du chargement des comptes",
+      "accountsHint": "Avec un sous-ensemble sélectionné, l'extension ne s'applique qu'aux navigateurs de ces comptes",
+      "accountsTitle": "Comptes de {{name}}",
+      "accountsSearch": "Rechercher : ID téléphone / nom / identifiant",
+      "accountsDone": "Terminé",
+      "vpsLogin": "Connexion VPS (navigateur Baowenku)",
+      "accountsBatch": "Comptes par lot",
+      "accountsBatchTitle": "Sélection groupée des comptes de {{n}} utilisateurs",
+      "selectAllMatches": "Tout sélectionner",
+      "clearMatches": "Effacer les correspondances"
+    },
+    "copyAssign": {
+      "title": "Copier l'affectation depuis une autre extension",
+      "sourceLabel": "Extension source",
+      "confirm": "Copier",
+      "copying": "Copie...",
+      "success": "{{n}} affectations copiées",
+      "noSource": "L'extension source n'a aucune affectation à copier"
     }
   },
   "pro": {
@@ -2419,7 +2442,8 @@
     "aiAgentEmptyConversation": "La conversation est vide. Tapez d'abord une question.",
     "aiAgentProxyFailed": "La ligne proxy de l'assistant IA est indisponible : {{message}}",
     "aiAgentLlmFailed": "La requête au modèle de l'assistant IA a échoué : {{message}}",
-    "aiAgentProviderUnsupported": "L'assistant IA ne prend pas en charge ce fournisseur de modèles : {{message}}"
+    "aiAgentProviderUnsupported": "L'assistant IA ne prend pas en charge ce fournisseur de modèles : {{message}}",
+    "extensionAssignSameSource": "L'extension source et cible sont identiques"
   },
   "rail": {
     "cloudAccounts": "Comptes cloud",

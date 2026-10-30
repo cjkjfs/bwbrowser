@@ -25,6 +25,12 @@ pub struct ExtensionUserAssignment {
   pub extension_id: String,
   pub user_id: i64,
   pub assigned_at: u64,
+  /// 限定生效的云端账号 id（VPS 账号）；None/空 = 该用户名下全部账号（旧行为）
+  #[serde(default)]
+  pub account_ids: Option<Vec<i64>>,
+  /// 同时作用于 VPS 登录（爆文库）浏览器；账号不限定的绑定默认就含爆文库
+  #[serde(default)]
+  pub vps_login: Option<bool>,
 }
 
 /// 绑定存储：items + 全局编辑时间戳（last-write-wins 的依据）。
@@ -96,26 +102,33 @@ fn user_group_name(user_id: i64) -> String {
   format!("{AUTO_GROUP_PREFIX}{user_id}")
 }
 
-/// 该用户当前绑定的全部扩展 id。
-fn assigned_extension_ids(user_id: i64) -> Vec<String> {
-  load()
-    .iter()
-    .filter(|a| a.user_id == user_id)
-    .map(|a| a.extension_id.clone())
-    .collect()
+/// 账号限定的自动分组名：同一用户不同账号可有不同扩展集合。
+fn account_group_name(user_id: i64, account_id: i64) -> String {
+  format!("{AUTO_GROUP_PREFIX}{user_id}_acct_{account_id}")
 }
 
-/// 取（或建）该用户的自动分组，并把分组内容对齐到 `extension_ids`。
+/// 分组名是否属于该用户的自动分组（含账号限定分组）。
+fn is_user_auto_group(group_name: &str, user_id: i64) -> bool {
+  group_name == user_group_name(user_id)
+    || group_name.starts_with(&format!("{AUTO_GROUP_PREFIX}{user_id}_acct_"))
+}
+
+/// 取（或建）该用户（或其账号）的自动分组，并把分组内容对齐到 `extension_ids`。
 /// 返回分组 id。锁必须限制在块内（守卫非 Send）。
-fn sync_user_group(user_id: i64, extension_ids: Vec<String>) -> Result<String, String> {
+fn sync_user_group_for(
+  user_id: i64,
+  account_id: Option<i64>,
+  extension_ids: Vec<String>,
+) -> Result<String, String> {
+  let expected_name = match account_id {
+    Some(aid) => account_group_name(user_id, aid),
+    None => user_group_name(user_id),
+  };
   let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
   let groups = mgr
     .list_groups()
     .map_err(|e| format!("Failed to list extension groups: {e}"))?;
-  let existing = groups
-    .iter()
-    .find(|g| g.name == user_group_name(user_id))
-    .cloned();
+  let existing = groups.iter().find(|g| g.name == expected_name).cloned();
   match existing {
     Some(group) => {
       if group.extension_ids != extension_ids {
@@ -127,7 +140,7 @@ fn sync_user_group(user_id: i64, extension_ids: Vec<String>) -> Result<String, S
     }
     None => {
       let group = mgr
-        .create_group(user_group_name(user_id))
+        .create_group(expected_name)
         .map_err(|e| format!("{e}"))?;
       let group_id = group.id.clone();
       if !extension_ids.is_empty() {
@@ -152,20 +165,23 @@ fn is_auto_group(group_id: &str) -> bool {
 
 /// 浏览器创建/启动前调用：把归属人绑定的扩展分组写到 profile 上
 /// （不动手动分组）。owner_id 为 None（云端未返回归属人）时跳过。
+/// `account_id`：云端账号启动传 Some(账号 id)，账号限定的绑定只对
+/// 对应账号生效；None（爆文库等无账号上下文）时只有不限账号的绑定生效。
 pub fn apply_owner_assignments(
   owner_id: Option<i64>,
+  account_id: Option<i64>,
   profile_id: &str,
   current_group: Option<&str>,
 ) {
   let Some(owner_id) = owner_id else {
     return;
   };
-  let extension_ids = assigned_extension_ids(owner_id);
+  let extension_ids = assigned_extension_ids_for(owner_id, account_id);
   if extension_ids.is_empty() {
     // 已取消全部绑定：其他机器上跟随本用户自动分组的 profile 要摘掉分组，
     // 否则它会继续指向本机残留的自动分组、启动时照旧注入。
     if let Some(g) = current_group {
-      if is_auto_group(g) {
+      if is_user_auto_group(g, owner_id) {
         let pm = crate::profile::manager::ProfileManager::instance();
         if let Err(e) = pm.update_profile_extension_group(profile_id, None) {
           crate::bwbrowser_cloud::log_bwbrowser(
@@ -182,7 +198,7 @@ pub fn apply_owner_assignments(
     }
     return;
   }
-  let group_id = match sync_user_group(owner_id, extension_ids) {
+  let group_id = match sync_user_group_for(owner_id, account_id, extension_ids) {
     Ok(id) => id,
     Err(e) => {
       crate::bwbrowser_cloud::log_bwbrowser(
@@ -508,10 +524,206 @@ fn spawn_sync_after_change(extension_id: Option<String>) {
   });
 }
 
+/// 一次翻页拉全云端账号（服务端单页硬上限 200），建 owner_id → [(account_id, 约定 profile 名)]。
+async fn fetch_all_cloud_accounts(
+) -> Result<std::collections::HashMap<i64, Vec<(i64, String)>>, String> {
+  let mut map: std::collections::HashMap<i64, Vec<(i64, String)>> = Default::default();
+  let mut fetched_total = 0usize;
+  for page in 1.. {
+    let list = crate::bwbrowser_cloud::BWBROWSER_AUTH
+      .list_cloud_accounts(page, 200, None, None, None, None, None, None)
+      .await?;
+    let rows = list.accounts.unwrap_or_default();
+    let got = rows.len();
+    for a in rows {
+      let name = crate::bwbrowser_cloud::account_profile_name(&a.account_name, a.id).to_lowercase();
+      map
+        .entry(a.owner_id.unwrap_or(0))
+        .or_default()
+        .push((a.id, name));
+    }
+    fetched_total += got;
+    if got < 200 || list.total.is_some_and(|t| fetched_total >= t as usize) {
+      break;
+    }
+  }
+  Ok(map)
+}
+
+/// 单条绑定是否对 (user, account 上下文) 生效。
+fn assignment_applies(a: &ExtensionUserAssignment, user_id: i64, account_id: Option<i64>) -> bool {
+  if a.user_id != user_id {
+    return false;
+  }
+  match (&a.account_ids, account_id) {
+    (None, _) => true,
+    // 爆文库（无账号上下文）：不限账号的绑定始终生效；账号限定的绑定
+    // 只在显式勾选了「VPS 登录」时生效
+    (Some(_), None) => a.vps_login == Some(true),
+    (Some(list), Some(aid)) => list.contains(&aid),
+  }
+}
+
+/// 该用户在给定账号上下文下生效的扩展集合（去重），基于已加载的绑定条目。
+fn assigned_ids_from_items(
+  items: &[ExtensionUserAssignment],
+  user_id: i64,
+  account_id: Option<i64>,
+) -> Vec<String> {
+  let mut ids: std::collections::BTreeSet<String> = Default::default();
+  for a in items {
+    if assignment_applies(a, user_id, account_id) {
+      ids.insert(a.extension_id.clone());
+    }
+  }
+  ids.into_iter().collect()
+}
+
+/// 该用户在给定账号上下文下生效的扩展集合（每次从磁盘读绑定；单次调用用）。
+fn assigned_extension_ids_for(user_id: i64, account_id: Option<i64>) -> Vec<String> {
+  let items = load();
+  assigned_ids_from_items(&items, user_id, account_id)
+}
+
+/// 批量重算多个用户的本地 profile 分组。profile 列表与绑定文件整个批次
+/// 只读一次，每个账号上下文的扩展集合也算好缓存——之前逐用户逐 profile
+/// 重复读盘，多用户分配时 CPU 空转数分钟（卡死假象）。
+/// 返回每个用户 (applied, skipped, removed)。
+async fn reapply_users_profiles_bulk(
+  user_ids: &[i64],
+  account_map: &std::collections::HashMap<i64, Vec<(i64, String)>>,
+) -> std::collections::HashMap<i64, (u32, u32, u32)> {
+  let mut out: std::collections::HashMap<i64, (u32, u32, u32)> = Default::default();
+  if user_ids.is_empty() {
+    return out;
+  }
+  let items = load();
+  let pm = crate::profile::manager::ProfileManager::instance();
+  let profiles = pm.list_profiles().unwrap_or_default();
+  // 待落盘的变更 (profile_id, 目标分组, profile 快照)：批量结束后统一写盘
+  let mut changed_profiles: Vec<(String, Option<String>, crate::profile::BrowserProfile)> =
+    Vec::new();
+  crate::bwbrowser_cloud::log_bwbrowser(
+    "extension_user_assign",
+    &format!(
+      "重算 {} 个用户的 {} 个本地 profile（绑定 {} 条）",
+      user_ids.len(),
+      profiles.len(),
+      items.len()
+    ),
+  );
+  for user_id in user_ids {
+    let entries = account_map.get(user_id).cloned().unwrap_or_default();
+    let mut name_to_account: std::collections::HashMap<String, i64> = Default::default();
+    for (id, name) in &entries {
+      name_to_account.insert(name.clone(), *id);
+    }
+    // 账号上下文 → 生效扩展集合缓存（绑定文件只读一次）
+    let mut ext_cache: std::collections::HashMap<Option<i64>, Vec<String>> = Default::default();
+    let mut applied = 0u32;
+    let mut skipped = 0u32;
+    let mut removed = 0u32;
+    for profile in &profiles {
+      let pid = profile.id.to_string();
+      let account_id = name_to_account.get(&profile.name.to_lowercase()).copied();
+      let extension_ids = ext_cache
+        .entry(account_id)
+        .or_insert_with(|| assigned_ids_from_items(&items, *user_id, account_id))
+        .clone();
+      if extension_ids.is_empty() {
+        if let Some(g) = profile.extension_group_id.as_deref() {
+          if is_user_auto_group(g, *user_id) {
+            changed_profiles.push((pid, None, profile.clone()));
+            removed += 1;
+          }
+        }
+        continue;
+      }
+      let group_id = match sync_user_group_for(*user_id, account_id, extension_ids) {
+        Ok(id) => id,
+        Err(e) => {
+          crate::bwbrowser_cloud::log_bwbrowser_error(
+            "extension_user_assign",
+            &format!("同步用户 {user_id} 自动分组失败: {e}"),
+          );
+          continue;
+        }
+      };
+      let target = match profile.extension_group_id.as_deref() {
+        Some(g) if g == group_id => continue,          // 已是目标分组
+        Some(g) if is_auto_group(g) => Some(group_id), // 其他自动分组 → 覆盖
+        Some(_) => {
+          skipped += 1; // 手动分组不动
+          continue;
+        }
+        None => Some(group_id),
+      };
+      changed_profiles.push((pid, target, profile.clone()));
+      applied += 1;
+    }
+    crate::bwbrowser_cloud::log_bwbrowser(
+      "extension_user_assign",
+      &format!("用户 {user_id} 重算完成: 装 {applied}，跳过 {skipped}，清除 {removed}"),
+    );
+    out.insert(*user_id, (applied, skipped, removed));
+  }
+
+  // 统一落盘：update_profile_extension_group 内部每次都会重扫全库 profile
+  // 目录并逐条发事件，多用户批量时是上千次文件读 + 事件风暴（界面卡死）。
+  // 这里直接改手里的 profile 对象写盘，事件合并为批次结束各发一次。
+  let mut sync_groups: Vec<String> = Vec::new();
+  let mut saved = 0u32;
+  for (pid, group_id, mut profile) in changed_profiles {
+    profile.extension_group_id = group_id.clone();
+    profile.updated_at = Some(crate::proxy_manager::now_secs());
+    if let Err(e) = pm.save_profile(&profile) {
+      crate::bwbrowser_cloud::log_bwbrowser_error(
+        "extension_user_assign",
+        &format!("保存 profile {pid} 分组失败: {e}"),
+      );
+      continue;
+    }
+    crate::sync::queue_profile_sync_if_eligible(&profile);
+    if let Some(gid) = group_id {
+      if !sync_groups.contains(&gid) {
+        sync_groups.push(gid);
+      }
+    }
+    saved += 1;
+  }
+  if !sync_groups.is_empty() {
+    tauri::async_runtime::spawn(async move {
+      for gid in sync_groups {
+        let _ = crate::sync::enable_extension_group_sync_if_needed(&gid).await;
+        if let Some(scheduler) = crate::sync::get_global_scheduler() {
+          scheduler.queue_extension_group_sync(gid).await;
+        }
+      }
+    });
+  }
+  if saved > 0 {
+    let _ = crate::events::emit_empty("profiles-changed");
+  }
+  crate::bwbrowser_cloud::log_bwbrowser(
+    "extension_user_assign",
+    &format!("批量重算落盘完成: 更新 {saved} 个 profile"),
+  );
+  out
+}
+
+/// 单用户重算（单账号分配/解绑路径用）。
+async fn reapply_user_profiles(user_id: i64) -> Result<(u32, u32, u32), String> {
+  let map = fetch_all_cloud_accounts().await?;
+  let out = reapply_users_profiles_bulk(&[user_id], &map).await;
+  Ok(out.get(&user_id).copied().unwrap_or((0, 0, 0)))
+}
+
 #[tauri::command]
 pub async fn assign_extension_to_user(
   extension_id: String,
   user_id: i64,
+  account_ids: Option<Vec<i64>>,
+  vps_login: Option<bool>,
 ) -> Result<serde_json::Value, String> {
   {
     let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
@@ -521,52 +733,24 @@ pub async fn assign_extension_to_user(
   }
 
   let mut store = load_store();
-  if !store
+  store
     .items
-    .iter()
-    .any(|a| a.extension_id == extension_id && a.user_id == user_id)
-  {
-    store.items.push(ExtensionUserAssignment {
-      extension_id: extension_id.clone(),
-      user_id,
-      assigned_at: crate::proxy_manager::now_secs(),
-    });
-    store.updated_at = crate::proxy_manager::now_secs();
-    persist_store(&store)?;
-  }
+    .retain(|a| !(a.extension_id == extension_id && a.user_id == user_id));
+  store.items.push(ExtensionUserAssignment {
+    extension_id: extension_id.clone(),
+    user_id,
+    assigned_at: crate::proxy_manager::now_secs(),
+    account_ids,
+    vps_login,
+  });
+  store.updated_at = crate::proxy_manager::now_secs();
+  persist_store(&store)?;
 
-  let extension_ids = assigned_extension_ids(user_id);
-  let group_id = sync_user_group(user_id, extension_ids)?;
-
-  let profile_ids = crate::bwbrowser_cloud::owner_profile_ids(user_id).await?;
-  let pm = crate::profile::manager::ProfileManager::instance();
-  let profiles = pm.list_profiles().unwrap_or_default();
-  let wanted: std::collections::HashSet<&str> = profile_ids.iter().map(|s| s.as_str()).collect();
-
-  let mut assigned = 0u32;
-  let mut skipped = 0u32;
-  for profile in &profiles {
-    let pid = profile.id.to_string();
-    if !wanted.contains(pid.as_str()) {
-      continue;
-    }
-    match profile.extension_group_id.as_deref() {
-      Some(g) if g == group_id => continue, // 已是该分组
-      Some(g) if is_auto_group(g) => {}     // 其他自动分组 → 覆盖
-      Some(_) => {
-        skipped += 1; // 手动分组不动
-        continue;
-      }
-      None => {}
-    }
-    pm.update_profile_extension_group(&pid, Some(group_id.clone()))
-      .map_err(|e| format!("Failed to assign extension group: {e}"))?;
-    assigned += 1;
-  }
+  let (applied, skipped, _removed) = reapply_user_profiles(user_id).await?;
 
   spawn_sync_after_change(Some(extension_id));
 
-  Ok(serde_json::json!({ "assigned": assigned, "skipped": skipped }))
+  Ok(serde_json::json!({ "assigned": applied, "skipped": skipped }))
 }
 
 #[tauri::command]
@@ -584,35 +768,153 @@ pub async fn unassign_extension_from_user(
     persist_store(&store)?;
   }
 
-  let extension_ids = assigned_extension_ids(user_id);
-  let group_id = sync_user_group(user_id, extension_ids)?;
-
-  let profile_ids = crate::bwbrowser_cloud::owner_profile_ids(user_id).await?;
-  let pm = crate::profile::manager::ProfileManager::instance();
-  let profiles = pm.list_profiles().unwrap_or_default();
-  let wanted: std::collections::HashSet<&str> = profile_ids.iter().map(|s| s.as_str()).collect();
-
-  let mut removed = 0u32;
-  for profile in &profiles {
-    let pid = profile.id.to_string();
-    if !wanted.contains(pid.as_str()) {
-      continue;
-    }
-    if profile.extension_group_id.as_deref() == Some(group_id.as_str()) {
-      pm.update_profile_extension_group(&pid, None)
-        .map_err(|e| format!("Failed to clear extension group: {e}"))?;
-      removed += 1;
-    }
-  }
+  let (_applied, _skipped, removed) = reapply_user_profiles(user_id).await?;
 
   spawn_sync_after_change(None);
 
   Ok(serde_json::json!({ "removed": removed }))
 }
 
+/// 批量绑定/解绑：一次拉全云端账号、逐用户本地重算、最后只同步一次公司 KV。
+/// 多用户分配走这里，避免前端逐个串行 invoke 造成多次网络往返（界面假死）。
+/// 嵌套结构体字段 serde 按原名反序列化，需显式驼峰别名匹配前端 invoke 参数。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkAssignTarget {
+  pub user_id: i64,
+  #[serde(default)]
+  pub account_ids: Option<Vec<i64>>,
+  #[serde(default)]
+  pub vps_login: Option<bool>,
+}
+
+#[tauri::command]
+pub async fn assign_extension_to_users_bulk(
+  extension_id: String,
+  to_assign: Vec<BulkAssignTarget>,
+  to_unassign: Vec<i64>,
+) -> Result<serde_json::Value, String> {
+  {
+    let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
+    if mgr.get_extension(&extension_id).is_err() {
+      return Err(serde_json::json!({ "code": "EXTENSION_NOT_FOUND" }).to_string());
+    }
+  }
+  if to_assign.is_empty() && to_unassign.is_empty() {
+    return Ok(serde_json::json!({ "assigned": 0, "skipped": 0, "removed": 0 }));
+  }
+  crate::bwbrowser_cloud::log_bwbrowser(
+    "extension_user_assign",
+    &format!(
+      "批量绑定 {extension_id}: 绑定 {} 个用户，解绑 {} 个",
+      to_assign.len(),
+      to_unassign.len()
+    ),
+  );
+
+  let mut store = load_store();
+  store.items.retain(|a| {
+    !(a.extension_id == extension_id
+      && (to_assign.iter().any(|t| t.user_id == a.user_id) || to_unassign.contains(&a.user_id)))
+  });
+  let now = crate::proxy_manager::now_secs();
+  for t in &to_assign {
+    store.items.push(ExtensionUserAssignment {
+      extension_id: extension_id.clone(),
+      user_id: t.user_id,
+      assigned_at: now,
+      account_ids: t.account_ids.clone(),
+      vps_login: t.vps_login,
+    });
+  }
+  store.updated_at = now;
+  persist_store(&store)?;
+
+  let account_map = fetch_all_cloud_accounts().await.map_err(|e| {
+    crate::bwbrowser_cloud::log_bwbrowser_error(
+      "extension_user_assign",
+      &format!("批量绑定拉取云端账号失败: {e}"),
+    );
+    e
+  })?;
+  let mut user_ids: Vec<i64> = to_assign.iter().map(|t| t.user_id).collect();
+  user_ids.extend(to_unassign.iter().copied());
+  let results = reapply_users_profiles_bulk(&user_ids, &account_map).await;
+  let mut assigned = 0u32;
+  let mut skipped = 0u32;
+  let mut removed = 0u32;
+  for t in &to_assign {
+    let (n, s, _) = results.get(&t.user_id).copied().unwrap_or((0, 0, 0));
+    assigned += n;
+    skipped += s;
+  }
+  for uid in &to_unassign {
+    let (_, _, r) = results.get(uid).copied().unwrap_or((0, 0, 0));
+    removed += r;
+  }
+
+  spawn_sync_after_change(Some(extension_id));
+
+  Ok(serde_json::json!({ "assigned": assigned, "skipped": skipped, "removed": removed }))
+}
+
 #[tauri::command]
 pub fn list_extension_user_assignments() -> Result<Vec<ExtensionUserAssignment>, String> {
   Ok(load())
+}
+
+/// 把 from 扩展的用户/账号范围绑定整份复制给 to 扩展（覆盖 to 的现有绑定），
+/// 并对涉及的每个用户重算本地 profile 分组。
+#[tauri::command]
+pub async fn copy_extension_assignments(
+  from_extension_id: String,
+  to_extension_id: String,
+) -> Result<serde_json::Value, String> {
+  if from_extension_id == to_extension_id {
+    return Err(serde_json::json!({ "code": "EXTENSION_ASSIGN_SAME_SOURCE" }).to_string());
+  }
+  {
+    let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
+    for id in [&from_extension_id, &to_extension_id] {
+      if mgr.get_extension(id).is_err() {
+        return Err(serde_json::json!({ "code": "EXTENSION_NOT_FOUND" }).to_string());
+      }
+    }
+  }
+
+  let mut store = load_store();
+  let source: Vec<ExtensionUserAssignment> = store
+    .items
+    .iter()
+    .filter(|a| a.extension_id == from_extension_id)
+    .cloned()
+    .collect();
+  // 复制即覆盖：to 的旧绑定全部替换为 from 的副本
+  store.items.retain(|a| a.extension_id != to_extension_id);
+  let now = crate::proxy_manager::now_secs();
+  for a in &source {
+    store.items.push(ExtensionUserAssignment {
+      extension_id: to_extension_id.clone(),
+      user_id: a.user_id,
+      assigned_at: now,
+      account_ids: a.account_ids.clone(),
+      vps_login: a.vps_login,
+    });
+  }
+  store.updated_at = now;
+  persist_store(&store)?;
+
+  let users: Vec<i64> = source.iter().map(|a| a.user_id).collect();
+  let mut assigned = 0u32;
+  let account_map = fetch_all_cloud_accounts().await?;
+  let results = reapply_users_profiles_bulk(&users, &account_map).await;
+  for n in results.values() {
+    assigned += n.0;
+  }
+
+  spawn_sync_after_change(Some(to_extension_id));
+
+  Ok(serde_json::json!({ "copied": source.len(), "assigned": assigned }))
 }
 
 #[cfg(test)]
@@ -627,6 +929,8 @@ mod tests {
         extension_id: "e1".into(),
         user_id: 7,
         assigned_at: 1000,
+        account_ids: None,
+        vps_login: None,
       }],
     };
     let json = serde_json::to_string(&store).unwrap();

@@ -1637,7 +1637,30 @@
       "unassignAction": "Quitar asignación",
       "saveAction": "Guardar cambios",
       "savedChanges": "Cambios guardados",
-      "unassignedNoBrowsers": "Asignación retirada — las nuevas aperturas ya no lo instalarán"
+      "unassignedNoBrowsers": "Asignación retirada — las nuevas aperturas ya no lo instalarán",
+      "pickAccounts": "Cuentas",
+      "accountsAll": "Todas las cuentas",
+      "accountsCount": "{{n}} cuentas",
+      "accountsLoading": "Cargando cuentas...",
+      "accountsEmpty": "Este usuario aún no tiene cuentas",
+      "accountsError": "Error al cargar las cuentas",
+      "accountsHint": "Con un subconjunto seleccionado, la extensión solo se aplica a los navegadores de esas cuentas",
+      "accountsTitle": "Cuentas de {{name}}",
+      "accountsSearch": "Buscar: ID de teléfono / nombre / cuenta de acceso",
+      "accountsDone": "Listo",
+      "vpsLogin": "Inicio de sesión VPS (navegador Baowenku)",
+      "accountsBatch": "Cuentas en lote",
+      "accountsBatchTitle": "Seleccionar cuentas en lote para {{n}} usuarios",
+      "selectAllMatches": "Seleccionar coincidencias",
+      "clearMatches": "Quitar coincidencias"
+    },
+    "copyAssign": {
+      "title": "Copiar asignación de otra extensión",
+      "sourceLabel": "Extensión de origen",
+      "confirm": "Copiar",
+      "copying": "Copiando...",
+      "success": "Se copiaron {{n}} asignaciones",
+      "noSource": "La extensión de origen no tiene asignaciones para copiar"
     }
   },
   "pro": {
@@ -2419,7 +2442,8 @@
     "aiAgentEmptyConversation": "La conversación está vacía. Escribe una pregunta primero.",
     "aiAgentProxyFailed": "La línea de proxy del asistente de IA no está disponible: {{message}}",
     "aiAgentLlmFailed": "La solicitud al modelo del asistente de IA falló: {{message}}",
-    "aiAgentProviderUnsupported": "El asistente de IA no es compatible con este proveedor de modelos: {{message}}"
+    "aiAgentProviderUnsupported": "El asistente de IA no es compatible con este proveedor de modelos: {{message}}",
+    "extensionAssignSameSource": "La extensión de origen y destino son la misma"
   },
   "rail": {
     "cloudAccounts": "Cuentas en la nube",

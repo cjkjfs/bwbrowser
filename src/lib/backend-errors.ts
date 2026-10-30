@@ -36,6 +36,7 @@ export type BackendErrorCode =
   | "WAYFERN_VERSION_NOT_AVAILABLE"
   | "VPN_NOT_FOUND"
   | "EXTENSION_NOT_FOUND"
+  | "EXTENSION_ASSIGN_SAME_SOURCE"
   | "EXTENSION_GROUP_NOT_FOUND"
   | "EXTENSION_UNSUPPORTED_FILE_TYPE"
   | "EXTENSION_DIR_NOT_FOUND"
@@ -417,6 +418,8 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       return t("backendErrors.vpnNotFound");
     case "EXTENSION_NOT_FOUND":
       return t("backendErrors.extensionNotFound");
+    case "EXTENSION_ASSIGN_SAME_SOURCE":
+      return t("backendErrors.extensionAssignSameSource");
     case "EXTENSION_GROUP_NOT_FOUND":
       return t("backendErrors.extensionGroupNotFound");
     case "EXTENSION_UNSUPPORTED_FILE_TYPE":
