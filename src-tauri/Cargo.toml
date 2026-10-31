@@ -27,14 +27,14 @@ required-features = ["sidecar"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-resvg = "0.48"
+resvg = "0.49"
 
 [dependencies]
-hmac = "0.12"
-sha1 = "0.10"
+hmac = "0.13"
+sha1 = "0.11"
 serde_json = "1"
 # Runtime as well as build time: the per-profile window badge is rendered at launch.
-resvg = "0.48"
+resvg = "0.49"
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
@@ -122,7 +122,7 @@ async-socks5 = "0.6"
 
 # Wayfern CDP integration
 tokio-tungstenite = { version = "0.30", features = ["native-tls"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 serde_yaml = "0.9"
 thiserror = "2.0"
 regex-lite = "0.1"
@@ -155,7 +155,7 @@ rig-agent = { version = "0.45", default-features = false }
 rig-reqwest = { version = "0.45", default-features = false, features = ["native-tls"] }
 # AI 助手的 VPS 工具（vps_exec）：用户在对话里提供连接信息后执行远程命令。
 # ring 后端避开 aws-lc-rs 的 CMake/NASM 构建依赖。
-russh = { version = "0.64", default-features = false, features = ["ring", "flate2", "rsa"] }
+russh = { version = "0.65", default-features = false, features = ["ring", "flate2", "rsa"] }
 openh264 = "0.9.9"
 
 [target.'cfg(unix)'.dependencies]
