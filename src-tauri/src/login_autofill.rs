@@ -44,6 +44,7 @@ fn active_watchers() -> &'static Mutex<HashSet<String>> {
 fn autofill_script(
   credentials: &LoginCredentials,
   plans: &[crate::bwbrowser_cloud::AutofillPlan],
+  totp: &str,
 ) -> String {
   include_str!("../assets/login_autofill.js")
     .replace(
@@ -53,6 +54,12 @@ fn autofill_script(
     .replace(
       "__PASSWORD__",
       &serde_json::to_string(&credentials.password).unwrap_or_else(|_| "\"\"".to_string()),
+    )
+    // 每次轮询重新生成：脚本里 2FA 字段的值变了才会重输，30 秒窗口刷新
+    // 后自动用最新验证码覆盖未提交的旧码
+    .replace(
+      "__TOTP__",
+      &serde_json::to_string(totp).unwrap_or_else(|_| "\"\"".to_string()),
     )
     .replace(
       "__AUTOFILL_PLANS__",
@@ -87,6 +94,9 @@ pub async fn watch_profile(profile_id: &str) {
   // probe — Google often re-renders the same page and we must not retype over
   // what the user typed by hand, nor append a duplicate.
   let mut filled_once: HashSet<String> = HashSet::new();
+  // 2FA 最近一次输入的验证码（DOM 回退路径用）：验证码随 30 秒窗口变化，
+  // 变了就重新输入，覆盖还没提交的旧码
+  let mut last_2fa_code: Option<String> = None;
   let outcome = loop {
     // The accounts toolbar switch. Reading it every poll both keeps a fresh
     // watcher from starting while off and stops a running one the moment the
@@ -165,15 +175,22 @@ pub async fn watch_profile(profile_id: &str) {
     // 每个轮询周期解析一次自动填表方案：内部带 TTL 缓存，服务端改选择器最多 5 分钟生效。
     let plans = crate::bwbrowser_cloud::autofill_plans().await;
 
+    let totp = credentials
+      .totp_secret
+      .as_deref()
+      .and_then(crate::totp::generate_totp)
+      .unwrap_or_default();
     match probe_pages(
       port,
-      &autofill_script(credentials, &plans),
+      &autofill_script(credentials, &plans, &totp),
       &credentials.email,
       &credentials.password,
       &profile.name,
       profile_id,
       &mut filled_once,
       &plans,
+      &totp,
+      &mut last_2fa_code,
     )
     .await
     {
@@ -224,6 +241,8 @@ async fn probe_pages(
   profile_id: &str,
   filled_once: &mut HashSet<String>,
   plans: &[crate::bwbrowser_cloud::AutofillPlan],
+  totp: &str,
+  last_2fa_code: &mut Option<String>,
 ) -> ProbeResult {
   let listing = format!("http://127.0.0.1:{port}/json");
   let targets: Vec<serde_json::Value> = {
@@ -275,7 +294,18 @@ async fn probe_pages(
     };
     saw_page = true;
 
-    match probe_page(ws_url, script, email, password, filled_once, plans).await {
+    match probe_page(
+      ws_url,
+      script,
+      email,
+      password,
+      filled_once,
+      plans,
+      totp,
+      last_2fa_code,
+    )
+    .await
+    {
       Ok(verdict) if verdict.starts_with("filled:") && !verdict.contains("nothing") => {
         let url_short = &url[..url.len().min(120)];
         crate::bwbrowser_cloud::log_bwbrowser(
@@ -333,6 +363,7 @@ async fn probe_pages(
 /// free plan; the same gate leaves the DOM + Input domains open (cookie sync's
 /// login check already relies on that). When the script's transport is refused,
 /// fall back to `DOM.getDocument` + `DOM.querySelector` + `Input.insertText`.
+#[allow(clippy::too_many_arguments)]
 async fn probe_page(
   ws_url: &str,
   script: &str,
@@ -340,6 +371,8 @@ async fn probe_page(
   password: &str,
   filled_once: &mut HashSet<String>,
   plans: &[crate::bwbrowser_cloud::AutofillPlan],
+  totp: &str,
+  last_2fa_code: &mut Option<String>,
 ) -> Result<String, String> {
   let target = CdpTarget::Local {
     ws_url: ws_url.to_string(),
@@ -377,7 +410,16 @@ async fn probe_page(
         "autofill",
         &format!("Runtime.evaluate 受限（{err_str}），改用 DOM 域填充"),
       );
-      probe_page_dom(&target, email, password, filled_once, plans).await
+      probe_page_dom(
+        &target,
+        email,
+        password,
+        filled_once,
+        plans,
+        totp,
+        last_2fa_code,
+      )
+      .await
     }
   }
 }
@@ -388,12 +430,15 @@ async fn probe_page(
 /// nodeId is scoped to one connection, so `getDocument`, every `querySelector`
 /// and the type-into calls share a single connection. Returns the same
 /// "filled:..." / "skip:not-signin" verdicts the scripted probe produces.
+#[allow(clippy::too_many_arguments)]
 async fn probe_page_dom(
   target: &CdpTarget,
   email: &str,
   password: &str,
   filled_once: &mut HashSet<String>,
   plans: &[crate::bwbrowser_cloud::AutofillPlan],
+  totp: &str,
+  last_2fa_code: &mut Option<String>,
 ) -> Result<String, String> {
   let mut conn = target.connect().await.map_err(|e| e.to_string())?;
   let doc = match conn
@@ -416,6 +461,12 @@ async fn probe_page_dom(
     conn.close().await;
     return Ok("skip:not-signin".to_string());
   };
+  let two_fa_selectors: Vec<&str> = plan
+    .steps
+    .iter()
+    .filter(|s| s.role == "2fa")
+    .flat_map(|s| s.selectors.iter().map(String::as_str))
+    .collect();
   let email_selectors: Vec<&str> = plan
     .steps
     .iter()
@@ -453,6 +504,24 @@ async fn probe_page_dom(
   let password_key = format!("{url}|password");
 
   if is_challenge {
+    // 2FA 步骤优先：有密钥就输入/刷新当前验证码（验证码变了即重输，
+    // 覆盖尚未提交的旧码）；Google 的 TOTP 页没有密码框，密码步自然跳过
+    if !totp.is_empty() && !two_fa_selectors.is_empty() {
+      if last_2fa_code.as_deref() == Some(totp) {
+        skipped.push("2fa-already-typed".to_string());
+      } else {
+        match find_and_fill(&mut conn, &mut cmd_id, root_id, &two_fa_selectors, totp).await {
+          FillOutcome::Filled => {
+            filled.push("2fa".to_string());
+          }
+          FillOutcome::AlreadyFilled => {
+            // 字段里已是这个码（可能由脚本路径写入）
+          }
+          FillOutcome::NotFound | FillOutcome::Failed => skipped.push("no-2fa-field".to_string()),
+        }
+        *last_2fa_code = Some(totp.to_string());
+      }
+    }
     if filled_once.contains(&password_key) {
       skipped.push("password-already-filled".to_string());
     } else {
@@ -536,6 +605,24 @@ async fn find_and_fill(
     };
     *cmd_id += 1;
     if node_id == 0 {
+      continue;
+    }
+    // 可见性校验：Google 登录页藏着别步骤的输入框（如 identifier 页里的
+    // 隐藏 password 框），页面切换的瞬间可能先被匹配到——不渲染的框
+    // 没有盒模型，跳过它继续找下一个选择器，避免把值打进看不见的框。
+    let visible = match conn
+      .call(
+        *cmd_id,
+        "DOM.getBoxModel",
+        serde_json::json!({ "nodeId": node_id }),
+      )
+      .await
+    {
+      Ok(box_result) => box_result.get("model").is_some(),
+      Err(_) => false,
+    };
+    *cmd_id += 1;
+    if !visible {
       continue;
     }
     return match type_into_field(conn, cmd_id, node_id, value).await {

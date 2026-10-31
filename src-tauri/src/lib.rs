@@ -105,6 +105,7 @@ mod settings_manager;
 pub mod socks5_local;
 pub mod sync;
 mod synchronizer;
+mod totp;
 pub mod traffic_stats;
 mod wayfern_cdp;
 mod wayfern_manager;

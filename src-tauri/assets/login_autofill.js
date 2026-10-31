@@ -9,14 +9,21 @@
   const PLANS = __AUTOFILL_PLANS__;
   const EMAIL = __EMAIL__;
   const PASSWORD = __PASSWORD__;
+  // 当前 30 秒窗口的 TOTP 验证码（watcher 每次轮询重新生成）：
+  // 值随窗口变化，fillField 检测到字段里的旧码不同就会自动重输
+  const TOTP = __TOTP__;
 
   const host = location.hostname.toLowerCase();
   const path = location.pathname.toLowerCase();
 
-  const ROLES = { email: EMAIL, password: PASSWORD };
+  const ROLES = { email: EMAIL, password: PASSWORD, "2fa": TOTP };
 
   function fillField(el, value) {
     if (!el || el.disabled) return false;
+    // 隐藏/未渲染的输入框（页面切换瞬间残留的别步骤字段）不输入
+    if (el.offsetParent === null && el.getClientRects().length === 0) {
+      return false;
+    }
     if (el.value === value) return false;
     // React-style controlled inputs ignore plain assignment; the native
     // prototype setter plus a bubbled input event is what they listen to.

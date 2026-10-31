@@ -28,6 +28,10 @@ pub enum SyncMode {
 pub struct LoginCredentials {
   pub email: String,
   pub password: String,
+  /// 2FA 的 base32 密钥（来自云端账号 safe_link 的 secret 参数）；
+  /// 登录自动填表在 2FA 步骤用它在每次窗口刷新后输入最新验证码
+  #[serde(default)]
+  pub totp_secret: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

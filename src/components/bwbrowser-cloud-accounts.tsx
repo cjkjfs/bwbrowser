@@ -294,6 +294,26 @@ function usageOwnerNames(
   return [...owners].join("、");
 }
 
+// 从代理设置生成写入账号 proxy_node 的节点串（与设置代理保存逻辑一致）：
+// vless/trojan 用完整 URI；其余 type:host:port[:user:pass]
+function proxyNodeStringFromSettings(ps: {
+  proxy_type: string;
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+  vless_uri?: string;
+}): string {
+  const proxyType = ps.proxy_type || "http";
+  if (proxyType === "vless" || proxyType === "trojan") {
+    return ps.vless_uri || "";
+  }
+  if (ps.username && ps.password) {
+    return `${proxyType}:${ps.host}:${ps.port}:${ps.username}:${ps.password}`;
+  }
+  return `${proxyType}:${ps.host}:${ps.port}`;
+}
+
 // 账号表 proxy_node 有新旧两种格式（type:host:port[:user:pass] 与旧 host:port），
 // 统一提取 host:port 作为匹配 key；vless/trojan/ss 按 URI 全串匹配
 function proxyNodeKey(pn: string): string {
@@ -1844,6 +1864,125 @@ export function BwbrowserCloudAccountsDialog({
 
     await applyProxyNode(proxyNode);
   }, [proxyDialogTargets, selectedProxyId, cloudProxyOptions, refresh]);
+
+  // 编辑云端节点：修改后把绑定旧节点的账号自动切换到新节点
+  const [editCloudProxy, setEditCloudProxy] = useState<StoredProxy | null>(
+    null,
+  );
+  const [isSavingEditProxy, setIsSavingEditProxy] = useState(false);
+  const handleEditCloudProxySave = useCallback(
+    async (payload: {
+      name: string;
+      proxySettings: {
+        proxy_type: string;
+        host: string;
+        port: number;
+        username?: string;
+        password?: string;
+        vless_uri?: string;
+      };
+    }) => {
+      const target = editCloudProxy;
+      if (!target) return;
+      const numericId = Number(target.id.replace(/^bwbrowser_/, "")) || null;
+      const isUriType =
+        payload.proxySettings.proxy_type === "vless" ||
+        payload.proxySettings.proxy_type === "trojan";
+      setIsSavingEditProxy(true);
+      try {
+        await invoke("bwbrowser_sync_proxy", {
+          proxyId: numericId,
+          proxyName: payload.name,
+          proxyType: payload.proxySettings.proxy_type,
+          host: payload.proxySettings.host,
+          port: payload.proxySettings.port,
+          username: payload.proxySettings.username ?? null,
+          password: payload.proxySettings.password ?? null,
+          country: null,
+          city: null,
+          timezone: null,
+          protocolConfig: isUriType
+            ? (payload.proxySettings.vless_uri ?? null)
+            : null,
+        });
+
+        const oldNode = proxyNodeStringFromSettings(target.proxy_settings);
+        const newNode = isUriType
+          ? (payload.proxySettings.vless_uri ?? "")
+          : proxyNodeStringFromSettings(payload.proxySettings);
+        const oldKey = proxyNodeKey(oldNode);
+        const newKey = proxyNodeKey(newNode);
+
+        let switched = 0;
+        const failed: string[] = [];
+        if (oldKey && newKey && oldKey !== newKey) {
+          // 翻页拉全量账号，找绑定旧节点的账号逐个切到新节点串
+          const all: BwbrowserAccount[] = [];
+          for (let pg = 1; ; pg++) {
+            const result = await invoke<{
+              accounts: BwbrowserAccount[];
+              total?: number;
+            }>("bwbrowser_list_accounts", {
+              page: pg,
+              pageSize: 200,
+              platform: null,
+              keyword: null,
+              ownerId: null,
+              companyId: selectedCompanyId ?? null,
+              sortBy: null,
+              sortOrder: null,
+            });
+            const rows = result.accounts ?? [];
+            all.push(...rows);
+            if (
+              rows.length < 200 ||
+              (result.total != null && all.length >= result.total)
+            ) {
+              break;
+            }
+          }
+          const boundTargets = all.filter((a) => {
+            const k = proxyNodeKey(a.proxy_node || "");
+            return k !== "" && k === oldKey;
+          });
+          for (const t of boundTargets) {
+            try {
+              await invoke("bwbrowser_update_account_proxy", {
+                accountId: t.id,
+                accountName: t.account_name,
+                proxyNode: newNode,
+              });
+              switched += 1;
+            } catch {
+              failed.push(t.account_name || String(t.id));
+            }
+          }
+        }
+
+        if (failed.length === 0) {
+          showSuccessToast(
+            switched > 0
+              ? `节点已更新，${switched} 个绑定账号已切换到新节点`
+              : "节点已更新",
+          );
+        } else {
+          showErrorToast(
+            `节点已更新，但 ${failed.length} 个账号切换失败：${failed
+              .slice(0, 3)
+              .join("；")}${failed.length > 3 ? "…" : ""}`,
+          );
+        }
+        setEditCloudProxy(null);
+        void refreshCloudProxyList();
+        void refresh();
+      } catch (err) {
+        showErrorToast(`节点保存失败: ${translateBackendError(t, err)}`);
+      } finally {
+        setIsSavingEditProxy(false);
+      }
+    },
+    [editCloudProxy, selectedCompanyId, refresh, refreshCloudProxyList, t],
+  );
 
   // 批量清除代理：不开弹窗，直接逐个账号置为直连
   const handleBatchClearProxy = useCallback(
@@ -4565,6 +4704,19 @@ export function BwbrowserCloudAccountsDialog({
                         {proxy.is_cloud_managed && (
                           <button
                             type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditCloudProxy(proxy);
+                            }}
+                            title="编辑该节点（绑定的账号自动切换到新节点）"
+                            className="mr-1 inline-flex items-center text-[11px] text-muted-foreground hover:text-foreground"
+                          >
+                            <LuPencil className="h-3 w-3" />
+                          </button>
+                        )}
+                        {proxy.is_cloud_managed && (
+                          <button
+                            type="button"
                             onClick={async (e) => {
                               e.stopPropagation();
                               const numericId = Number(
@@ -4678,6 +4830,16 @@ export function BwbrowserCloudAccountsDialog({
       onClose={() => setCreateProxyDialogOpen(false)}
       onSave={handleCreateCloudProxy}
       saveLabel="创建到云端"
+    />
+  );
+
+  const editCloudProxyDialog = (
+    <ProxyFormDialog
+      isOpen={editCloudProxy !== null}
+      editingProxy={editCloudProxy}
+      onClose={() => setEditCloudProxy(null)}
+      onSave={handleEditCloudProxySave}
+      saveLabel={isSavingEditProxy ? "保存并切换中..." : "保存并切换绑定账号"}
     />
   );
 
@@ -6099,6 +6261,8 @@ export function BwbrowserCloudAccountsDialog({
         {ownerDialog}
         {remarkDialog}
         {createProxyDialog}
+        {editCloudProxyDialog}
+        {editCloudProxyDialog}
         {vpsProxyDialog}
         {envDialog}
         {boundEnvDialog}

@@ -7845,10 +7845,25 @@ async fn launch_account_impl(
   {
     let pm = crate::profile::manager::ProfileManager::instance();
     let server_credentials = match BWBROWSER_AUTH.get_account_detail(account_id).await {
-      Ok(detail) => detail
-        .login_account
-        .filter(|s| !s.trim().is_empty())
-        .zip(detail.login_password.filter(|s| !s.trim().is_empty())),
+      Ok(detail) => {
+        // 2FA 密钥：账号 safe_link 两种格式——
+        //   URL 形如 https://yacm.xin/tk/2fa.php?secret=BASE32（取 secret 参数）
+        //   裸 base32 密钥串（如 rvisaqk4...，直接使用）
+        let totp_secret = detail.safe_link.as_deref().and_then(|link| {
+          let link = link.trim();
+          if let Some(rest) = link.split("secret=").nth(1) {
+            let v = rest.split('&').next().unwrap_or("").trim().to_string();
+            return (!v.is_empty()).then_some(v);
+          }
+          let looks_base32 = link.len() >= 16 && link.chars().all(|c| c.is_ascii_alphanumeric());
+          looks_base32.then(|| link.to_uppercase())
+        });
+        detail
+          .login_account
+          .filter(|s| !s.trim().is_empty())
+          .zip(detail.login_password.filter(|s| !s.trim().is_empty()))
+          .map(|(email, password)| (email, password, totp_secret))
+      }
       Err(e) => {
         log_bwbrowser_error(
           "launch_account",
@@ -7857,7 +7872,7 @@ async fn launch_account_impl(
         None
       }
     };
-    if let Some((login_email, login_pwd)) = server_credentials {
+    if let Some((login_email, login_pwd, totp_secret)) = server_credentials {
       log_bwbrowser(
         "launch_account",
         &format!(
@@ -7871,6 +7886,7 @@ async fn launch_account_impl(
         Some(crate::profile::types::LoginCredentials {
           email: login_email.clone(),
           password: login_pwd.clone(),
+          totp_secret: totp_secret.clone(),
         }),
       ) {
         Ok(updated) => {
@@ -7883,6 +7899,7 @@ async fn launch_account_impl(
             profile.login_credentials = Some(crate::profile::types::LoginCredentials {
               email: login_email.clone(),
               password: login_pwd.clone(),
+              totp_secret: totp_secret.clone(),
             });
           }
         }
@@ -8602,6 +8619,17 @@ fn builtin_autofill_plan() -> AutofillPlan {
         selectors: vec![
           "input[name=\"Passwd\"]".into(),
           "input[type=\"password\"]:not([name=\"ca\"])".into(),
+        ],
+      },
+      // 2FA（TOTP）步骤：profile 凭据带 totp_secret 时自动输入当前验证码，
+      // 验证码窗口刷新后自动重输；无密钥时此步跳过
+      AutofillStep {
+        role: "2fa".into(),
+        selectors: vec![
+          "#totpPin".into(),
+          "input[name=\"totpPin\"]".into(),
+          "input[id=\"totpPin\"]".into(),
+          "input[type=\"tel\"][autocomplete=\"one-time-code\"]".into(),
         ],
       },
     ],

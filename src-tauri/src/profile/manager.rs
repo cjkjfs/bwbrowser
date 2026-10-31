@@ -2322,7 +2322,11 @@ pub fn update_profile_login_credentials(
     .update_profile_login_credentials(
       &app_handle,
       &profile_id,
-      Some(LoginCredentials { email, password }),
+      Some(LoginCredentials {
+        email,
+        password,
+        totp_secret: None,
+      }),
     )
     .map_err(crate::profile_importer::error_to_code_string)?;
 
