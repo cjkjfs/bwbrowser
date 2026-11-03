@@ -77,6 +77,8 @@ struct SessionCtx {
   h264_ok: bool,
   /// 下一帧强制 IDR（viewer 新接入/重新开始推流）
   force_key: bool,
+  /// 累计成功发送的帧数（排障：区分「没进推流」还是「推了但 viewer 渲染不出」）
+  frames_sent: u64,
 }
 
 impl SessionCtx {
@@ -97,6 +99,7 @@ impl SessionCtx {
       last_poll: None,
       h264_ok: true,
       force_key: true,
+      frames_sent: 0,
     }
   }
 
@@ -112,6 +115,7 @@ impl SessionCtx {
       ClientCommand::Auth { password } => {
         if *password == self.password {
           self.authed = true;
+          crate::remote_agent::log_remote_file("鉴权通过（auth_ok）");
           let (sw, sh) = capture::screen_size();
           let displays: Vec<serde_json::Value> = (0..capture::display_count())
             .filter_map(|i| capture::display_info(i).map(|d| (i, d)))
@@ -149,6 +153,7 @@ impl SessionCtx {
           replies.push(json!({"type": "error", "message": "Auth required"}).to_string());
         } else {
           self.streaming = true;
+          crate::remote_agent::log_remote_file("StartStream: 推流开启(force_key)");
           // viewer 新接入必须立刻见到首帧，即使画面与上次会话结束时相同
           self.invalidate_frame();
           self.force_key = true;
@@ -156,6 +161,22 @@ impl SessionCtx {
       }
       ClientCommand::StopStream => {
         self.streaming = false;
+      }
+      // viewer 解码漂移时请求立即刷 IDR：下个 tick_push 出的就是关键帧
+      ClientCommand::RequestKeyframe => {
+        self.force_key = true;
+      }
+      // viewer 不支持 WebCodecs：本会话永久回退 JPEG，否则推的 H264 全被丢弃，
+      // viewer 卡在"正在连接"、10 秒后 TCP 缓冲灌满报 10053 断连
+      ClientCommand::DisableH264 => {
+        if self.h264_ok {
+          self.h264_ok = false;
+          self.invalidate_frame();
+          self.force_key = true;
+          crate::remote_agent::log_remote_file(
+            "viewer 不支持 WebCodecs，本会话回退 JPEG（disable_h264）",
+          );
+        }
       }
       ClientCommand::SetQuality { quality } => {
         self.quality = (*quality).clamp(10, 100);
@@ -396,7 +417,10 @@ where
       .await
     {
       Ok(Ok(frame)) => frame,
-      Ok(Err(e)) => return Err(structured("REMOTE_DESKTOP_INTERNAL", e)),
+      Ok(Err(e)) => {
+        crate::remote_agent::log_remote_file(&format!("截屏失败 capture_jpeg_blocking: {e}"));
+        return Err(structured("REMOTE_DESKTOP_INTERNAL", e));
+      }
       Err(e) => {
         return Err(structured(
           "REMOTE_DESKTOP_INTERNAL",
@@ -490,6 +514,11 @@ where
   ctx.last_poll = Some(now);
   if push_frame(sink, ctx).await? {
     ctx.last_sent = Some(now);
+    ctx.frames_sent = ctx.frames_sent.saturating_add(1);
+    // 每 ~180 帧（约 6 秒@30fps）记一次，确认推流在持续产出画面
+    if ctx.frames_sent % 180 == 0 {
+      crate::remote_agent::log_remote_file(&format!("推流正常，已累计发送 {} 帧", ctx.frames_sent));
+    }
   }
   Ok(())
 }
@@ -583,9 +612,10 @@ async fn agent_cycle(
   status: &Arc<Mutex<AgentStatus>>,
 ) -> Result<(), String> {
   // 1. client_login（云端校验 allow_remote_desktop 权限）
-  let identity = vps::client_login()
-    .await
-    .inspect_err(|e| set_status(status, |s| s.last_error = Some(e.clone())))?;
+  let identity = vps::client_login().await.inspect_err(|e| {
+    set_status(status, |s| s.last_error = Some(e.clone()));
+    crate::remote_agent::log_remote(&format!("client_login 失败: {}", e));
+  })?;
   let _ = creds;
   set_status(status, |s| s.vps_registered = false);
 
@@ -616,6 +646,7 @@ async fn agent_cycle(
   let (ws, _) = tokio_tungstenite::connect_async(url.as_str())
     .await
     .map_err(|e| structured("REMOTE_DESKTOP_UNREACHABLE", format!("relay 连接失败: {e}")))?;
+  crate::remote_agent::log_remote_file(&format!("relay 连接成功 uuid={}（等待 viewer）", cfg.uuid));
   crate::remote_agent::log_remote(&format!(
     "用户 {} relay 连接成功 uuid={}（等待 viewer）",
     creds.0, cfg.uuid
@@ -666,7 +697,16 @@ async fn agent_cycle(
                   }
                 }
                 _ => {
-                  for reply in ctx.handle(&cmd) {
+                  let replies = ctx.handle(&cmd);
+                  let cmd_type = serde_json::from_str::<serde_json::Value>(&text)
+                    .ok()
+                    .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
+                    .unwrap_or_else(|| "?".to_string());
+                  crate::remote_agent::log_remote_file(&format!(
+                    "relay: 收到指令 {cmd_type} -> {} 条回复",
+                    replies.len()
+                  ));
+                  for reply in replies {
                     if writer.send(Message::Text(reply.into())).await.is_err() {
                       break;
                     }
@@ -846,14 +886,20 @@ pub async fn run_local_server(
   // 监听所有网卡，局域网内的 viewer 才能直连（优先局域网）。只绑回环会让局域网
   // 直连必然失败、全部回落到公网中继，内网文件传输也要绕公网。接入仍需 auth 密码。
   let listener = match tokio::net::TcpListener::bind(("0.0.0.0", cfg.port)).await {
-    Ok(l) => l,
+    Ok(l) => {
+      crate::remote_agent::log_remote_file(&format!(
+        "本地 WS 服务已监听 0.0.0.0:{}（局域网直连入口）",
+        cfg.port
+      ));
+      l
+    }
     Err(e) => {
-      set_status(&status, |s| {
-        s.last_error = Some(structured(
-          "REMOTE_DESKTOP_UNREACHABLE",
-          format!("本地服务启动失败: {e}"),
-        ))
-      });
+      let err = structured(
+        "REMOTE_DESKTOP_UNREACHABLE",
+        format!("本地服务启动失败: {e}"),
+      );
+      set_status(&status, |s| s.last_error = Some(err.clone()));
+      crate::remote_agent::log_remote(&format!("本地服务启动失败: {e}"));
       return;
     }
   };
@@ -879,6 +925,7 @@ async fn local_session(
   let mut ctx = SessionCtx::new(&cfg);
   let mut ticker = tokio::time::interval(Duration::from_millis(1000 / 30));
   let mut download_rx: Option<tokio::sync::mpsc::Receiver<String>> = None;
+  crate::remote_agent::log_remote_file("local_session: 新连接建立");
   set_status(&status, |s| s.viewers = s.viewers.saturating_add(1));
 
   loop {
@@ -899,7 +946,18 @@ async fn local_session(
                   }
                 }
                 _ => {
-                  for reply in ctx.handle(&cmd) {
+                  let replies = ctx.handle(&cmd);
+                  // 看不到指令进没进、回没回，就没法判断是 viewer 没连上还是被控端没处理。
+                  // 指令本身含敏感字段（auth 密码），只记类型不记内容。
+                  let cmd_type = serde_json::from_str::<serde_json::Value>(&text)
+                    .ok()
+                    .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
+                    .unwrap_or_else(|| "?".to_string());
+                  crate::remote_agent::log_remote_file(&format!(
+                    "local_session: 收到指令 {cmd_type} -> {} 条回复",
+                    replies.len()
+                  ));
+                  for reply in replies {
                     if ws.send(WsMsg::Text(reply.into())).await.is_err() {
                       break;
                     }
@@ -908,8 +966,21 @@ async fn local_session(
               }
             }
           }
-          Some(Ok(WsMsg::Close(_))) | None => break,
-          Some(Err(_)) => break,
+          Some(Ok(WsMsg::Close(_))) => {
+            crate::remote_agent::log_remote_file(&format!(
+              "local_session: 连接关闭，streaming={}",
+              ctx.streaming
+            ));
+            break;
+          }
+          Some(Err(e)) => {
+            crate::remote_agent::log_remote_file(&format!("local_session: 接收错误: {e}"));
+            break;
+          }
+          None => {
+            crate::remote_agent::log_remote_file("local_session: 连接结束(None)");
+            break;
+          }
           _ => {}
         }
       }
@@ -926,7 +997,15 @@ async fn local_session(
       _ = ticker.tick() => {
         if ctx.streaming {
           if let Err(e) = tick_push(&mut ws, &mut ctx).await {
-            set_status(&status, |s| s.last_error = Some(e));
+            // 截屏失败：向前端报告具体错误，同时写状态+日志，避免 viewer 无限 loading
+            crate::remote_agent::log_remote_file(&format!(
+              "local_session: 推流失败: {}",
+              e
+            ));
+            let err_msg = format!("{{\"type\":\"capture_error\",\"message\":\"{}\"}}", e.replace('"', "\\\""));
+            let _ = ws.send(WsMsg::Text(err_msg.into())).await;
+            set_status(&status, |s| s.last_error = Some(e.clone()));
+            crate::remote_agent::log_remote(&format!("viewer 截屏失败: {}", e));
             tokio::time::sleep(Duration::from_millis(500)).await;
           }
         }
@@ -937,6 +1016,7 @@ async fn local_session(
     }
   }
   set_status(&status, |s| s.viewers = s.viewers.saturating_sub(1));
+  crate::remote_agent::log_remote_file("local_session: 退出");
 }
 
 /// viewer 资源随二进制一起更新，禁止浏览器缓存：旧 client.js 被缓存后，

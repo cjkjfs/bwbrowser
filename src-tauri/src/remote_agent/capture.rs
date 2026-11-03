@@ -153,6 +153,12 @@ mod imp {
           bgra,
         });
       }
+      // DXGI 不可用/失败（远程会话、驱动不支持）回退 GDI：只记一次，避免每帧刷屏
+      static DXGI_FALLBACK_LOGGED: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+      if !DXGI_FALLBACK_LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        crate::remote_agent::log_remote_file("DXGI 采集不可用，回退 GDI 截屏");
+      }
     }
     capture_screen()
   }

@@ -11,6 +11,11 @@ pub enum ClientCommand {
   },
   StartStream,
   StopStream,
+  /// viewer 解码漂移/花屏时请求立即刷新关键帧（IDR），不必等下个周期。
+  /// 本地 WS 无 TCP 中间件的持连保活，P 帧一丢参考链就断，需要能主动拉干净帧。
+  RequestKeyframe,
+  /// viewer 不支持 WebCodecs（或解码器建不起来），要求本会话回退 JPEG。
+  DisableH264,
   SetQuality {
     quality: u8,
   },
@@ -119,6 +124,8 @@ mod tests {
       r#"{"type":"auth","password":"x"}"#,
       r#"{"type":"start_stream"}"#,
       r#"{"type":"stop_stream"}"#,
+      r#"{"type":"request_keyframe"}"#,
+      r#"{"type":"disable_h264"}"#,
       r#"{"type":"set_quality","quality":65}"#,
       r#"{"type":"set_fps","fps":30}"#,
       r#"{"type":"set_scale","scale":1.0}"#,

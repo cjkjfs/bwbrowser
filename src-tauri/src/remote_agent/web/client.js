@@ -234,7 +234,9 @@ function doConnect(pwdOverride) {
     if (connected) {
       showDesktop(false);
       showLogin(true);
-      showError("连接已断开");
+      // 如果已有更具体的错误（如 capture_error），保留它，不要覆盖成"连接已断开"
+      const el = document.getElementById("errorMsg");
+      if (!el || !el.textContent) showError("连接已断开");
     }
     btn.disabled = false;
     btn.textContent = "连接";
@@ -276,6 +278,11 @@ function handleTextMessage(msg) {
       ws.close();
       break;
     case "heartbeat_ack":
+      break;
+    case "capture_error":
+      // 被控端截屏失败（如 BitBlt 失败、无显示器等），不再无限显示"正在连接"
+      showError(msg.message || "屏幕抓取失败");
+      ws.close();
       break;
     case "error":
       console.error("服务器错误:", msg.message);
@@ -336,6 +343,7 @@ function handleBinaryFrame(buffer) {
 // 被控端 openh264 输出 Annex B；WebCodecs 需要 avcC description + 长度前缀 NAL。
 // 首个关键帧的 SPS/PPS 用来构造 avcC，之后缓重复用。
 let h264State = null;
+let h264Disabled = false;
 
 function splitAnnexB(u8) {
   const nals = [];
@@ -379,8 +387,20 @@ function toAvccLengthPrefixed(nals) {
   return out.buffer;
 }
 
+// 浏览器不支持 WebCodecs 或解码器建不起来时，让被控端回退 JPEG。
+// 否则服务端一直推 H264、viewer 全部丢弃，画面永远停在"正在连接"。
+function fallbackToJpeg() {
+  if (h264Disabled) return;
+  h264Disabled = true;
+  h264State = null;
+  sendMsg({ type: "disable_h264" });
+}
+
 function handleH264Frame(w, h, annexb) {
-  if (typeof VideoDecoder === "undefined") return;
+  if (typeof VideoDecoder === "undefined") {
+    fallbackToJpeg();
+    return;
+  }
   const u8 = annexb instanceof Uint8Array ? annexb : new Uint8Array(annexb);
   const nals = splitAnnexB(u8);
   if (!nals.length) return;
@@ -403,7 +423,14 @@ function handleH264Frame(w, h, annexb) {
         h264State = null;
       },
     });
-    dec.configure({ codec: "avc1.640029", description: buildAvcc(sps, pps) });
+    try {
+      dec.configure({ codec: "avc1.640029", description: buildAvcc(sps, pps) });
+    } catch (e) {
+      // 不支持该 profile（如无硬解的旧 Chromium）：回退 JPEG 而不是卡死
+      console.warn("H264 configure failed, fallback to JPEG:", e);
+      fallbackToJpeg();
+      return;
+    }
     h264State = { dec };
   }
   if (h264State.dec.state !== "configured") return;

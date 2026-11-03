@@ -214,6 +214,9 @@ pub async fn start_agent(quality: Option<u8>, fps: Option<u8>) -> Result<AgentSt
   #[cfg(target_os = "macos")]
   ensure_macos_permissions().await;
 
+  #[cfg(windows)]
+  ensure_windows_firewall_rule(cfg.port);
+
   let status = Arc::new(Mutex::new(AgentStatus {
     running: true,
     uuid: cfg.uuid.clone(),
@@ -311,6 +314,28 @@ pub(crate) fn log_remote(msg: &str) {
   crate::bwbrowser_cloud::log_bwbrowser("remote_desktop", msg);
 }
 
+/// 被控端排障日志：无条件写独立文件，不依赖云端「同步调试日志」开关。
+/// 远程连接链路十有八九要在没开云端开关的机器上排查，走 log_bwbrowser 默认
+/// 只进终端/内存、看不到，这里直接落盘，无论开关开没开都能翻。
+/// 路径：<data_dir>/remote_agent.log
+pub(crate) fn log_remote_file(msg: &str) {
+  use std::io::Write;
+  let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+  let line = format!("[{ts}] {msg}");
+  static LOG_LOCK: Mutex<()> = Mutex::new(());
+  let _g = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+  let dir = crate::app_dirs::data_dir();
+  if std::fs::create_dir_all(&dir).is_ok() {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+      .create(true)
+      .append(true)
+      .open(dir.join("remote_agent.log"))
+    {
+      let _ = writeln!(f, "{}", line);
+    }
+  }
+}
+
 /// 当前登录的爆文库账号（用于日志标注用户身份）
 pub(crate) fn current_user() -> String {
   BWBROWSER_AUTH
@@ -401,6 +426,47 @@ pub async fn reconcile() {
         log::info!("remote desktop permission revoked, stopping controlled-end");
         stop_agent().await;
       }
+    }
+  }
+}
+
+/// Windows：自动添加防火墙规则，允许本程序出入站 TCP（被控端局域网直连用）。
+/// 规则名固定前缀，重复执行时 PowerShell 会报错但 -ErrorAction SilentlyContinue 静默忽略。
+#[cfg(windows)]
+fn ensure_windows_firewall_rule(port: u16) {
+  let exe = match std::env::current_exe() {
+    Ok(p) => p.to_string_lossy().to_string(),
+    Err(e) => {
+      log_remote_file(&format!("无法获取当前可执行路径，跳过防火墙规则: {e}"));
+      return;
+    }
+  };
+  let rule_name = format!("BwBrowser_Remote_{}", port);
+  let ps = format!(
+    "New-NetFirewallRule -DisplayName '{}' -Direction Inbound -Program '{}' -Protocol TCP -LocalPort {} -Action Allow -Profile Any -ErrorAction SilentlyContinue; \
+     New-NetFirewallRule -DisplayName '{}_Out' -Direction Outbound -Program '{}' -Protocol TCP -LocalPort {} -Action Allow -Profile Any -ErrorAction SilentlyContinue",
+    rule_name, exe, port, rule_name, exe, port
+  );
+  match std::process::Command::new("powershell")
+    .args(["-Command", &ps])
+    .output()
+  {
+    Ok(out) => {
+      let stderr = String::from_utf8_lossy(&out.stderr);
+      // 规则已存在时 stderr 含 "已存在" 字样，不算错误
+      if out.status.success()
+        || stderr.contains("\u{5df2}\u{5b58}\u{5728}")
+        || stderr.contains("already exists")
+      {
+        log_remote_file(&format!("防火墙规则已确保: {rule_name} -> {exe}:{port}"));
+      } else {
+        log_remote_file(&format!(
+          "防火墙规则添加失败: {rule_name} -> {exe}:{port}, stderr={stderr}"
+        ));
+      }
+    }
+    Err(e) => {
+      log_remote_file(&format!("无法启动 powershell 添加防火墙规则: {e}"));
     }
   }
 }
