@@ -380,14 +380,17 @@ impl Browser for WayfernBrowser {
 /// launched with plain Chromium arguments — no fingerprint injection, no
 /// donut-proxy worker, no revenue shield. CDP automation and stored-proxy
 /// passthrough are the only extras over a bare browser.
+#[cfg(target_os = "windows")]
 pub struct ChromiumBrowser;
 
+#[cfg(target_os = "windows")]
 impl ChromiumBrowser {
   pub fn new() -> Self {
     Self
   }
 }
 
+#[cfg(target_os = "windows")]
 impl Browser for ChromiumBrowser {
   fn get_executable_path(&self, install_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     // Playwright's Windows archives unpack into `chrome-win64/` (newer builds)
@@ -491,7 +494,10 @@ impl BrowserFactory {
   pub fn create_browser(&self, browser_type: BrowserType) -> Box<dyn Browser> {
     match browser_type {
       BrowserType::Wayfern => Box::new(WayfernBrowser::new()),
+      #[cfg(target_os = "windows")]
       BrowserType::Chromium => Box::new(ChromiumBrowser::new()),
+      #[cfg(not(target_os = "windows"))]
+      BrowserType::Chromium => Box::new(WayfernBrowser::new()),
     }
   }
 }
