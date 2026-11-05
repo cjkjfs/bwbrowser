@@ -59,6 +59,11 @@ type SelectionState = Record<
   }
 >;
 
+// Chromium-format cookie stores (Wayfern and standard Chromium) participate
+// in copying; anything else is out of scope.
+const isCookieCopyable = (browser: string) =>
+  browser === "wayfern" || browser === "chromium";
+
 export function CookieCopyDialog({
   isOpen,
   onClose,
@@ -84,7 +89,7 @@ export function CookieCopyDialog({
   // dead-end state (source picked = target list empty = copy button disabled).
   const eligibleSourceProfiles = useMemo(() => {
     return profiles.filter(
-      (p) => !selectedProfiles.includes(p.id) && p.browser === "wayfern",
+      (p) => !selectedProfiles.includes(p.id) && isCookieCopyable(p.browser),
     );
   }, [profiles, selectedProfiles]);
 
@@ -93,7 +98,7 @@ export function CookieCopyDialog({
       (p) =>
         selectedProfiles.includes(p.id) &&
         p.id !== sourceProfileId &&
-        p.browser === "wayfern",
+        isCookieCopyable(p.browser),
     );
   }, [profiles, selectedProfiles, sourceProfileId]);
 

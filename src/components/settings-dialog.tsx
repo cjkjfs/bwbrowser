@@ -97,6 +97,7 @@ interface AppSettings {
   fingerprint_gate_disabled?: boolean;
   vpn_extension_warning_disabled?: boolean;
   trash_retention_days?: number;
+  default_browser_kernel?: string;
 }
 
 /** Retention choices offered for the trash, in days. The backend clamps to 1..=365. */
@@ -935,6 +936,10 @@ export function SettingsDialog({
     (originalSettings.trash_retention_days ?? DEFAULT_TRASH_RETENTION_DAYS)
       ? [t("settings.trashRetention")]
       : []),
+    ...((settings.default_browser_kernel ?? "wayfern") !==
+    (originalSettings.default_browser_kernel ?? "wayfern")
+      ? [t("settings.kernel.title")]
+      : []),
   ];
   const hasChanges = pendingChanges.length > 0;
   const sections = [
@@ -958,6 +963,7 @@ export function SettingsDialog({
           ],
         ]
       : []),
+    ["kernel", "settings.kernel.title", ["settings.kernel"]],
     ["integrations", "settings.integrations.title", ["settings.integrations"]],
     ["dns", "dnsBlocklist.title", ["dnsBlocklist"]],
     ["encryption", "settings.encryption.title", ["settings.encryption"]],
@@ -1409,6 +1415,39 @@ export function SettingsDialog({
                   </p>
                 </div>
               )}
+
+              {/* Default kernel Section */}
+              <div
+                data-settings-section="kernel"
+                tabIndex={-1}
+                hidden={!sectionVisible("kernel")}
+                className="scroll-mt-2 space-y-4 focus:outline-none"
+              >
+                <Label className="text-base font-medium">
+                  {t("settings.kernel.title")}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.kernel.description")}
+                </p>
+                <Select
+                  value={settings.default_browser_kernel ?? "wayfern"}
+                  onValueChange={(value) => {
+                    updateSetting("default_browser_kernel", value);
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="wayfern">
+                      {t("settings.kernel.wayfern")}
+                    </SelectItem>
+                    <SelectItem value="chromium">
+                      {t("settings.kernel.chromium")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
               {/* Permissions Section - Only show on macOS */}
               {isMacOS && (

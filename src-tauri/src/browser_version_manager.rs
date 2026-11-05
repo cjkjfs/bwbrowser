@@ -62,13 +62,20 @@ impl BrowserVersionManager {
             | "windows-arm64"
         ))
       }
+      "chromium" => {
+        // The pinned Playwright build mirror (npmmirror) carries win64/x64
+        // packages for the builds we serve; other platforms are rejected here
+        // rather than at download time.
+        let platform_key = format!("{os}-{arch}");
+        Ok(matches!(platform_key.as_str(), "windows-x64"))
+      }
       _ => Err(format!("Unknown browser: {browser}").into()),
     }
   }
 
   /// Get list of browsers supported on the current platform
   pub fn get_supported_browsers(&self) -> Vec<String> {
-    let all_browsers = vec!["wayfern"];
+    let all_browsers = vec!["wayfern", "chromium"];
 
     all_browsers
       .into_iter()
@@ -320,6 +327,25 @@ impl BrowserVersionManager {
           url: format!("{}/{filename}", crate::cloud_domain::BROWSER_DOWNLOAD_URL),
           filename,
           is_archive,
+        })
+      }
+      "chromium" => {
+        // Pinned Playwright Chromium builds from the npmmirror binary mirror
+        // (only mirror that reliably serves the win64 zip). The build number
+        // (e.g. "1200") is the version identifier; the zip unpacks into
+        // chrome-win64/ directly.
+        if !matches!(format!("{os}-{arch}").as_str(), "windows-x64") {
+          return Err(
+            format!("Unsupported platform/architecture for Chromium: {os}/{arch}").into(),
+          );
+        }
+        let filename = format!("chromium-{version}-win64.zip");
+        Ok(DownloadInfo {
+          url: format!(
+            "https://registry.npmmirror.com/-/binary/playwright/builds/chromium/{version}/chromium-win64.zip"
+          ),
+          filename,
+          is_archive: true,
         })
       }
       _ => Err(format!("Unsupported browser: {browser}").into()),

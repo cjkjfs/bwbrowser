@@ -179,7 +179,11 @@ pub fn protocol_code(error: &CdpError) -> Option<i64> {
 /// Whether `error` is the browser's gate saying no, and which no it said.
 pub fn classify_refusal(error: &CdpError) -> Option<BrowserRefusal> {
   let message = protocol_message(error)?;
-  if message.contains("requires a paid BW Browser plan") {
+  // The kernel's own gate text names the upstream brand ("Donut Browser");
+  // older builds and the tests speak of "BW Browser". Same gate, both count.
+  if message.contains("requires a paid BW Browser plan")
+    || message.contains("requires a paid Donut Browser plan")
+  {
     Some(BrowserRefusal::PaymentRequired)
   } else if message.starts_with("Automation rate limit exceeded") {
     Some(BrowserRefusal::RateLimited)
@@ -696,8 +700,12 @@ impl WayfernSession {
         );
         continue;
       }
-      if message.get("method").and_then(Value::as_str) == Some(event) {
-        event_seen = true;
+      if let Some(method) = message.get("method").and_then(Value::as_str) {
+        if method == event {
+          event_seen = true;
+        } else {
+          self.connection.buffer_event(&message);
+        }
       }
     }
 
@@ -709,7 +717,7 @@ impl WayfernSession {
     }
   }
 
-  /// Wait for the first of `events`, discarding everything else.
+  /// Wait for the first of `events`, retaining other events for later listeners.
   ///
   /// `Ok(None)` is the deadline passing; a dead socket is an error.
   pub async fn await_any_event(
@@ -717,6 +725,9 @@ impl WayfernSession {
     events: &[&str],
     timeout: Duration,
   ) -> Result<Option<(String, Value)>, WayfernError> {
+    if let Some(event) = self.connection.take_pending_event(events) {
+      return Ok(Some(event));
+    }
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
       let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -741,12 +752,12 @@ impl WayfernSession {
         continue;
       };
       if events.contains(&method) {
-        let params = message
-          .get("params")
-          .cloned()
-          .unwrap_or_else(|| serde_json::json!({}));
-        return Ok(Some((method.to_string(), params)));
+        return Ok(Some((
+          method.to_string(),
+          message.get("params").cloned().unwrap_or(Value::Null),
+        )));
       }
+      self.connection.buffer_event(&message);
     }
   }
 
@@ -1658,6 +1669,12 @@ mod tests {
     assert_eq!(
       classify_refusal(&refusal(
         "Browser automation requires a paid BW Browser plan."
+      )),
+      Some(BrowserRefusal::PaymentRequired)
+    );
+    assert_eq!(
+      classify_refusal(&refusal(
+        "Browser automation requires a paid Donut Browser plan."
       )),
       Some(BrowserRefusal::PaymentRequired)
     );

@@ -406,6 +406,20 @@ pub fn get_effective_profile_path(profile: &BrowserProfile, profiles_dir: &Path)
   profile.get_profile_data_path(profiles_dir)
 }
 
+/// The standard Chromium kernel never shares a user-data-dir with Wayfern:
+/// two Chromium majors alternating on one directory upgrade it back and
+/// forth, and the older kernel then refuses (or crashes on) the data. Wayfern
+/// keeps `profiles/{uuid}/profile`; the standard kernel gets this sibling,
+/// which cloud sync never sees. Ephemeral profiles live in RAM either way.
+pub fn chromium_profile_data_path(profile: &BrowserProfile, profiles_dir: &Path) -> PathBuf {
+  if profile.ephemeral || profile.password_protected {
+    if let Some(dir) = get_ephemeral_dir(&profile.id.to_string()) {
+      return dir.join("chromium");
+    }
+  }
+  profiles_dir.join(profile.id.to_string()).join("chromium")
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

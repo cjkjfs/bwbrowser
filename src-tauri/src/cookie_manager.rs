@@ -284,8 +284,18 @@ impl CookieManager {
   const WINDOWS_EPOCH_DIFF: i64 = 11644473600;
 
   fn get_chrome_encryption_key(profile: &BrowserProfile, profiles_dir: &Path) -> Option<[u8; 16]> {
-    let profile_data_path = profile.get_profile_data_path(profiles_dir);
+    let profile_data_path = Self::kernel_data_path(profile, profiles_dir);
     chrome_decrypt::get_encryption_key(&profile_data_path)
+  }
+
+  /// The standard Chromium kernel keeps its user data in a sibling directory,
+  /// not in the Wayfern one the profile metadata points at.
+  fn kernel_data_path(profile: &BrowserProfile, profiles_dir: &Path) -> PathBuf {
+    if profile.browser == "chromium" {
+      crate::ephemeral_dirs::chromium_profile_data_path(profile, profiles_dir)
+    } else {
+      profile.get_profile_data_path(profiles_dir)
+    }
   }
 
   fn wayfern_cookie_path(profile_data_path: &Path) -> PathBuf {
@@ -302,10 +312,10 @@ impl CookieManager {
 
   /// Get the cookie database path for a profile (read-side: errors if missing).
   fn get_cookie_db_path(profile: &BrowserProfile, profiles_dir: &Path) -> Result<PathBuf, String> {
-    let profile_data_path = profile.get_profile_data_path(profiles_dir);
+    let profile_data_path = Self::kernel_data_path(profile, profiles_dir);
 
     match profile.browser.as_str() {
-      "wayfern" => {
+      "wayfern" | "chromium" => {
         let path = Self::wayfern_cookie_path(&profile_data_path);
         if path.exists() {
           Ok(path)
@@ -328,10 +338,10 @@ impl CookieManager {
     profile: &BrowserProfile,
     profiles_dir: &Path,
   ) -> Result<PathBuf, String> {
-    let profile_data_path = profile.get_profile_data_path(profiles_dir);
+    let profile_data_path = Self::kernel_data_path(profile, profiles_dir);
 
     match profile.browser.as_str() {
-      "wayfern" => {
+      "wayfern" | "chromium" => {
         let path = Self::wayfern_cookie_path(&profile_data_path);
         if !path.exists() {
           Self::create_empty_chrome_cookies_db(&path)?;
@@ -671,7 +681,7 @@ impl CookieManager {
     let db_path = Self::get_cookie_db_path(profile, &profiles_dir)?;
 
     let cookies = match profile.browser.as_str() {
-      "wayfern" => {
+      "wayfern" | "chromium" => {
         let key = Self::get_chrome_encryption_key(profile, &profiles_dir);
         Self::read_chrome_cookies(&db_path, key.as_ref())?
       }
@@ -777,7 +787,7 @@ impl CookieManager {
     let conn = Self::open_cookie_db_readonly(&db_path)?;
 
     let (count_sql, domain_sql) = match profile.browser.as_str() {
-      "wayfern" => (
+      "wayfern" | "chromium" => (
         "SELECT COUNT(*) FROM cookies",
         "SELECT host_key, COUNT(*) FROM cookies GROUP BY host_key ORDER BY COUNT(*) DESC, host_key ASC",
       ),
@@ -851,7 +861,7 @@ impl CookieManager {
 
     let source_db_path = Self::get_cookie_db_path(source, &profiles_dir)?;
     let all_cookies = match source.browser.as_str() {
-      "wayfern" => {
+      "wayfern" | "chromium" => {
         let key = Self::get_chrome_encryption_key(source, &profiles_dir);
         Self::read_chrome_cookies(&source_db_path, key.as_ref())?
       }
@@ -922,7 +932,7 @@ impl CookieManager {
       };
 
       let write_result = match target.browser.as_str() {
-        "wayfern" => {
+        "wayfern" | "chromium" => {
           Self::write_chrome_cookies(&target_db_path, &cookies_to_copy, CookieWriteMode::Merge)
         }
         _ => {
@@ -1153,7 +1163,7 @@ impl CookieManager {
     cookies: &[UnifiedCookie],
     mode: CookieWriteMode,
   ) -> Result<CookieWriteCounts, String> {
-    if profile.browser.as_str() != "wayfern" {
+    if profile.browser.as_str() != "wayfern" && profile.browser.as_str() != "chromium" {
       return Err(crate::backend_error_with_detail(
         "COOKIE_DB_UNAVAILABLE",
         format!("unsupported browser: {}", profile.browser),

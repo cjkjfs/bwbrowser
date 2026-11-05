@@ -1,0 +1,17 @@
+URL https://www.doubao.com/chat/
+TITLE "\u8c46\u5305 - \u5b57\u8282\u8df3\u52a8\u65d7\u4e0b AI \u667a\u80fd\u52a9\u624b"
+NODES 450
+
+=== leaf text matches (element with no element children, trimmed own text) ===
+EXACT   SPAN#219 cls="font-medium" id= role= tex | own="\u66f4\u591a" | box=(65.0, 207.0, 28, 22)
+ERR DOM.getBoxModel -> {"code": -32000, "message": "Could not compute box model."}
+EXACT   SCRIPT#452 cls="" id= role= text="window | own="window._ROUTER_DATA = {\"loaderData\":{\"ch" | box=None
+
+=== elements whose own direct text contains สำฦต ===
+ERR DOM.getBoxModel -> {"code": -32000, "message": "Could not compute box model."}
+  depth=233582 SCRIPT#452 cls="" id= role= text="window._ROUTER_DATA = {\"loaderData\ | box=None
+TOTAL 1
+
+=== file inputs ===
+
+=== open dialogs ===

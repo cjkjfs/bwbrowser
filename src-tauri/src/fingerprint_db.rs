@@ -166,7 +166,7 @@ fn seed_templates() -> Vec<FingerprintTemplate> {
       user_agents: vec![
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36".into(),
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36".into(),
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36".into(),
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36".into(),
       ],
       platform: "MacIntel".into(),
       screen_resolutions: vec![(2560, 1440), (1920, 1080), (2880, 1800)],
@@ -193,14 +193,18 @@ fn seed_templates() -> Vec<FingerprintTemplate> {
       do_not_track: false,
       max_touch_points: 0,
     },
-    // --- macOS Safari ---
+    // --- macOS Chrome (Apple GPU) ---
+    // Was a macOS Safari template: a Safari UA can never be consistent on the
+    // Chromium kernel (no Chrome/ segment to sync, brands say Chrome while the
+    // UA says Safari — browserscan flags exactly that). Keep the hardware this
+    // template contributed and claim Chrome like the engine actually running.
     FingerprintTemplate {
-      name: "macOS Safari".into(),
+      name: "macOS Chrome (Apple GPU)".into(),
       os: "macos".into(),
-      browser: "safari".into(),
+      browser: "chrome".into(),
       user_agents: vec![
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15".into(),
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15".into(),
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36".into(),
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36".into(),
       ],
       platform: "MacIntel".into(),
       screen_resolutions: vec![(2560, 1440), (2880, 1800), (3024, 1964)],
@@ -209,12 +213,12 @@ fn seed_templates() -> Vec<FingerprintTemplate> {
       pixel_ratios: vec![2.0],
       hardware_concurrencies: vec![8, 10, 12],
       device_memories: vec![8, 16, 32],
-      webgl_vendors: vec!["Apple Inc.".into()],
+      webgl_vendors: vec!["Google Inc. (Apple)".into()],
       webgl_renderers: vec![
-        "Apple M1".into(),
-        "Apple M2".into(),
-        "Apple M2 Pro".into(),
-        "Apple M3".into(),
+        "ANGLE (Apple, Apple M1, OpenGL 4.1)".into(),
+        "ANGLE (Apple, Apple M2, OpenGL 4.1)".into(),
+        "ANGLE (Apple, Apple M2 Pro, OpenGL 4.1)".into(),
+        "ANGLE (Apple, Apple M3, OpenGL 4.1)".into(),
       ],
       languages: vec!["en-US".into(), "ja-JP".into(), "ko-KR".into(), "zh-CN".into(), "fr-FR".into(), "de-DE".into()],
       canvas_mode: "noise".into(),
@@ -678,6 +682,22 @@ mod tests {
     let parsed: Value = serde_json::from_str(&fp).expect("valid JSON");
     assert_eq!(parsed["platform"], "MacIntel");
     assert!(parsed["userAgent"].as_str().unwrap().contains("Macintosh"));
+  }
+
+  /// Every macOS template must claim Chrome: the engine is Chromium, and a
+  /// Safari UA made browserscan report "Safari <kernel build>" — a red flag
+  /// on its own even before the version mismatch.
+  #[test]
+  fn macos_templates_never_claim_safari() {
+    for template in db().iter().filter(|t| t.os == "macos") {
+      for ua in &template.user_agents {
+        assert!(
+          ua.contains("Chrome/"),
+          "template {} ships a non-Chrome UA: {ua}",
+          template.name
+        );
+      }
+    }
   }
 
   #[test]

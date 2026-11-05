@@ -26,6 +26,7 @@ import {
   LuTrash2,
   LuUser,
   LuUsers,
+  LuVideo,
   LuWrench,
   LuX,
 } from "react-icons/lu";
@@ -68,6 +69,7 @@ export type AppPage =
   | "videoDownload"
   | "audioProcessor"
   | "videoMatcher"
+  | "doubaoVideo"
   | "aiRewrite"
   | "import"
   | "shortcuts"
@@ -95,6 +97,7 @@ const RAIL_LABELS_ZH: Record<AppPage, string> = {
   videoDownload: "视频下载",
   audioProcessor: "音频处理",
   videoMatcher: "视频工具",
+  doubaoVideo: "豆包视频",
   aiRewrite: "AI 洗稿",
   import: "导入配置",
   shortcuts: "快捷键",
@@ -301,6 +304,7 @@ const TOP_ITEMS: RailItem[] = [
   { page: "videoDownload", Icon: LuDownload, labelKey: "rail.videoDownload" },
   { page: "audioProcessor", Icon: LuMusic, labelKey: "rail.audioProcessor" },
   { page: "videoMatcher", Icon: LuClapperboard, labelKey: "rail.videoMatcher" },
+  { page: "doubaoVideo", Icon: LuVideo, labelKey: "rail.doubaoVideo" },
   { page: "aiRewrite", Icon: LuSparkles, labelKey: "rail.aiRewrite" },
   { page: "extensions", Icon: LuPuzzle, labelKey: "rail.extensions" },
   { page: "account", Icon: LuCloud, labelKey: "rail.account" },
@@ -406,6 +410,7 @@ export function RailNav({
     canAiRewrite,
     canManageRemote,
     canVideoTools,
+    canDoubaoVideo,
     canAudioProcessor,
     canExtensions,
     canProfileManagement,
@@ -466,6 +471,7 @@ export function RailNav({
     if (item.page === "videoDownload" && !canDownloadVideos) return false;
     if (item.page === "aiRewrite" && !canAiRewrite) return false;
     if (item.page === "videoMatcher" && !canVideoTools) return false;
+    if (item.page === "doubaoVideo" && !canDoubaoVideo) return false;
     if (item.page === "audioProcessor" && !canAudioProcessor) return false;
     if (item.page === "extensions" && !canExtensions) return false;
     if (item.page === "profiles" && !canProfileManagement) return false;

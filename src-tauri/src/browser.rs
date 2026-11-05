@@ -16,12 +16,14 @@ pub struct ProxySettings {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum BrowserType {
   Wayfern,
+  Chromium,
 }
 
 impl BrowserType {
   pub fn as_str(&self) -> &'static str {
     match self {
       BrowserType::Wayfern => "wayfern",
+      BrowserType::Chromium => "chromium",
     }
   }
 
@@ -30,12 +32,14 @@ impl BrowserType {
   pub fn display_name(&self) -> &'static str {
     match self {
       BrowserType::Wayfern => "Wayfern",
+      BrowserType::Chromium => "Chromium",
     }
   }
 
   pub fn from_str(s: &str) -> Result<Self, String> {
     match s {
       "wayfern" => Ok(BrowserType::Wayfern),
+      "chromium" => Ok(BrowserType::Chromium),
       _ => Err(format!("Unknown browser type: {s}")),
     }
   }
@@ -371,6 +375,108 @@ impl Browser for WayfernBrowser {
   }
 }
 
+/// Standard open-source Chromium. Downloaded from the pinned Playwright
+/// build mirror into `binaries/chromium/<build>/chrome-win64/` (Windows) and
+/// launched with plain Chromium arguments — no fingerprint injection, no
+/// donut-proxy worker, no revenue shield. CDP automation and stored-proxy
+/// passthrough are the only extras over a bare browser.
+pub struct ChromiumBrowser;
+
+impl ChromiumBrowser {
+  pub fn new() -> Self {
+    Self
+  }
+}
+
+impl Browser for ChromiumBrowser {
+  fn get_executable_path(&self, install_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // Playwright's Windows archives unpack into `chrome-win64/` (newer builds)
+    // or `chrome-win/` (older ones). The layout is fixed by the download, so
+    // only these candidates exist — nothing is probed outside the version dir.
+    for dir in ["chrome-win64", "chrome-win", "."] {
+      let path = install_dir.join(dir).join("chrome.exe");
+      if path.exists() && path.is_file() && has_sibling_dll(&path) {
+        return Ok(path);
+      }
+    }
+    Err(
+      format!(
+        "Chromium executable (chrome.exe) not found in {}",
+        install_dir.display()
+      )
+      .into(),
+    )
+  }
+
+  fn create_launch_args(
+    &self,
+    profile_path: &str,
+    proxy_settings: Option<&ProxySettings>,
+    url: Option<String>,
+    remote_debugging_port: Option<u16>,
+    headless: bool,
+  ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut args = vec![
+      format!("--user-data-dir={}", profile_path),
+      "--no-default-browser-check".to_string(),
+      "--disable-background-mode".to_string(),
+      "--disable-component-update".to_string(),
+      "--disable-background-timer-throttling".to_string(),
+      "--disable-session-crashed-bubble".to_string(),
+      "--hide-crash-restore-bubble".to_string(),
+      "--no-first-run".to_string(),
+      // The network service's sandbox cannot open chrome.exe on hardened
+      // Windows images (observed: sandbox_win.cc denies the exe with 0x5, the
+      // service crash-loops, and the whole browser exits within a second).
+      // Dropping just that one sandbox keeps the renderer sandbox intact.
+      "--disable-features=DialMediaRouteProvider,NetworkServiceSandbox".to_string(),
+    ];
+
+    if let Some(port) = remote_debugging_port {
+      args.push("--remote-debugging-address=127.0.0.1".to_string());
+      args.push(format!("--remote-debugging-port={port}"));
+    }
+
+    if headless {
+      args.push("--headless=new".to_string());
+    }
+
+    if let Some(proxy) = proxy_settings {
+      let scheme = if proxy.proxy_type == "socks5" {
+        "socks5"
+      } else {
+        "http"
+      };
+      args.push(format!(
+        "--proxy-server={scheme}://{}:{}",
+        proxy.host, proxy.port
+      ));
+    }
+
+    if let Some(url) = url {
+      args.push(url);
+    }
+
+    Ok(args)
+  }
+
+  fn is_version_downloaded(&self, version: &str, binaries_dir: &Path) -> bool {
+    let install_dir = binaries_dir.join("chromium").join(version);
+    self.get_executable_path(&install_dir).is_ok()
+  }
+
+  fn prepare_executable(&self, executable_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "linux")]
+    return linux::prepare_executable(executable_path);
+
+    #[cfg(not(target_os = "linux"))]
+    {
+      let _ = executable_path;
+      Ok(())
+    }
+  }
+}
+
 pub struct BrowserFactory;
 
 impl BrowserFactory {
@@ -385,6 +491,7 @@ impl BrowserFactory {
   pub fn create_browser(&self, browser_type: BrowserType) -> Box<dyn Browser> {
     match browser_type {
       BrowserType::Wayfern => Box::new(WayfernBrowser::new()),
+      BrowserType::Chromium => Box::new(ChromiumBrowser::new()),
     }
   }
 }

@@ -255,6 +255,12 @@
       "tipsDescription": "Recorridos por las funciones",
       "about": "Acerca de BW Browser",
       "aboutDescription": "Versión e información de la aplicación"
+    },
+    "kernel": {
+      "title": "Kernel predeterminado",
+      "description": "Kernel que se usará de forma predeterminada al crear nuevos perfiles.",
+      "wayfern": "Wayfern (antidetección)",
+      "chromium": "Chromium (estándar)"
     }
   },
   "header": {
@@ -504,15 +510,16 @@
       "latestDownloading": "Descargando versión ({{version}})...",
       "upgradeAvailable": "Hay una versión más reciente ({{version}}) de {{browser}} disponible."
     },
-    "chromiumLabel": "Chromium",
-    "chromiumSubtitle": "Impulsado por Wayfern",
+    "wayfernLabel": "Wayfern",
+    "wayfernSubtitle": "Navegador antidetección",
     "platformUnavailable": "{{browser}} aún no está disponible en tu plataforma.",
     "passwordProtect": {
       "label": "Proteger este perfil con contraseña",
       "description": "Cifra los datos del perfil en disco. Necesario para abrirlo."
     },
     "downloadingSubtitle": "Descargando…",
-    "browsersDownloading": "Los navegadores aún se están descargando. La creación de perfiles estará disponible cuando termine una descarga."
+    "browsersDownloading": "Los navegadores aún se están descargando. La creación de perfiles estará disponible cuando termine una descarga.",
+    "chromiumRegularSubtitle": "Chromium estándar de código abierto"
   },
   "deleteDialog": {
     "title": "Eliminar Perfil",
@@ -2450,6 +2457,9 @@
     "extensionAssignSameSource": "La extensión de origen y destino son la misma"
   },
   "rail": {
+    "doubaoVideo": "Vídeo de Doubao",
+    "videoMatcher": "Herramientas de vídeo",
+    "audioProcessor": "Procesamiento de audio",
     "cloudAccounts": "Cuentas en la nube",
     "userManagement": "Gestión de usuarios",
     "remoteManagement": "Gestión remota",

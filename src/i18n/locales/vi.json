@@ -254,6 +254,12 @@
       "tipsDescription": "Hướng dẫn tính năng",
       "about": "Giới thiệu về BW Browser",
       "aboutDescription": "Phiên bản và thông tin ứng dụng"
+    },
+    "kernel": {
+      "title": "Kernel mặc định",
+      "description": "Kernel được sử dụng mặc định khi tạo hồ sơ mới.",
+      "wayfern": "Wayfern (chống phát hiện)",
+      "chromium": "Chromium (tiêu chuẩn)"
     }
   },
   "header": {
@@ -503,15 +509,16 @@
       "latestDownloading": "Đang tải xuống phiên bản ({{version}})...",
       "upgradeAvailable": "Đã có phiên bản mới hơn ({{version}}) của {{browser}}."
     },
-    "chromiumLabel": "Chromium",
-    "chromiumSubtitle": "Dựa trên Wayfern",
+    "wayfernLabel": "Wayfern",
+    "wayfernSubtitle": "Trình duyệt chống phát hiện",
     "platformUnavailable": "{{browser}} chưa khả dụng trên nền tảng của bạn.",
     "passwordProtect": {
       "label": "Bảo vệ hồ sơ bằng mật khẩu",
       "description": "Mã hóa dữ liệu hồ sơ trên ổ đĩa. Yêu cầu mật khẩu để khởi chạy."
     },
     "downloadingSubtitle": "Đang tải xuống…",
-    "browsersDownloading": "Trình duyệt vẫn đang được tải xuống. Việc tạo hồ sơ sẽ khả dụng khi quá trình tải hoàn tất."
+    "browsersDownloading": "Trình duyệt vẫn đang được tải xuống. Việc tạo hồ sơ sẽ khả dụng khi quá trình tải hoàn tất.",
+    "chromiumRegularSubtitle": "Chromium mã nguồn mở tiêu chuẩn"
   },
   "deleteDialog": {
     "title": "Xóa hồ sơ",
@@ -2440,6 +2447,9 @@
     "extensionAssignSameSource": "Tiện ích nguồn và đích trùng nhau"
   },
   "rail": {
+    "doubaoVideo": "Video Doubao",
+    "videoMatcher": "Công cụ video",
+    "audioProcessor": "Xử lý âm thanh",
     "cloudAccounts": "Tài khoản đám mây",
     "userManagement": "Quản lý người dùng",
     "remoteManagement": "Quản lý từ xa",

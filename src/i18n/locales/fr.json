@@ -255,6 +255,12 @@
       "tipsDescription": "Découverte des fonctions",
       "about": "À propos de BW Browser",
       "aboutDescription": "Version et informations sur l'application"
+    },
+    "kernel": {
+      "title": "Noyau par défaut",
+      "description": "Noyau utilisé par défaut lors de la création de nouveaux profils.",
+      "wayfern": "Wayfern (anti-détection)",
+      "chromium": "Chromium (standard)"
     }
   },
   "header": {
@@ -504,15 +510,16 @@
       "latestDownloading": "Téléchargement de la version ({{version}})...",
       "upgradeAvailable": "Une version plus récente ({{version}}) de {{browser}} est disponible."
     },
-    "chromiumLabel": "Chromium",
-    "chromiumSubtitle": "Propulsé par Wayfern",
+    "wayfernLabel": "Wayfern",
+    "wayfernSubtitle": "Navigateur anti-détection",
     "platformUnavailable": "{{browser}} n'est pas encore disponible sur votre plateforme.",
     "passwordProtect": {
       "label": "Protéger ce profil par mot de passe",
       "description": "Chiffre les données du profil sur disque. Requis au lancement."
     },
     "downloadingSubtitle": "Téléchargement…",
-    "browsersDownloading": "Les navigateurs sont encore en cours de téléchargement. La création de profils sera disponible une fois un téléchargement terminé."
+    "browsersDownloading": "Les navigateurs sont encore en cours de téléchargement. La création de profils sera disponible une fois un téléchargement terminé.",
+    "chromiumRegularSubtitle": "Chromium open source standard"
   },
   "deleteDialog": {
     "title": "Supprimer le profil",
@@ -2450,6 +2457,9 @@
     "extensionAssignSameSource": "L'extension source et cible sont identiques"
   },
   "rail": {
+    "doubaoVideo": "Vidéo Doubao",
+    "videoMatcher": "Outils vidéo",
+    "audioProcessor": "Traitement audio",
     "cloudAccounts": "Comptes cloud",
     "userManagement": "Gestion des utilisateurs",
     "remoteManagement": "Gestion à distance",

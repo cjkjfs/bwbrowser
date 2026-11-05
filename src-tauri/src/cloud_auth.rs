@@ -919,9 +919,22 @@ impl CloudAuthManager {
   }
 
   /// Resolve this session's entitlements (server-sent or locally derived).
+  ///
+  /// The app's real login goes through `BWBROWSER_AUTH` (bwbrowser_auth.json);
+  /// this manager's own device-code state (`cloud_auth_state.json`) only exists
+  /// on the legacy cloud login path. With no state of its own, fall back to the
+  /// Bwbrowser user so the capability gates see the same account the rest of
+  /// the app does — otherwise every automation route answered 402 despite a
+  /// signed-in, fully-entitled user.
   pub async fn entitlements(&self) -> Option<Entitlements> {
     let state = self.state.lock().await;
-    state.as_ref().map(|auth| auth.user.entitlements())
+    if let Some(auth) = state.as_ref() {
+      return Some(auth.user.entitlements());
+    }
+    drop(state);
+    crate::bwbrowser_cloud::BWBROWSER_AUTH
+      .get_user()
+      .map(|auth| auth.user.entitlements())
   }
 
   /// Account is in a paid/active state. Used for the "any active plan" gates

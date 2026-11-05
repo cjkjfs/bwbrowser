@@ -18,12 +18,16 @@ import { getCurrentOS } from "@/lib/platform";
 
 export { getCurrentOS } from "@/lib/platform";
 
+/** The pinned Playwright Chromium build this app downloads and launches. */
+export const CHROMIUM_PINNED_VERSION = "1200";
+
 /**
  * Map internal browser names to display names
  */
 export function getBrowserDisplayName(browserType: string): string {
   const browserNames: Record<string, string> = {
     wayfern: "Wayfern",
+    chromium: "Chromium",
   };
 
   return browserNames[browserType] || browserType;
@@ -37,6 +41,7 @@ export function getBrowserDisplayName(browserType: string): string {
 export function getBrowserIcon(browserType: string) {
   switch (browserType) {
     case "wayfern":
+    case "chromium":
       return FaChrome;
     default:
       return FaExclamationTriangle;

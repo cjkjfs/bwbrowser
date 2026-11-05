@@ -254,6 +254,12 @@
       "tipsDescription": "機能の使い方",
       "about": "BW Browser について",
       "aboutDescription": "バージョンとアプリ情報"
+    },
+    "kernel": {
+      "title": "デフォルトカーネル",
+      "description": "新規プロファイル作成時に既定で使用するカーネル。",
+      "wayfern": "Wayfern（アンチデテクト）",
+      "chromium": "Chromium（標準）"
     }
   },
   "header": {
@@ -503,15 +509,16 @@
       "latestDownloading": "バージョン ({{version}}) をダウンロード中...",
       "upgradeAvailable": "{{browser}} の新しいバージョン（{{version}}）が利用可能です。"
     },
-    "chromiumLabel": "Chromium",
-    "chromiumSubtitle": "Wayfern搭載",
+    "wayfernLabel": "Wayfern",
+    "wayfernSubtitle": "アンチデテクトブラウザ",
     "platformUnavailable": "{{browser}} はまだお使いのプラットフォームで利用できません。",
     "passwordProtect": {
       "label": "このプロファイルをパスワードで保護",
       "description": "ディスク上のプロファイルデータを暗号化します。起動に必要です。"
     },
     "downloadingSubtitle": "ダウンロード中…",
-    "browsersDownloading": "ブラウザをダウンロード中です。ダウンロードが完了するとプロファイルを作成できます。"
+    "browsersDownloading": "ブラウザをダウンロード中です。ダウンロードが完了するとプロファイルを作成できます。",
+    "chromiumRegularSubtitle": "標準オープンソース Chromium"
   },
   "deleteDialog": {
     "title": "プロファイルを削除",
@@ -2440,6 +2447,9 @@
     "extensionAssignSameSource": "コピー元とコピー先の拡張機能が同じです"
   },
   "rail": {
+    "doubaoVideo": "Doubao動画",
+    "videoMatcher": "動画ツール",
+    "audioProcessor": "音声処理",
     "cloudAccounts": "クラウドアカウント",
     "userManagement": "ユーザー管理",
     "remoteManagement": "リモート管理",

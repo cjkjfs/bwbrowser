@@ -65,9 +65,16 @@ mod browser_runner;
 mod browser_version_manager;
 mod cdp_target;
 mod checksum;
+mod chromium_manager;
 mod data_root;
 mod default_browser;
 pub mod dns_blocklist;
+mod doubao_download;
+mod doubao_executor;
+mod doubao_login;
+mod doubao_manager;
+mod doubao_protocol;
+mod doubao_scheduler;
 mod downloaded_browsers_registry;
 mod downloader;
 mod ephemeral_dirs;
@@ -115,6 +122,7 @@ mod window_decorations;
 // mod theme_detector; // removed: theme detection handled in webview via CSS prefers-color-scheme
 mod agent;
 mod ai_agent;
+mod ai_agent_browser;
 mod ai_rewrite;
 mod audio_silence_remover;
 pub mod bwbrowser_cloud;
@@ -247,6 +255,21 @@ use group_manager::{
 };
 
 use proxy_distribution::{distribute_proxies_to_profiles, plan_proxy_distribution};
+
+use doubao_manager::{
+  doubao_account_health_states, doubao_check_account_health, doubao_create_task,
+  doubao_delete_account, doubao_delete_material, doubao_delete_result, doubao_delete_task,
+  doubao_get_settings, doubao_import_materials, doubao_list_accounts, doubao_list_materials,
+  doubao_list_tasks, doubao_load_cloud_accounts, doubao_save_settings,
+  doubao_set_material_category, doubao_upload_materials,
+};
+
+use doubao_login::{doubao_cancel_login, doubao_open_browser, doubao_start_login};
+
+use doubao_scheduler::{
+  doubao_cancel_task, doubao_download_task_video, doubao_pull_account_videos, doubao_resume_tasks,
+  doubao_retry_task,
+};
 
 use geoip_downloader::{check_missing_geoip_database, GeoIPDownloader};
 
@@ -2707,6 +2730,12 @@ pub fn run_with_builder(
     );
 
   builder.setup(|app| {
+      // Shared app-handle slot (AI assistant browser tools, doubao scheduler).
+      // Seeding here instead of waiting for the first ai_agent_chat call:
+      // anything that resolves the handle before the user ever opens the AI
+      // assistant (doubao task scheduling) would otherwise see None and fail.
+      let _ = crate::ai_agent::APP_HANDLE.set(app.handle().clone());
+
       // Fold a cache left on the old disk into the directory the data now lives
       // in. Runs before anything reads `cache_dir()`, so a relocated install
       // stops writing to the system drive from its very next lookup.
@@ -3749,6 +3778,30 @@ pub fn run_with_builder(
       get_profile_groups,
       get_groups_with_profile_counts,
       create_profile_group,
+      doubao_account_health_states,
+      doubao_check_account_health,
+      doubao_import_materials,
+      doubao_list_materials,
+      doubao_delete_material,
+      doubao_set_material_category,
+      doubao_upload_materials,
+      doubao_open_browser,
+      doubao_create_task,
+      doubao_delete_account,
+      doubao_delete_task,
+      doubao_delete_result,
+      doubao_get_settings,
+      doubao_list_accounts,
+      doubao_load_cloud_accounts,
+      doubao_list_tasks,
+      doubao_save_settings,
+      doubao_start_login,
+      doubao_cancel_login,
+      doubao_retry_task,
+      doubao_cancel_task,
+      doubao_resume_tasks,
+      doubao_pull_account_videos,
+      doubao_download_task_video,
       update_profile_group,
       delete_profile_group,
       assign_profiles_to_group,

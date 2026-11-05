@@ -254,6 +254,12 @@
       "tipsDescription": "기능 안내",
       "about": "BW Browser 정보",
       "aboutDescription": "버전 및 앱 정보"
+    },
+    "kernel": {
+      "title": "기본 커널",
+      "description": "새 프로필 생성 시 기본으로 사용할 커널입니다.",
+      "wayfern": "Wayfern (안티디텍트)",
+      "chromium": "Chromium (표준)"
     }
   },
   "header": {
@@ -503,15 +509,16 @@
       "latestDownloading": "버전 ({{version}})을 다운로드하는 중...",
       "upgradeAvailable": "{{browser}}의 최신 버전({{version}})을 사용할 수 있습니다."
     },
-    "chromiumLabel": "크로미움",
-    "chromiumSubtitle": "Wayfern 기반",
+    "wayfernLabel": "Wayfern",
+    "wayfernSubtitle": "안티디텍트 브라우저",
     "platformUnavailable": "{{browser}}는 아직 이 플랫폼에서 사용할 수 없습니다.",
     "passwordProtect": {
       "label": "이 프로필을 비밀번호로 보호",
       "description": "디스크에 저장된 프로필 데이터를 암호화합니다. 실행하려면 필요합니다."
     },
     "downloadingSubtitle": "다운로드 중…",
-    "browsersDownloading": "브라우저를 아직 다운로드하는 중입니다. 다운로드가 완료되면 프로필을 만들 수 있습니다."
+    "browsersDownloading": "브라우저를 아직 다운로드하는 중입니다. 다운로드가 완료되면 프로필을 만들 수 있습니다.",
+    "chromiumRegularSubtitle": "표준 오픈소스 Chromium"
   },
   "deleteDialog": {
     "title": "프로필 삭제",
@@ -2440,6 +2447,9 @@
     "extensionAssignSameSource": "원본과 대상 확장 프로그램이 같습니다"
   },
   "rail": {
+    "doubaoVideo": "Doubao 동영상",
+    "videoMatcher": "동영상 도구",
+    "audioProcessor": "오디오 처리",
     "cloudAccounts": "클라우드 계정",
     "userManagement": "사용자 관리",
     "remoteManagement": "원격 관리",

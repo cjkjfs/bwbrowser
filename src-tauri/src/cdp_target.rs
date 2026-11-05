@@ -19,6 +19,7 @@
 use crate::log_redaction::ShortId;
 use crate::profile::types::BrowserProfile;
 use serde_json::Value;
+use std::collections::VecDeque;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -47,12 +48,20 @@ const CONNECT_ATTEMPTS: u32 = 3;
 /// Delay before the second connect attempt; doubles for the third.
 const CONNECT_RETRY_BASE: Duration = Duration::from_millis(400);
 
+/// Events can arrive while a command is waiting for its reply. Keeping a bounded
+/// backlog lets a passive network listener consume them after the command ends.
+const MAX_PENDING_EVENTS: usize = 512;
+
 /// Ceiling on a relayed CDP message.
 ///
 /// Matches the frame cap the remote endpoint enforces. Lower, and a screenshot
 /// the server was willing to carry is dropped on arrival; higher buys nothing,
 /// because the frame never crosses the network in the first place.
 const REMOTE_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+
+/// A pasted image can arrive in a CDP event as a multi-megabyte data URL.
+/// The local browser has no relay frame cap, so don't discard its upload event.
+const LOCAL_MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
 
 /// Command ids for the two messages the remote arm sends before any tool does.
 ///
@@ -188,7 +197,7 @@ impl Patience {
 /// split covers a stale `process_id` left by a crash — nothing answers on the
 /// recorded port, so the remote session is found instead of a dead one.
 pub async fn resolve(profile: &BrowserProfile) -> Result<CdpTarget, ResolveError> {
-  if profile.browser != "wayfern" {
+  if profile.browser != "wayfern" && profile.browser != "chromium" {
     return Err(ResolveError::Unsupported(format!(
       "Profile '{}' runs {}, which cannot be driven over CDP",
       profile.name, profile.browser
@@ -241,8 +250,14 @@ pub async fn resolve(profile: &BrowserProfile) -> Result<CdpTarget, ResolveError
 /// The debugging port a locally launched browser registered for this profile.
 async fn local_cdp_port(profile: &BrowserProfile, patience: Patience) -> Option<u16> {
   let profiles_dir = crate::profile::manager::ProfileManager::instance().get_profiles_dir();
-  let profile_path = profile.get_profile_data_path(&profiles_dir);
-  let profile_path_str = profile_path.to_string_lossy().to_string();
+  // The standard kernel registers under its own data dir, never the Wayfern one.
+  let chromium_path_str = crate::ephemeral_dirs::chromium_profile_data_path(profile, &profiles_dir)
+    .to_string_lossy()
+    .to_string();
+  let wayfern_path_str = profile
+    .get_profile_data_path(&profiles_dir)
+    .to_string_lossy()
+    .to_string();
 
   // Port info is written once the process is up, so a tool called straight
   // after a launch has to wait for it.
@@ -250,10 +265,19 @@ async fn local_cdp_port(profile: &BrowserProfile, patience: Patience) -> Option<
     if attempt > 0 {
       tokio::time::sleep(Duration::from_secs(1)).await;
     }
-    if let Some(port) = crate::wayfern_manager::WayfernManager::instance()
-      .get_cdp_port(&profile_path_str)
-      .await
-    {
+    if let Some(port) = match profile.browser.as_str() {
+      "chromium" => {
+        crate::chromium_manager::ChromiumManager::instance().get_cdp_port(&chromium_path_str)
+      }
+      // A Wayfern-labeled profile may be riding the default-kernel override;
+      // its CDP port lives in the Chromium registry, not Wayfern's.
+      _ => crate::wayfern_manager::WayfernManager::instance()
+        .get_cdp_port(&wayfern_path_str)
+        .await
+        .or_else(|| {
+          crate::chromium_manager::ChromiumManager::instance().get_cdp_port(&chromium_path_str)
+        }),
+    } {
       return Some(port);
     }
   }
@@ -328,6 +352,87 @@ pub fn pick_local_page_socket(targets: &[Value]) -> Option<String> {
     .map(str::to_string)
 }
 
+/// One drivable page target of a locally running browser.
+#[derive(Debug, Clone)]
+pub struct LocalPageInfo {
+  pub url: String,
+  pub ws_url: String,
+}
+
+fn local_pages_from_targets(targets: Vec<Value>) -> Vec<LocalPageInfo> {
+  targets
+    .iter()
+    .filter(|t| t.get("type").and_then(Value::as_str) == Some("page"))
+    .filter_map(|t| {
+      let ws_url = t.get("webSocketDebuggerUrl").and_then(Value::as_str)?;
+      Some(LocalPageInfo {
+        url: t
+          .get("url")
+          .and_then(Value::as_str)
+          .unwrap_or_default()
+          .to_string(),
+        ws_url: ws_url.to_string(),
+      })
+    })
+    .collect()
+}
+
+/// Every drivable page of a locally running browser, straight from `/json`.
+/// Local-only by design: doubao tasks drive the profile on this machine.
+pub async fn list_local_pages(profile: &BrowserProfile) -> Result<Vec<LocalPageInfo>, String> {
+  let port = local_cdp_port(profile, Patience::Immediate)
+    .await
+    .ok_or_else(|| format!("Profile '{}' is not running (no CDP port)", profile.name))?;
+  let client = reqwest::Client::new();
+  let response = client
+    .get(format!("http://127.0.0.1:{port}/json"))
+    .timeout(Duration::from_secs(5))
+    .send()
+    .await
+    .map_err(|e| format!("failed to reach the browser's CDP endpoint: {e}"))?;
+  let targets = response
+    .json::<Vec<Value>>()
+    .await
+    .map_err(|e| format!("failed to parse CDP targets: {e}"))?;
+  Ok(local_pages_from_targets(targets))
+}
+
+/// Open a new tab in a locally running browser and return its page socket.
+pub async fn open_local_page(profile: &BrowserProfile, url: &str) -> Result<LocalPageInfo, String> {
+  let port = local_cdp_port(profile, Patience::Immediate)
+    .await
+    .ok_or_else(|| format!("Profile '{}' is not running (no CDP port)", profile.name))?;
+  let client = reqwest::Client::new();
+  let response = client
+    .put(format!(
+      "http://127.0.0.1:{port}/json/new?{}",
+      urlencoding::encode(url)
+    ))
+    .timeout(Duration::from_secs(10))
+    .send()
+    .await
+    .map_err(|e| format!("failed to open a new tab: {e}"))?;
+  let target = response
+    .json::<Value>()
+    .await
+    .map_err(|e| format!("failed to parse the new tab target: {e}"))?;
+  let ws_url = target
+    .get("webSocketDebuggerUrl")
+    .and_then(Value::as_str)
+    .ok_or_else(|| {
+      "the new tab exposes no debugger socket (another client may hold it)".to_string()
+    })?
+    .to_string();
+  Ok(LocalPageInfo {
+    url: target
+      .get("url")
+      .and_then(Value::as_str)
+      .unwrap_or_default()
+      .to_string(),
+    ws_url,
+  })
+}
+
 /// Pick a drivable page from a `Target.getTargets` reply.
 ///
 /// DevTools' own frontend is a page target too, and attaching to it drives the
@@ -374,6 +479,7 @@ pub struct CdpConnection {
   /// page-level commands reach the page rather than the browser.
   cdp_session: Option<String>,
   closed: Option<CloseInfo>,
+  pending_events: VecDeque<(String, Value)>,
 }
 
 impl CdpConnection {
@@ -382,9 +488,43 @@ impl CdpConnection {
       stream,
       cdp_session: None,
       closed: None,
+      pending_events: VecDeque::new(),
     }
   }
 
+  pub(crate) fn buffer_event(&mut self, response: &Value) {
+    buffer_event(&mut self.pending_events, response);
+  }
+
+  pub fn take_pending_event(&mut self, events: &[&str]) -> Option<(String, Value)> {
+    take_pending_event(&mut self.pending_events, events)
+  }
+}
+
+fn buffer_event(pending: &mut VecDeque<(String, Value)>, response: &Value) {
+  let Some(method) = response.get("method").and_then(Value::as_str) else {
+    return;
+  };
+  if pending.len() >= MAX_PENDING_EVENTS {
+    pending.pop_front();
+  }
+  pending.push_back((
+    method.to_string(),
+    response.get("params").cloned().unwrap_or(Value::Null),
+  ));
+}
+
+fn take_pending_event(
+  pending: &mut VecDeque<(String, Value)>,
+  events: &[&str],
+) -> Option<(String, Value)> {
+  let index = pending
+    .iter()
+    .position(|(method, _)| events.contains(&method.as_str()))?;
+  pending.remove(index)
+}
+
+impl CdpConnection {
   /// Send `method` as command `id`.
   pub async fn send_command(
     &mut self,
@@ -474,6 +614,7 @@ impl CdpConnection {
       let response: Value = serde_json::from_str(&text)
         .map_err(|e| CdpError::Protocol(format!("failed to parse CDP response: {e}")))?;
       if response.get("id") != Some(&Value::from(id)) {
+        self.buffer_event(&response);
         continue;
       }
       if let Some(error) = response.get("error") {
@@ -712,7 +853,10 @@ impl CdpTarget {
           .as_str()
           .into_client_request()
           .map_err(|e| CdpError::Unreachable(format!("invalid CDP endpoint: {e}")))?;
-        Ok(CdpConnection::new(dial(request, None).await?))
+        let config = WebSocketConfig::default()
+          .max_message_size(Some(LOCAL_MAX_MESSAGE_BYTES))
+          .max_frame_size(Some(LOCAL_MAX_MESSAGE_BYTES));
+        Ok(CdpConnection::new(dial(request, Some(config)).await?))
       }
       Self::Remote {
         ws_url,
@@ -894,6 +1038,30 @@ pub fn classify_handshake_status(status: u16) -> CdpError {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn unsolicited_replies_are_retained_for_the_matching_event_listener() {
+    let mut pending = VecDeque::new();
+    buffer_event(
+      &mut pending,
+      &serde_json::json!({
+        "method": "Network.responseReceived",
+        "params": { "requestId": "chain-1" }
+      }),
+    );
+    buffer_event(
+      &mut pending,
+      &serde_json::json!({
+        "method": "Page.frameNavigated",
+        "params": { "frame": { "id": "main" } }
+      }),
+    );
+    let event = take_pending_event(&mut pending, &["Network.responseReceived"])
+      .expect("network event must survive a command reply");
+    assert_eq!(event.1["requestId"], "chain-1");
+    assert!(take_pending_event(&mut pending, &["Network.responseReceived"]).is_none());
+    assert!(take_pending_event(&mut pending, &["Page.frameNavigated"]).is_some());
+  }
 
   #[test]
   fn a_page_target_is_preferred_over_the_devtools_frontend() {

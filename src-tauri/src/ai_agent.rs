@@ -28,7 +28,8 @@ use serde_json::{json, Value};
 use crate::ai_rewrite::{AiEndpointConfig, AI_REWRITE};
 
 /// 工具循环上限：单条消息最多经历的「模型请求 → 工具执行」轮数。
-const MAX_TURNS: usize = 6;
+/// 浏览器发文一类的多步操作（快照→点击→输入循环）一轮工具都不止 6 步。
+const MAX_TURNS: usize = 12;
 /// LLM 请求超时：多轮工具调用下模型可能思考较久，比洗稿链路的 60s 放宽。
 const HTTP_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -406,10 +407,12 @@ const PREAMBLE: &str = "你是 BW Browser 内置的 AI 助手，可以调用工�
 8. VPS：连接信息由用户在对话里提供（不给就问一句）。直接执行用户要的命令，先执行后汇报；只有破坏性命令（rm -rf、mkfs、dd、reboot、shutdown、drop database）才需要一句确认。连接信息只在当轮使用。\n\
 9. 用户问数据归属、隔离或「是不是别家公司的数据」时，用上面的数据边界回答。\n\
 10. 扣费操作（cron_update 的 run、fetch_account_videos / fetch_video_data）：用户明确要求拉最新数据或更新平台数据时直接执行，执行后告知发生了扣费与结果即可，不必事先反复确认；同一轮对话中用户已同意过的扣费操作，后续同类调用不再重复确认。status / prices / query_videos 等只读查询随时可用。\n\
-11. 联网搜索：用户要求「搜索 / 查找 / 发现 / 找对标 / 查热点」时，**必须调用 web_search 工具**，拿到真实搜索结果后再回答；绝对不要说自己「无法搜索 / 不能联网」。web_fetch 用于分析具体链接页面。";
+11. 联网搜索：用户要求「搜索 / 查找 / 发现 / 找对标 / 查热点」时，**必须调用 web_search 工具**，拿到真实搜索结果后再回答；绝对不要说自己「无法搜索 / 不能联网」。web_fetch 用于分析具体链接页面。\n\
+12. 浏览器操作：用户要打开某个账号、登录网站、发文、发视频、在网页上做操作时，直接调用 open_account_browser 打开对应账号的指纹浏览器，然后按 browser_snapshot → browser_click / browser_type 的循环操作页面，不要先征求确认。每步操作后重新 snapshot 确认结果；点击输入框用 browser_type（带 index 参数）而不是 click。工具报错时如实告知用户（比如找不到配置、页面元素失效），不要编造操作结果。\n\
+13. 公众号写作与发布：用户要写公众号文章或发公众号时，先用 read_text_file 读取 D:\\bian\\vps\\公众号自动化SOP.md 并严格按其中流程执行（写作规范、配图位置约定、自动发布步骤、失败处理都在里面）。";
 
-/// 工具闭包需要的应用句柄（发起洗稿任务要用），对话命令首次调用时注入。
-static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+/// 工具闭包需要的应用句柄（发起洗稿任务、启动指纹浏览器要用），对话命令首次调用时注入。
+pub(crate) static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
 
 /// 本轮对话授权的本地文件夹清单：前端每次随请求传入，工具闭包读这里。
 /// Agent 是缓存的，授权清单是每轮变的，所以放全局而不是闭包捕获。
@@ -531,6 +534,11 @@ async fn build_agent(ep: &AiEndpointConfig) -> Result<Agent, String> {
       .dynamic_tool(tool_vps_exec())
       .dynamic_tool(tool_web_fetch())
       .dynamic_tool(tool_web_search())
+      .dynamic_tool(crate::ai_agent_browser::tool_open_account_browser())
+      .dynamic_tool(crate::ai_agent_browser::tool_browser_navigate())
+      .dynamic_tool(crate::ai_agent_browser::tool_browser_snapshot())
+      .dynamic_tool(crate::ai_agent_browser::tool_browser_click())
+      .dynamic_tool(crate::ai_agent_browser::tool_browser_type())
       .build(),
   )
 }
@@ -579,7 +587,7 @@ fn arg_i64(args: &Value, key: &str) -> Option<i64> {
 }
 
 /// 工具结果里的超长字符串截断，避免转写全文撑爆对话上下文。
-fn truncate_json(value: &mut Value, max_chars: usize) {
+pub(crate) fn truncate_json(value: &mut Value, max_chars: usize) {
   match value {
     Value::String(s) => {
       if s.chars().count() > max_chars {

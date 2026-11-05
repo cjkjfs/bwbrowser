@@ -69,6 +69,13 @@ pub fn profile_health_map() -> HashMap<String, ProfileHealthRecord> {
   }
 }
 
+/// The stored verdict for one platform of one profile (the aggregate under the
+/// bare profile id is "valid if any platform is valid", which a single-site
+/// pool must not read as its own answer).
+pub fn platform_health(profile_id: &str, platform: &str) -> Option<ProfileHealthRecord> {
+  profile_health_map().remove(&format!("{profile_id}#{platform}"))
+}
+
 fn save_profile_health(map: &HashMap<String, ProfileHealthRecord>) {
   let dir = crate::app_dirs::data_dir();
   let _ = std::fs::create_dir_all(&dir);
@@ -680,6 +687,24 @@ fn platform_rules() -> Vec<PlatformRule> {
       url: "https://www.ixigua.com/",
       domains: &["ixigua.com", "toutiao.com", "bytedance.com", "douyin.com"],
       session_cookies: &["sessionid", "sessionid_ss", "sid_tt", "uid_tt"],
+      network_probe: false,
+      loose: false,
+      session_indicators: &[],
+      login_indicators: &[],
+      ok_status_range: (200, 299),
+    },
+    // Doubao — Bytedance passport session family (sessionid[_ss] +
+    // passport_auth_status[_ss], mirroring doubao_login's detector).
+    PlatformRule {
+      key: "doubao",
+      url: "https://www.doubao.com/",
+      domains: &["doubao.com"],
+      session_cookies: &[
+        "sessionid",
+        "sessionid_ss",
+        "passport_auth_status",
+        "passport_auth_status_ss",
+      ],
       network_probe: false,
       loose: false,
       session_indicators: &[],
@@ -1595,12 +1620,23 @@ pub async fn check_profile_health(profile_id: &str, force: bool) -> Vec<CookieHe
 
     let (status, message) = probe_platform(rule, &cookies, proxy.as_ref()).await;
     debug!("Cookie health [{domain}]: {status:?} — {message}");
+    // Per-platform verdict as well: the aggregate (`best_health`) says "valid"
+    // when ANY platform is valid, which is the wrong question for a pool that
+    // cares about one site — e.g. the doubao account pool needs doubao itself.
+    store_profile_health(
+      &format!("{profile_id}#{}", rule.key),
+      ProfileHealthRecord {
+        status: status.clone(),
+        message: message.clone(),
+        checked_at: now_secs,
+      },
+    );
     results.push(CookieHealthResult {
       profile_id: profile_id.to_string(),
       profile_name: profile_id.to_string(),
       domain,
       url: rule.url.to_string(),
-      status: status.clone(),
+      status,
       message,
     });
   }

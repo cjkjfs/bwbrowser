@@ -1,0 +1,20 @@
+URL https://www.doubao.com/chat/
+NODES 450
+
+=== LEAF text containing 视频/更多/图片 ===
+  d=18  SPAN#219 id= cls="font-medium" role= tagtext="\u66f4\u591a"
+  d=3   SCRIPT#452 id= cls="" role= tagtext="window._ROUTER_DATA = {\"loaderData\":{\"ch"
+
+=== INPUT file ===
+
+=== TEXTAREA / contenteditable ===
+  DIV#420 id= cls="guidance-input-editor-wrapper w-full flex min-h-(--input-gui" role= tagtext="" ce=None ph=""
+  DIV#421 id= cls="guidance-input-editor-viewport relative flex w-full" role= tagtext="" ce=None ph=""
+  DIV#427 id= cls="tiptap ProseMirror" role= tagtext="" ce=true ph=""
+  P#428 id= cls="is-empty is-editor-empty" role= tagtext="" ce=None ph=""
+
+=== BODY visible text head ===
+"window.gfdatav1={\"env\":\"prod\",\"envName\":\"prod\",\"runtime\":\"node\",\"ver\":\"1.0.14.1598\",\"canary\":0,\"idc\":\"gl\",\"region\":\"cn\",\"vdc\":\"gl\",\"vregion\":\"China-North\",\"extra\":{\"canaryType\":null}} | if(window.performance&&performance.setResourceTimingBufferSize)try{performance.setResourceTimingBufferSize(800)}catch(e){} | ;(function(){\n              window._MODERNJS_ROUTE_MANIFEST = {\"routeAssets\":{\"ai-coding-open-canvas-repo-plugin\":{\"chunkIds\":[\"vv4\"]},\"ai-coding-open-canvas-repo-pre-plugin\":{\"chunkIds\":[\"xn\"]},\"ai-doc-ssr-assets\":{\"chunkIds\":[\"r4\"]},\"ai-doc-ssr-assets-editable\":{\"chunkIds\":[\"bae\"]},\"ai-ppt-push-message-cmd\":{\"chunkIds\":[\"y43\"]},\"ai-search-skill-chat-input\":{\"chunkIds\":[\"y1u\",\"3fo\",\"5a\",\"dy\"]},\"ai-sheet-push-message-cmd\":{\"chunkIds\":[\"lu\"]},\"ai-space-audio-player\":{\"chunkIds\":[\"61b\",\"69i\"]},\"ai-space-coding-url-parse-plugin\":{\"chunkIds\":[\"uu\",\"jhm\"]},\"ai-space-coding-url-parse-pre-plugin\":{\"chunkIds\":[\"v3n\"]},\"ai-space-doccanvasopenurl-url-parse-plugin\":{\"chunkIds\":[\"uu\",\"y10\",\"yq\"]},\"ai-space-excelairead-url-parse-plugin\":{\"chunkIds\":[\"mee\",\"uu\",\"2eq\"]},\"ai-space-excelairead-url-parse-pre-plugin\":{\"chunkIds\":[\"mee\",\"sdc\"]},\"ai-space-excelcodeinter-url-parse-plugin\":{\"chunkIds\":[\"mee\",\"7z\"]},\"ai-space-excelcodeinter-url-parse-pre-plugin\":{\"chunkIds\":[\"mee\",\"jg\"]},\"ai-space-fileairead-url-parse-plugin\":{\"chunkIds\":[\"mee\",\"b7\"]},\"ai-space-fileairead-url-parse-pre-plugin\":{\"chunkIds\":[\"mee\",\"0c\"]},\"ai-space-fileaskdoubao-url-parse-plugin\":{\"chunkIds\":[\"mee\",\"l1\"]},\"ai-spac"
+
+=== SCRIPT route data (first 600) ===
+"window._ROUTER_DATA = {\"loaderData\":{\"chat_layout\":{\"chat_layout\":{\"aid\":497858,\"pc_version\":\"3.44.3\",\"accountInfo\":{\"data\":{\"description\":\"\u4f1a\u8bdd\u8fc7\u671f\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55\",\"error_code\":13,\"name\":\"account_info_error\",\"session_key\":\"\",\"user_id\":0},\"message\":\"error\"},\"userSetting\":{\"code\":0,\"msg\":\"\",\"data\":{\"ab_config\":{\"ab_results\":{\"ai_doc_ssr_config_reuse\":\"true\",\"ai_playground\":\"\",\"aily_render_mode\":\"\",\"aispace_rename\":\"\",\"aispace_revert\":\"\",\"base_direct_render\":\"true\",\"chat_actionbar_merge_enabled\":\"1\",\"chat_project_select_enabled\":\"0\",\"conversation_list_data_enable_cache_restore\":\"\",\"conversation_list_data_ena"

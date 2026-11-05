@@ -187,6 +187,10 @@ impl Default for BwbrowserAuthManager {
 }
 
 impl BwbrowserAuthManager {
+  pub(crate) fn http(&self) -> &Client {
+    &self.client
+  }
+
   pub fn new() -> Self {
     let state = Self::load_auth_state_from_disk();
     let client = Client::builder()
@@ -5805,7 +5809,9 @@ fn wayfern_config_to_fingerprint_json(config: &crate::wayfern_manager::WayfernCo
   }
 
   if let Some(ref fp) = config.fingerprint {
-    if let Ok(fp_val) = serde_json::from_str::<serde_json::Value>(fp) {
+    if let Ok(mut fp_val) = serde_json::from_str::<serde_json::Value>(fp) {
+      // 归一化后再上传：老模板生成的 Safari UA 不能从这里回写进云端库
+      crate::wayfern_manager::WayfernManager::normalize_fingerprint_ua_payload(&mut fp_val);
       obj["fingerprint"] = fp_val;
     }
   }
@@ -7989,6 +7995,44 @@ async fn launch_account_impl(
   }
 
   let launch_url_for_cookie = launch_url.clone();
+  // 跟随系统设置「默认内核」：选了 chromium 就用启动期覆盖跑标准内核。
+  // 只在本次启动生效，不改账号 profile 的任何元数据——切回 wayfern，
+  // 下次启动立即恢复 Wayfern。
+  let kernel_override = {
+    let default_kernel = SettingsManager::instance()
+      .load_settings()
+      .ok()
+      .and_then(|s| s.default_browser_kernel)
+      .unwrap_or_else(|| "wayfern".to_string());
+    if default_kernel == "chromium" {
+      let registry = crate::downloaded_browsers_registry::DownloadedBrowsersRegistry::instance();
+      let downloaded = registry
+        .get_downloaded_versions("chromium")
+        .contains(&crate::chromium_manager::PINNED_VERSION.to_string());
+      if !downloaded {
+        log_bwbrowser("launch_account", "  Chromium 内核未安装，自动下载中...");
+        crate::downloader::Downloader::instance()
+          .download_browser_full(
+            &app_handle,
+            "chromium".to_string(),
+            crate::chromium_manager::PINNED_VERSION.to_string(),
+          )
+          .await
+          .map_err(|e| format!("Chromium 内核下载失败: {}", e))?;
+        log_bwbrowser("launch_account", "  ✓ Chromium 内核下载完成");
+      }
+      log_bwbrowser(
+        "launch_account",
+        "  默认内核 = chromium，本次启动使用标准 Chromium（账号元数据不变）",
+      );
+      Some((
+        "chromium".to_string(),
+        crate::chromium_manager::PINNED_VERSION.to_string(),
+      ))
+    } else {
+      None
+    }
+  };
   let launched_profile = {
     // 首次启动（本地无指纹）时，浏览器内核启动内部要现场生成指纹 + 探测
     // 代理地理位置，会卡在 75% 十几秒。把这两个子阶段的进度回传给前端，
@@ -8007,6 +8051,7 @@ async fn launch_account_impl(
         );
       })),
       shield_platform: server_platform.clone(),
+      kernel_override,
       ..Default::default()
     };
     crate::browser_runner::launch_browser_profile_impl(
@@ -10519,7 +10564,7 @@ mod fingerprint_sync_tests {
     crate::wayfern_manager::WayfernConfig {
       os: Some("windows".to_string()),
       fingerprint: Some(
-        r#"{"userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36","platform":"Win32","screenWidth":1920,"webglVendor":"Google Inc.","audioContext":"noise","timezone":"Asia/Shanghai"}"#
+        r#"{"userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36","platform":"Win32","screenWidth":1920,"webglVendor":"Google Inc.","audioContext":"noise","timezone":"Asia/Shanghai"}"#
           .to_string(),
       ),
       location: Some(

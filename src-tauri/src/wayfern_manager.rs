@@ -1004,8 +1004,7 @@ impl WayfernManager {
     }
     let payload: Value = serde_json::from_str(fingerprint).ok()?;
     let ua = payload.get("userAgent")?.as_str()?;
-    let no_edge = ua.split_once(" Edg/").map(|(head, _)| head).unwrap_or(ua);
-    Some(Self::replace_chrome_version(no_edge, kernel_version))
+    Some(Self::chrome_synced_ua(ua, kernel_version))
   }
 
   /// Replace the `Chrome/<version>` segment of a UA string with `version`.
@@ -1017,6 +1016,69 @@ impl WayfernManager {
         format!("{}{}{}", &ua[..start], version, &ua[end..])
       }
       None => ua.to_string(),
+    }
+  }
+
+  /// The UA every surface claims: the payload's UA synced to the running
+  /// kernel. Two legacy claims can never pass a consistency check on the
+  /// Chromium kernel and are rebuilt: a Safari UA (no `Chrome/` segment;
+  /// browserscan reads "Safari" from the UA and the kernel build from the
+  /// client hints), and a Mac OS X token newer than the frozen 10_15_7 that
+  /// genuine Chrome still reports (it also disagrees with the 10.15.7
+  /// platformVersion the client hints claim). Mobile Safari UAs are left
+  /// alone — the caller chose that OS deliberately.
+  fn chrome_synced_ua(ua: &str, kernel_version: &str) -> String {
+    let version = if kernel_version.is_empty() {
+      "151.0.0.0"
+    } else {
+      kernel_version
+    };
+    let no_edge = ua.split_once(" Edg/").map(|(head, _)| head).unwrap_or(ua);
+    let os_token = match (no_edge.find('('), no_edge.find(')')) {
+      (Some(start), Some(end)) if end > start => &no_edge[start + 1..end],
+      _ => return Self::replace_chrome_version(no_edge, version),
+    };
+    if os_token.starts_with("Macintosh") {
+      return format!("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Safari/537.36");
+    }
+    if no_edge.contains("Chrome/") {
+      return Self::replace_chrome_version(no_edge, version);
+    }
+    let desktop = os_token.starts_with("Windows NT") || os_token.starts_with("X11;");
+    if !desktop {
+      return no_edge.to_string();
+    }
+    format!("Mozilla/5.0 ({os_token}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Safari/537.36")
+  }
+
+  /// Fix the `userAgent` fields of a stored fingerprint payload in place,
+  /// keeping the claimed Chrome version where one exists. Used before a
+  /// fingerprint leaves this machine for the cloud, so a payload minted by a
+  /// pre-Safari-ban template cannot re-enter the database from a synced
+  /// client.
+  pub(crate) fn normalize_fingerprint_ua_payload(payload: &mut serde_json::Value) {
+    let Some(map) = payload.as_object_mut() else {
+      return;
+    };
+    if let Some(ua) = map
+      .get("userAgent")
+      .and_then(|v| v.as_str())
+      .map(str::to_string)
+    {
+      let version = ua
+        .split_once("Chrome/")
+        .and_then(|(_, rest)| rest.split(' ').next())
+        .unwrap_or_default()
+        .to_string();
+      map.insert(
+        "userAgent".to_string(),
+        json!(Self::chrome_synced_ua(&ua, &version)),
+      );
+    }
+    for value in map.values_mut() {
+      if value.is_object() {
+        Self::normalize_fingerprint_ua_payload(value);
+      }
     }
   }
 
@@ -1034,11 +1096,7 @@ impl WayfernManager {
   fn network_ua_override_params(fingerprint: &Value, kernel_version: &str) -> Option<Value> {
     let ua = fingerprint.get("userAgent")?.as_str()?;
     let major = kernel_version.split('.').next().unwrap_or("151");
-    let no_edge = ua
-      .split_once(" Edg/")
-      .map(|(head, _)| head.to_string())
-      .unwrap_or_else(|| ua.to_string());
-    let synced = Self::replace_chrome_version(&no_edge, kernel_version);
+    let synced = Self::chrome_synced_ua(ua, kernel_version);
     let platform = fingerprint
       .get("platform")
       .and_then(|v| v.as_str())
@@ -3218,11 +3276,7 @@ impl WayfernManager {
             .and_then(|v| v.as_str())
             .map(str::to_string)
           {
-            let no_edge = ua
-              .split_once(" Edg/")
-              .map(|(head, _)| head.to_string())
-              .unwrap_or_else(|| ua.clone());
-            let synced = Self::replace_chrome_version(&no_edge, &kernel_version);
+            let synced = Self::chrome_synced_ua(&ua, &kernel_version);
             obj.insert("userAgent".to_string(), json!(synced));
           }
         }
@@ -4213,6 +4267,62 @@ mod tests {
   #[test]
   fn network_ua_override_needs_a_user_agent() {
     assert!(WayfernManager::network_ua_override_params(&json!({}), "151.0.7922.71").is_none());
+  }
+
+  #[test]
+  fn chrome_synced_ua_rebuilds_a_safari_claim_as_chrome() {
+    // Legacy macOS Safari template fingerprint: no Chrome/ segment to sync.
+    let ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+    let synced = WayfernManager::chrome_synced_ua(ua, "151.0.7922.71");
+    assert!(synced.contains("Chrome/151.0.7922.71"));
+    assert!(!synced.contains("Version/"));
+    assert!(!synced.contains("605.1.15"));
+    assert_eq!(
+      synced,
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.71 Safari/537.36"
+    );
+    // A Mac OS X token newer than genuine Chrome's frozen 10_15_7 is
+    // normalized for the same reason.
+    let chrome = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+    assert_eq!(
+      WayfernManager::chrome_synced_ua(chrome, "151.0.7922.71"),
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.71 Safari/537.36"
+    );
+    // Mobile Safari UAs are the caller's OS choice and stay untouched.
+    let iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1";
+    assert_eq!(
+      WayfernManager::chrome_synced_ua(iphone, "151.0.7922.71"),
+      iphone
+    );
+    // An empty kernel version still rebuilds a valid Chrome claim.
+    let rebuilt = WayfernManager::chrome_synced_ua(ua, "");
+    assert!(rebuilt.contains("Chrome/151.0.0.0"));
+  }
+
+  #[test]
+  fn upload_normalization_rewrites_safari_and_newer_mac_tokens() {
+    let mut payload = json!({
+      "os": "macos",
+      "fingerprint": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+        "platform": "MacIntel"
+      }
+    });
+    WayfernManager::normalize_fingerprint_ua_payload(&mut payload);
+    let ua = payload["fingerprint"]["userAgent"].as_str().unwrap();
+    assert!(ua.contains("Chrome/151.0.0.0"));
+    assert!(ua.contains("Mac OS X 10_15_7"));
+    assert!(!ua.contains("Version/"));
+
+    // A Windows Chrome payload keeps its own claimed version.
+    let mut payload = json!({
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    });
+    WayfernManager::normalize_fingerprint_ua_payload(&mut payload);
+    assert!(payload["userAgent"]
+      .as_str()
+      .unwrap()
+      .contains("Chrome/131.0.0.0"));
   }
 
   #[test]

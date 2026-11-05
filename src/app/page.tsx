@@ -25,6 +25,7 @@ import { CookieCopyDialog } from "@/components/cookie-copy-dialog";
 import { CookieManagementDialog } from "@/components/cookie-management-dialog";
 import { CreateProfileDialog } from "@/components/create-profile-dialog";
 import { DeleteConfirmationDialog } from "@/components/delete-confirmation-dialog";
+import { DoubaoVideoPage } from "@/components/doubao-video-page";
 import { ExtensionGroupAssignmentDialog } from "@/components/extension-group-assignment-dialog";
 import { ExtensionManagementDialog } from "@/components/extension-management-dialog";
 import { GroupAssignmentDialog } from "@/components/group-assignment-dialog";
@@ -163,7 +164,7 @@ function consistencyFromErrorParams(
   };
 }
 
-type BrowserTypeString = "wayfern";
+type BrowserTypeString = "wayfern" | "chromium";
 
 interface PendingUrl {
   id: string;
@@ -2584,6 +2585,13 @@ export default function Home() {
                     }
                   >
                     <VideoToolsPage />
+                  </div>
+                )}
+
+                {/* 豆包视频 - 嵌入式页面 */}
+                {currentPage === "doubaoVideo" && isBwbrowserLogin && (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <DoubaoVideoPage />
                   </div>
                 )}
 

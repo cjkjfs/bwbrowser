@@ -117,6 +117,11 @@ pub struct AppSettings {
   /// A change from free to paid is what earns the paid-plan welcome.
   #[serde(default)]
   pub cloud_plan_memory: std::collections::HashMap<String, String>,
+  /// Kernel new profiles default to in the create dialog: `"wayfern"`
+  /// (anti-detect) or `"chromium"` (standard). None or an unknown value
+  /// falls back to Wayfern.
+  #[serde(default)]
+  pub default_browser_kernel: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -207,6 +212,7 @@ impl Default for AppSettings {
       tips_last_auto_shown_at: None,
       paid_welcome_seen_for: vec!["all".to_string()],
       cloud_plan_memory: std::collections::HashMap::new(),
+      default_browser_kernel: None,
     }
   }
 }
@@ -1347,6 +1353,7 @@ mod tests {
       tips_last_auto_shown_at: None,
       paid_welcome_seen_for: Vec::new(),
       cloud_plan_memory: std::collections::HashMap::new(),
+      default_browser_kernel: None,
       autofill_enabled: true,
     };
 

@@ -456,6 +456,10 @@ pub fn extensions_dir() -> PathBuf {
   data_dir().join("extensions")
 }
 
+pub fn doubao_dir() -> PathBuf {
+  data_dir().join("doubao")
+}
+
 pub fn dns_blocklist_dir() -> PathBuf {
   cache_dir().join("dns_blocklists")
 }

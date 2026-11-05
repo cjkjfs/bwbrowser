@@ -254,6 +254,12 @@
       "tipsDescription": "功能演示",
       "about": "关于 BW Browser",
       "aboutDescription": "版本和应用信息"
+    },
+    "kernel": {
+      "title": "默认内核",
+      "description": "新建配置时默认使用的内核。",
+      "wayfern": "Wayfern（反检测）",
+      "chromium": "Chromium（标准）"
     }
   },
   "header": {
@@ -503,15 +509,16 @@
       "latestDownloading": "正在下载版本 ({{version}})...",
       "upgradeAvailable": "{{browser}} 有新版本（{{version}}）可用。"
     },
-    "chromiumLabel": "Chromium",
-    "chromiumSubtitle": "由 Wayfern 驱动",
+    "wayfernLabel": "Wayfern",
+    "wayfernSubtitle": "反检测浏览器",
     "platformUnavailable": "{{browser}} 在您的平台上尚不可用。",
     "passwordProtect": {
       "label": "为此配置文件设置密码保护",
       "description": "加密磁盘上的配置文件数据。启动时需要密码。"
     },
     "downloadingSubtitle": "正在下载…",
-    "browsersDownloading": "浏览器仍在下载中。下载完成后即可创建配置文件。"
+    "browsersDownloading": "浏览器仍在下载中。下载完成后即可创建配置文件。",
+    "chromiumRegularSubtitle": "标准开源 Chromium 内核"
   },
   "deleteDialog": {
     "title": "删除配置文件",
@@ -2440,6 +2447,9 @@
     "extensionAssignSameSource": "源插件和目标插件相同"
   },
   "rail": {
+    "doubaoVideo": "豆包视频",
+    "videoMatcher": "视频工具",
+    "audioProcessor": "音频处理",
     "cloudAccounts": "云端账号",
     "userManagement": "用户管理",
     "remoteManagement": "远程管理",

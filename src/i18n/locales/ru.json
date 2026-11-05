@@ -256,6 +256,12 @@
       "tipsDescription": "Обзор возможностей",
       "about": "О BW Browser",
       "aboutDescription": "Версия и сведения о приложении"
+    },
+    "kernel": {
+      "title": "Ядро по умолчанию",
+      "description": "Ядро, используемое по умолчанию при создании новых профилей.",
+      "wayfern": "Wayfern (антидетект)",
+      "chromium": "Chromium (стандартный)"
     }
   },
   "header": {
@@ -505,15 +511,16 @@
       "latestDownloading": "Загрузка версии ({{version}})...",
       "upgradeAvailable": "Доступна новая версия ({{version}}) {{browser}}."
     },
-    "chromiumLabel": "Chromium",
-    "chromiumSubtitle": "На базе Wayfern",
+    "wayfernLabel": "Wayfern",
+    "wayfernSubtitle": "Антидетект-браузер",
     "platformUnavailable": "{{browser}} пока недоступен на вашей платформе.",
     "passwordProtect": {
       "label": "Защитить этот профиль паролем",
       "description": "Шифрует данные профиля на диске. Требуется для запуска."
     },
     "downloadingSubtitle": "Загрузка…",
-    "browsersDownloading": "Браузеры ещё загружаются. Создание профилей станет доступно после завершения загрузки."
+    "browsersDownloading": "Браузеры ещё загружаются. Создание профилей станет доступно после завершения загрузки.",
+    "chromiumRegularSubtitle": "Стандартный open-source Chromium"
   },
   "deleteDialog": {
     "title": "Удалить профиль",
@@ -2460,6 +2467,9 @@
     "extensionAssignSameSource": "Исходное и целевое расширения совпадают"
   },
   "rail": {
+    "doubaoVideo": "Видео Doubao",
+    "videoMatcher": "Инструменты видео",
+    "audioProcessor": "Обработка аудио",
     "cloudAccounts": "Облачные аккаунты",
     "userManagement": "Управление пользователями",
     "remoteManagement": "Удалённое управление",

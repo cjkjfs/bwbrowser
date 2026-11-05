@@ -254,6 +254,12 @@
       "tipsDescription": "Özellik turları",
       "about": "BW Browser Hakkında",
       "aboutDescription": "Sürüm ve uygulama bilgileri"
+    },
+    "kernel": {
+      "title": "Varsayılan çekirdek",
+      "description": "Yeni profiller oluşturulurken varsayılan olarak kullanılacak çekirdek.",
+      "wayfern": "Wayfern (anti-detect)",
+      "chromium": "Chromium (standart)"
     }
   },
   "header": {
@@ -503,15 +509,16 @@
       "latestDownloading": "Sürüm ({{version}}) indiriliyor...",
       "upgradeAvailable": "{{browser}} tarayıcısının daha yeni bir sürümü ({{version}}) mevcut."
     },
-    "chromiumLabel": "Chromium",
-    "chromiumSubtitle": "Wayfern tarafından desteklenir",
+    "wayfernLabel": "Wayfern",
+    "wayfernSubtitle": "Anti-detect tarayıcı",
     "platformUnavailable": "{{browser}} henüz platformunuzda kullanılamıyor.",
     "passwordProtect": {
       "label": "Bu profili parolayla koru",
       "description": "Diskteki profil verilerini şifreler. Başlatmak için gereklidir."
     },
     "downloadingSubtitle": "İndiriliyor…",
-    "browsersDownloading": "Tarayıcılar hâlâ indiriliyor. Bir indirme tamamlandığında profil oluşturma kullanılabilir olacak."
+    "browsersDownloading": "Tarayıcılar hâlâ indiriliyor. Bir indirme tamamlandığında profil oluşturma kullanılabilir olacak.",
+    "chromiumRegularSubtitle": "Standart açık kaynak Chromium"
   },
   "deleteDialog": {
     "title": "Profili Sil",
@@ -2440,6 +2447,9 @@
     "extensionAssignSameSource": "Kaynak ve hedef uzantı aynı"
   },
   "rail": {
+    "doubaoVideo": "Doubao Videosu",
+    "videoMatcher": "Video Araçları",
+    "audioProcessor": "Ses İşleme",
     "cloudAccounts": "Bulut hesapları",
     "userManagement": "Kullanıcı yönetimi",
     "remoteManagement": "Uzaktan yönetim",

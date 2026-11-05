@@ -1733,14 +1733,58 @@ impl ProfileManager {
     Ok(profile)
   }
 
+  /// The user-data-dir a launch of `profile` actually uses. The standard
+  /// Chromium kernel keeps its data in the sibling `chromium` directory, so
+  /// PID scans that match `--user-data-dir` must resolve through it.
+  fn status_profile_data_path(
+    profile: &BrowserProfile,
+    profiles_dir: &std::path::Path,
+  ) -> std::path::PathBuf {
+    if profile.browser == "chromium" {
+      crate::ephemeral_dirs::chromium_profile_data_path(profile, profiles_dir)
+    } else {
+      profile.get_profile_data_path(profiles_dir)
+    }
+  }
+
   pub async fn check_browser_status(
     &self,
     app_handle: tauri::AppHandle,
     profile: &BrowserProfile,
   ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-    // Handle Wayfern profiles using WayfernManager-based status checking
+    // Handle Wayfern profiles using WayfernManager-based status checking.
+    // A Wayfern-labeled profile launched under the default-kernel override
+    // runs as plain Chromium though; the Wayfern registry will not know it,
+    // so answer from the Chromium registry's PID instead.
     if profile.browser == "wayfern" {
+      let profiles_dir = self.get_profiles_dir();
+      let profile_data_path =
+        crate::ephemeral_dirs::chromium_profile_data_path(profile, &profiles_dir);
+      if let Some(instance) = crate::chromium_manager::ChromiumManager::instance()
+        .find_by_profile(&profile_data_path.to_string_lossy())
+      {
+        return Ok(crate::proxy_storage::is_process_running(
+          instance.process_id,
+        ));
+      }
       return self.check_wayfern_status(&app_handle, profile).await;
+    }
+
+    // A chromium-labeled profile runs from the sibling data dir, so the
+    // generic PID scan below must match --user-data-dir against that path,
+    // not the Wayfern one. The registry answers first when a launch
+    // registered its instance.
+    if profile.browser == "chromium" {
+      let profiles_dir = self.get_profiles_dir();
+      let profile_data_path =
+        crate::ephemeral_dirs::chromium_profile_data_path(profile, &profiles_dir);
+      if let Some(instance) = crate::chromium_manager::ChromiumManager::instance()
+        .find_by_profile(&profile_data_path.to_string_lossy())
+      {
+        return Ok(crate::proxy_storage::is_process_running(
+          instance.process_id,
+        ));
+      }
     }
 
     // For non-wayfern browsers, use the existing PID-based logic
@@ -1757,7 +1801,7 @@ impl ProfileManager {
         let cmd = process.cmd();
         // Verify this process is actually our browser with the correct profile
         let profiles_dir = self.get_profiles_dir();
-        let profile_data_path = profile.get_profile_data_path(&profiles_dir);
+        let profile_data_path = Self::status_profile_data_path(profile, &profiles_dir);
         let profile_data_path_str = profile_data_path.to_string_lossy();
         let profile_path_match = cmd.iter().any(|s| {
           let arg = s.to_str().unwrap_or("");
@@ -1786,6 +1830,7 @@ impl ProfileManager {
                 || exe_name.contains("chromium")
                 || exe_name.contains("chrome")
             }
+            "chromium" => exe_name.contains("chromium") || exe_name.contains("chrome"),
             _ => false,
           };
 
@@ -1795,7 +1840,7 @@ impl ProfileManager {
 
           // Check for profile path match
           let profiles_dir = self.get_profiles_dir();
-          let profile_data_path = profile.get_profile_data_path(&profiles_dir);
+          let profile_data_path = Self::status_profile_data_path(profile, &profiles_dir);
           let profile_data_path_str = profile_data_path.to_string_lossy();
           let profile_path_match = cmd.iter().any(|s| {
             let arg = s.to_str().unwrap_or("");

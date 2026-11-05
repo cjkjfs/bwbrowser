@@ -254,6 +254,12 @@
       "tipsDescription": "Feature walkthroughs",
       "about": "About BW Browser",
       "aboutDescription": "Version and app information"
+    },
+    "kernel": {
+      "title": "Default Kernel",
+      "description": "Kernel that new profiles default to when created.",
+      "wayfern": "Wayfern (anti-detect)",
+      "chromium": "Chromium (standard)"
     }
   },
   "header": {
@@ -503,15 +509,16 @@
       "latestDownloading": "Downloading version ({{version}})...",
       "upgradeAvailable": "A newer version ({{version}}) of {{browser}} is available."
     },
-    "chromiumLabel": "Chromium",
-    "chromiumSubtitle": "Powered by Wayfern",
+    "wayfernLabel": "Wayfern",
+    "wayfernSubtitle": "Anti-detect browser",
     "platformUnavailable": "{{browser}} is not available on your platform yet.",
     "passwordProtect": {
       "label": "Password protect this profile",
       "description": "Encrypts the on-disk profile data. Required to launch."
     },
     "downloadingSubtitle": "Downloading…",
-    "browsersDownloading": "Browsers are still downloading. Profile creation will be available once a download finishes."
+    "browsersDownloading": "Browsers are still downloading. Profile creation will be available once a download finishes.",
+    "chromiumRegularSubtitle": "Standard open-source Chromium"
   },
   "deleteDialog": {
     "title": "Delete Profile",
@@ -2440,6 +2447,9 @@
     "extensionAssignSameSource": "Source and target extension are the same"
   },
   "rail": {
+    "doubaoVideo": "Doubao Video",
+    "videoMatcher": "Video Tools",
+    "audioProcessor": "Audio Processing",
     "cloudAccounts": "Cloud Accounts",
     "userManagement": "User Management",
     "remoteManagement": "Remote Management",

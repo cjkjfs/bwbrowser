@@ -5052,9 +5052,11 @@ impl McpServer {
         data: None,
       })?;
 
-    // Filter to only Wayfern profiles
-    let filtered: Vec<&BrowserProfile> =
-      profiles.iter().filter(|p| p.browser == "wayfern").collect();
+    // Filter to drivable profiles (Wayfern and standard Chromium)
+    let filtered: Vec<&BrowserProfile> = profiles
+      .iter()
+      .filter(|p| p.browser == "wayfern" || p.browser == "chromium")
+      .collect();
 
     Ok(serde_json::json!({
       "content": [{
@@ -5094,11 +5096,11 @@ impl McpServer {
         data: None,
       })?;
 
-    // Check if it's a Wayfern profile
-    if profile.browser != "wayfern" {
+    // Check if it's a drivable profile
+    if profile.browser != "wayfern" && profile.browser != "chromium" {
       return Err(McpError {
         code: -32000,
-        message: "MCP only supports Wayfern profiles".to_string(),
+        message: "MCP only supports Wayfern and Chromium profiles".to_string(),
         data: None,
       });
     }
@@ -5158,11 +5160,11 @@ impl McpServer {
         data: None,
       })?;
 
-    // Check if it's a Wayfern profile
-    if profile.browser != "wayfern" {
+    // Check if it's a drivable profile
+    if profile.browser != "wayfern" && profile.browser != "chromium" {
       return Err(McpError {
         code: -32000,
-        message: "MCP only supports Wayfern profiles".to_string(),
+        message: "MCP only supports Wayfern and Chromium profiles".to_string(),
         data: None,
       });
     }
@@ -5260,11 +5262,11 @@ impl McpServer {
         data: None,
       })?;
 
-    // Check if it's a Wayfern profile
-    if profile.browser != "wayfern" {
+    // Check if it's a drivable profile
+    if profile.browser != "wayfern" && profile.browser != "chromium" {
       return Err(McpError {
         code: -32000,
-        message: "MCP only supports Wayfern profiles".to_string(),
+        message: "MCP only supports Wayfern and Chromium profiles".to_string(),
         data: None,
       });
     }
@@ -5375,9 +5377,9 @@ impl McpServer {
         lines.push(format!("{profile_id}: not found"));
         continue;
       };
-      if profile.browser != "wayfern" {
+      if profile.browser != "wayfern" && profile.browser != "chromium" {
         lines.push(format!(
-          "{profile_id}: unsupported browser (MCP supports Wayfern)"
+          "{profile_id}: unsupported browser (MCP supports Wayfern and Chromium)"
         ));
         continue;
       }
@@ -5503,10 +5505,10 @@ impl McpServer {
         data: None,
       })?;
 
-    if browser != "wayfern" {
+    if browser != "wayfern" && browser != "chromium" {
       return Err(McpError {
         code: -32602,
-        message: "browser must be 'wayfern'".to_string(),
+        message: "browser must be 'wayfern' or 'chromium'".to_string(),
         data: None,
       });
     }
@@ -5902,11 +5904,11 @@ impl McpServer {
         data: None,
       })?;
 
-    // Check if it's a Wayfern profile
-    if profile.browser != "wayfern" {
+    // Check if it's a drivable profile
+    if profile.browser != "wayfern" && profile.browser != "chromium" {
       return Err(McpError {
         code: -32000,
-        message: "MCP only supports Wayfern profiles".to_string(),
+        message: "MCP only supports Wayfern and Chromium profiles".to_string(),
         data: None,
       });
     }

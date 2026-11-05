@@ -60,6 +60,8 @@ export function useBwbrowserPermissions() {
   // 视频工具（视频匹配/快速合并/快速拆分）：users.php allow_video_tools
   const canVideoTools =
     isSuperAdmin || (permissions.allow_video_tools ?? false);
+  // 豆包视频：users.php allow_doubao_video，与其他视频功能独立授权
+  const canDoubaoVideo = permissions.allow_doubao_video ?? false;
   // 音频处理（气口清除器）：users.php allow_audio_processor
   const canAudioProcessor =
     isSuperAdmin || (permissions.allow_audio_processor ?? false);
@@ -82,6 +84,7 @@ export function useBwbrowserPermissions() {
     canAiRewrite,
     canManageRemote,
     canVideoTools,
+    canDoubaoVideo,
     canAudioProcessor,
     canExtensions,
     canProfileManagement,

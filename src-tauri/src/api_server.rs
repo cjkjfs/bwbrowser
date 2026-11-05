@@ -1446,16 +1446,15 @@ async fn create_profile(
 ) -> Result<Json<ApiProfileResponse>, (StatusCode, String)> {
   let profile_manager = ProfileManager::instance();
 
-  // Only Wayfern profiles are launchable; the rest of the system
-  // (fingerprint generation, launch, run) supports nothing else. Reject anything
-  // else up front — otherwise the profile is created with no fingerprint and an
-  // unrecognized browser, then crashes with a 500 on /run. Mirrors the MCP
-  // create_profile validation.
-  if request.browser != "wayfern" {
+  // Only Wayfern and standard-Chromium profiles are launchable; the rest of
+  // the system supports nothing else. Reject anything else up front — otherwise
+  // the profile is created with no fingerprint and an unrecognized browser,
+  // then crashes with a 500 on /run. Mirrors the MCP create_profile validation.
+  if request.browser != "wayfern" && request.browser != "chromium" {
     return Err((
       StatusCode::BAD_REQUEST,
       format!(
-        "Invalid browser \"{}\". Must be \"wayfern\" (anti-detect Chromium).",
+        "Invalid browser \"{}\". Must be \"wayfern\" (anti-detect Chromium) or \"chromium\" (standard Chromium).",
         request.browser
       ),
     ));
@@ -4617,10 +4616,10 @@ async fn agent_context_for(
     .into_iter()
     .find(|p| p.id.to_string() == id)
     .ok_or((StatusCode::NOT_FOUND, "profile not found".to_string()))?;
-  if profile.browser != "wayfern" {
+  if profile.browser != "wayfern" && profile.browser != "chromium" {
     return Err((
       StatusCode::BAD_REQUEST,
-      "the agent endpoints drive Wayfern profiles only".to_string(),
+      "the agent endpoints drive Wayfern and Chromium profiles only".to_string(),
     ));
   }
 

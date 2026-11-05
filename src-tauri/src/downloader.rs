@@ -151,6 +151,12 @@ impl Downloader {
     _download_info: &DownloadInfo,
   ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     match browser_type {
+      BrowserType::Chromium => {
+        // The npmmirror URL in the download info is already the final asset
+        // URL (302 to cdn.npmmirror.com, which reqwest follows) — nothing to
+        // resolve dynamically.
+        Ok(_download_info.url.clone())
+      }
       BrowserType::Wayfern => {
         // For Wayfern, get the download URL from version.json
         let version_info = self
@@ -283,7 +289,9 @@ impl Downloader {
 
   /// Fetch `<asset>.sha256` and return the digest it publishes for the asset.
   /// Every failure mode maps to `BROWSER_CHECKSUM_UNAVAILABLE`; the specifics
-  /// go to the log.
+  /// go to the log. The pinned Chromium build is the one exception: no origin
+  /// behind it publishes a sidecar, so the digest fixed in
+  /// `chromium_manager::PINNED_WIN64_ZIP_SHA256` is the source of truth.
   async fn fetch_expected_archive_checksum(
     &self,
     download_url: &str,
@@ -298,6 +306,14 @@ impl Downloader {
       .to_string()
       .into()
     };
+
+    // Chromium: npmmirror serves the zip but nothing in its mirror chain
+    // publishes a sidecar (verified 404 on npmmirror, the Playwright CDN, and
+    // the Chrome-for-Testing origin). Fall back to the pinned digest rather
+    // than blocking every install on a file that does not exist.
+    if browser == "Chromium" && version == crate::chromium_manager::PINNED_VERSION {
+      return Ok(crate::chromium_manager::PINNED_WIN64_ZIP_SHA256.to_string());
+    }
 
     let sidecar_url = checksum_sidecar_url(download_url);
     let response = match self
@@ -1351,6 +1367,26 @@ mod tests {
       error.contains("BROWSER_CHECKSUM_UNAVAILABLE") && error.contains("151"),
       "expected a coded, translatable error, got: {error}"
     );
+  }
+
+  #[tokio::test]
+  async fn test_fetch_expected_archive_checksum_pinned_chromium_skips_the_sidecar() {
+    let server = MockServer::start().await;
+    let downloader = Downloader::new_for_test();
+
+    // Nothing mounts a sidecar route: the pinned Chromium must resolve its
+    // digest from the fixed constant, not from a file no origin publishes.
+    let url = format!(
+      "{}/playwright/builds/chromium/{}/chromium-win64.zip",
+      server.uri(),
+      crate::chromium_manager::PINNED_VERSION
+    );
+    let expected = downloader
+      .fetch_expected_archive_checksum(&url, "Chromium", crate::chromium_manager::PINNED_VERSION)
+      .await
+      .expect("pinned chromium should verify against the built-in digest");
+
+    assert_eq!(expected, crate::chromium_manager::PINNED_WIN64_ZIP_SHA256);
   }
 
   #[tokio::test]

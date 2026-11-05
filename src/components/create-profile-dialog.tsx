@@ -47,12 +47,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WayfernConfigForm } from "@/components/wayfern-config-form";
 import { useBrowserDownload } from "@/hooks/use-browser-download";
 import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { useVpnEvents } from "@/hooks/use-vpn-events";
-import { getBrowserIcon } from "@/lib/browser-utils";
+import {
+  CHROMIUM_PINNED_VERSION,
+  getBrowserDisplayName,
+  getBrowserIcon,
+} from "@/lib/browser-utils";
 import { DNS_BLOCKLIST_LEVELS } from "@/lib/dns-blocklist-levels";
 import { cn } from "@/lib/utils";
 import type { BrowserReleaseTypes, WayfernConfig, WayfernOS } from "@/types";
@@ -67,7 +71,7 @@ const getCurrentOS = (): WayfernOS => {
 
 import { RippleButton } from "./ui/ripple";
 
-type BrowserTypeString = "wayfern";
+type BrowserTypeString = "wayfern" | "chromium";
 
 interface CreateProfileDialogProps {
   isOpen: boolean;
@@ -101,6 +105,10 @@ const browserOptions: BrowserOption[] = [
     value: "wayfern",
     label: "Wayfern",
   },
+  {
+    value: "chromium",
+    label: "Chromium",
+  },
 ];
 
 export function CreateProfileDialog({
@@ -114,14 +122,15 @@ export function CreateProfileDialog({
   const proxyListboxIdAntiDetect = useId();
   const proxyListboxIdRegular = useId();
   const [profileName, setProfileName] = useState("");
-  // Only Wayfern profiles can be created, so the dialog opens straight into
-  // the Wayfern config step (no browser-selection screen).
+  // The dialog opens on browser selection so the kernel (Wayfern anti-detect
+  // vs standard Chromium) is an explicit choice; picking a card moves to its
+  // config step.
   const [currentStep, setCurrentStep] = useState<
     "browser-selection" | "browser-config"
-  >("browser-config");
+  >("browser-selection");
   const [activeTab, setActiveTab] = useState("anti-detect");
 
-  // Browser selection states. Defaults to Wayfern — the only creatable browser.
+  // Browser selection states. Defaults to Wayfern — the anti-detect kernel.
   const [selectedBrowser, setSelectedBrowser] =
     useState<BrowserTypeString>("wayfern");
   const [selectedProxyId, setSelectedProxyId] = useState<string>();
@@ -151,6 +160,8 @@ export function CreateProfileDialog({
   const handleTabChange = (value: string) => {
     setActiveTab(value);
     resetForm();
+    // A tab switch is a kernel switch: go back to picking a browser.
+    setCurrentStep("browser-selection");
   };
 
   const [supportedBrowsers, setSupportedBrowsers] = useState<string[]>([]);
@@ -208,6 +219,17 @@ export function CreateProfileDialog({
 
   const loadReleaseTypes = useCallback(
     async (browser: string) => {
+      // Chromium ships as one pinned Playwright build; there is no version
+      // API to query.
+      if (browser === "chromium") {
+        loadingBrowserRef.current = null;
+        setReleaseTypes({ stable: CHROMIUM_PINNED_VERSION });
+        setIsLoadingReleaseTypes(false);
+        setReleaseTypesError(null);
+        void loadDownloadedVersions(browser);
+        return;
+      }
+
       // Set loading state
       loadingBrowserRef.current = browser;
       setIsLoadingReleaseTypes(true);
@@ -274,6 +296,15 @@ export function CreateProfileDialog({
       void loadSupportedBrowsers();
       // Load downloaded Wayfern versions up front so the availability gate is accurate.
       void loadDownloadedVersions("wayfern");
+      // Open on the kernel the user picked as default in Settings.
+      void invoke<{ default_browser_kernel?: string }>("get_app_settings")
+        .then((appSettings) => {
+          if (appSettings.default_browser_kernel === "chromium") {
+            setActiveTab("regular");
+            setSelectedBrowser("chromium");
+          }
+        })
+        .catch(() => {});
       // Load release types when a browser is selected
       if (selectedBrowser) {
         void loadReleaseTypes(selectedBrowser);
@@ -445,9 +476,9 @@ export function CreateProfileDialog({
     // Cancel any ongoing loading
     loadingBrowserRef.current = null;
 
-    // Reset all states. Stay on the Wayfern config step.
+    // Reset all fields and return to kernel selection.
     setProfileName("");
-    setCurrentStep("browser-config");
+    setCurrentStep("browser-selection");
     setActiveTab("anti-detect");
     setSelectedBrowser("wayfern");
     setSelectedProxyId(undefined);
@@ -501,9 +532,11 @@ export function CreateProfileDialog({
     getCreatableVersion,
   ]);
 
-  // Filter supported browsers for regular browsers
-  const regularBrowsers = browserOptions.filter((browser) =>
-    supportedBrowsers.includes(browser.value),
+  // Filter supported regular browsers (Wayfern is the anti-detect kernel,
+  // never listed as a regular one)
+  const regularBrowsers = browserOptions.filter(
+    (browser) =>
+      browser.value !== "wayfern" && supportedBrowsers.includes(browser.value),
   );
 
   return (
@@ -514,7 +547,7 @@ export function CreateProfileDialog({
             {currentStep === "browser-selection"
               ? t("createProfile.title")
               : t("createProfile.configureTitle", {
-                  browser: t("createProfile.chromiumLabel"),
+                  browser: getBrowserDisplayName(selectedBrowser),
                 })}
           </DialogTitle>
         </DialogHeader>
@@ -524,7 +557,14 @@ export function CreateProfileDialog({
           onValueChange={handleTabChange}
           className="flex min-h-0 w-full flex-1 flex-col"
         >
-          {/* Tab list hidden - only anti-detect browsers are supported */}
+          <TabsList className="shrink-0 self-center">
+            <TabsTrigger value="anti-detect">
+              {t("createProfile.antiDetect.title")}
+            </TabsTrigger>
+            <TabsTrigger value="regular">
+              {t("createProfile.regular.title")}
+            </TabsTrigger>
+          </TabsList>
 
           <ScrollArea className="flex-1 overflow-y-auto">
             <div className="flex w-full flex-col items-center justify-center">
@@ -534,7 +574,7 @@ export function CreateProfileDialog({
                     <TabsContent value="anti-detect" className="mt-0 space-y-6">
                       {/* Anti-Detect Browser Selection */}
                       <div className="space-y-3 pt-8">
-                        {/* Wayfern (Chromium) - First */}
+                        {/* Wayfern - the anti-detect kernel */}
                         <Button
                           onClick={() => {
                             handleBrowserSelect("wayfern");
@@ -557,12 +597,12 @@ export function CreateProfileDialog({
                           </div>
                           <div className="text-left">
                             <div className="font-medium">
-                              {t("createProfile.chromiumLabel")}
+                              {t("createProfile.wayfernLabel")}
                             </div>
                             <div className="text-sm text-muted-foreground">
                               {isBrowserCurrentlyDownloading("wayfern")
                                 ? t("createProfile.downloadingSubtitle")
-                                : t("createProfile.chromiumSubtitle")}
+                                : t("createProfile.wayfernSubtitle")}
                             </div>
                           </div>
                         </Button>
@@ -609,7 +649,11 @@ export function CreateProfileDialog({
                                     {browser.label}
                                   </div>
                                   <div className="text-sm text-muted-foreground">
-                                    {t("createProfile.regular.badge")}
+                                    {browser.value === "chromium"
+                                      ? t(
+                                          "createProfile.chromiumRegularSubtitle",
+                                        )
+                                      : t("createProfile.regular.badge")}
                                   </div>
                                 </div>
                               </Button>

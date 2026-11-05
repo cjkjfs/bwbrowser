@@ -238,6 +238,19 @@ impl BrowserRunner {
       .map_err(|e| format!("Failed to get executable path for {}: {e}", profile.browser).into())
   }
 
+  /// The running standard-Chromium instance for this profile, if the launch
+  /// rode the default-kernel override (or the profile really is chromium).
+  fn chromium_instance_for_profile(
+    &self,
+    profile: &BrowserProfile,
+  ) -> Option<crate::chromium_manager::ChromiumInstance> {
+    let profiles_dir = self.profile_manager.get_profiles_dir();
+    let profile_data_path =
+      crate::ephemeral_dirs::chromium_profile_data_path(profile, &profiles_dir);
+    crate::chromium_manager::ChromiumManager::instance()
+      .find_by_profile(&profile_data_path.to_string_lossy())
+  }
+
   /// One argument per thing a launch decides, and they are all independent:
   /// grouping them into a struct would only move the same list one level out,
   /// and the one caller shape that repeats already has `LaunchOptions`.
@@ -253,9 +266,17 @@ impl BrowserRunner {
     gate: &crate::launch_gate::FingerprintGate,
     on_fingerprint_progress: Option<&(dyn Fn(&str) + Sync)>,
     shield_platform: Option<&str>,
+    kernel_override: Option<&(String, String)>,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
+    // The override decides which kernel this launch runs on; the profile's own
+    // fields are never rewritten, so the on-disk metadata keeps saying Wayfern
+    // and flipping the default-kernel setting back relaunches it as Wayfern.
+    let (effective_browser, effective_version) = kernel_override
+      .map(|(browser, version)| (browser.clone(), version.clone()))
+      .unwrap_or_else(|| (profile.browser.clone(), profile.version.clone()));
+
     // Handle Wayfern profiles using WayfernManager
-    if profile.browser == "wayfern" {
+    if effective_browser == "wayfern" {
       // Get or create wayfern config
       let mut wayfern_config = profile.wayfern_config.clone().unwrap_or_else(|| {
         log::info!(
@@ -846,6 +867,185 @@ impl BrowserRunner {
       return Ok(updated_profile);
     }
 
+    // Standard Chromium: no fingerprint injection, no revenue shield. With a
+    // node assigned, the launch rides the same local worker stack Wayfern
+    // uses — the worker terminates upstream auth, spins an Xray sidecar for
+    // VLESS/Trojan, applies bypass rules, and serves a loopback SOCKS5 the
+    // browser can actually speak. With no upstream it launches direct. CDP
+    // stays exposed on a loopback port for AI assistant / REST automation.
+    if effective_browser == "chromium" {
+      emit_launch_stage(profile, "network", None);
+      let upstream_proxy = self
+        .resolve_launch_proxy(profile)
+        .await
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+
+      // Chromium's --proxy-server speaks neither proxy credentials nor
+      // VLESS, so a node can never ride it directly; route through the
+      // local worker instead. No upstream keeps today's direct launch.
+      let launch_proxy = if upstream_proxy.is_some() {
+        let profile_id_str = profile.id.to_string();
+        let launch_placeholder_pid = crate::proxy_manager::next_launch_placeholder_pid();
+        let local_proxy = PROXY_MANAGER
+          .start_proxy(
+            app_handle.clone(),
+            upstream_proxy.as_ref(),
+            launch_placeholder_pid,
+            Some(&profile_id_str),
+            profile.proxy_bypass_rules.clone(),
+            None,
+            false,
+            "socks5",
+          )
+          .await
+          .map_err(|e| {
+            let error_msg =
+              crate::wrap_backend_error(e, "Failed to start local proxy for Chromium");
+            log::error!("{}", error_msg);
+            error_msg
+          })?;
+        Some((local_proxy, launch_placeholder_pid, profile_id_str))
+      } else {
+        None
+      };
+
+      emit_launch_stage(profile, "starting", None);
+
+      let browser_dir = {
+        let mut dir = self.get_binaries_dir();
+        dir.push(&effective_browser);
+        dir.push(&effective_version);
+        dir
+      };
+      let browser = crate::browser::create_browser(crate::browser::BrowserType::Chromium);
+      let executable_path = browser
+        .get_executable_path(&browser_dir)
+        .map_err(|e| format!("Failed to get executable path for chromium: {e}"))?;
+      let profiles_dir = self.profile_manager.get_profiles_dir();
+      let profile_data_path =
+        crate::ephemeral_dirs::chromium_profile_data_path(profile, &profiles_dir);
+      let profile_path_str = profile_data_path.to_string_lossy().to_string();
+
+      let port = match remote_debugging_port {
+        Some(port) => port,
+        None => {
+          let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+          let port = listener.local_addr()?.port();
+          drop(listener);
+          port
+        }
+      };
+
+      let browser = crate::browser::create_browser(crate::browser::BrowserType::Chromium);
+      let args = browser
+        .create_launch_args(
+          &profile_path_str,
+          launch_proxy.as_ref().map(|(local, _, _)| local),
+          url.clone(),
+          Some(port),
+          headless,
+        )
+        .map_err(|e| format!("Failed to build Chromium launch arguments: {e}"))?;
+
+      log::info!(
+        "Launching Chromium {} for profile: {} (ID: {})",
+        effective_version,
+        profile.name,
+        profile.id
+      );
+
+      let mut command = tokio::process::Command::new(&executable_path);
+      command
+        .args(&args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+      #[cfg(windows)]
+      {
+        // CREATE_NO_WINDOW: spawn without a console flash
+        command.creation_flags(0x0800_0000);
+      }
+      let child = command.spawn().map_err(|e| {
+        format!(
+          "Failed to launch Chromium at {}: {e}",
+          executable_path.display()
+        )
+      })?;
+      let Some(process_id) = child.id() else {
+        // The worker would outlive a browser that never came up.
+        if let Some((_, placeholder, _)) = &launch_proxy {
+          let _ = PROXY_MANAGER
+            .stop_proxy(app_handle.clone(), *placeholder)
+            .await;
+        }
+        return Err("Failed to launch Chromium: process exited immediately".into());
+      };
+      drop(child);
+
+      if let Err(e) = crate::chromium_manager::wait_for_cdp_ready(process_id, port).await {
+        // Don't orphan a browser whose CDP endpoint never came up, nor the
+        // worker routing its traffic.
+        if let Some((_, placeholder, _)) = &launch_proxy {
+          let _ = PROXY_MANAGER
+            .stop_proxy(app_handle.clone(), *placeholder)
+            .await;
+        }
+        let _ = crate::chromium_manager::ChromiumManager::instance()
+          .stop(process_id)
+          .await;
+        return Err(e);
+      }
+      crate::chromium_manager::ChromiumManager::instance().register(
+        crate::chromium_manager::ChromiumInstance {
+          profile_path: profile_path_str,
+          process_id,
+          cdp_port: port,
+          executable_path: executable_path.to_string_lossy().to_string(),
+        },
+      );
+
+      // Re-key the worker from the launch placeholder to the browser's real
+      // PID so kill/cleanup and the worker's own watchdog follow the browser.
+      if let Some((_, placeholder, profile_id_str)) = &launch_proxy {
+        if let Err(error) = PROXY_MANAGER.update_proxy_pid(*placeholder, process_id) {
+          let _ = PROXY_MANAGER
+            .stop_proxy(app_handle.clone(), *placeholder)
+            .await;
+          let _ = crate::chromium_manager::ChromiumManager::instance()
+            .stop(process_id)
+            .await;
+          return Err(crate::backend_error_with_detail("INTERNAL_ERROR", error).into());
+        }
+        PROXY_MANAGER.set_browser_pid_for_profile(profile_id_str, process_id);
+      }
+
+      let mut updated_profile = profile.clone();
+      updated_profile.process_id = Some(process_id);
+      updated_profile.last_launch = Some(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs());
+      self.save_process_info(&updated_profile)?;
+
+      if let Err(e) = events::emit_empty("profiles-changed") {
+        log::warn!("Warning: Failed to emit profiles-changed event: {e}");
+      }
+      if let Err(e) = events::emit("profile-updated", &updated_profile) {
+        log::warn!("Warning: Failed to emit profile update event: {e}");
+      }
+      #[derive(Serialize)]
+      struct RunningChangedPayload {
+        id: String,
+        is_running: bool,
+      }
+      let payload = RunningChangedPayload {
+        id: updated_profile.id.to_string(),
+        is_running: true,
+      };
+      if let Err(e) = events::emit("profile-running-changed", &payload) {
+        log::warn!("Warning: Failed to emit profile running changed event: {e}");
+      }
+
+      return Ok(updated_profile);
+    }
+
     Err(format!("Unsupported browser type: {}", profile.browser).into())
   }
 
@@ -857,7 +1057,7 @@ impl BrowserRunner {
     _internal_proxy_settings: Option<&ProxySettings>,
   ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Handle Wayfern profiles using WayfernManager
-    if profile.browser == "wayfern" {
+    if profile.browser == "wayfern" && self.chromium_instance_for_profile(profile).is_none() {
       let profiles_dir = self.profile_manager.get_profiles_dir();
       let profile_data_path =
         crate::ephemeral_dirs::get_effective_profile_path(profile, &profiles_dir);
@@ -889,6 +1089,44 @@ impl BrowserRunner {
       }
     }
 
+    if profile.browser == "chromium" || self.chromium_instance_for_profile(profile).is_some() {
+      let profiles_dir = self.profile_manager.get_profiles_dir();
+      let profile_data_path =
+        crate::ephemeral_dirs::chromium_profile_data_path(profile, &profiles_dir);
+      let profile_path_str = profile_data_path.to_string_lossy();
+
+      let manager = crate::chromium_manager::ChromiumManager::instance();
+      let Some(instance) = manager.find_by_profile(&profile_path_str) else {
+        return Err("Chromium browser is not running".into());
+      };
+      if !crate::proxy_storage::is_process_running(instance.process_id) {
+        manager.unregister_by_pid(instance.process_id);
+        return Err("Chromium browser is not running".into());
+      }
+
+      // The process singleton is keyed by user-data-dir, so the handoff needs
+      // the same dir passed again; a bare `chrome.exe <url>` would start a
+      // fresh default-profile browser instead of a tab in this instance.
+      let executable_path = std::path::PathBuf::from(&instance.executable_path);
+      let mut command = tokio::process::Command::new(executable_path);
+      command.arg(format!("--user-data-dir={}", profile_path_str));
+      command.arg(url);
+      command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+      #[cfg(windows)]
+      {
+        // CREATE_NO_WINDOW: spawn without a console flash
+        command.creation_flags(0x0800_0000);
+      }
+      command
+        .spawn()
+        .map_err(|e| format!("Failed to open URL in Chromium: {e}"))?;
+
+      return Ok(());
+    }
+
     Err(format!("Unsupported browser type: {}", profile.browser).into())
   }
 
@@ -905,6 +1143,7 @@ impl BrowserRunner {
     gate: &crate::launch_gate::FingerprintGate,
     on_fingerprint_progress: Option<&(dyn Fn(&str) + Sync)>,
     shield_platform: Option<&str>,
+    kernel_override: Option<&(String, String)>,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
     // Wayfern starts (and PID-reconciles) its own local proxy
     // inside `launch_browser_internal`, so we hand it None here rather than
@@ -920,6 +1159,7 @@ impl BrowserRunner {
         gate,
         on_fingerprint_progress,
         shield_platform,
+        kernel_override,
       )
       .await
   }
@@ -936,6 +1176,7 @@ impl BrowserRunner {
     gate: &crate::launch_gate::FingerprintGate,
     on_fingerprint_progress: Option<&(dyn Fn(&str) + Sync)>,
     shield_platform: Option<&str>,
+    kernel_override: Option<&(String, String)>,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
     log::info!(
       "launch_or_open_url called for profile: {} (ID: {})",
@@ -1026,6 +1267,7 @@ impl BrowserRunner {
           gate,
           on_fingerprint_progress,
           shield_platform,
+          kernel_override,
         )
         .await
     }
@@ -1125,8 +1367,13 @@ impl BrowserRunner {
     app_handle: tauri::AppHandle,
     profile: &BrowserProfile,
   ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // A Wayfern-labeled profile may actually be running the standard Chromium
+    // kernel under the default-kernel override; then the Wayfern registry knows
+    // nothing about it and the stop has to go through the Chromium one.
+    let running_as_chromium = self.chromium_instance_for_profile(profile).is_some();
+
     // Handle Wayfern profiles using WayfernManager
-    if profile.browser == "wayfern" {
+    if profile.browser == "wayfern" && !running_as_chromium {
       let profiles_dir = self.profile_manager.get_profiles_dir();
       let profile_data_path =
         crate::ephemeral_dirs::get_effective_profile_path(profile, &profiles_dir);
@@ -1510,6 +1757,132 @@ impl BrowserRunner {
       return Ok(());
     }
 
+    if profile.browser == "chromium" || running_as_chromium {
+      let profiles_dir = self.profile_manager.get_profiles_dir();
+      let profile_data_path =
+        crate::ephemeral_dirs::chromium_profile_data_path(profile, &profiles_dir);
+      let profile_path_str = profile_data_path.to_string_lossy();
+
+      log::info!(
+        "Attempting to kill Chromium process for profile: {} (ID: {})",
+        profile.name,
+        profile.id
+      );
+
+      // Stop the routing workers first, same order as the Wayfern path: with
+      // a node assigned, the launch ran the browser through a local proxy
+      // worker (and possibly an Xray sidecar for VLESS).
+      let profile_id_str = profile.id.to_string();
+      if let Err(e) = PROXY_MANAGER
+        .stop_proxy_by_profile_id(app_handle.clone(), &profile_id_str)
+        .await
+      {
+        log::warn!(
+          "Warning: Failed to stop proxy for profile {}: {e}",
+          profile_id_str
+        );
+      }
+      if let Err(error) =
+        crate::xray_worker_runner::stop_xray_worker_by_profile_id(&profile_id_str).await
+      {
+        log::warn!(
+          "Warning: Failed to stop Xray-core worker for profile {}: {error}",
+          profile_id_str
+        );
+      }
+
+      let manager = crate::chromium_manager::ChromiumManager::instance();
+      let mut process_actually_stopped = false;
+      match manager.find_by_profile(&profile_path_str) {
+        Some(instance) => {
+          if manager.stop(instance.process_id).await {
+            process_actually_stopped = true;
+          } else {
+            log::error!(
+              "Failed to force kill Chromium process {} for profile {}",
+              instance.process_id,
+              profile.name
+            );
+          }
+        }
+        None => {
+          // Registry lost (app restart): fall back to the recorded PID.
+          match profile.process_id {
+            Some(pid) if crate::proxy_storage::is_process_running(pid) => {
+              process_actually_stopped = manager.stop(pid).await;
+            }
+            _ => process_actually_stopped = true,
+          }
+        }
+      }
+
+      if !process_actually_stopped {
+        log::error!(
+          "Failed to stop Chromium process for profile: {} (ID: {}) - process may still be running",
+          profile.name,
+          profile.id
+        );
+        return Err(
+          format!(
+            "Failed to stop Chromium process for profile {} - process may still be running",
+            profile.name
+          )
+          .into(),
+        );
+      }
+
+      let mut updated_profile = profile.clone();
+      updated_profile.process_id = None;
+      self
+        .save_process_info(&updated_profile)
+        .map_err(|e| format!("Failed to update profile: {e}"))?;
+
+      // Same post-stop chores as the Wayfern path.
+      if profile.password_protected {
+        crate::profile::password::complete_after_quit_and_wait(profile).await;
+      } else if profile.ephemeral {
+        let id = profile.id.to_string();
+        crate::ephemeral_dirs::remove_ephemeral_dir(&id);
+        crate::traffic_stats::delete_traffic_stats(&id);
+      } else if profile.clear_on_close {
+        crate::profile::clear_on_close::clear_profile_browsing_data(profile).await;
+      }
+      crate::extension_manager::ExtensionManager::cleanup_unpacked_for_profile(
+        &profile.id.to_string(),
+      );
+
+      if let Err(e) = events::emit("profile-updated", &updated_profile) {
+        log::warn!("Warning: Failed to emit profile update event: {e}");
+      }
+      #[derive(Serialize)]
+      struct RunningChangedPayload {
+        id: String,
+        is_running: bool,
+      }
+      let payload = RunningChangedPayload {
+        id: updated_profile.id.to_string(),
+        is_running: false,
+      };
+      if let Err(e) = events::emit("profile-running-changed", &payload) {
+        log::warn!("Warning: Failed to emit profile running changed event: {e}");
+      }
+
+      if profile.temporary {
+        match self
+          .profile_manager
+          .delete_profile_permanently(&app_handle, &profile.id.to_string())
+        {
+          Ok(()) => log::info!(
+            "Deleted temporary profile {} now that its browser has stopped",
+            profile.name
+          ),
+          Err(e) => log::warn!("Could not delete temporary profile {}: {e}", profile.name),
+        }
+      }
+
+      return Ok(());
+    }
+
     Err(
       format!(
         "Unsupported browser '{}' for profile '{}' — only Wayfern is supported",
@@ -1588,6 +1961,7 @@ impl BrowserRunner {
         &gate,
         None,
         None,
+        None,
       )
       .await
     {
@@ -1653,6 +2027,12 @@ pub struct LaunchOptions {
   /// guess never reaches. `None` for a manual profile launch; the generic
   /// fallback selectors still apply.
   pub shield_platform: Option<String>,
+  /// Launch-time kernel override: `(browser, version)`. Lets an account whose
+  /// stored metadata says Wayfern run on the standard Chromium kernel because
+  /// the default-kernel setting says so, without rewriting that metadata —
+  /// flip the setting back and the next launch is Wayfern again. `None`
+  /// launches what the profile's own fields say.
+  pub kernel_override: Option<(String, String)>,
 }
 
 impl LaunchOptions {
@@ -1667,6 +2047,7 @@ impl LaunchOptions {
       gate: crate::launch_gate::FingerprintGate::Advisory,
       on_fingerprint_progress: None,
       shield_platform: None,
+      kernel_override: None,
     }
   }
 }
@@ -1778,6 +2159,7 @@ async fn launch_browser_profile_tracked(
     gate,
     on_fingerprint_progress,
     shield_platform,
+    kernel_override,
   } = options;
   let on_fingerprint_progress = on_fingerprint_progress
     .as_ref()
@@ -1883,6 +2265,7 @@ async fn launch_browser_profile_tracked(
         &gate,
         on_fingerprint_progress,
         shield_platform.as_deref(),
+        kernel_override.as_ref(),
       )
       .await
   } else {
@@ -1895,6 +2278,7 @@ async fn launch_browser_profile_tracked(
         &gate,
         on_fingerprint_progress,
         shield_platform.as_deref(),
+        kernel_override.as_ref(),
       )
       .await
   };
