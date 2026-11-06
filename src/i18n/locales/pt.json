@@ -1161,6 +1161,9 @@
       "profileDeleteFailed": "Falha ao excluir perfil",
       "profileUpdateFailed": "Falha ao atualizar perfil",
       "profileLaunchFailed": "Falha ao iniciar perfil",
+      "cloudAccountBrowserClosed": "O navegador de {{account}} foi fechado",
+      "cloudAccountStatusFailed": "Não foi possível verificar o estado do navegador de {{account}}. Verifique o navegador e tente novamente.",
+      "cloudAccountLaunchFailed": "Falha ao iniciar o navegador de {{account}}",
       "proxyCreateFailed": "Falha ao criar proxy",
       "proxyDeleteFailed": "Falha ao excluir proxy",
       "proxyUpdateFailed": "Falha ao atualizar proxy",
@@ -3643,7 +3646,16 @@
     "connectRelaySuccess": "LAN inacessível, página de controle por retransmissão aberta ({{host}})",
     "delete": "Excluir",
     "deleteConfirm": "Excluir a máquina \"{{name}}\" da lista?",
-    "deleteSuccess": "Máquina excluída"
+    "deleteSuccess": "Máquina excluída",
+    "hardwareTitle": "Configuração do computador",
+    "hardwareCpu": "CPU",
+    "hardwareCores": "Núcleos físicos / lógicos: {{cores}}",
+    "hardwareUsage": "Uso: {{usage}}%",
+    "hardwareMemory": "Memória",
+    "hardwareDisk": "Armazenamento",
+    "hardwareAvailable": "{{available}} disponíveis",
+    "hardwareGpu": "GPU",
+    "hardwareUnavailable": "Ainda não há dados de hardware. O computador controlado precisa da versão mais recente para enviá-los."
   },
   "fileTransfer": {
     "title": "Transferência de arquivos",
@@ -3699,5 +3711,35 @@
     "dotUser": "Eu",
     "dotAssistant": "IA",
     "rollback": "Voltar para antes desta mensagem"
+  },
+  "userManagement": {
+    "addUser": {
+      "phone": "Telefone (opcional)",
+      "phonePlaceholder": "Opcional",
+      "groupId": "ID do grupo *",
+      "groupIdPlaceholder": "Introduza o ID do grupo",
+      "sector": "Setor * (separe vários valores com vírgulas)",
+      "sectorPlaceholder": "ex.: Anime,Desporto",
+      "profilePlaceholder": "Selecionar grupo de permissões",
+      "groupAndSectorRequired": "O grupo e o setor são obrigatórios",
+      "mentor": "Mentor (opcional, com pesquisa)",
+      "mentorPlaceholder": "Pesquisar por nome ou nome de usuário",
+      "mentorHint": "As recompensas de mentoria usam este mentor. Você pode alterá-lo depois ao editar o usuário.",
+      "skipNewbie": "Marcar como experiente (ignorar período de novato)",
+      "skipNewbieHint": "Se desmarcado, o status de novato é determinado automaticamente durante 15 dias após a criação",
+      "permissionProfile": "Grupo de permissões"
+    }
+  },
+  "cloudAccountsPhoneId": {
+    "title": "Definir ID do telefone",
+    "selectedCount": "{{count}} contas",
+    "same": "Mesmo ID para todas",
+    "each": "Definir individualmente",
+    "phoneId": "ID do telefone",
+    "samePlaceholder": "Deixe vazio para limpar o ID das contas selecionadas",
+    "hint": "Um valor vazio limpa o ID. Apenas os IDs de telefone são alterados.",
+    "save": "Salvar IDs de telefone",
+    "success": "IDs de telefone salvos ({{count}} contas)",
+    "failed": "Definir IDs: {{ok}} concluídos, {{failed}} falharam — {{errors}}"
   }
 }

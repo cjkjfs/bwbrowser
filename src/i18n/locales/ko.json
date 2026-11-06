@@ -1155,6 +1155,9 @@
       "profileDeleteFailed": "프로필 삭제 실패",
       "profileUpdateFailed": "프로필 업데이트 실패",
       "profileLaunchFailed": "프로필 실행 실패",
+      "cloudAccountBrowserClosed": "{{account}}의 브라우저가 닫혔습니다",
+      "cloudAccountStatusFailed": "{{account}}의 브라우저 상태를 확인할 수 없습니다. 브라우저를 확인한 후 다시 시도하세요.",
+      "cloudAccountLaunchFailed": "{{account}}의 브라우저를 시작하지 못했습니다",
       "proxyCreateFailed": "프록시 생성 실패",
       "proxyDeleteFailed": "프록시 삭제 실패",
       "proxyUpdateFailed": "프록시 업데이트 실패",
@@ -3610,7 +3613,16 @@
     "connectRelaySuccess": "LAN에 연결할 수 없어 중계 제어 페이지를 열었습니다 ({{host}})",
     "delete": "삭제",
     "deleteConfirm": "\"{{name}}\" 머신을 목록에서 삭제하시겠습니까?",
-    "deleteSuccess": "머신이 삭제되었습니다"
+    "deleteSuccess": "머신이 삭제되었습니다",
+    "hardwareTitle": "컴퓨터 구성",
+    "hardwareCpu": "CPU",
+    "hardwareCores": "물리 / 논리 코어: {{cores}}",
+    "hardwareUsage": "사용률: {{usage}}%",
+    "hardwareMemory": "메모리",
+    "hardwareDisk": "저장 공간",
+    "hardwareAvailable": "사용 가능 {{available}}",
+    "hardwareGpu": "GPU",
+    "hardwareUnavailable": "하드웨어 정보가 아직 없습니다. 피제어 컴퓨터가 최신 버전으로 업데이트되면 자동으로 보고합니다."
   },
   "fileTransfer": {
     "title": "파일 전송",
@@ -3666,5 +3678,35 @@
     "dotUser": "나",
     "dotAssistant": "AI",
     "rollback": "이 메시지 이전으로 되돌리기"
+  },
+  "userManagement": {
+    "addUser": {
+      "phone": "전화번호(선택 사항)",
+      "phonePlaceholder": "선택 사항",
+      "groupId": "그룹 ID *",
+      "groupIdPlaceholder": "그룹 ID 입력",
+      "sector": "분야 *(여러 값은 쉼표로 구분)",
+      "sectorPlaceholder": "예: 애니메이션,스포츠",
+      "profilePlaceholder": "권한 그룹 선택",
+      "groupAndSectorRequired": "그룹과 분야는 필수입니다",
+      "mentor": "멘토(선택 사항, 검색 가능)",
+      "mentorPlaceholder": "이름 또는 사용자 이름으로 검색",
+      "mentorHint": "멘토링 보상은 여기서 선택한 멘토를 기준으로 합니다. 생성 후 사용자 편집에서 변경할 수 있습니다.",
+      "skipNewbie": "정식 사용자로 표시(신입 기간 건어너뛰기)",
+      "skipNewbieHint": "선택하지 않으면 생성 후 15일 동안 신입 여부가 자동으로 판정됩니다",
+      "permissionProfile": "권한 그룹"
+    }
+  },
+  "cloudAccountsPhoneId": {
+    "title": "휴대폰 번호 설정",
+    "selectedCount": "계정 {{count}}개",
+    "same": "모두 같은 번호",
+    "each": "개별 설정",
+    "phoneId": "휴대폰 번호",
+    "samePlaceholder": "비워 두면 선택한 계정의 번호가 지워집니다",
+    "hint": "빈 값은 번호를 지웁니다. 다른 계정 정보는 변경되지 않습니다.",
+    "save": "전화번호 저장",
+    "success": "전화번호 저장됨(계정 {{count}}개)",
+    "failed": "전화번호 설정: 성공 {{ok}}개, 실패 {{failed}}개 — {{errors}}"
   }
 }

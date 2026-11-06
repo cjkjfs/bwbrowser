@@ -1155,6 +1155,9 @@
       "profileDeleteFailed": "Failed to delete profile",
       "profileUpdateFailed": "Failed to update profile",
       "profileLaunchFailed": "Failed to launch profile",
+      "cloudAccountBrowserClosed": "Browser for {{account}} has closed",
+      "cloudAccountStatusFailed": "Could not check the browser status for {{account}}. Check the browser and try again.",
+      "cloudAccountLaunchFailed": "Failed to launch the browser for {{account}}",
       "proxyCreateFailed": "Failed to create proxy",
       "proxyDeleteFailed": "Failed to delete proxy",
       "proxyUpdateFailed": "Failed to update proxy",
@@ -3610,7 +3613,16 @@
     "connectRelaySuccess": "LAN unreachable, opened the relay control page ({{host}})",
     "delete": "Delete",
     "deleteConfirm": "Delete machine \"{{name}}\" from the list?",
-    "deleteSuccess": "Machine deleted"
+    "deleteSuccess": "Machine deleted",
+    "hardwareTitle": "Computer configuration",
+    "hardwareCpu": "CPU",
+    "hardwareCores": "Physical / logical cores: {{cores}}",
+    "hardwareUsage": "Usage: {{usage}}%",
+    "hardwareMemory": "Memory",
+    "hardwareDisk": "Storage",
+    "hardwareAvailable": "{{available}} available",
+    "hardwareGpu": "GPU",
+    "hardwareUnavailable": "No hardware data yet. The controlled end needs the latest version to report it."
   },
   "fileTransfer": {
     "title": "File transfer",
@@ -3666,5 +3678,35 @@
     "dotUser": "Me",
     "dotAssistant": "AI",
     "rollback": "Roll back to before this message"
+  },
+  "userManagement": {
+    "addUser": {
+      "phone": "Phone (optional)",
+      "phonePlaceholder": "Optional",
+      "groupId": "Group ID *",
+      "groupIdPlaceholder": "Enter group ID",
+      "sector": "Sector * (separate multiple values with commas)",
+      "sectorPlaceholder": "e.g. Anime,Sports",
+      "profilePlaceholder": "Select permission profile",
+      "groupAndSectorRequired": "Group and sector are required",
+      "mentor": "Mentor (optional, searchable)",
+      "mentorPlaceholder": "Search by name or username",
+      "mentorHint": "Mentorship rewards use this mentor. You can change it later when editing the user.",
+      "skipNewbie": "Mark as established (skip newbie period)",
+      "skipNewbieHint": "If unchecked, newbie status is determined automatically for 15 days after creation",
+      "permissionProfile": "Permission group"
+    }
+  },
+  "cloudAccountsPhoneId": {
+    "title": "Set phone ID",
+    "selectedCount": "{{count}} accounts",
+    "same": "Same ID for all",
+    "each": "Set individually",
+    "phoneId": "Phone ID",
+    "samePlaceholder": "Leave empty to clear the phone ID of selected accounts",
+    "hint": "An empty value clears the phone ID. Saving changes only phone IDs, not other account information.",
+    "save": "Save phone IDs",
+    "success": "Phone IDs saved ({{count}} accounts)",
+    "failed": "Set phone IDs: {{ok}} succeeded, {{failed}} failed — {{errors}}"
   }
 }

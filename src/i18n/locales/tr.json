@@ -1155,6 +1155,9 @@
       "profileDeleteFailed": "Profil silinemedi",
       "profileUpdateFailed": "Profil güncellenemedi",
       "profileLaunchFailed": "Profil başlatılamadı",
+      "cloudAccountBrowserClosed": "{{account}} için tarayıcı kapandı",
+      "cloudAccountStatusFailed": "{{account}} için tarayıcı durumu kontrol edilemedi. Tarayıcıyı kontrol edip yeniden deneyin.",
+      "cloudAccountLaunchFailed": "{{account}} için tarayıcı başlatılamadı",
       "proxyCreateFailed": "Proxy oluşturulamadı",
       "proxyDeleteFailed": "Proxy silinemedi",
       "proxyUpdateFailed": "Proxy güncellenemedi",
@@ -3610,7 +3613,16 @@
     "connectRelaySuccess": "LAN erişilemedi, aktarma denetim sayfası açıldı ({{host}})",
     "delete": "Sil",
     "deleteConfirm": "\"{{name}}\" makinesini listeden silinsin mi?",
-    "deleteSuccess": "Makine silindi"
+    "deleteSuccess": "Makine silindi",
+    "hardwareTitle": "Bilgisayar yapılandırması",
+    "hardwareCpu": "CPU",
+    "hardwareCores": "Fiziksel / mantıksal çekirdek: {{cores}}",
+    "hardwareUsage": "Kullanım: %{{usage}}",
+    "hardwareMemory": "Bellek",
+    "hardwareDisk": "Depolama",
+    "hardwareAvailable": "{{available}} kullanılabilir",
+    "hardwareGpu": "GPU",
+    "hardwareUnavailable": "Henüz donanım verisi yok. Kontrol edilen bilgisayarın verileri göndermesi için son sürüm gerekir."
   },
   "fileTransfer": {
     "title": "Dosya aktarımı",
@@ -3666,5 +3678,35 @@
     "dotUser": "Ben",
     "dotAssistant": "AI",
     "rollback": "Bu mesajdan önceki haline dön"
+  },
+  "userManagement": {
+    "addUser": {
+      "phone": "Telefon (isteğe bağlı)",
+      "phonePlaceholder": "İsteğe bağlı",
+      "groupId": "Grup kimliği *",
+      "groupIdPlaceholder": "Grup kimliğini girin",
+      "sector": "Alan * (birden fazla değeri virgülle ayırın)",
+      "sectorPlaceholder": "ör. Anime,Spor",
+      "profilePlaceholder": "İzin grubu seçin",
+      "groupAndSectorRequired": "Grup ve alan zorunludur",
+      "mentor": "Mentor (isteğe bağlı, aranabilir)",
+      "mentorPlaceholder": "Ad veya kullanıcı adıyla ara",
+      "mentorHint": "Mentorluk ödülleri bu mentora göre belirlenir. Kullanıcıyı düzenlerken daha sonra değiştirebilirsiniz.",
+      "skipNewbie": "Deneyimli olarak işaretle (yeni kullanıcı dönemini atla)",
+      "skipNewbieHint": "İşaretlenmezse yeni kullanıcı durumu oluşturulduktan sonra 15 gün boyunca otomatik belirlenir",
+      "permissionProfile": "İzin grubu"
+    }
+  },
+  "cloudAccountsPhoneId": {
+    "title": "Telefon numarasını ayarla",
+    "selectedCount": "{{count}} hesap",
+    "same": "Hepsine aynı numara",
+    "each": "Tek tek ayarla",
+    "phoneId": "Telefon numarası",
+    "samePlaceholder": "Seçili hesapların numarasını silmek için boş bırakın",
+    "hint": "Boş değer numarayı siler. Diğer hesap bilgileri değiştirilmez.",
+    "save": "Telefon numaralarını kaydet",
+    "success": "Telefon numaraları kaydedildi ({{count}} hesap)",
+    "failed": "Numaralar: {{ok}} başarılı, {{failed}} başarısız — {{errors}}"
   }
 }

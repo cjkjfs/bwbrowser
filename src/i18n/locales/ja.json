@@ -1155,6 +1155,9 @@
       "profileDeleteFailed": "プロファイルの削除に失敗しました",
       "profileUpdateFailed": "プロファイルの更新に失敗しました",
       "profileLaunchFailed": "プロファイルの起動に失敗しました",
+      "cloudAccountBrowserClosed": "{{account}} のブラウザーが閉じられました",
+      "cloudAccountStatusFailed": "{{account}} のブラウザー状態を確認できません。ブラウザーを確認して再試行してください。",
+      "cloudAccountLaunchFailed": "{{account}} のブラウザーを起動できませんでした",
       "proxyCreateFailed": "プロキシの作成に失敗しました",
       "proxyDeleteFailed": "プロキシの削除に失敗しました",
       "proxyUpdateFailed": "プロキシの更新に失敗しました",
@@ -3610,7 +3613,16 @@
     "connectRelaySuccess": "LAN に到達できないため、リレー制御ページを開きました（{{host}}）",
     "delete": "削除",
     "deleteConfirm": "マシン「{{name}}」をリストから削除しますか？",
-    "deleteSuccess": "マシンを削除しました"
+    "deleteSuccess": "マシンを削除しました",
+    "hardwareTitle": "コンピューターの構成",
+    "hardwareCpu": "CPU",
+    "hardwareCores": "物理 / 論理コア数：{{cores}}",
+    "hardwareUsage": "使用率：{{usage}}%",
+    "hardwareMemory": "メモリ",
+    "hardwareDisk": "ストレージ",
+    "hardwareAvailable": "空き容量 {{available}}",
+    "hardwareGpu": "GPU",
+    "hardwareUnavailable": "ハードウェア情報はまだありません。被控端を最新版に更新すると自動で報告されます。"
   },
   "fileTransfer": {
     "title": "ファイル転送",
@@ -3666,5 +3678,35 @@
     "dotUser": "自分",
     "dotAssistant": "AI",
     "rollback": "このメッセージ前へ戻す"
+  },
+  "userManagement": {
+    "addUser": {
+      "phone": "電話番号（任意）",
+      "phonePlaceholder": "任意",
+      "groupId": "グループ ID *",
+      "groupIdPlaceholder": "グループ ID を入力",
+      "sector": "分野 *（複数はカンマで区切る）",
+      "sectorPlaceholder": "例：アニメ,スポーツ",
+      "profilePlaceholder": "権限グループを選択",
+      "groupAndSectorRequired": "グループと分野は必須です",
+      "mentor": "メンター（任意・検索可）",
+      "mentorPlaceholder": "氏名またはユーザー名で検索",
+      "mentorHint": "メンター報酬はここで選択したメンターを基準にします。作成後もユーザー編集で変更できます。",
+      "skipNewbie": "正式ユーザーとしてマーク（新人期間をスキップ）",
+      "skipNewbieHint": "オフの場合、作成後15日間は自動で新人と判定されます",
+      "permissionProfile": "権限グループ"
+    }
+  },
+  "cloudAccountsPhoneId": {
+    "title": "携帯番号を設定",
+    "selectedCount": "{{count}} 件のアカウント",
+    "same": "すべて同じ番号",
+    "each": "個別に設定",
+    "phoneId": "携帯番号",
+    "samePlaceholder": "空欄にすると選択したアカウントの番号を消去",
+    "hint": "空欄は番号の消去を意味します。他のアカウント情報は変更されません。",
+    "save": "携帯番号を保存",
+    "success": "携帯番号を保存しました（{{count}} 件）",
+    "failed": "携帯番号の設定：成功 {{ok}} 件、失敗 {{failed}} 件 — {{errors}}"
   }
 }

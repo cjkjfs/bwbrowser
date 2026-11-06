@@ -1161,6 +1161,9 @@
       "profileDeleteFailed": "Échec de la suppression du profil",
       "profileUpdateFailed": "Échec de la mise à jour du profil",
       "profileLaunchFailed": "Échec du lancement du profil",
+      "cloudAccountBrowserClosed": "Le navigateur de {{account}} est fermé",
+      "cloudAccountStatusFailed": "Impossible de vérifier l’état du navigateur de {{account}}. Vérifiez le navigateur et réessayez.",
+      "cloudAccountLaunchFailed": "Échec du lancement du navigateur de {{account}}",
       "proxyCreateFailed": "Échec de la création du proxy",
       "proxyDeleteFailed": "Échec de la suppression du proxy",
       "proxyUpdateFailed": "Échec de la mise à jour du proxy",
@@ -3643,7 +3646,16 @@
     "connectRelaySuccess": "LAN injoignable, page de contrôle relais ouverte ({{host}})",
     "delete": "Supprimer",
     "deleteConfirm": "Supprimer la machine « {{name}} » de la liste ?",
-    "deleteSuccess": "Machine supprimée"
+    "deleteSuccess": "Machine supprimée",
+    "hardwareTitle": "Configuration de l’ordinateur",
+    "hardwareCpu": "CPU",
+    "hardwareCores": "Cœurs physiques / logiques : {{cores}}",
+    "hardwareUsage": "Utilisation : {{usage}} %",
+    "hardwareMemory": "Mémoire",
+    "hardwareDisk": "Stockage",
+    "hardwareAvailable": "{{available}} disponibles",
+    "hardwareGpu": "GPU",
+    "hardwareUnavailable": "Aucune donnée matérielle. La dernière version du poste contrôlé est nécessaire pour les transmettre."
   },
   "fileTransfer": {
     "title": "Transfert de fichiers",
@@ -3699,5 +3711,35 @@
     "dotUser": "Moi",
     "dotAssistant": "IA",
     "rollback": "Revenir avant ce message"
+  },
+  "userManagement": {
+    "addUser": {
+      "phone": "Téléphone (facultatif)",
+      "phonePlaceholder": "Facultatif",
+      "groupId": "ID du groupe *",
+      "groupIdPlaceholder": "Saisissez l’ID du groupe",
+      "sector": "Secteur * (séparez les valeurs par des virgules)",
+      "sectorPlaceholder": "ex. Anime,Sports",
+      "profilePlaceholder": "Sélectionner un groupe de permissions",
+      "groupAndSectorRequired": "Le groupe et le secteur sont obligatoires",
+      "mentor": "Mentor (facultatif, avec recherche)",
+      "mentorPlaceholder": "Rechercher par nom ou nom d’utilisateur",
+      "mentorHint": "Les récompenses de mentorat utilisent ce mentor. Vous pouvez le modifier ensuite dans l’édition de l’utilisateur.",
+      "skipNewbie": "Marquer comme confirmé (ignorer la période de débutant)",
+      "skipNewbieHint": "Si cette case est décochée, le statut de débutant est déterminé automatiquement pendant 15 jours après la création",
+      "permissionProfile": "Groupe de permissions"
+    }
+  },
+  "cloudAccountsPhoneId": {
+    "title": "Définir l’identifiant du téléphone",
+    "selectedCount": "{{count}} comptes",
+    "same": "Même identifiant pour tous",
+    "each": "Définir individuellement",
+    "phoneId": "Identifiant du téléphone",
+    "samePlaceholder": "Laisser vide pour effacer l’identifiant des comptes sélectionnés",
+    "hint": "Une valeur vide efface l’identifiant. Seuls les identifiants de téléphone sont modifiés.",
+    "save": "Enregistrer les identifiants",
+    "success": "Identifiants enregistrés ({{count}} comptes)",
+    "failed": "Identifiants : {{ok}} réussis, {{failed}} échoués — {{errors}}"
   }
 }

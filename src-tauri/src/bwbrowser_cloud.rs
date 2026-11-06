@@ -1892,14 +1892,8 @@ impl BwbrowserAuthManager {
     if let Some(k) = keyword {
       form_data.push_str(&format!("&keyword={}", urlencode(&k)));
     }
-    // 普通成员只能看到自己名下的账号：用 SQL 侧过滤，
-    // 而不是拉到全部后在前端过滤（否则非自己的账号会显示成 0 条）
-    let effective_owner_id = if !self.is_manager_role() {
-      self.get_user_id()
-    } else {
-      owner_id
-    };
-    if let Some(oid) = effective_owner_id {
+    // 归属人和可管理小组的范围由服务端判定，避免人事等自定义角色被当成普通员工。
+    if let Some(oid) = owner_id {
       form_data.push_str(&format!("&owner_id={}", oid));
     }
     if let Some(cid) = company_id {
@@ -2088,13 +2082,8 @@ impl BwbrowserAuthManager {
       urlencode(&username),
       urlencode(&password)
     );
-    // 普通成员强制只看自己的汇总
-    let effective_owner_id = if !self.is_manager_role() {
-      self.get_user_id()
-    } else {
-      owner_id
-    };
-    if let Some(oid) = effective_owner_id {
+    // 汇总范围与账号列表一致，由服务端按归属人和可管理小组过滤。
+    if let Some(oid) = owner_id {
       form_data.push_str(&format!("&owner_id={}", oid));
     }
     if let Some(cid) = company_id {
@@ -2523,7 +2512,7 @@ pub async fn bwbrowser_list_accounts(
   sort_by: Option<String>,
   sort_order: Option<String>,
 ) -> Result<BwbrowserAccountListResponse, String> {
-  let mut result = BWBROWSER_AUTH
+  let result = BWBROWSER_AUTH
     .list_cloud_accounts(
       page.unwrap_or(1),
       page_size.unwrap_or(20),
@@ -2536,34 +2525,7 @@ pub async fn bwbrowser_list_accounts(
     )
     .await?;
 
-  // 权限过滤：普通成员只能看到自己的账号
-  let is_manager = result.is_manager.unwrap_or(false) || BWBROWSER_AUTH.is_manager_role();
-  let is_super_admin = result.is_super_admin.unwrap_or(false);
-  if !is_manager && !is_super_admin {
-    if let Some(uid) = BWBROWSER_AUTH.get_user_id() {
-      if let Some(ref mut accounts) = result.accounts {
-        let before = accounts.len();
-        accounts.retain(|a| a.owner_id == Some(uid));
-        log_bwbrowser(
-          "list_accounts",
-          &format!(
-            "权限过滤: 普通成员 uid={}，{} -> {} 条账号",
-            uid,
-            before,
-            accounts.len()
-          ),
-        );
-      }
-      result.total = Some(
-        result
-          .accounts
-          .as_ref()
-          .map(|a| a.len() as i64)
-          .unwrap_or(0),
-      );
-    }
-  }
-
+  // 服务端已按普通员工、可管理小组、管理员三种范围完成 SQL 过滤和分页。
   Ok(result)
 }
 
@@ -2688,16 +2650,7 @@ pub async fn bwbrowser_get_owner_profile_map() -> Result<serde_json::Value, Stri
   let list = BWBROWSER_AUTH
     .list_cloud_accounts(1, 500, None, None, None, None, None, None)
     .await?;
-  let mut accounts = list.accounts.unwrap_or_default();
-
-  // 权限过滤：普通成员只能看到自己的账号（与 bwbrowser_list_accounts 一致）
-  let is_manager = list.is_manager.unwrap_or(false) || BWBROWSER_AUTH.is_manager_role();
-  let is_super_admin = list.is_super_admin.unwrap_or(false);
-  if !is_manager && !is_super_admin {
-    if let Some(uid) = BWBROWSER_AUTH.get_user_id() {
-      accounts.retain(|a| a.owner_id == Some(uid));
-    }
-  }
+  let accounts = list.accounts.unwrap_or_default();
 
   let pm = crate::profile::manager::ProfileManager::instance();
   let profiles = pm.list_profiles().unwrap_or_default();
@@ -2751,18 +2704,8 @@ pub(crate) async fn owner_profile_ids(owner_id: i64) -> Result<Vec<String>, Stri
 pub async fn bwbrowser_list_cloud_users(
   company_id: Option<i64>,
 ) -> Result<CloudUserListResponse, String> {
-  let mut result = BWBROWSER_AUTH.list_cloud_users(company_id).await?;
-
-  // 权限过滤：普通成员只能看到自己
-  if !BWBROWSER_AUTH.is_manager_role() {
-    if let Some(uid) = BWBROWSER_AUTH.get_user_id() {
-      if let Some(ref mut users) = result.users {
-        users.retain(|u| u.id == uid);
-      }
-    }
-  }
-
-  Ok(result)
+  // 用户范围由服务端按可管理小组过滤，供归属人筛选使用。
+  BWBROWSER_AUTH.list_cloud_users(company_id).await
 }
 
 #[tauri::command]
@@ -7161,12 +7104,28 @@ async fn watch_account_browser_close(
         } else if seen_running {
           let _ = app_handle.emit(
             "account-browser-closed",
-            serde_json::json!({ "account_id": account_id }),
+            serde_json::json!({
+              "account_id": account_id,
+              "account_name": account_name,
+            }),
           );
           return;
         }
       }
-      Err(_) => return,
+      Err(e) => {
+        log_bwbrowser_error(
+          "account_browser_watch",
+          &format!("账号 {} 浏览器状态检测失败: {}", account_id, e),
+        );
+        let _ = app_handle.emit(
+          "account-browser-status-failed",
+          serde_json::json!({
+            "account_id": account_id,
+            "account_name": account_name,
+          }),
+        );
+        return;
+      }
     }
   }
 }
@@ -8339,7 +8298,11 @@ async fn launch_account_impl(
       log_bwbrowser_error("launch_account", "  浏览器进程已退出，启动失败");
       let _ = emit_app.emit(
         "account-launch-failed",
-        serde_json::json!({ "account_id": account_id, "reason": "浏览器启动后进程未保持运行" }),
+        serde_json::json!({
+          "account_id": account_id,
+          "account_name": server_account_name,
+          "reason": "浏览器启动后进程未保持运行",
+        }),
       );
       return Err("浏览器启动后进程未保持运行，未能正常打开".to_string());
     }
@@ -10014,8 +9977,16 @@ impl BwbrowserAuthManager {
   }
 
   /// 获取角色列表
-  pub async fn list_management_roles(&self) -> Result<Vec<UserManagementRoleOption>, String> {
-    let body = self.call_users_api("roles", &[]).await?;
+  pub async fn list_management_roles(
+    &self,
+    company_id: Option<i64>,
+  ) -> Result<Vec<UserManagementRoleOption>, String> {
+    let company_id = company_id.map(|id| id.to_string());
+    let params: Vec<(&str, &str)> = company_id
+      .as_deref()
+      .map(|id| vec![("company_id", id)])
+      .unwrap_or_default();
+    let body = self.call_users_api("roles", &params).await?;
     let result: UserManagementRolesResponse = parse_body("users_roles", &body)?;
     Ok(result.roles.unwrap_or_default())
   }
@@ -10175,19 +10146,37 @@ impl BwbrowserAuthManager {
     username: &str,
     password: &str,
     real_name: &str,
-    role: &str,
+    group_id: i64,
+    sector: &str,
+    phone: &str,
+    permission_profile: i64,
+    mentor_id: i64,
+    skip_newbie: bool,
+    company_id: Option<i64>,
   ) -> Result<i64, String> {
-    let body = self
-      .call_users_api(
-        "add",
-        &[
-          ("new_username", username),
-          ("new_password", password),
-          ("real_name", real_name),
-          ("role", role),
-        ],
-      )
-      .await?;
+    let group_id = group_id.to_string();
+    let permission_profile = permission_profile.to_string();
+    let mentor_id = mentor_id.to_string();
+    let skip_newbie = if skip_newbie { "1" } else { "0" };
+    let company_id = company_id.map(|id| id.to_string());
+    let mut params = vec![
+      ("new_username", username),
+      ("new_password", password),
+      ("real_name", real_name),
+      ("role", "member"),
+      ("group_id", group_id.as_str()),
+      ("sector", sector),
+      ("phone", phone),
+      ("permission_profile", permission_profile.as_str()),
+      ("mentor_id", mentor_id.as_str()),
+    ];
+    if skip_newbie == "1" {
+      params.push(("skip_newbie", skip_newbie));
+    }
+    if let Some(company_id) = company_id.as_deref() {
+      params.push(("company_id", company_id));
+    }
+    let body = self.call_users_api("add", &params).await?;
     let result: serde_json::Value = parse_body("users_add", &body)?;
     if !result["success"].as_bool().unwrap_or(false) {
       let msg = result["message"].as_str().unwrap_or("添加失败").to_string();
@@ -10450,8 +10439,10 @@ pub async fn bwbrowser_list_management_users(
 }
 
 #[tauri::command]
-pub async fn bwbrowser_list_management_roles() -> Result<Vec<UserManagementRoleOption>, String> {
-  let roles = BWBROWSER_AUTH.list_management_roles().await?;
+pub async fn bwbrowser_list_management_roles(
+  company_id: Option<i64>,
+) -> Result<Vec<UserManagementRoleOption>, String> {
+  let roles = BWBROWSER_AUTH.list_management_roles(company_id).await?;
   Ok(roles)
 }
 
@@ -10460,10 +10451,27 @@ pub async fn bwbrowser_add_management_user(
   username: String,
   password: String,
   real_name: String,
-  role: String,
+  group_id: i64,
+  sector: String,
+  phone: String,
+  permission_profile: i64,
+  mentor_id: i64,
+  skip_newbie: bool,
+  company_id: Option<i64>,
 ) -> Result<i64, String> {
   let user_id = BWBROWSER_AUTH
-    .add_management_user(&username, &password, &real_name, &role)
+    .add_management_user(
+      &username,
+      &password,
+      &real_name,
+      group_id,
+      &sector,
+      &phone,
+      permission_profile,
+      mentor_id,
+      skip_newbie,
+      company_id,
+    )
     .await?;
   Ok(user_id)
 }

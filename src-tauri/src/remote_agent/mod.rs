@@ -14,6 +14,7 @@ pub mod dxgi;
 mod encode;
 pub mod file_transfer;
 mod files;
+mod hardware;
 mod input;
 mod protocol;
 mod relay;

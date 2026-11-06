@@ -1167,6 +1167,9 @@
       "profileDeleteFailed": "Ошибка удаления профиля",
       "profileUpdateFailed": "Ошибка обновления профиля",
       "profileLaunchFailed": "Ошибка запуска профиля",
+      "cloudAccountBrowserClosed": "Браузер для {{account}} закрыт",
+      "cloudAccountStatusFailed": "Не удалось проверить состояние браузера для {{account}}. Проверьте браузер и повторите попытку.",
+      "cloudAccountLaunchFailed": "Не удалось запустить браузер для {{account}}",
       "proxyCreateFailed": "Ошибка создания прокси",
       "proxyDeleteFailed": "Ошибка удаления прокси",
       "proxyUpdateFailed": "Ошибка обновления прокси",
@@ -3676,7 +3679,16 @@
     "connectRelaySuccess": "LAN недоступна, открыта страница ретрансляции ({{host}})",
     "delete": "Удалить",
     "deleteConfirm": "Удалить машину «{{name}}» из списка?",
-    "deleteSuccess": "Машина удалена"
+    "deleteSuccess": "Машина удалена",
+    "hardwareTitle": "Конфигурация компьютера",
+    "hardwareCpu": "Процессор",
+    "hardwareCores": "Физические / логические ядра: {{cores}}",
+    "hardwareUsage": "Загрузка: {{usage}}%",
+    "hardwareMemory": "Память",
+    "hardwareDisk": "Накопители",
+    "hardwareAvailable": "Доступно {{available}}",
+    "hardwareGpu": "Видеокарта",
+    "hardwareUnavailable": "Данных об оборудовании пока нет. Управляемый компьютер должен обновиться до последней версии для их отправки."
   },
   "fileTransfer": {
     "title": "Передача файлов",
@@ -3732,5 +3744,35 @@
     "dotUser": "Я",
     "dotAssistant": "ИИ",
     "rollback": "Откатить к моменту до этого сообщения"
+  },
+  "userManagement": {
+    "addUser": {
+      "phone": "Телефон (необязательно)",
+      "phonePlaceholder": "Необязательно",
+      "groupId": "ID группы *",
+      "groupIdPlaceholder": "Введите ID группы",
+      "sector": "Направление * (несколько значений через запятую)",
+      "sectorPlaceholder": "например: Аниме,Спорт",
+      "profilePlaceholder": "Выберите группу разрешений",
+      "groupAndSectorRequired": "Укажите группу и направление",
+      "mentor": "Наставник (необязательно, с поиском)",
+      "mentorPlaceholder": "Поиск по имени или имени пользователя",
+      "mentorHint": "Вознаграждения за наставничество привязаны к этому наставнику. Его можно изменить позже при редактировании пользователя.",
+      "skipNewbie": "Отметить как опытного (пропустить период новичка)",
+      "skipNewbieHint": "Если не отмечено, статус новичка автоматически действует 15 дней после создания",
+      "permissionProfile": "Группа разрешений"
+    }
+  },
+  "cloudAccountsPhoneId": {
+    "title": "Задать номер телефона",
+    "selectedCount": "Аккаунтов: {{count}}",
+    "same": "Один номер для всех",
+    "each": "Задать отдельно",
+    "phoneId": "Номер телефона",
+    "samePlaceholder": "Оставьте пустым, чтобы очистить номер выбранных аккаунтов",
+    "hint": "Пустое значение очищает номер. Другие данные аккаунтов не изменяются.",
+    "save": "Сохранить номера телефонов",
+    "success": "Номера сохранены (аккаунтов: {{count}})",
+    "failed": "Номера: успешно {{ok}}, ошибок {{failed}} — {{errors}}"
   }
 }

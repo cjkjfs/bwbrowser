@@ -1155,6 +1155,9 @@
       "profileDeleteFailed": "删除配置文件失败",
       "profileUpdateFailed": "更新配置文件失败",
       "profileLaunchFailed": "启动配置文件失败",
+      "cloudAccountBrowserClosed": "{{account}} 的浏览器已关闭",
+      "cloudAccountStatusFailed": "无法确认 {{account}} 的浏览器状态，请检查浏览器后重试",
+      "cloudAccountLaunchFailed": "{{account}} 的浏览器启动失败",
       "proxyCreateFailed": "创建代理失败",
       "proxyDeleteFailed": "删除代理失败",
       "proxyUpdateFailed": "更新代理失败",
@@ -3610,7 +3613,16 @@
     "connectRelaySuccess": "局域网不可达，已打开中继控制页（{{host}}）",
     "delete": "删除",
     "deleteConfirm": "确定从列表删除机器「{{name}}」吗？",
-    "deleteSuccess": "机器已删除"
+    "deleteSuccess": "机器已删除",
+    "hardwareTitle": "电脑配置",
+    "hardwareCpu": "CPU",
+    "hardwareCores": "物理 / 逻辑核心：{{cores}}",
+    "hardwareUsage": "使用率：{{usage}}%",
+    "hardwareMemory": "内存",
+    "hardwareDisk": "硬盘",
+    "hardwareAvailable": "可用 {{available}}",
+    "hardwareGpu": "显卡",
+    "hardwareUnavailable": "暂无硬件信息，被控端升级到最新版本后自动上报。"
   },
   "fileTransfer": {
     "title": "文件传输",
@@ -3666,5 +3678,35 @@
     "dotUser": "我",
     "dotAssistant": "AI",
     "rollback": "回滚到这条消息之前"
+  },
+  "userManagement": {
+    "addUser": {
+      "phone": "联系电话（选填）",
+      "phonePlaceholder": "选填",
+      "groupId": "小组 ID *",
+      "groupIdPlaceholder": "请输入小组 ID",
+      "sector": "赛道 *（多个用逗号分隔）",
+      "sectorPlaceholder": "如：动漫,体育",
+      "profilePlaceholder": "选择权限组",
+      "groupAndSectorRequired": "小组和赛道不能为空",
+      "mentor": "老带新 · 带教人（选填，可搜索）",
+      "mentorPlaceholder": "输入姓名或用户名，自动出结果",
+      "mentorHint": "老带新奖励以这里的带教人为准，创建后可在编辑中修改。",
+      "skipNewbie": "标记为正式（跳过新手期）",
+      "skipNewbieHint": "不勾选=按创建15天自动判定新手",
+      "permissionProfile": "权限组"
+    }
+  },
+  "cloudAccountsPhoneId": {
+    "title": "设置手机编号",
+    "selectedCount": "{{count}} 个账号",
+    "same": "统一编号",
+    "each": "逐个设置",
+    "phoneId": "手机编号",
+    "samePlaceholder": "留空则清空选中账号的手机编号",
+    "hint": "留空表示清空手机编号；保存只修改手机编号，不影响其他账号信息。",
+    "save": "保存手机编号",
+    "success": "手机编号已保存（{{count}} 个账号）",
+    "failed": "设置手机编号：成功 {{ok}} 个，失败 {{failed}} 个 —— {{errors}}"
   }
 }

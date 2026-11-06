@@ -38,11 +38,34 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
 import { useBwbrowserCompany } from "@/hooks/use-bwbrowser-company";
 import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import { translateBackendError } from "@/lib/backend-errors";
 import { cn } from "@/lib/utils";
+
+interface RemoteHardware {
+  cpu: {
+    name: string;
+    logical_cores: number;
+    physical_cores: number | null;
+    frequency_mhz: number;
+    usage_percent: number;
+  };
+  memory: { total_bytes: number; used_bytes: number };
+  disks: {
+    name: string;
+    mount_point: string;
+    total_bytes: number;
+    available_bytes: number;
+  }[];
+  gpus: { name: string; memory_bytes: number | null }[];
+}
 
 /** 云端 remote_api.php 的 clients 记录（等同 remote_app.php 的机器列表）。 */
 interface RemoteMachine {
@@ -52,6 +75,7 @@ interface RemoteMachine {
   /** 被控端 BW 版本号（注册时上报，老机器未上报为空） */
   app_version: string;
   os_info: string;
+  hardware: RemoteHardware | null;
   note: string;
   local_ips: string[];
   public_ip: string;
@@ -84,10 +108,109 @@ interface MachineRow {
   /** 该机登录的爆文库账号：姓名（账号） */
   account: string;
   os: string;
+  hardware: RemoteHardware | null;
   address: string;
   online: boolean;
   note: string;
   clientId: number;
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value.toFixed(value >= 100 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function usagePercent(used: number, total: number): string {
+  if (total <= 0) return "—";
+  return `${Math.round((used / total) * 100)}%`;
+}
+
+function HardwareDetails({ hardware }: { hardware: RemoteHardware | null }) {
+  const { t } = useTranslation();
+  if (!hardware) {
+    return (
+      <div className="text-xs text-primary-foreground/80">
+        {t("remoteManagement.hardwareUnavailable")}
+      </div>
+    );
+  }
+  const { cpu, memory, disks, gpus } = hardware;
+  const cores = cpu.physical_cores
+    ? `${cpu.physical_cores} / ${cpu.logical_cores}`
+    : String(cpu.logical_cores || "—");
+  const diskUsed = (disk: RemoteHardware["disks"][number]) =>
+    Math.max(0, disk.total_bytes - disk.available_bytes);
+  return (
+    <div className="space-y-2.5 text-left text-xs">
+      <div className="border-b border-primary-foreground/20 pb-1.5 font-medium">
+        {t("remoteManagement.hardwareTitle")}
+      </div>
+      <div>
+        <div className="font-medium">{t("remoteManagement.hardwareCpu")}</div>
+        <div>{cpu.name || "—"}</div>
+        <div className="mt-0.5 text-primary-foreground/80">
+          {t("remoteManagement.hardwareCores", { cores })} ·{" "}
+          {cpu.frequency_mhz > 0
+            ? `${(cpu.frequency_mhz / 1000).toFixed(2)} GHz`
+            : "—"}{" "}
+          · {t("remoteManagement.hardwareUsage", { usage: cpu.usage_percent })}
+        </div>
+      </div>
+      <div>
+        <div className="font-medium">
+          {t("remoteManagement.hardwareMemory")}
+        </div>
+        <div>
+          {formatBytes(memory.used_bytes)} / {formatBytes(memory.total_bytes)} ·{" "}
+          {usagePercent(memory.used_bytes, memory.total_bytes)}
+        </div>
+      </div>
+      <div>
+        <div className="font-medium">{t("remoteManagement.hardwareDisk")}</div>
+        {disks.length ? (
+          disks.map((disk) => (
+            <div
+              key={`${disk.mount_point}:${disk.name}`}
+              className="mt-0.5 break-all"
+            >
+              <div>
+                {[disk.mount_point, disk.name].filter(Boolean).join(" · ")}
+              </div>
+              <div className="text-primary-foreground/80">
+                {formatBytes(diskUsed(disk))} / {formatBytes(disk.total_bytes)}{" "}
+                · {usagePercent(diskUsed(disk), disk.total_bytes)} ·{" "}
+                {t("remoteManagement.hardwareAvailable", {
+                  available: formatBytes(disk.available_bytes),
+                })}
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="text-primary-foreground/80">—</div>
+        )}
+      </div>
+      <div>
+        <div className="font-medium">{t("remoteManagement.hardwareGpu")}</div>
+        {gpus.length ? (
+          gpus.map((gpu) => (
+            <div key={gpu.name}>
+              {gpu.name}
+              {gpu.memory_bytes ? ` · ${formatBytes(gpu.memory_bytes)}` : ""}
+            </div>
+          ))
+        ) : (
+          <div className="text-primary-foreground/80">—</div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 const ALL_COMPANIES = "all";
@@ -255,6 +378,7 @@ export function RemoteManagementPage() {
           ? `${m.user_real_name}（${m.user_username}）`
           : m.user_real_name || m.user_username || "",
       os: m.os_info || "",
+      hardware: m.hardware,
       address: m.local_ips.filter(Boolean)[0] || m.public_ip || "",
       online: m.status === "online",
       note: m.note,
@@ -392,7 +516,23 @@ export function RemoteManagementPage() {
                   </TableCell>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-1.5">
-                      {row.hostname || "—"}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="cursor-help underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            {row.hostname || "—"}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="right"
+                          sideOffset={8}
+                          className="w-[360px] p-3"
+                        >
+                          <HardwareDetails hardware={row.hardware} />
+                        </TooltipContent>
+                      </Tooltip>
                       {row.appVersion && (
                         <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] font-normal text-muted-foreground">
                           v{row.appVersion.replace(/^v/, "")}

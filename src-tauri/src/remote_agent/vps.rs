@@ -105,6 +105,7 @@ pub async fn register(
   os_info: &str,
   app_version: &str,
   local_ips: &str,
+  hardware_info: &str,
   connect_host: &str,
   port: u16,
   password: &str,
@@ -124,6 +125,7 @@ pub async fn register(
       ("port", &port.to_string()),
       ("access_password", password),
       ("app_version", app_version),
+      ("hardware_info", hardware_info),
       ("user_id", &identity.user_id.to_string()),
       ("company_id", &identity.company_id.to_string()),
     ],
@@ -182,9 +184,16 @@ pub async fn register(
   }
 }
 
-pub async fn heartbeat(uuid: &str) -> Result<(), String> {
+pub async fn heartbeat(uuid: &str, hardware_info: &str) -> Result<(), String> {
   let client = http_client()?;
-  let resp = form_post(&client, &[("action", "heartbeat"), ("client_uuid", uuid)])
+  let resp = form_post(
+    &client,
+    &[
+      ("action", "heartbeat"),
+      ("client_uuid", uuid),
+      ("hardware_info", hardware_info),
+    ],
+  )
     .send()
     .await
     .map_err(|e| {

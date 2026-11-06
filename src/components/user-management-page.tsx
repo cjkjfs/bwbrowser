@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   LuLayers,
   LuLoaderCircle,
@@ -18,6 +19,7 @@ import { toast } from "sonner";
 import { AnimatedSwitch } from "@/components/ui/animated-switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -205,33 +207,63 @@ function UserEditDialog({
 interface AddUserDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  roles: { value: string; label: string }[];
+  users: ManagementUser[];
+  currentUserId: number | null;
+  profiles: PermissionProfile[];
   onAdd: (data: {
     username: string;
     password: string;
     real_name: string;
-    role: string;
+    group_id: number;
+    sector: string;
+    phone: string;
+    permission_profile: number;
+    mentor_id: number;
+    skip_newbie: boolean;
   }) => Promise<number>;
 }
 
 function AddUserDialog({
   open,
   onOpenChange,
-  roles,
+  users,
+  currentUserId,
+  profiles,
   onAdd,
 }: AddUserDialogProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [realName, setRealName] = useState("");
-  const [role, setRole] = useState("member");
+  const [groupId, setGroupId] = useState("");
+  const [sector, setSector] = useState("");
+  const [phone, setPhone] = useState("");
+  const [profileId, setProfileId] = useState("");
+  const [mentorQuery, setMentorQuery] = useState("");
+  const [mentorId, setMentorId] = useState(0);
+  const [mentorListOpen, setMentorListOpen] = useState(false);
+  const [skipNewbie, setSkipNewbie] = useState(false);
   const [saving, setSaving] = useState(false);
+  const { t } = useTranslation();
 
   const resetForm = useCallback(() => {
     setUsername("");
     setPassword("");
     setRealName("");
-    setRole("member");
-  }, []);
+    setGroupId("");
+    setSector("");
+    setPhone("");
+    setMentorQuery("");
+    setMentorId(0);
+    setMentorListOpen(false);
+    setSkipNewbie(false);
+    setProfileId(
+      String(
+        profiles.find((p) => ["组员", "员工"].includes(p.name))?.id ??
+          profiles[0]?.id ??
+          0,
+      ),
+    );
+  }, [profiles]);
 
   useMemo(() => {
     if (open) resetForm();
@@ -242,13 +274,22 @@ function AddUserDialog({
       toast.error("用户名、密码、姓名不能为空");
       return;
     }
+    if (!groupId || Number(groupId) <= 0 || !sector.trim()) {
+      toast.error(t("userManagement.addUser.groupAndSectorRequired"));
+      return;
+    }
     setSaving(true);
     try {
       await onAdd({
         username: username.trim(),
         password,
         real_name: realName.trim(),
-        role,
+        group_id: Number(groupId),
+        sector: sector.trim(),
+        phone: phone.trim(),
+        permission_profile: Number(profileId),
+        mentor_id: mentorId,
+        skip_newbie: skipNewbie,
       });
       onOpenChange(false);
     } catch (e) {
@@ -291,15 +332,103 @@ function AddUserDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label>角色</Label>
-            <Select value={role} onValueChange={setRole}>
+            <Label>{t("userManagement.addUser.phone")}</Label>
+            <Input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder={t("userManagement.addUser.phonePlaceholder")}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>{t("userManagement.addUser.groupId")}</Label>
+            <Input
+              type="number"
+              min={1}
+              value={groupId}
+              onChange={(e) => setGroupId(e.target.value)}
+              placeholder={t("userManagement.addUser.groupIdPlaceholder")}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>{t("userManagement.addUser.sector")}</Label>
+            <Input
+              value={sector}
+              onChange={(e) => setSector(e.target.value)}
+              placeholder={t("userManagement.addUser.sectorPlaceholder")}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>{t("userManagement.addUser.mentor")}</Label>
+            <div className="relative">
+              <Input
+                value={mentorQuery}
+                onFocus={() => setMentorListOpen(true)}
+                onBlur={() => setMentorListOpen(false)}
+                onChange={(e) => {
+                  setMentorQuery(e.target.value);
+                  setMentorId(0);
+                  setMentorListOpen(true);
+                }}
+                placeholder={t("userManagement.addUser.mentorPlaceholder")}
+              />
+              {mentorListOpen && (
+                <div className="bg-popover absolute z-10 mt-1 max-h-36 w-full overflow-y-auto rounded-md border border-border">
+                  {users
+                    .filter(
+                      (u) =>
+                        u.status === "active" &&
+                        u.id !== currentUserId &&
+                        `${u.real_name} ${u.username}`
+                          .toLowerCase()
+                          .includes(mentorQuery.toLowerCase()),
+                    )
+                    .map((u) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        className="hover:bg-muted flex w-full px-3 py-2 text-left text-sm"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setMentorId(u.id);
+                          setMentorQuery(`${u.real_name}（${u.username}）`);
+                          setMentorListOpen(false);
+                        }}
+                      >
+                        {u.real_name}（{u.username}）
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+            <p className="text-muted-foreground text-xs">
+              {t("userManagement.addUser.mentorHint")}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="add-user-skip-newbie"
+              checked={skipNewbie}
+              onCheckedChange={(checked) => setSkipNewbie(checked === true)}
+            />
+            <Label htmlFor="add-user-skip-newbie" className="font-normal">
+              {t("userManagement.addUser.skipNewbie")}
+            </Label>
+            <span className="text-muted-foreground text-xs">
+              {t("userManagement.addUser.skipNewbieHint")}
+            </span>
+          </div>
+          <div className="space-y-2">
+            <Label>{t("userManagement.addUser.permissionProfile")}</Label>
+            <Select value={profileId} onValueChange={setProfileId}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue
+                  placeholder={t("userManagement.addUser.profilePlaceholder")}
+                />
               </SelectTrigger>
               <SelectContent>
-                {roles.map((r) => (
-                  <SelectItem key={r.value} value={r.value}>
-                    {r.label}
+                {profiles.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -722,6 +851,7 @@ export function UserManagementPage() {
     permissionProfileFields,
     loadUsers,
     loadPermissionProfiles,
+    loadRoles,
     addUser,
     updateUser,
     togglePermission,
@@ -736,11 +866,12 @@ export function UserManagementPage() {
   const { companies, selectedCompanyId, setSelectedCompanyId } =
     useBwbrowserCompany(isSuperAdmin, isLoggedIn);
 
-  // 跟随选中的公司刷新用户与权限组（超管切公司即重新拉取）
+  // 跟随选中的公司刷新用户、角色与权限组（超管切公司即重新拉取）
   useEffect(() => {
     loadUsers(selectedCompanyId);
     loadPermissionProfiles(selectedCompanyId);
-  }, [selectedCompanyId, loadUsers, loadPermissionProfiles]);
+    loadRoles(selectedCompanyId);
+  }, [selectedCompanyId, loadUsers, loadPermissionProfiles, loadRoles]);
 
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -1066,8 +1197,10 @@ export function UserManagementPage() {
       <AddUserDialog
         open={addDialogOpen}
         onOpenChange={setAddDialogOpen}
-        roles={roles}
-        onAdd={addUser}
+        users={users}
+        currentUserId={currentUserId}
+        profiles={permissionProfiles}
+        onAdd={(data) => addUser({ ...data, companyId: selectedCompanyId })}
       />
       <UserEditDialog
         open={editDialogOpen}

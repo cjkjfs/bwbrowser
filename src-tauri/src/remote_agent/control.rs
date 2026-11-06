@@ -175,6 +175,7 @@ pub struct RemoteMachine {
   pub port: u16,
   /// 被控端 BW 版本号（注册时上报，老机器未上报为空）
   pub app_version: String,
+  pub hardware: Option<Value>,
   pub status: String,
   /// 该被控端登录的爆文库账号与姓名（`clients` 里 JOIN users 得来，未登录时为空）
   pub user_username: String,
@@ -203,6 +204,7 @@ fn parse_machine(v: &Value) -> RemoteMachine {
     connect_host: as_string(v.get("connect_host")),
     port: as_i64(v.get("port")).clamp(0, 65535) as u16,
     app_version: as_string(v.get("app_version")),
+    hardware: v.get("hardware").filter(|h| h.is_object()).cloned(),
     status: as_string(v.get("status")),
     user_username: as_string(v.get("user_username")),
     user_real_name: as_string(v.get("user_real_name")),
@@ -519,6 +521,9 @@ mod tests {
     assert_eq!(m.status, "");
     assert_eq!(m.user_username, "zhangsan");
     assert_eq!(m.user_real_name, "张三");
+    assert!(m.hardware.is_none());
+    let with_hardware = parse_machine(&json!({"hardware": {"cpu": {"name": "test"}}}));
+    assert_eq!(with_hardware.hardware.unwrap()["cpu"]["name"], "test");
     // 被控端未登录时 JOIN 出来是 NULL，要落成空串而不是 "null"
     let anonymous = parse_machine(&json!({ "id": 8, "user_username": null }));
     assert_eq!(anonymous.user_username, "");

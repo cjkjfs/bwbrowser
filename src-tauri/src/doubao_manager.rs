@@ -157,7 +157,7 @@ impl Default for DoubaoSettings {
       scheduler_strategy: "least_used".to_string(),
       default_model: "seedance_v2.0_mini".to_string(),
       default_duration: 5,
-      default_ratio: "1:1".to_string(),
+      default_ratio: "9:16".to_string(),
       video_timeout: 420,
       download_dir: None,
       sync_enabled: false,
@@ -604,7 +604,7 @@ fn clamp_settings(mut settings: DoubaoSettings) -> DoubaoSettings {
     settings.default_duration = 5;
   }
   if !RATIOS.contains(&settings.default_ratio.as_str()) {
-    settings.default_ratio = "1:1".to_string();
+    settings.default_ratio = "9:16".to_string();
   }
   settings
 }
@@ -1203,7 +1203,7 @@ mod tests {
     assert_eq!(settings.scheduler_strategy, "least_used");
     assert_eq!(settings.default_model, "seedance_v2.0_mini");
     assert_eq!(settings.default_duration, 5);
-    assert_eq!(settings.default_ratio, "1:1");
+    assert_eq!(settings.default_ratio, "9:16");
   }
 
   #[test]

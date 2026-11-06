@@ -1155,6 +1155,9 @@
       "profileDeleteFailed": "Xóa profile thất bại",
       "profileUpdateFailed": "Cập nhật profile thất bại",
       "profileLaunchFailed": "Khởi chạy profile thất bại",
+      "cloudAccountBrowserClosed": "Trình duyệt của {{account}} đã đóng",
+      "cloudAccountStatusFailed": "Không thể kiểm tra trạng thái trình duyệt của {{account}}. Hãy kiểm tra trình duyệt rồi thử lại.",
+      "cloudAccountLaunchFailed": "Không thể khởi chạy trình duyệt của {{account}}",
       "proxyCreateFailed": "Tạo proxy thất bại",
       "proxyDeleteFailed": "Xóa proxy thất bại",
       "proxyUpdateFailed": "Cập nhật proxy thất bại",
@@ -3610,7 +3613,16 @@
     "connectRelaySuccess": "Không tới được LAN, đã mở trang điều khiển chuyển tiếp ({{host}})",
     "delete": "Xóa",
     "deleteConfirm": "Xóa máy \"{{name}}\" khỏi danh sách?",
-    "deleteSuccess": "Đã xóa máy"
+    "deleteSuccess": "Đã xóa máy",
+    "hardwareTitle": "Cấu hình máy tính",
+    "hardwareCpu": "CPU",
+    "hardwareCores": "Lõi vật lý / logic: {{cores}}",
+    "hardwareUsage": "Mức sử dụng: {{usage}}%",
+    "hardwareMemory": "Bộ nhớ",
+    "hardwareDisk": "Ổ lưu trữ",
+    "hardwareAvailable": "Còn trống {{available}}",
+    "hardwareGpu": "GPU",
+    "hardwareUnavailable": "Chưa có dữ liệu phần cứng. Máy được điều khiển cần phiên bản mới nhất để gửi dữ liệu."
   },
   "fileTransfer": {
     "title": "Truyền tệp",
@@ -3666,5 +3678,35 @@
     "dotUser": "Tôi",
     "dotAssistant": "AI",
     "rollback": "Quay lại trước tin nhắn này"
+  },
+  "userManagement": {
+    "addUser": {
+      "phone": "Điện thoại (không bắt buộc)",
+      "phonePlaceholder": "Không bắt buộc",
+      "groupId": "ID nhóm *",
+      "groupIdPlaceholder": "Nhập ID nhóm",
+      "sector": "Lĩnh vực * (phân tách nhiều giá trị bằng dấu phẩy)",
+      "sectorPlaceholder": "ví dụ: Anime,Thể thao",
+      "profilePlaceholder": "Chọn nhóm quyền",
+      "groupAndSectorRequired": "Nhóm và lĩnh vực là bắt buộc",
+      "mentor": "Người hướng dẫn (tùy chọn, có thể tìm kiếm)",
+      "mentorPlaceholder": "Tìm theo tên hoặc tên người dùng",
+      "mentorHint": "Phần thưởng hướng dẫn dựa trên người được chọn tại đây. Bạn có thể thay đổi sau khi chỉnh sửa người dùng.",
+      "skipNewbie": "Đánh dấu là chính thức (bỏ qua thời gian người mới)",
+      "skipNewbieHint": "Nếu không chọn, trạng thái người mới được tự động xác định trong 15 ngày sau khi tạo",
+      "permissionProfile": "Nhóm quyền"
+    }
+  },
+  "cloudAccountsPhoneId": {
+    "title": "Đặt mã điện thoại",
+    "selectedCount": "{{count}} tài khoản",
+    "same": "Dùng cùng một mã",
+    "each": "Đặt từng tài khoản",
+    "phoneId": "Mã điện thoại",
+    "samePlaceholder": "Để trống để xóa mã của các tài khoản đã chọn",
+    "hint": "Giá trị trống sẽ xóa mã. Chỉ mã điện thoại được thay đổi, không ảnh hưởng thông tin khác.",
+    "save": "Lưu mã điện thoại",
+    "success": "Đã lưu mã điện thoại ({{count}} tài khoản)",
+    "failed": "Đặt mã: thành công {{ok}}, thất bại {{failed}} — {{errors}}"
   }
 }

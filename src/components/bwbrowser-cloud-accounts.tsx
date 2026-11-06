@@ -60,7 +60,14 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -69,6 +76,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
@@ -323,6 +331,75 @@ function proxyNodeKey(pn: string): string {
   const parts = s.split(":");
   const hostIdx = ["http", "socks5"].includes(parts[0].toLowerCase()) ? 1 : 0;
   return `${parts[hostIdx] ?? ""}:${parts[hostIdx + 1] ?? ""}`;
+}
+
+// 批量导入解析：socks5://user:pass@host:port、http(s)://…、host:port:user:pass、host:port
+interface BatchParsedProxy {
+  proxy_type: string;
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+  vless_uri?: string;
+  name: string;
+}
+
+function parseBatchProxyLine(raw: string): BatchParsedProxy | null {
+  const text = raw.trim();
+  if (!text) return null;
+
+  const uriMatch = text.match(/^(vless|trojan|ss):\/\//i);
+  if (uriMatch) {
+    const hm = text.match(/@([^:?#]+):(\d+)/);
+    if (!hm) return null;
+    const frag = text.split("#")[1] || "";
+    return {
+      proxy_type: uriMatch[1].toLowerCase(),
+      host: hm[1],
+      port: parseInt(hm[2], 10),
+      vless_uri: text,
+      name: frag || `${hm[1]}:${hm[2]}`,
+    };
+  }
+
+  // protocol://user:pass@host:port 或 protocol://host:port
+  const protoMatch = text.match(
+    /^(https?|socks5?):\/\/(?:([^:@/]+)(?::([^@/]+))?@)?([^:@/]+):(\d+)$/i,
+  );
+  if (protoMatch) {
+    const host = protoMatch[4];
+    const port = parseInt(protoMatch[5], 10);
+    return {
+      proxy_type: protoMatch[1].toLowerCase(),
+      host,
+      port,
+      username: protoMatch[2] ? decodeURIComponent(protoMatch[2]) : undefined,
+      password: protoMatch[3] ? decodeURIComponent(protoMatch[3]) : undefined,
+      name: `${host}:${port}`,
+    };
+  }
+
+  // host:port:user:pass 或 host:port
+  const parts = text.split(":");
+  if (parts.length === 4 && /^\d+$/.test(parts[1])) {
+    return {
+      proxy_type: "http",
+      host: parts[0],
+      port: parseInt(parts[1], 10),
+      username: parts[2] || undefined,
+      password: parts[3] || undefined,
+      name: `${parts[0]}:${parts[1]}`,
+    };
+  }
+  if (parts.length === 2 && /^\d+$/.test(parts[1])) {
+    return {
+      proxy_type: "http",
+      host: parts[0],
+      port: parseInt(parts[1], 10),
+      name: `${parts[0]}:${parts[1]}`,
+    };
+  }
+  return null;
 }
 
 // 服务端 platform_config 拉取的全量 code->中文名（如 hongguo -> 红果短剧）。
@@ -850,6 +927,18 @@ export function BwbrowserCloudAccountsDialog({
   const [remarkText, setRemarkText] = useState("");
   const [remarkAppend, setRemarkAppend] = useState(true);
   const [isSavingRemark, setIsSavingRemark] = useState(false);
+  const [phoneIdDialogOpen, setPhoneIdDialogOpen] = useState(false);
+  const [phoneIdDialogTargets, setPhoneIdDialogTargets] = useState<
+    BwbrowserAccount[]
+  >([]);
+  const [batchPhoneId, setBatchPhoneId] = useState("");
+  const [batchPhoneIds, setBatchPhoneIds] = useState<Record<number, string>>(
+    {},
+  );
+  const [batchPhoneIdMode, setBatchPhoneIdMode] = useState<"same" | "each">(
+    "same",
+  );
+  const [isSavingPhoneId, setIsSavingPhoneId] = useState(false);
   // 设备 IP 映射提示：单账号设置代理时显示 device_id 对应的 SRC-IP-CIDR 行
   const [srcIpRuleHint, setSrcIpRuleHint] = useState<string | null>(null);
   const [srcIpRulesOpen, setSrcIpRulesOpen] = useState(false);
@@ -880,6 +969,10 @@ export function BwbrowserCloudAccountsDialog({
   const BATCH_TEST_CONCURRENCY = 5;
   // 创建代理对话框
   const [createProxyDialogOpen, setCreateProxyDialogOpen] = useState(false);
+  // 批量导入节点对话框
+  const [batchProxyDialogOpen, setBatchProxyDialogOpen] = useState(false);
+  const [batchProxyText, setBatchProxyText] = useState("");
+  const [isBatchImporting, setIsBatchImporting] = useState(false);
   const PROXY_PAGE_SIZE = 10;
 
   // VPS 登录代理设置
@@ -1737,6 +1830,59 @@ export function BwbrowserCloudAccountsDialog({
     [refreshCloudProxyList],
   );
 
+  // 批量导入节点：逐行解析并调用同一个 bwbrowser_sync_proxy 后端通道
+  const handleBatchImportProxies = useCallback(async () => {
+    const lines = batchProxyText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    if (lines.length === 0) {
+      showErrorToast("请粘贴节点列表", { description: "每行一条" });
+      return;
+    }
+    setIsBatchImporting(true);
+    let created = 0;
+    const failed: string[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const parsed = parseBatchProxyLine(lines[i]);
+      if (!parsed?.host || parsed.port <= 0) {
+        failed.push(`第${i + 1}行：无法解析`);
+        continue;
+      }
+      const isUriType =
+        parsed.proxy_type === "vless" || parsed.proxy_type === "trojan";
+      try {
+        await invoke("bwbrowser_sync_proxy", {
+          proxyId: null,
+          proxyName: parsed.name,
+          proxyType: parsed.proxy_type,
+          host: parsed.host,
+          port: parsed.port,
+          username: parsed.username ?? null,
+          password: parsed.password ?? null,
+          country: null,
+          city: null,
+          timezone: null,
+          protocolConfig: isUriType ? (parsed.vless_uri ?? null) : null,
+        });
+        created++;
+      } catch (e) {
+        failed.push(`第${i + 1}行：${String(e)}`);
+      }
+    }
+    setIsBatchImporting(false);
+    await refreshCloudProxyList();
+    if (failed.length === 0) {
+      showSuccessToast(`批量导入完成，成功 ${created} 个节点`);
+      setBatchProxyDialogOpen(false);
+    } else {
+      showErrorToast(`成功 ${created} 个，失败 ${failed.length} 个`, {
+        description: failed.slice(0, 5).join("；"),
+      });
+      if (created > 0) setBatchProxyDialogOpen(false);
+    }
+  }, [batchProxyText, refreshCloudProxyList]);
+
   // 保存账号代理
   const handleSaveAccountProxy = useCallback(async () => {
     const targets = proxyDialogTargets;
@@ -2159,6 +2305,73 @@ export function BwbrowserCloudAccountsDialog({
     }
   }, [remarkDialogTargets, remarkText, remarkAppend, refresh]);
 
+  const handleBatchSetPhoneId = useCallback(async () => {
+    if (phoneIdDialogTargets.length === 0) return;
+    setIsSavingPhoneId(true);
+    let ok = 0;
+    const failed: string[] = [];
+    try {
+      for (const target of phoneIdDialogTargets) {
+        const phoneId = (
+          batchPhoneIdMode === "same"
+            ? batchPhoneId
+            : (batchPhoneIds[target.id] ?? "")
+        ).trim();
+        try {
+          await invoke("bwbrowser_update_account_info", {
+            accountId: target.id,
+            accountName: null,
+            loginAccount: null,
+            loginPassword: null,
+            remark: null,
+            tags: null,
+            category: null,
+            pureUsername: null,
+            ownerId: null,
+            status: null,
+            phoneId,
+            bindPhone: null,
+            safeLink: null,
+            backupEmail: null,
+            channelId: null,
+            startUrls: null,
+          });
+          ok += 1;
+        } catch (e) {
+          failed.push(
+            `${target.account_name || target.id}: ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          );
+        }
+      }
+      if (failed.length === 0) {
+        showSuccessToast(t("cloudAccountsPhoneId.success", { count: ok }));
+      } else {
+        showErrorToast(
+          t("cloudAccountsPhoneId.failed", {
+            ok,
+            failed: failed.length,
+            errors: `${failed.slice(0, 3).join("；")}${failed.length > 3 ? "…" : ""}`,
+          }),
+        );
+      }
+      if (ok > 0) {
+        setPhoneIdDialogOpen(false);
+        void refresh();
+      }
+    } finally {
+      setIsSavingPhoneId(false);
+    }
+  }, [
+    t,
+    phoneIdDialogTargets,
+    batchPhoneIdMode,
+    batchPhoneId,
+    batchPhoneIds,
+    refresh,
+  ]);
+
   // 后台代理时区解析完成后刷新数据（不阻塞 UI）
   useEffect(() => {
     let disposed = false;
@@ -2295,27 +2508,79 @@ export function BwbrowserCloudAccountsDialog({
   // 正在进行后台时区解析的账号 id 集合（不阻塞 UI）
   const [geoPendingIds, setGeoPendingIds] = useState<Set<number>>(new Set());
 
-  // 浏览器关闭后清除「已启动」状态（昵称进度行 + 操作列按钮回原样）
+  // 浏览器状态变化后清除「已启动」状态，并在右下角告知用户
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    let unlisteners: Array<() => void> = [];
+    const clearLaunchProgress = (id: number) => {
+      setLaunchProgress((prev) => {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    };
+
     void import("@tauri-apps/api/event")
       .then(({ listen }) =>
-        listen<{ account_id: number }>("account-browser-closed", (event) => {
-          const id = event.payload.account_id;
-          setLaunchProgress((prev) => {
-            if (!(id in prev)) return prev;
-            const next = { ...prev };
-            delete next[id];
-            return next;
-          });
-        }),
+        Promise.all([
+          listen<{ account_id: number; account_name: string }>(
+            "account-browser-closed",
+            (event) => {
+              const { account_id: id, account_name: accountName } =
+                event.payload;
+              clearLaunchProgress(id);
+              showErrorToast(
+                t("toasts.error.cloudAccountBrowserClosed", {
+                  account: accountName || id,
+                }),
+                { id: `account-browser-closed-${id}` },
+              );
+            },
+          ),
+          listen<{ account_id: number; account_name: string }>(
+            "account-browser-status-failed",
+            (event) => {
+              const { account_id: id, account_name: accountName } =
+                event.payload;
+              clearLaunchProgress(id);
+              showErrorToast(
+                t("toasts.error.cloudAccountStatusFailed", {
+                  account: accountName || id,
+                }),
+                { id: `account-browser-status-failed-${id}` },
+              );
+            },
+          ),
+          listen<{ account_id: number; account_name: string }>(
+            "account-launch-failed",
+            (event) => {
+              const { account_id: id, account_name: accountName } =
+                event.payload;
+              clearLaunchProgress(id);
+              showErrorToast(
+                t("toasts.error.cloudAccountLaunchFailed", {
+                  account: accountName || id,
+                }),
+                { id: `account-launch-failed-${id}` },
+              );
+            },
+          ),
+        ]),
       )
-      .then((fn) => {
-        unlisten = fn;
+      .then((fns) => {
+        if (disposed) {
+          fns.forEach((fn) => fn());
+        } else {
+          unlisteners = fns;
+        }
       })
-      .catch((e) => console.warn("failed to listen account-browser-closed", e));
-    return () => unlisten?.();
-  }, []);
+      .catch((e) => console.warn("failed to listen account browser events", e));
+    return () => {
+      disposed = true;
+      unlisteners.forEach((fn) => fn());
+    };
+  }, [t]);
 
   const handleLaunchAccount = useCallback(
     async (account: BwbrowserAccount) => {
@@ -2377,7 +2642,9 @@ export function BwbrowserCloudAccountsDialog({
         });
         const msg = err instanceof Error ? err.message : String(err);
         const translated = translateBackendError(t, msg);
-        showErrorToast(translated);
+        showErrorToast(translated, {
+          id: `account-launch-failed-${accountId}`,
+        });
       } finally {
         unlistenProgress?.();
         setLaunchingIds((prev) => {
@@ -3621,7 +3888,12 @@ export function BwbrowserCloudAccountsDialog({
       <div className="flex shrink-0 items-center gap-1 border-b border-border bg-background/50 px-4 py-1.5">
         <button
           type="button"
-          onClick={() => setActiveTab("accounts")}
+          onClick={() => {
+            setActiveTab("accounts");
+            setPlatformFilter("all");
+            setOwnerFilter(null);
+            setKeyword("");
+          }}
           className={cn(
             "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
             activeTab === "accounts"
@@ -4017,6 +4289,29 @@ export function BwbrowserCloudAccountsDialog({
               variant="outline"
               size="sm"
               className="h-7 gap-1 px-3 text-xs"
+              disabled={isSavingPhoneId}
+              onClick={() => {
+                setPhoneIdDialogTargets(selectedAccounts);
+                setBatchPhoneId("");
+                setBatchPhoneIds(
+                  Object.fromEntries(
+                    selectedAccounts.map((account) => [
+                      account.id,
+                      account.device_id || account.phone_id || "",
+                    ]),
+                  ),
+                );
+                setBatchPhoneIdMode("same");
+                setPhoneIdDialogOpen(true);
+              }}
+            >
+              <LuMonitor className="h-3.5 w-3.5" />
+              {t("cloudAccountsPhoneId.title")}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 px-3 text-xs"
               disabled={isSavingRemark}
               onClick={() => {
                 setRemarkDialogTargets(selectedAccounts);
@@ -4228,6 +4523,114 @@ export function BwbrowserCloudAccountsDialog({
     </Dialog>
   );
 
+  const phoneIdDialog = (
+    <Dialog
+      open={phoneIdDialogOpen}
+      onOpenChange={(open) => !open && setPhoneIdDialogOpen(false)}
+    >
+      <DialogContent className="flex max-h-[70vh] w-[520px] max-w-[95vw] flex-col overflow-hidden p-0">
+        <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
+          <div className="flex items-center gap-2">
+            <LuMonitor className="h-4 w-4 text-primary" />
+            <span className="text-sm font-semibold">
+              {t("cloudAccountsPhoneId.title")} -{" "}
+              {t("cloudAccountsPhoneId.selectedCount", {
+                count: phoneIdDialogTargets.length,
+              })}
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            disabled={isSavingPhoneId}
+            onClick={() => setPhoneIdDialogOpen(false)}
+          >
+            <LuX className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="min-h-0 space-y-4 overflow-y-auto p-4">
+          <div className="flex gap-2">
+            <Button
+              variant={batchPhoneIdMode === "same" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setBatchPhoneIdMode("same")}
+              disabled={isSavingPhoneId}
+            >
+              {t("cloudAccountsPhoneId.same")}
+            </Button>
+            <Button
+              variant={batchPhoneIdMode === "each" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setBatchPhoneIdMode("each")}
+              disabled={isSavingPhoneId}
+            >
+              {t("cloudAccountsPhoneId.each")}
+            </Button>
+          </div>
+          {batchPhoneIdMode === "same" ? (
+            <div className="space-y-2">
+              <Label htmlFor="batch-phone-id">
+                {t("cloudAccountsPhoneId.phoneId")}
+              </Label>
+              <Input
+                id="batch-phone-id"
+                value={batchPhoneId}
+                onChange={(e) => setBatchPhoneId(e.target.value)}
+                placeholder={t("cloudAccountsPhoneId.samePlaceholder")}
+                disabled={isSavingPhoneId}
+              />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {phoneIdDialogTargets.map((account) => (
+                <div
+                  key={account.id}
+                  className="grid grid-cols-[minmax(0,1fr)_180px] items-center gap-3"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm">
+                      {account.account_name || `#${account.id}`}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {account.login_account || "-"}
+                    </div>
+                  </div>
+                  <Input
+                    aria-label={`${account.account_name || account.id} ${t("cloudAccountsPhoneId.phoneId")}`}
+                    value={batchPhoneIds[account.id] ?? ""}
+                    onChange={(e) =>
+                      setBatchPhoneIds((prev) => ({
+                        ...prev,
+                        [account.id]: e.target.value,
+                      }))
+                    }
+                    disabled={isSavingPhoneId}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {t("cloudAccountsPhoneId.hint")}
+          </p>
+          <Button
+            size="sm"
+            disabled={isSavingPhoneId || phoneIdDialogTargets.length === 0}
+            onClick={() => void handleBatchSetPhoneId()}
+          >
+            {isSavingPhoneId ? (
+              <LuLoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <LuCheck className="h-3.5 w-3.5" />
+            )}
+            {t("cloudAccountsPhoneId.save")}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
   const proxyDialog = (
     <Dialog
       open={proxyDialogOpen}
@@ -4421,6 +4824,17 @@ export function BwbrowserCloudAccountsDialog({
           >
             <LuPlus className="h-3 w-3" />
             创建节点
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1 text-xs"
+            onClick={() => {
+              setBatchProxyText("");
+              setBatchProxyDialogOpen(true);
+            }}
+          >
+            批量导入
           </Button>
           <span className="shrink-0 text-xs text-muted-foreground">
             共 {filteredProxies.length} 个
@@ -4831,6 +5245,50 @@ export function BwbrowserCloudAccountsDialog({
       onSave={handleCreateCloudProxy}
       saveLabel="创建到云端"
     />
+  );
+
+  const batchProxyDialog = (
+    <Dialog
+      open={batchProxyDialogOpen}
+      onOpenChange={(open) => {
+        if (!isBatchImporting) setBatchProxyDialogOpen(open);
+      }}
+    >
+      <DialogContent className="w-[560px] max-w-[92vw]">
+        <DialogHeader>
+          <DialogTitle>批量导入节点</DialogTitle>
+          <DialogDescription>
+            每行一条，支持
+            socks5://用户:密码@主机:端口、http(s)://…、host:port:user:pass
+            等格式
+          </DialogDescription>
+        </DialogHeader>
+        <Textarea
+          value={batchProxyText}
+          onChange={(e) => setBatchProxyText(e.target.value)}
+          placeholder={
+            "socks5://proxy-64577:b31c1468de408406@123.99.195.199:12472\nsocks5://user2:pass2@123.99.195.199:12472"
+          }
+          className="min-h-[220px] font-mono text-xs"
+          disabled={isBatchImporting}
+        />
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setBatchProxyDialogOpen(false)}
+            disabled={isBatchImporting}
+          >
+            取消
+          </Button>
+          <Button
+            onClick={() => void handleBatchImportProxies()}
+            disabled={isBatchImporting}
+          >
+            {isBatchImporting ? "导入中…" : "开始导入"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 
   const editCloudProxyDialog = (
@@ -5706,7 +6164,7 @@ export function BwbrowserCloudAccountsDialog({
                   category: editForm.category.trim() || null,
                   pureUsername: editForm.pure_username.trim() || null,
                   phoneId: editPerms.canEditAll
-                    ? editForm.device_id.trim() || null
+                    ? editForm.device_id.trim()
                     : null,
                   bindPhone: editPerms.canEditAll
                     ? editForm.bind_phone.trim() || null
@@ -6260,7 +6718,9 @@ export function BwbrowserCloudAccountsDialog({
         {proxyDialog}
         {ownerDialog}
         {remarkDialog}
+        {phoneIdDialog}
         {createProxyDialog}
+        {batchProxyDialog}
         {editCloudProxyDialog}
         {editCloudProxyDialog}
         {vpsProxyDialog}
@@ -6286,7 +6746,9 @@ export function BwbrowserCloudAccountsDialog({
       {proxyDialog}
       {ownerDialog}
       {remarkDialog}
+      {phoneIdDialog}
       {createProxyDialog}
+      {batchProxyDialog}
       {vpsProxyDialog}
       {envDialog}
       {boundEnvDialog}

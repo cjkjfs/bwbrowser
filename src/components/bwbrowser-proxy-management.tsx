@@ -66,6 +66,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
 import { useBwbrowserCompany } from "@/hooks/use-bwbrowser-company";
 import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
@@ -532,7 +533,7 @@ export function BwbrowserProxyManagementDialog({
   const { companies, selectedCompanyId, setSelectedCompanyId } =
     useBwbrowserCompany(isSuperAdminPerm, isBwbrowserLoggedIn);
 
-  const { proxies, isLoading, error, refresh, deleteProxy } =
+  const { proxies, isLoading, error, refresh, deleteProxy, createProxy } =
     useBwbrowserProxies(selectedCompanyId);
   const { storedProxies } = useProxyEvents();
 
@@ -547,6 +548,9 @@ export function BwbrowserProxyManagementDialog({
   const [editingProxy, setEditingProxy] = useState<BwbrowserProxy | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<BwbrowserProxy | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [batchText, setBatchText] = useState("");
+  const [isBatchImporting, setIsBatchImporting] = useState(false);
 
   // Ctrl+K 打开搜索
   useEffect(() => {
@@ -695,9 +699,68 @@ export function BwbrowserProxyManagementDialog({
   };
 
   const handleBatchImport = () => {
-    showErrorToast("功能开发中", {
-      description: "批量导入功能即将上线，敬请期待",
-    });
+    setBatchText("");
+    setBatchDialogOpen(true);
+  };
+
+  const handleBatchSubmit = async () => {
+    const lines = batchText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    if (lines.length === 0) {
+      showErrorToast("请粘贴代理列表", { description: "每行一条代理" });
+      return;
+    }
+
+    setIsBatchImporting(true);
+    let created = 0;
+    const failed: string[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const parsed = parseProxyUrl(line);
+      if (!parsed) {
+        failed.push(`第${i + 1}行：无法解析`);
+        continue;
+      }
+      const portNum = parseInt(parsed.port, 10);
+      if (!parsed.host || Number.isNaN(portNum) || portNum <= 0) {
+        failed.push(`第${i + 1}行：地址或端口无效`);
+        continue;
+      }
+      const isAdvanced = ADVANCED_PROTOCOLS.includes(parsed.protocol);
+      const name = parsed.fragment || `${parsed.host}:${parsed.port}`;
+      try {
+        await createProxy({
+          proxy_name: name,
+          proxy_type: parsed.protocol,
+          host: parsed.host,
+          port: portNum,
+          username: isAdvanced ? undefined : parsed.username || undefined,
+          password: isAdvanced ? undefined : parsed.password || undefined,
+          protocol_config: isAdvanced ? parsed.fullUri || line : undefined,
+        });
+        created++;
+      } catch (e) {
+        failed.push(`第${i + 1}行：${String(e)}`);
+      }
+    }
+
+    setIsBatchImporting(false);
+    await refresh();
+
+    if (failed.length === 0) {
+      showSuccessToast(`批量导入完成`, {
+        description: `成功创建 ${created} 个节点`,
+      });
+      setBatchDialogOpen(false);
+    } else {
+      showErrorToast(`成功 ${created} 个，失败 ${failed.length} 个`, {
+        description: failed.slice(0, 5).join("；"),
+      });
+      if (created > 0) setBatchDialogOpen(false);
+    }
   };
 
   const handleExport = () => {
@@ -1292,6 +1355,49 @@ export function BwbrowserProxyManagementDialog({
           setShowForm(false);
         }}
       />
+
+      {/* ========== 批量导入对话框 ========== */}
+      <Dialog
+        open={batchDialogOpen}
+        onOpenChange={(open) => {
+          if (!isBatchImporting) setBatchDialogOpen(open);
+        }}
+      >
+        <DialogContent className="w-[560px] max-w-[92vw]">
+          <DialogHeader>
+            <DialogTitle>批量导入节点</DialogTitle>
+            <DialogDescription>
+              每行一条，支持
+              socks5://用户:密码@主机:端口、http(s)://…、host:port:user:pass
+              等格式
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={batchText}
+            onChange={(e) => setBatchText(e.target.value)}
+            placeholder={
+              "socks5://proxy-64577:b31c1468de408406@123.99.195.199:12472\nsocks5://user2:pass2@123.99.195.199:12472"
+            }
+            className="min-h-[220px] font-mono text-xs"
+            disabled={isBatchImporting}
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBatchDialogOpen(false)}
+              disabled={isBatchImporting}
+            >
+              取消
+            </Button>
+            <Button
+              onClick={() => void handleBatchSubmit()}
+              disabled={isBatchImporting}
+            >
+              {isBatchImporting ? "导入中…" : "开始导入"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ========== 从本地上传对话框 ========== */}
       <Dialog

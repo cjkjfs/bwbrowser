@@ -538,9 +538,16 @@ pub async fn run_agent_loop(
     let uuid = cfg.uuid.clone();
     tokio::spawn(async move {
       let mut healthy = true;
+      let mut system = sysinfo::System::new_all();
+      system.refresh_all();
       while !stop.load(Ordering::SeqCst) {
         tokio::time::sleep(Duration::from_secs(30)).await;
-        match vps::heartbeat(&uuid).await {
+        if stop.load(Ordering::SeqCst) {
+          break;
+        }
+        let hardware = crate::remote_agent::hardware::snapshot_with_system(&mut system);
+        let hardware = serde_json::to_string(&hardware).unwrap_or_else(|_| "{}".to_string());
+        match vps::heartbeat(&uuid, &hardware).await {
           Ok(()) => {
             if !healthy {
               crate::remote_agent::log_remote(&format!(
@@ -627,6 +634,7 @@ async fn agent_cycle(
     &os_info,
     env!("CARGO_PKG_VERSION"),
     &vps::local_ips_json(),
+    &crate::remote_agent::hardware::snapshot_json(),
     "",
     cfg.port,
     &cfg.password,

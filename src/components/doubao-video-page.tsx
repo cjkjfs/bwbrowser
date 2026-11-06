@@ -11,7 +11,7 @@ import {
   open as openFileDialog,
 } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   LuCloud,
@@ -213,7 +213,7 @@ const emptySettings: DoubaoSettings = {
   scheduler_strategy: "least_used",
   default_model: "seedance_v2.0_mini",
   default_duration: 5,
-  default_ratio: "1:1",
+  default_ratio: "9:16",
   video_timeout: 420,
   download_dir: null,
   sync_enabled: false,
@@ -629,13 +629,19 @@ function AccountsTab() {
 
 // ===== 视频任务 =====
 
-function TasksTab({ accounts }: { accounts: DoubaoAccount[] }) {
+function TasksTab({
+  accounts,
+  settings,
+}: {
+  accounts: DoubaoAccount[];
+  settings: DoubaoSettings;
+}) {
   const [tasks, setTasks] = useState<DoubaoVideoTask[]>([]);
   const [formAccountId, setFormAccountId] = useState<string>("auto");
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("seedance_v2.0_mini");
-  const [ratio, setRatio] = useState("1:1");
-  const [duration, setDuration] = useState("5");
+  const [model, setModel] = useState(settings.default_model);
+  const [ratio, setRatio] = useState(settings.default_ratio);
+  const [duration, setDuration] = useState(String(settings.default_duration));
   const [imagePaths, setImagePaths] = useState<string[]>([]);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryMaterials, setLibraryMaterials] = useState<DoubaoMaterial[]>(
@@ -646,6 +652,16 @@ function TasksTab({ accounts }: { accounts: DoubaoAccount[] }) {
   const [libraryFilter, setLibraryFilter] = useState(ALL_CATEGORIES);
   const [libraryQuery, setLibraryQuery] = useState("");
   const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    setModel(settings.default_model);
+    setRatio(settings.default_ratio);
+    setDuration(String(settings.default_duration));
+  }, [
+    settings.default_model,
+    settings.default_ratio,
+    settings.default_duration,
+  ]);
 
   const refresh = useCallback(async () => {
     try {
@@ -1774,43 +1790,76 @@ function MaterialsTab() {
 
 // ===== 设置 =====
 
-function SettingsTab() {
-  const [settings, setSettings] = useState<DoubaoSettings>(emptySettings);
+function SettingsTab({
+  settings,
+  onChange,
+}: {
+  settings: DoubaoSettings;
+  onChange: (settings: DoubaoSettings) => void;
+}) {
+  const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const latestSettings = useRef(settings);
+  const lastSaved = useRef(JSON.stringify(settings));
+  const saveTimer = useRef<number | null>(null);
+  const saveQueue = useRef(Promise.resolve());
+  latestSettings.current = settings;
+
+  const persist = useCallback(
+    (next: DoubaoSettings) => {
+      const serialized = JSON.stringify(next);
+      setSaving(true);
+      saveQueue.current = saveQueue.current
+        .then(async () => {
+          const saved = await invoke<DoubaoSettings>("doubao_save_settings", {
+            settings: next,
+          });
+          const normalized = { ...emptySettings, ...saved };
+          lastSaved.current = JSON.stringify(normalized);
+          if (JSON.stringify(latestSettings.current) === serialized) {
+            onChange(normalized);
+          }
+        })
+        .catch((err) => {
+          showErrorToast(
+            `保存失败: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        })
+        .finally(() => {
+          if (JSON.stringify(latestSettings.current) === serialized) {
+            setSaving(false);
+          }
+        });
+    },
+    [onChange],
+  );
 
   useEffect(() => {
-    invoke<DoubaoSettings>("doubao_get_settings")
-      .then((s) => {
-        setSettings({ ...emptySettings, ...s });
-        setLoaded(true);
-      })
-      .catch(() => setLoaded(true));
-  }, []);
+    if (JSON.stringify(settings) === lastSaved.current) return;
+    saveTimer.current = window.setTimeout(() => {
+      saveTimer.current = null;
+      persist(settings);
+    }, 500);
+    return () => {
+      if (saveTimer.current !== null) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+    };
+  }, [settings, persist]);
+
+  useEffect(
+    () => () => {
+      const pending = latestSettings.current;
+      if (JSON.stringify(pending) !== lastSaved.current) persist(pending);
+    },
+    [persist],
+  );
 
   const update = <K extends keyof DoubaoSettings>(
     key: K,
     value: DoubaoSettings[K],
-  ) => setSettings((prev) => ({ ...prev, [key]: value }));
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const saved = await invoke<DoubaoSettings>("doubao_save_settings", {
-        settings,
-      });
-      setSettings({ ...emptySettings, ...saved });
-      showSuccessToast("设置已保存");
-    } catch (err) {
-      showErrorToast(
-        `保存失败: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (!loaded) return null;
+  ) => onChange({ ...latestSettings.current, [key]: value });
 
   return (
     <div className="flex-1 space-y-5 overflow-y-auto">
@@ -1966,10 +2015,8 @@ function SettingsTab() {
         />
       </div>
 
-      <div className="flex justify-end">
-        <Button disabled={saving} onClick={() => void save()}>
-          保存设置
-        </Button>
+      <div className="flex justify-end text-xs text-muted-foreground">
+        {saving ? t("common.buttons.saving") : t("common.buttons.saved")}
       </div>
     </div>
   );
@@ -1979,7 +2026,20 @@ function SettingsTab() {
 
 export function DoubaoVideoPage() {
   const [accounts, setAccounts] = useState<DoubaoAccount[]>([]);
+  const [settings, setSettings] = useState<DoubaoSettings>(emptySettings);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [active, setActive] = useState("accounts");
+  const updateSettings = useCallback(
+    (next: DoubaoSettings) => setSettings(next),
+    [],
+  );
+
+  useEffect(() => {
+    invoke<DoubaoSettings>("doubao_get_settings")
+      .then((saved) => setSettings({ ...emptySettings, ...saved }))
+      .catch(() => {})
+      .finally(() => setSettingsLoaded(true));
+  }, []);
 
   useEffect(() => {
     const load = () =>
@@ -2030,7 +2090,7 @@ export function DoubaoVideoPage() {
             active !== "tasks" && "hidden",
           )}
         >
-          <TasksTab accounts={enabledAccounts} />
+          <TasksTab accounts={enabledAccounts} settings={settings} />
         </div>
         <div
           className={cn(
@@ -2054,7 +2114,9 @@ export function DoubaoVideoPage() {
             active !== "settings" && "hidden",
           )}
         >
-          <SettingsTab />
+          {settingsLoaded && (
+            <SettingsTab settings={settings} onChange={updateSettings} />
+          )}
         </div>
       </AnimatedTabs>
     </div>

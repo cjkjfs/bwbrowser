@@ -128,17 +128,21 @@ export function useBwbrowserUserManagement() {
   );
 
   // 加载角色列表
-  const loadRoles = useCallback(async () => {
-    if (!isLoggedIn) return;
-    try {
-      const result = await invoke<ManagementRoleOption[]>(
-        "bwbrowser_list_management_roles",
-      );
-      setRoles(result);
-    } catch (e) {
-      console.warn("[UserManagement] 加载角色列表失败:", e);
-    }
-  }, [isLoggedIn]);
+  const loadRoles = useCallback(
+    async (companyId?: number | null) => {
+      if (!isLoggedIn) return;
+      try {
+        const result = await invoke<ManagementRoleOption[]>(
+          "bwbrowser_list_management_roles",
+          { companyId: companyId ?? null },
+        );
+        setRoles(result);
+      } catch (e) {
+        console.warn("[UserManagement] 加载角色列表失败:", e);
+      }
+    },
+    [isLoggedIn],
+  );
 
   // 添加用户
   const addUser = useCallback(
@@ -146,16 +150,28 @@ export function useBwbrowserUserManagement() {
       username: string;
       password: string;
       real_name: string;
-      role: string;
+      group_id: number;
+      sector: string;
+      phone: string;
+      permission_profile: number;
+      mentor_id: number;
+      skip_newbie: boolean;
+      companyId?: number | null;
     }) => {
       const userId = await invoke<number>("bwbrowser_add_management_user", {
         username: data.username,
         password: data.password,
         realName: data.real_name,
-        role: data.role,
+        groupId: data.group_id,
+        sector: data.sector,
+        phone: data.phone,
+        permissionProfile: data.permission_profile,
+        mentorId: data.mentor_id,
+        skipNewbie: data.skip_newbie,
+        companyId: data.companyId ?? null,
       });
       toast.success(`用户 ${data.real_name} 添加成功`);
-      await loadUsers();
+      await loadUsers(data.companyId);
       return userId;
     },
     [loadUsers],
@@ -312,7 +328,7 @@ export function useBwbrowserUserManagement() {
     if (isLoggedIn) {
       loadCurrentUser();
       loadUsers();
-      loadRoles();
+      loadRoles(null);
       loadPermissionProfiles();
     }
   }, [
@@ -345,5 +361,6 @@ export function useBwbrowserUserManagement() {
     savePermissionProfile,
     deletePermissionProfile,
     applyPermissionProfile,
+    loadRoles,
   };
 }
