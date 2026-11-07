@@ -7288,47 +7288,9 @@ async fn launch_account_impl(
     }
   };
 
-  // 0.5 优先使用本地 profile 已有的 proxy_id（由 bwbrowser_update_account_proxy 设置）
-  emit_progress(8, "已获取账号信息"); //     云端 API 可能因服务器同步延迟返回旧值，导致覆盖本地正确配置。
-                                      //     如果本地 profile 有 node: 前缀的 proxy_id，直接用它，不从云端取。
-  let server_proxy_node = {
-    let pm = crate::profile::manager::ProfileManager::instance();
-    let profiles = pm.list_profiles().unwrap_or_default();
-    let lookup_name = account_profile_name(&server_account_name, account_id);
-    let existing = profiles
-      .into_iter()
-      .find(|p| p.name.to_lowercase() == lookup_name.to_lowercase());
-    if let Some(ref profile) = existing {
-      if let Some(ref pid) = profile.proxy_id {
-        if let Some(node) = pid.strip_prefix(crate::cloud_proxy_manager::NODE_PREFIX) {
-          log_bwbrowser(
-            "launch_account",
-            &format!(
-              "  使用本地 profile 的 proxy_id (node: 前缀, {} 字符), 不使用云端值 {:?}",
-              node.len(),
-              server_proxy_node
-            ),
-          );
-          Some(node.to_string())
-        } else {
-          log_bwbrowser(
-            "launch_account",
-            &format!(
-              "  本地 profile 有 proxy_id={:?} 但非 node: 前缀, 使用云端值",
-              pid
-            ),
-          );
-          server_proxy_node.clone()
-        }
-      } else {
-        log_bwbrowser("launch_account", "  本地 profile 无 proxy_id, 使用云端值");
-        server_proxy_node.clone()
-      }
-    } else {
-      log_bwbrowser("launch_account", "  本地无已有 profile, 使用云端值");
-      server_proxy_node.clone()
-    }
-  };
+  // 0.5 代理一律以服务器刚拉到的值为准（每次启动重新生效）：
+  //     本地 profile 里的 node: 旧值会被这里覆盖并回写，跨电脑改节点才能立即生效。
+  emit_progress(8, "已获取账号信息");
 
   // 1. 处理代理
   emit_progress(15, "正在配置代理...");
