@@ -28,15 +28,15 @@ jobs:
             label: macos-arm
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
           cache: "pnpm"
@@ -45,7 +45,7 @@ jobs:
         # nightly 浮动引用：2026-10-16 当天分发的 nightly 构建损坏（缺 unwind/proc_macro
         # rlib，三平台编译全挂）。钉到本地已完整验证（fmt+check+release build）的构建，
         # 上游恢复后可解除
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 #master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 #master
         with:
           toolchain: nightly-2026-10-16
           targets: ${{ matrix.target }}
@@ -113,7 +113,7 @@ jobs:
           fi
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MACOSX_DEPLOYMENT_TARGET: "14.0"
