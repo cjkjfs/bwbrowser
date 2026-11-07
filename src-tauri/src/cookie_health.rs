@@ -10,6 +10,7 @@
 use crate::cookie_manager::CookieManager;
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -17,6 +18,8 @@ use tokio::sync::Mutex;
 
 /// How long one platform probe may take before giving up.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+
+const PROBE_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 /// How long between two consecutive runs for the same profile.
 const COOLDOWN_SECS: u64 = 60;
@@ -1274,7 +1277,7 @@ async fn probe_platform(
   // cannot correlate accounts by a shared exit. VLESS/Trojan get a throwaway
   // Xray worker for the probe (reqwest cannot speak those protocols itself);
   // it is always stopped before returning, even on early verdicts.
-  let probe_client = build_probe_client(proxy).await;
+  let probe_client = build_probe_client(proxy, false).await;
   let mut verdict = run_network_probe(rule, &cookie_header, probe_client.client).await;
   if let Some(ref note) = probe_client.proxy_fallback {
     // Make a silent direct fallback visible in the log: an account whose
@@ -1297,11 +1300,22 @@ struct ProbeClient {
   proxy_fallback: Option<String>,
 }
 
-/// Build the client for a live probe.
-async fn build_probe_client(proxy: Option<&crate::browser::ProxySettings>) -> ProbeClient {
+/// Build the client for a live probe. `follow_redirects` lets callers that
+/// need the final page body (e.g. the channel-id extraction) follow the
+/// platform's redirect chain; verdict probes keep `none` to inspect the
+/// redirect target themselves.
+async fn build_probe_client(
+  proxy: Option<&crate::browser::ProxySettings>,
+  follow_redirects: bool,
+) -> ProbeClient {
+  let redirect_policy = if follow_redirects {
+    reqwest::redirect::Policy::default()
+  } else {
+    reqwest::redirect::Policy::none()
+  };
   let mut builder = reqwest::Client::builder()
     .timeout(PROBE_TIMEOUT)
-    .redirect(reqwest::redirect::Policy::none());
+    .redirect(redirect_policy);
 
   let mut xray_worker_id = None;
   let mut proxy_fallback = None;
@@ -1359,10 +1373,7 @@ async fn run_network_probe(
 
   let resp = match client
     .get(rule.url)
-    .header(
-      "User-Agent",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    )
+    .header("User-Agent", PROBE_USER_AGENT)
     .header("Accept", "text/html,application/xhtml+xml")
     .header("Cookie", cookie_header)
     .send()
@@ -1370,7 +1381,10 @@ async fn run_network_probe(
   {
     Ok(r) => r,
     Err(e) => {
-      return (HealthStatus::Valid, format!("Session cookies valid; probe failed: {e}"));
+      return (
+        HealthStatus::Valid,
+        format!("Session cookies valid; probe failed: {e}"),
+      );
     }
   };
 
@@ -1496,6 +1510,416 @@ pub fn dump_platform_cookies(profile_id: &str, suffix: &str) -> String {
     }
   }
   out.join("; ")
+}
+
+/// A YouTube channel's identity as resolved from the profile's live session.
+pub struct YoutubeChannelInfo {
+  pub id: String,
+  /// Channel display name (YouTube「名称」), e.g. "ClipNChop".
+  pub name: Option<String>,
+  /// Channel handle (YouTube「标识名」), e.g. "@ClipNChop-b7c".
+  pub handle: Option<String>,
+}
+
+/// Resolve the signed-in YouTube channel's id, name and handle using the
+/// profile's stored session cookies, routed through the profile's own proxy.
+/// The homepage identifies the channel id; the channel page then carries the
+/// display name (og:title) and the handle (canonical /@ URL). When
+/// `known_channel_id` is given the homepage lookup is skipped entirely.
+/// Returns None when there are no YouTube cookies (only required to discover
+/// the id), a request fails, or the pages don't identify a channel.
+pub async fn extract_youtube_channel(
+  profile_id: &str,
+  known_channel_id: Option<&str>,
+) -> Option<YoutubeChannelInfo> {
+  let rule = rule_for_platform("youtube")?;
+
+  let proxy = crate::profile::manager::ProfileManager::instance()
+    .list_profiles()
+    .ok()
+    .and_then(|profiles| {
+      profiles
+        .into_iter()
+        .find(|p| p.id == uuid::Uuid::parse_str(profile_id).unwrap_or_default())
+        .and_then(|p| proxy_for_profile(&p))
+    });
+
+  // Cookies are only needed to find out WHICH channel this profile belongs
+  // to; the channel page itself is public.
+  let cookie_header: Option<String> = if known_channel_id.is_some() {
+    None
+  } else {
+    let read = match CookieManager::read_cookies(profile_id) {
+      Ok(r) => r,
+      Err(e) => {
+        debug!("YouTube channel: read_cookies failed for {profile_id}: {e}");
+        crate::bwbrowser_cloud::log_bwbrowser(
+          "launch_account",
+          &format!("  YouTube 频道解析: 读取本机 cookie 文件失败（可能被运行中的浏览器占用）: {e}"),
+        );
+        return None;
+      }
+    };
+    let matching: Vec<&crate::cookie_manager::UnifiedCookie> = read
+      .domains
+      .iter()
+      .flat_map(|d| d.cookies.iter())
+      .filter(|c| domain_matches(&c.domain, rule.domains))
+      .collect();
+    if matching.is_empty() {
+      debug!("YouTube channel: no youtube.com cookies for profile {profile_id}");
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "launch_account",
+        &format!(
+          "  YouTube 频道解析: 本机无 youtube.com cookie（账号未登录或 cookie 未同步）profile={profile_id}"
+        ),
+      );
+      return None;
+    }
+    Some(
+      matching
+        .iter()
+        .map(|c| format!("{}={}", c.name, c.value))
+        .collect::<Vec<_>>()
+        .join("; "),
+    )
+  };
+
+  let probe_client = build_probe_client(proxy.as_ref(), true).await;
+  let result = fetch_youtube_channel_meta(
+    probe_client.client.as_ref(),
+    cookie_header.as_deref(),
+    known_channel_id,
+  )
+  .await;
+  if let Some(worker_id) = probe_client.xray_worker_id {
+    let _ = crate::xray_worker_runner::stop_xray_worker(&worker_id).await;
+  }
+  result
+}
+
+/// CDP fallback: read the YouTube page straight out of the running browser.
+///
+/// Used when the HTTP cookie probe cannot run (cookie file locked by the live
+/// browser, proxy probe failing, …). The page HTML is taken via
+/// `Runtime.evaluate` first — which the automation gate refuses on free plans —
+/// and through `DOM.getDocument` + `DOM.getOuterHTML` when it is (the gate
+/// leaves the DOM domain open; cookie sync's login check relies on the same).
+/// The channel id is what matters: once it reaches the server the public
+/// channel page fills in name/handle without any cookie on a later attempt.
+pub async fn extract_youtube_channel_via_cdp(profile_id: &str) -> Option<YoutubeChannelInfo> {
+  let pm = crate::profile::manager::ProfileManager::instance();
+  let profile = pm
+    .list_profiles()
+    .ok()?
+    .into_iter()
+    .find(|p| p.id.to_string() == profile_id)?;
+  let profiles_dir = pm.get_profiles_dir();
+  let profile_path = profile.get_profile_data_path(&profiles_dir);
+  let port = crate::wayfern_manager::WayfernManager::instance()
+    .get_cdp_port(&profile_path.to_string_lossy())
+    .await?;
+
+  let client = reqwest::Client::builder()
+    .timeout(Duration::from_secs(3))
+    .no_proxy()
+    .build()
+    .ok()?;
+  let targets: Vec<serde_json::Value> = client
+    .get(format!("http://127.0.0.1:{port}/json"))
+    .send()
+    .await
+    .ok()?
+    .json()
+    .await
+    .ok()?;
+
+  for target in &targets {
+    if target.get("type").and_then(serde_json::Value::as_str) != Some("page") {
+      continue;
+    }
+    let url = target
+      .get("url")
+      .and_then(serde_json::Value::as_str)
+      .unwrap_or_default();
+    if !url.contains("youtube.com") || url.contains("accounts.google.com") {
+      continue;
+    }
+    let Some(ws_url) = target
+      .get("webSocketDebuggerUrl")
+      .and_then(serde_json::Value::as_str)
+    else {
+      continue;
+    };
+    let cdp = crate::cdp_target::CdpTarget::Local {
+      ws_url: ws_url.to_string(),
+    };
+    let Some(html) = read_page_html_via_cdp(&cdp).await else {
+      continue;
+    };
+    let Some(id) = parse_youtube_channel_id(&html) else {
+      debug!("YouTube channel via CDP: page has no channel id: {url}");
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "launch_account",
+        "  YouTube 频道解析: CDP 页面里未识别频道 ID（页面可能未登录或仍在加载）",
+      );
+      continue;
+    };
+    let info = YoutubeChannelInfo {
+      id,
+      name: parse_youtube_channel_name(&html),
+      handle: parse_youtube_channel_handle(&html),
+    };
+    crate::bwbrowser_cloud::log_bwbrowser(
+      "launch_account",
+      &format!("  ✓ CDP 兜底命中: 从运行中页面解析到频道 ID {}", info.id),
+    );
+    return Some(info);
+  }
+  None
+}
+
+/// One page's outer HTML: Runtime.evaluate first, DOM domain when gated.
+async fn read_page_html_via_cdp(cdp: &crate::cdp_target::CdpTarget) -> Option<String> {
+  match crate::cdp_target::run_command(
+    cdp,
+    "Runtime.evaluate",
+    json!({
+      "expression": "document.documentElement.outerHTML",
+      "returnByValue": true
+    }),
+  )
+  .await
+  {
+    Ok(result) => {
+      return result
+        .get("result")
+        .and_then(|r| r.get("value"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    }
+    Err(e) => {
+      let err_str = e.to_string();
+      let gated = err_str.contains("paid")
+        || err_str.contains("requires")
+        || err_str.contains("wasn't found")
+        || err_str.contains("-32000");
+      if !gated {
+        crate::bwbrowser_cloud::log_bwbrowser(
+          "launch_account",
+          &format!("  YouTube 频道解析: CDP Runtime 读取失败: {err_str}"),
+        );
+        return None;
+      }
+    }
+  }
+  crate::bwbrowser_cloud::log_bwbrowser(
+    "launch_account",
+    "  Runtime.evaluate 受限（自动化闸门），改用 DOM 域读取页面",
+  );
+  let mut conn = cdp.connect().await.ok()?;
+  let doc = conn
+    .call(1u64, "DOM.getDocument", json!({ "depth": 1 }))
+    .await
+    .ok()?;
+  let node_id = doc
+    .get("root")
+    .and_then(|r| r.get("nodeId"))
+    .and_then(serde_json::Value::as_u64)?;
+  let outer = conn
+    .call(2u64, "DOM.getOuterHTML", json!({ "nodeId": node_id }))
+    .await
+    .ok()?;
+  conn.close().await;
+  outer
+    .get("outerHTML")
+    .and_then(serde_json::Value::as_str)
+    .map(str::to_string)
+}
+
+async fn fetch_youtube_channel_meta(
+  client: Option<&reqwest::Client>,
+  cookie_header: Option<&str>,
+  known_channel_id: Option<&str>,
+) -> Option<YoutubeChannelInfo> {
+  let client = client.or_else(|| {
+    crate::bwbrowser_cloud::log_bwbrowser(
+      "launch_account",
+      "  YouTube 频道解析: 探测客户端构建失败（代理不可用或启动超时）",
+    );
+    None
+  })?;
+  let channel_id = match known_channel_id.map(str::trim).filter(|s| !s.is_empty()) {
+    Some(id) => id.to_string(),
+    None => {
+      let cookie = cookie_header?;
+      let body = fetch_page(
+        client,
+        rule_url_for_probe("youtube"),
+        Some(cookie),
+        "homepage",
+      )
+      .await?;
+      match parse_youtube_channel_id(&body) {
+        Some(id) => id,
+        None => {
+          crate::bwbrowser_cloud::log_bwbrowser(
+            "launch_account",
+            "  YouTube 频道解析: 首页未识别频道 ID（可能未登录 YouTube 或落在同意页）",
+          );
+          return None;
+        }
+      }
+    }
+  };
+
+  let body = fetch_page(
+    client,
+    &format!("https://www.youtube.com/channel/{channel_id}"),
+    cookie_header,
+    "channel page",
+  )
+  .await?;
+  Some(YoutubeChannelInfo {
+    name: parse_youtube_channel_name(&body),
+    handle: parse_youtube_channel_handle(&body),
+    id: channel_id,
+  })
+}
+
+async fn fetch_page(
+  client: &reqwest::Client,
+  url: &str,
+  cookie_header: Option<&str>,
+  what: &str,
+) -> Option<String> {
+  let mut req = client
+    .get(url)
+    .header("User-Agent", PROBE_USER_AGENT)
+    .header("Accept", "text/html,application/xhtml+xml")
+    .header("Accept-Language", "en-US,en;q=0.9");
+  if let Some(cookie) = cookie_header {
+    req = req.header("Cookie", cookie);
+  }
+  let resp = match req.send().await {
+    Ok(r) => r,
+    Err(e) => {
+      debug!("YouTube channel ({what}): request failed: {e}");
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "launch_account",
+        &format!("  YouTube 频道解析: {what} 请求失败: {e}"),
+      );
+      return None;
+    }
+  };
+  if !resp.status().is_success() {
+    debug!("YouTube channel ({what}): status {}", resp.status());
+    crate::bwbrowser_cloud::log_bwbrowser(
+      "launch_account",
+      &format!("  YouTube 频道解析: {what} 返回 HTTP {}", resp.status()),
+    );
+    return None;
+  }
+  match resp.text().await {
+    Ok(body) => Some(body),
+    Err(e) => {
+      debug!("YouTube channel ({what}): body read failed: {e}");
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "launch_account",
+        &format!("  YouTube 频道解析: {what} 响应体读取失败: {e}"),
+      );
+      None
+    }
+  }
+}
+
+fn rule_url_for_probe(platform: &str) -> &'static str {
+  rule_for_platform(platform).map(|r| r.url).unwrap_or("")
+}
+
+/// YouTube embeds the signed-in user's channel id in the page bootstrap JSON
+/// as `"externalId":"UC…"`. Some surfaces only carry `"channelId":"UC…"`, so
+/// fall back to that; both are bounded to the 24-char `UC[0-9A-Za-z_-]` shape
+/// so a stray value in page content cannot be mistaken for the account's id.
+fn parse_youtube_channel_id(html: &str) -> Option<String> {
+  static EXTERNAL_ID: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r#""externalId":"(UC[0-9A-Za-z_-]{22})""#).unwrap());
+  static CHANNEL_ID: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r#""channelId":"(UC[0-9A-Za-z_-]{22})""#).unwrap());
+  let capture = |re: &regex_lite::Regex| {
+    re.captures(html)
+      .and_then(|c| c.get(1))
+      .map(|m| m.as_str().to_string())
+  };
+  capture(&EXTERNAL_ID).or_else(|| capture(&CHANNEL_ID))
+}
+
+/// The channel display name comes from the channel page's og:title meta tag;
+/// attribute order varies, so try both arrangements plus the itemprop=name
+/// variant before giving up. HTML entities in the title are decoded.
+fn parse_youtube_channel_name(html: &str) -> Option<String> {
+  static OG_TITLE: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+    regex_lite::Regex::new(r#"<meta[^>]*property="og:title"[^>]*content="([^"]*)""#).unwrap()
+  });
+  static OG_TITLE_REV: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+    regex_lite::Regex::new(r#"<meta[^>]*content="([^"]*)"[^>]*property="og:title""#).unwrap()
+  });
+  static ITEMPROP_NAME: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+    regex_lite::Regex::new(r#"<meta[^>]*itemprop="name"[^>]*content="([^"]*)""#).unwrap()
+  });
+  let capture = |re: &regex_lite::Regex| {
+    re.captures(html)
+      .and_then(|c| c.get(1))
+      .map(|m| m.as_str().to_string())
+  };
+  let raw = capture(&OG_TITLE)
+    .or_else(|| capture(&OG_TITLE_REV))
+    .or_else(|| capture(&ITEMPROP_NAME))?;
+  let decoded = decode_html_entities(&raw);
+  let trimmed = decoded.trim();
+  (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+/// The handle comes from the channel page's canonical URL
+/// (`https://www.youtube.com/@handle`), or from the bootstrap JSON's
+/// `"canonicalBaseUrl":"/@handle"` when the link tag is ordered differently.
+/// Legacy channels without a handle canonicalize to /channel/UC… and yield None.
+fn parse_youtube_channel_handle(html: &str) -> Option<String> {
+  static CANONICAL: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+    regex_lite::Regex::new(r#"<link[^>]*rel="canonical"[^>]*href="([^"]*)""#).unwrap()
+  });
+  static CANONICAL_REV: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+    regex_lite::Regex::new(r#"<link[^>]*href="([^"]*)"[^>]*rel="canonical""#).unwrap()
+  });
+  static BASE_URL: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+    regex_lite::Regex::new(r#""canonicalBaseUrl":"/(@[A-Za-z0-9._-]+)""#).unwrap()
+  });
+  static HANDLE_IN_URL: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r#"youtube\.com/(@[A-Za-z0-9._-]+)"#).unwrap());
+  let capture = |re: &regex_lite::Regex| {
+    re.captures(html)
+      .and_then(|c| c.get(1))
+      .map(|m| m.as_str().to_string())
+  };
+  let href = capture(&CANONICAL).or_else(|| capture(&CANONICAL_REV));
+  href
+    .as_deref()
+    .and_then(|h| HANDLE_IN_URL.captures(h))
+    .and_then(|c| c.get(1))
+    .map(|m| m.as_str().to_string())
+    .or_else(|| capture(&BASE_URL))
+}
+
+/// Decode the handful of entities YouTube HTML-escapes titles with. `&amp;`
+/// decodes last so doubled escapes do not chain into other entities.
+fn decode_html_entities(text: &str) -> String {
+  text
+    .replace("&lt;", "<")
+    .replace("&gt;", ">")
+    .replace("&quot;", "\"")
+    .replace("&#39;", "'")
+    .replace("&nbsp;", " ")
+    .replace("&amp;", "&")
 }
 
 /// Convert a CDP `Network.Cookie` JSON object to our unified cookie type.
@@ -1847,6 +2271,79 @@ mod tests {
     assert!(domain_matches("creator.douyin.com", &["douyin.com"]));
     assert!(!domain_matches("douyin.com.cn", &["douyin.com"]));
     assert!(!domain_matches("evil-douyin.com", &["douyin.com"]));
+  }
+
+  #[test]
+  fn parses_youtube_channel_id_from_page_bootstrap() {
+    let html = r#"var ytcfg={"externalId":"UC1234567890abcdefghijkl","channelId":"UCzzzzzzzzzzzzzzzzzzzz"};"#;
+    assert_eq!(
+      parse_youtube_channel_id(html).as_deref(),
+      Some("UC1234567890abcdefghijkl")
+    );
+    assert_eq!(
+      parse_youtube_channel_id(r#"{"channelId":"UCabcdefghijklmnopqrstuv"}"#).as_deref(),
+      Some("UCabcdefghijklmnopqrstuv")
+    );
+    assert_eq!(parse_youtube_channel_id("signed out homepage"), None);
+    // Wrong length / charset must not match.
+    assert_eq!(parse_youtube_channel_id(r#""externalId":"UCshort""#), None);
+    assert_eq!(
+      parse_youtube_channel_id(r#""externalId":"UC++++??????????????????""#),
+      None
+    );
+  }
+
+  #[test]
+  fn parses_youtube_channel_name_from_og_title() {
+    assert_eq!(
+      parse_youtube_channel_name(r#"<head><meta property="og:title" content="ClipNChop"></head>"#)
+        .as_deref(),
+      Some("ClipNChop")
+    );
+    assert_eq!(
+      parse_youtube_channel_name(r#"<meta content="Clip &amp; Chop" property="og:title">"#)
+        .as_deref(),
+      Some("Clip & Chop")
+    );
+    assert_eq!(
+      parse_youtube_channel_name(r#"<meta itemprop="name" content="Name Channel">"#).as_deref(),
+      Some("Name Channel")
+    );
+    assert_eq!(parse_youtube_channel_name("<html>no meta</html>"), None);
+    assert_eq!(
+      parse_youtube_channel_name(r#"<meta property="og:title" content=" "">"#),
+      None
+    );
+  }
+
+  #[test]
+  fn parses_youtube_channel_handle_from_canonical() {
+    assert_eq!(
+      parse_youtube_channel_handle(
+        r#"<link rel="canonical" href="https://www.youtube.com/@ClipNChop-b7c">"#
+      )
+      .as_deref(),
+      Some("@ClipNChop-b7c")
+    );
+    assert_eq!(
+      parse_youtube_channel_handle(
+        r#"<link href="https://www.youtube.com/@Handle.X_y" rel="canonical">"#
+      )
+      .as_deref(),
+      Some("@Handle.X_y")
+    );
+    assert_eq!(
+      parse_youtube_channel_handle(r#""canonicalBaseUrl":"/@FromJson-b1""#).as_deref(),
+      Some("@FromJson-b1")
+    );
+    // Legacy channel without a handle canonicalizes to /channel/UC…
+    assert_eq!(
+      parse_youtube_channel_handle(
+        r#"<link rel="canonical" href="https://www.youtube.com/channel/UC1234567890abcdefghijkl">"#
+      ),
+      None
+    );
+    assert_eq!(parse_youtube_channel_handle("<html></html>"), None);
   }
 
   #[test]

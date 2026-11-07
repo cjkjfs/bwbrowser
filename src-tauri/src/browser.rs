@@ -45,7 +45,60 @@ impl BrowserType {
   }
 }
 
-#[allow(dead_code)]
+#[cfg(windows)]
+pub fn sync_system_color_scheme(profile_path: &Path) -> std::io::Result<()> {
+  let key = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+    .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")?;
+  let apps_light = key.get_value::<u32, _>("AppsUseLightTheme").unwrap_or(1);
+  let system_light = key.get_value::<u32, _>("SystemUsesLightTheme").unwrap_or(1);
+  // Chromium can follow the Windows-system surface rather than the app surface
+  // when Windows' Custom mode gives them different values. Resolve that split
+  // from the user's explicit app preference, but never overwrite a browser
+  // appearance the user explicitly selected afterwards.
+  sync_color_scheme_pref(profile_path, apps_light == 0, apps_light == system_light)
+}
+
+#[cfg(windows)]
+fn sync_color_scheme_pref(
+  profile_path: &Path,
+  dark: bool,
+  system_modes_match: bool,
+) -> std::io::Result<()> {
+  let path = profile_path.join("Default").join("Preferences");
+  if !path.is_file() {
+    return Ok(());
+  }
+  let mut prefs: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+  let Some(theme) = prefs
+    .pointer_mut("/browser/theme")
+    .and_then(|v| v.as_object_mut())
+  else {
+    return Ok(());
+  };
+  let scheme = theme.get("color_scheme").and_then(|v| v.as_i64());
+  let previous_sync = theme.get("bw_system_color_scheme").and_then(|v| v.as_i64());
+  if system_modes_match {
+    if previous_sync == scheme {
+      theme.insert("color_scheme".to_string(), serde_json::json!(0));
+    }
+    theme.remove("bw_system_color_scheme");
+  } else if scheme == Some(0) || (previous_sync.is_some() && scheme == previous_sync) {
+    let scheme = if dark { 2 } else { 1 };
+    theme.insert("color_scheme".to_string(), serde_json::json!(scheme));
+    theme.insert(
+      "bw_system_color_scheme".to_string(),
+      serde_json::json!(scheme),
+    );
+  } else if previous_sync.is_some() {
+    theme.remove("bw_system_color_scheme");
+  } else {
+    return Ok(());
+  }
+  let tmp = path.with_extension("bw-theme.tmp");
+  std::fs::write(&tmp, serde_json::to_vec(&prefs)?)?;
+  std::fs::rename(&tmp, path)
+}
+
 pub trait Browser: Send + Sync {
   fn get_executable_path(&self, install_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>>;
   fn create_launch_args(
@@ -57,6 +110,7 @@ pub trait Browser: Send + Sync {
     headless: bool,
   ) -> Result<Vec<String>, Box<dyn std::error::Error>>;
   fn is_version_downloaded(&self, version: &str, binaries_dir: &Path) -> bool;
+  #[allow(dead_code)]
   fn prepare_executable(&self, executable_path: &Path) -> Result<(), Box<dyn std::error::Error>>;
 }
 
@@ -610,6 +664,102 @@ pub struct GithubAsset {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[cfg(windows)]
+  mod color_scheme {
+    use super::*;
+
+    fn theme(dir: &Path) -> serde_json::Value {
+      let path = dir.join("Default").join("Preferences");
+      let prefs: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+      prefs["browser"]["theme"].clone()
+    }
+
+    fn write_theme(dir: &Path, scheme: i64) {
+      std::fs::create_dir_all(dir.join("Default")).unwrap();
+      std::fs::write(
+        dir.join("Default").join("Preferences"),
+        serde_json::to_vec(&serde_json::json!({
+          "browser": { "theme": { "color_scheme": scheme } },
+          "unrelated": "unchanged"
+        }))
+        .unwrap(),
+      )
+      .unwrap();
+    }
+
+    #[test]
+    fn resolves_follow_system_from_windows_apps_mode() {
+      let dir = tempfile::tempdir().unwrap();
+      write_theme(dir.path(), 0);
+      sync_color_scheme_pref(dir.path(), false, false).unwrap();
+      assert_eq!(
+        theme(dir.path()),
+        serde_json::json!({
+          "color_scheme": 1,
+          "bw_system_color_scheme": 1
+        })
+      );
+
+      sync_color_scheme_pref(dir.path(), true, false).unwrap();
+      assert_eq!(theme(dir.path())["color_scheme"], 2);
+    }
+
+    #[test]
+    fn keeps_explicit_browser_appearance() {
+      let dir = tempfile::tempdir().unwrap();
+      write_theme(dir.path(), 2);
+      sync_color_scheme_pref(dir.path(), false, false).unwrap();
+      assert_eq!(theme(dir.path()), serde_json::json!({ "color_scheme": 2 }));
+    }
+
+    #[test]
+    fn keeps_explicit_choice_after_previous_sync() {
+      let dir = tempfile::tempdir().unwrap();
+      write_theme(dir.path(), 0);
+      sync_color_scheme_pref(dir.path(), false, false).unwrap();
+      write_theme(dir.path(), 2);
+      sync_color_scheme_pref(dir.path(), true, false).unwrap();
+      assert_eq!(theme(dir.path()), serde_json::json!({ "color_scheme": 2 }));
+    }
+
+    #[test]
+    fn restores_follow_system_when_windows_modes_match() {
+      let dir = tempfile::tempdir().unwrap();
+      write_theme(dir.path(), 0);
+      sync_color_scheme_pref(dir.path(), false, false).unwrap();
+      sync_color_scheme_pref(dir.path(), false, true).unwrap();
+      assert_eq!(theme(dir.path()), serde_json::json!({ "color_scheme": 0 }));
+    }
+
+    #[test]
+    fn resolves_follow_system_again_after_previous_sync() {
+      let dir = tempfile::tempdir().unwrap();
+      write_theme(dir.path(), 0);
+      sync_color_scheme_pref(dir.path(), false, false).unwrap();
+      write_theme(dir.path(), 0);
+      sync_color_scheme_pref(dir.path(), false, false).unwrap();
+      assert_eq!(
+        theme(dir.path()),
+        serde_json::json!({
+          "color_scheme": 1,
+          "bw_system_color_scheme": 1
+        })
+      );
+    }
+
+    #[test]
+    fn preserves_unrelated_preferences() {
+      let dir = tempfile::tempdir().unwrap();
+      write_theme(dir.path(), 0);
+      sync_color_scheme_pref(dir.path(), false, false).unwrap();
+      let prefs: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(dir.path().join("Default").join("Preferences")).unwrap(),
+      )
+      .unwrap();
+      assert_eq!(prefs["unrelated"], "unchanged");
+    }
+  }
 
   #[cfg(target_os = "macos")]
   #[test]

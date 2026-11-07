@@ -267,6 +267,7 @@ impl BrowserRunner {
     on_fingerprint_progress: Option<&(dyn Fn(&str) + Sync)>,
     shield_platform: Option<&str>,
     kernel_override: Option<&(String, String)>,
+    profile_label: Option<&str>,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
     // The override decides which kernel this launch runs on; the profile's own
     // fields are never rewritten, so the on-disk metadata keeps saying Wayfern
@@ -678,6 +679,11 @@ impl BrowserRunner {
 
       let profile_path_str = profile_data_path.to_string_lossy().to_string();
 
+      #[cfg(windows)]
+      if let Err(e) = crate::browser::sync_system_color_scheme(&profile_data_path) {
+        log::warn!("Failed to synchronize browser appearance with Windows: {e}");
+      }
+
       // Install extensions if an extension group is assigned
       emit_launch_stage(profile, "extensions", None);
       // 云端账号启动默认不注入扩展（减小注入面，降低平台风控敏感度）；
@@ -744,6 +750,7 @@ impl BrowserRunner {
           remote_debugging_port,
           headless,
           kind,
+          profile_label,
         )
         .await
         .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
@@ -925,6 +932,11 @@ impl BrowserRunner {
       let profile_data_path =
         crate::ephemeral_dirs::chromium_profile_data_path(profile, &profiles_dir);
       let profile_path_str = profile_data_path.to_string_lossy().to_string();
+
+      #[cfg(windows)]
+      if let Err(e) = crate::browser::sync_system_color_scheme(&profile_data_path) {
+        log::warn!("Failed to synchronize browser appearance with Windows: {e}");
+      }
 
       let port = match remote_debugging_port {
         Some(port) => port,
@@ -1144,6 +1156,7 @@ impl BrowserRunner {
     on_fingerprint_progress: Option<&(dyn Fn(&str) + Sync)>,
     shield_platform: Option<&str>,
     kernel_override: Option<&(String, String)>,
+    profile_label: Option<&str>,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
     // Wayfern starts (and PID-reconciles) its own local proxy
     // inside `launch_browser_internal`, so we hand it None here rather than
@@ -1160,6 +1173,7 @@ impl BrowserRunner {
         on_fingerprint_progress,
         shield_platform,
         kernel_override,
+        profile_label,
       )
       .await
   }
@@ -1177,6 +1191,7 @@ impl BrowserRunner {
     on_fingerprint_progress: Option<&(dyn Fn(&str) + Sync)>,
     shield_platform: Option<&str>,
     kernel_override: Option<&(String, String)>,
+    profile_label: Option<&str>,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
     log::info!(
       "launch_or_open_url called for profile: {} (ID: {})",
@@ -1268,6 +1283,7 @@ impl BrowserRunner {
           on_fingerprint_progress,
           shield_platform,
           kernel_override,
+          profile_label,
         )
         .await
     }
@@ -1962,6 +1978,7 @@ impl BrowserRunner {
         None,
         None,
         None,
+        None,
       )
       .await
     {
@@ -2033,6 +2050,8 @@ pub struct LaunchOptions {
   /// flip the setting back and the next launch is Wayfern again. `None`
   /// launches what the profile's own fields say.
   pub kernel_override: Option<(String, String)>,
+  /// A window label distinct from the stable profile identity.
+  pub profile_label: Option<String>,
 }
 
 impl LaunchOptions {
@@ -2048,6 +2067,7 @@ impl LaunchOptions {
       on_fingerprint_progress: None,
       shield_platform: None,
       kernel_override: None,
+      profile_label: None,
     }
   }
 }
@@ -2160,6 +2180,7 @@ async fn launch_browser_profile_tracked(
     on_fingerprint_progress,
     shield_platform,
     kernel_override,
+    profile_label,
   } = options;
   let on_fingerprint_progress = on_fingerprint_progress
     .as_ref()
@@ -2266,6 +2287,7 @@ async fn launch_browser_profile_tracked(
         on_fingerprint_progress,
         shield_platform.as_deref(),
         kernel_override.as_ref(),
+        profile_label.as_deref(),
       )
       .await
   } else {
@@ -2279,6 +2301,7 @@ async fn launch_browser_profile_tracked(
         on_fingerprint_progress,
         shield_platform.as_deref(),
         kernel_override.as_ref(),
+        profile_label.as_deref(),
       )
       .await
   };

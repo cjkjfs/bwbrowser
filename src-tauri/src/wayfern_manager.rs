@@ -2570,6 +2570,7 @@ impl WayfernManager {
     remote_debugging_port: Option<u16>,
     headless: bool,
     kind: LaunchKind,
+    profile_label: Option<&str>,
   ) -> Result<WayfernLaunchResult, Box<dyn std::error::Error + Send + Sync>> {
     let executable_path = BrowserRunner::instance()
       .get_browser_executable_path(profile)
@@ -2770,11 +2771,12 @@ impl WayfernManager {
 
     // Per-profile window label + distinct frame color so concurrent profile
     // windows are easy to tell apart. The browser reads these switches and uses
-    // them for the window title (label) and the frame colour. The label is the
-    // profile name; the color is the user's window_color when set, otherwise
-    // deterministically derived from the profile id so every profile still gets
-    // a stable, distinct color.
-    if !profile.name.is_empty() {
+    // them for the window title (label) and the frame colour. The color is the
+    // user's window_color when set, otherwise deterministically derived from
+    // the profile id so every profile still gets a stable, distinct color.
+    if let Some(label) = profile_label.filter(|label| !label.is_empty()) {
+      args.push(format!("--wayfern-profile-label={label}"));
+    } else if !profile.name.is_empty() {
       args.push(format!("--wayfern-profile-label={}", profile.name));
     }
     // Profiles created before this feature have no stored color; persist the
@@ -4144,6 +4146,7 @@ impl WayfernManager {
         None,
         false,
         LaunchKind::Interactive,
+        None,
       )
       .await
   }

@@ -2381,6 +2381,9 @@ pub struct BwbrowserAccount {
   pub tags_list: Option<Vec<String>>,
   #[serde(default)]
   pub backup_email: Option<String>,
+  /// YouTube Channel ID（UC 开头），编辑账号维护并随 update_account_info 写回云端
+  #[serde(default)]
+  pub channel_id: Option<String>,
   /// 套餐启动配额：false = 超出套餐配额，客户端置灰禁止启动浏览器
   #[serde(default, deserialize_with = "deserialize_int_or_bool")]
   pub launch_allowed: Option<bool>,
@@ -6949,6 +6952,15 @@ pub(crate) fn account_profile_name(account_name: &str, account_id: i64) -> Strin
   }
 }
 
+fn account_window_label(account_name: &str, phone_id: Option<&str>) -> String {
+  let phone_id = phone_id.unwrap_or("").trim();
+  if phone_id.is_empty() {
+    account_name.trim().to_string()
+  } else {
+    format!("{}_{}", account_name.trim(), phone_id)
+  }
+}
+
 /// 解析账号 start_urls JSON（{"include_platform":bool,"urls":[...]}，编辑账号维护）。
 /// 兼容裸数组（视作 urls，平台网址保持打开）；未配置或解析失败返回 None（走旧行为）。
 fn parse_account_start_urls(raw: Option<&str>) -> Option<(bool, Vec<String>)> {
@@ -7224,6 +7236,9 @@ async fn launch_account_impl(
     server_proxy_node,
     server_owner_id,
     server_start_urls,
+    server_phone_id,
+    server_channel_id,
+    server_pure_username,
   ) = match BWBROWSER_AUTH.get_account_detail(account_id).await {
     Ok(detail) => {
       let env = detail.env_uuid.clone();
@@ -7249,6 +7264,9 @@ async fn launch_account_impl(
         proxy,
         detail.owner_id,
         detail.start_urls.clone(),
+        detail.phone_id.clone(),
+        detail.channel_id.clone(),
+        detail.pure_username.clone(),
       )
     }
     Err(e) => {
@@ -7261,6 +7279,9 @@ async fn launch_account_impl(
         account_name.clone(),
         platform.clone(),
         proxy_node,
+        None,
+        None,
+        None,
         None,
         None,
       )
@@ -8011,6 +8032,10 @@ async fn launch_account_impl(
       })),
       shield_platform: server_platform.clone(),
       kernel_override,
+      profile_label: Some(account_window_label(
+        &server_account_name,
+        server_phone_id.as_deref(),
+      )),
       ..Default::default()
     };
     crate::browser_runner::launch_browser_profile_impl(
@@ -8164,6 +8189,7 @@ async fn launch_account_impl(
   let profile_spawn = launched_profile.clone();
   let server_platform_spawn = server_platform.clone();
   let launch_url_spawn = launch_url_for_cookie.clone();
+  let channel_profile_id = profile_id_str.clone();
   tokio::spawn(async move {
     if let Err(e) = inject_cloud_cookies_after_launch(
       &app_handle_spawn,
@@ -8326,6 +8352,158 @@ async fn launch_account_impl(
     "success",
     "",
   );
+
+  // 6.5 YouTube 账号启动后从本机会话 cookie 解析频道信息并回传服务器：
+  //     频道 ID 存 channel_id，名称→account_name，标识名(@handle)→pure_username。
+  //     只在取到且与服务器当前值不同才保存；名称变化会同步重命名本地 profile
+  //     （profile 按「账号名_账号id」派生名匹配，不改名下次启动会新建空环境丢登录态）。
+  //     后台重试几轮（等 cookie 注入/落盘），失败只记日志，不影响本次启动。
+  let is_youtube_account = server_platform
+    .as_deref()
+    .is_some_and(|p| p.eq_ignore_ascii_case("youtube"));
+  let channel_id_missing = server_channel_id
+    .as_deref()
+    .map(|s| s.trim().is_empty())
+    .unwrap_or(true);
+  if is_youtube_account {
+    let mut channel_known_id = if channel_id_missing {
+      None
+    } else {
+      server_channel_id.clone()
+    };
+    let channel_account_id = account_id;
+    let mut channel_server_account_name = server_account_name.clone();
+    let mut channel_server_pure_username = server_pure_username.clone();
+    let rename_app_handle = app_handle.clone();
+    tokio::spawn(async move {
+      for attempt in 1..=4u32 {
+        tokio::time::sleep(std::time::Duration::from_secs(15 * attempt as u64)).await;
+        let info = match crate::cookie_health::extract_youtube_channel(
+          &channel_profile_id,
+          channel_known_id.as_deref(),
+        )
+        .await
+        {
+          Some(info) => Some(info),
+          None => {
+            // HTTP cookie 探测未命中（cookie 文件被占用/未登录/代理失败）→
+            // CDP 兜底：直接从运行中浏览器的 YouTube 页面取。
+            match crate::cookie_health::extract_youtube_channel_via_cdp(&channel_profile_id).await {
+              Some(info) => {
+                log_bwbrowser("launch_account", "  ✓ HTTP 探测未命中，CDP 页面兜底命中");
+                Some(info)
+              }
+              None => None,
+            }
+          }
+        };
+        let Some(info) = info else {
+          log_bwbrowser(
+            "launch_account",
+            &format!("  YouTube 频道信息第 {attempt} 次解析未命中（可能尚未登录或 cookie 未落盘）"),
+          );
+          continue;
+        };
+        let send_id = if channel_known_id.is_none() {
+          Some(info.id.clone())
+        } else {
+          None
+        };
+        let send_name = info.name.clone().and_then(|n| {
+          let n = n.trim().to_string();
+          (!n.is_empty() && n != channel_server_account_name.trim()).then_some(n)
+        });
+        let send_handle = info.handle.clone().and_then(|h| {
+          let h = h.trim().to_string();
+          let current = channel_server_pure_username.as_deref().unwrap_or("").trim();
+          (!h.is_empty() && h != current).then_some(h)
+        });
+        if send_id.is_none() && send_name.is_none() && send_handle.is_none() {
+          log_bwbrowser("launch_account", "  YouTube 频道信息与服务器一致，跳过保存");
+          return;
+        }
+        log_bwbrowser(
+          "launch_account",
+          "  ✓ 从会话解析到 YouTube 频道信息，正在保存到服务器",
+        );
+        match bwbrowser_update_account_info(
+          channel_account_id,
+          send_name.clone(),
+          None,
+          None,
+          None,
+          None,
+          None,
+          send_handle.clone(),
+          None,
+          None,
+          None,
+          None,
+          None,
+          None,
+          send_id.clone(),
+          None,
+        )
+        .await
+        {
+          Ok(_) => {
+            log_bwbrowser(
+              "launch_account",
+              &format!(
+                "  ✓ YouTube 频道信息已保存: id={:?}, 名称→account_name={:?}, 标识名→pure_username={:?}",
+                send_id, send_name, send_handle
+              ),
+            );
+            if let Some(new_name) = &send_name {
+              let new_profile_name = account_profile_name(new_name, channel_account_id);
+              match crate::profile::manager::ProfileManager::instance().rename_profile(
+                &rename_app_handle,
+                &channel_profile_id,
+                &new_profile_name,
+              ) {
+                Ok(_) => log_bwbrowser(
+                  "launch_account",
+                  &format!("  ✓ 本地 profile 已同步重命名为 {new_profile_name}（保留浏览器环境）"),
+                ),
+                Err(e) => log_bwbrowser_error(
+                  "launch_account",
+                  &format!(
+                    "  ⚠ 本地 profile 重命名为 {new_profile_name} 失败（下次启动可能新建环境）: {}",
+                    e
+                  ),
+                ),
+              }
+            }
+            // 本地基准值同步为已保存的值，下一轮只补还没拿到的字段；
+            // 只保存了频道 ID 时继续轮次（用已知 ID 免 cookie 抓公开频道页补名称/标识名）。
+            if let Some(n) = &send_name {
+              channel_server_account_name = n.clone();
+            }
+            if let Some(h) = &send_handle {
+              channel_server_pure_username = Some(h.clone());
+            }
+            if let Some(id) = &send_id {
+              channel_known_id = Some(id.clone());
+            }
+            if send_name.is_some() && send_handle.is_some() {
+              return;
+            }
+          }
+          Err(e) => {
+            log_bwbrowser_error(
+              "launch_account",
+              &format!("  ⚠ 保存 YouTube 频道信息失败: {}", e),
+            );
+            return;
+          }
+        }
+      }
+      log_bwbrowser(
+        "launch_account",
+        "  ⚠ 未能从会话解析 YouTube 频道信息（账号可能未登录 YouTube）",
+      );
+    });
+  }
 
   // 7. 打开启动网址。账号配置了 start_urls → 开配置里的自选网址（平台网址已在启动页或被取消）；
   //    未配置 → 旧行为：打开环境配置的 start_urls（额外标签，如 browserscan.net）
@@ -10567,6 +10745,17 @@ pub async fn bwbrowser_apply_permission_profile(
 #[cfg(test)]
 mod fingerprint_sync_tests {
   use super::*;
+
+  #[test]
+  fn account_window_label_uses_phone_id_without_changing_profile_identity() {
+    assert_eq!(
+      account_window_label("Account", Some("Phone 01")),
+      "Account_Phone 01"
+    );
+    assert_eq!(account_window_label("Account", Some(" ")), "Account");
+    assert_eq!(account_window_label("Account", None), "Account");
+    assert_eq!(account_profile_name("Account", 123), "Account_123");
+  }
 
   fn sample_wayfern_config() -> crate::wayfern_manager::WayfernConfig {
     crate::wayfern_manager::WayfernConfig {
