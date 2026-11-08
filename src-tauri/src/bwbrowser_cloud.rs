@@ -938,49 +938,56 @@ pub async fn bwbrowser_open_vps_login(
     .into_iter()
     .find(|p| p.name.to_lowercase() == profile_name.to_lowercase());
 
-  // 构建本机真机指纹配置（无代理，使用本机信息）
-  // 设置 fingerprint = "{}" → 跳过 Wayfern 指纹生成，使用本机真实设备指纹/时区/语言
-  // 不设置 identity_id → 不创建 identity，不消耗指纹配额
-  let mut wayfern_config = default_wayfern_config_for_host();
-  wayfern_config.fingerprint = Some("{}".to_string());
-  // browser_runner reads "no identity + non-empty fingerprint" as a legacy device
-  // to migrate, and would then mint a fresh identity at launch: the quota is spent
-  // and the host fingerprint is replaced. Some(false) marks the payload as final.
-  wayfern_config.randomize_fingerprint_on_launch = Some(false);
+  // 构建虚拟指纹配置（与其他环境一致）
+  // fingerprint / identity 均留空 → browser_runner 在首次启动时自动生成
+  // 一个虚拟设备并持久化到 profile，之后每次启动复用同一指纹（稳定）。
+  // token 由自家服务器实时签发，不消耗任何配额；151 内核走本地离线生成
+  // （setFingerprint 模式），同 OS 声明（config.os = 本机系统）。
+  let wayfern_config = default_wayfern_config_for_host();
 
-  let profile = match existing_profile {
+  let mut profile = match existing_profile {
     Some(mut p) => {
       log_bwbrowser("open_vps_login", &format!("复用已有 profile: id={}", p.id));
-      // 检查是否需要切换为真机模式
-      let needs_switch = p
+      // 一次性迁移：真机模式遗留（fingerprint == "{}" 或残留 identity）重置为
+      // 空，让本次启动重新生成虚拟指纹。已生成过真实虚拟指纹的 profile 保持
+      // 原样，避免每次启动换指纹触发站点风控。
+      let needs_reset = p
         .wayfern_config
         .as_ref()
-        .map(|c| c.identity_id.is_some())
-        .unwrap_or(false);
+        .map(|c| {
+          c.identity_id.is_some() || c.fingerprint.as_deref().map(|f| f == "{}").unwrap_or(false)
+        })
+        .unwrap_or(true);
 
-      if needs_switch {
-        log_bwbrowser("open_vps_login", "  切换为真机指纹模式（不消耗配额）");
+      if needs_reset {
+        log_bwbrowser(
+          "open_vps_login",
+          "  检测到真机模式遗留，本次启动生成虚拟指纹",
+        );
       }
 
-      // 直接设置 wayfern_config，确保 identity_id 为空，使用真机指纹
       // 注意：不调用 update_wayfern_config，因为它会自动携带旧的 identity_id
       let pm = crate::profile::manager::ProfileManager::instance();
       match pm.check_browser_status(app_handle.clone(), &p).await {
         Ok(false) => {
-          let mut new_config = wayfern_config.clone();
-          // 确保清除 identity 相关字段，使用纯真机模式
-          new_config.identity_id = None;
-          new_config.identity_baseline = None;
-          new_config.identity_overrides = None;
-          new_config.location = None;
-          new_config.geo_proxy_signature = None;
-          p.wayfern_config = Some(new_config.clone());
-          match pm.save_profile(&p) {
-            Ok(_) => {
-              log_bwbrowser("open_vps_login", "  ✓ 已切换为真机指纹模式");
-            }
-            Err(e) => {
-              log_bwbrowser_error("open_vps_login", &format!("  保存配置失败: {}", e));
+          if needs_reset {
+            let mut new_config = wayfern_config.clone();
+            // 清空身份与载荷，browser_runner 将生成新的虚拟指纹
+            new_config.identity_id = None;
+            new_config.identity_baseline = None;
+            new_config.identity_overrides = None;
+            new_config.fingerprint = None;
+            new_config.location = None;
+            new_config.geo_proxy_signature = None;
+            new_config.randomize_fingerprint_on_launch = None;
+            p.wayfern_config = Some(new_config.clone());
+            match pm.save_profile(&p) {
+              Ok(_) => {
+                log_bwbrowser("open_vps_login", "  ✓ 已重置为虚拟指纹模式");
+              }
+              Err(e) => {
+                log_bwbrowser_error("open_vps_login", &format!("  保存配置失败: {}", e));
+              }
             }
           }
         }
@@ -1103,12 +1110,50 @@ pub async fn bwbrowser_open_vps_login(
   emit_progress(60, "书签已就绪");
   emit_progress(70, "启动浏览器内核...");
 
+  // 删除指纹 fonts 字段（爆文库专用）：内核把 fonts="default" 理解为启用字体
+  // 替换/伪造，实测导致 Segoe UI Emoji 字形不可达，页面所有 emoji 渲染成空心
+  // 方框（📈@32px 仅渲染 9.4px；移除该字段后 41.7px 正常）。爆文库访问自家站，
+  // 不需要字体枚举伪造，emoji 正常显示优先。已生成虚拟指纹的 profile 在启动前
+  // 就地修正；launch 内部新生成的指纹由启动后的兜底处理移除。
+  if let Some(wc) = profile.wayfern_config.as_mut() {
+    if let Some(fp_str) = wc.fingerprint.as_mut() {
+      if let Ok(mut fp) = serde_json::from_str::<serde_json::Value>(fp_str) {
+        let removed = fp
+          .as_object_mut()
+          .map(|obj| obj.remove("fonts").is_some())
+          .unwrap_or(false);
+        if removed {
+          match serde_json::to_string(&fp) {
+            Ok(new_str) => {
+              *fp_str = new_str;
+              let pm = crate::profile::manager::ProfileManager::instance();
+              if let Err(e) = pm.save_profile(&profile) {
+                log_bwbrowser_error(
+                  "open_vps_login",
+                  &format!("  保存指纹（去 fonts）失败: {}", e),
+                );
+              } else {
+                log_bwbrowser(
+                  "open_vps_login",
+                  "  ✓ 已移除指纹 fonts 字段（修复 emoji 方框）",
+                );
+              }
+            }
+            Err(e) => {
+              log_bwbrowser_error("open_vps_login", &format!("  指纹序列化失败: {}", e));
+            }
+          }
+        }
+      }
+    }
+  }
+
   // 启动 Wayfern 浏览器，直接打开 VPS 登录 URL
   let options = crate::browser_runner::LaunchOptions {
     gate: crate::launch_gate::FingerprintGate::Advisory,
     ..Default::default()
   };
-  let launched_profile = crate::browser_runner::launch_browser_profile_impl(
+  let mut launched_profile = crate::browser_runner::launch_browser_profile_impl(
     app_handle.clone(),
     profile.clone(),
     Some(url),
@@ -1118,6 +1163,140 @@ pub async fn bwbrowser_open_vps_login(
   .map_err(passthrough_backend_error)?;
 
   log_bwbrowser("open_vps_login", "  ✓ Wayfern 浏览器已启动");
+
+  // 兜底：launch 内部新生成的虚拟指纹仍带 fonts="default"（字体伪造，致 emoji
+  // 变空心方框），这里移除后用现有时区/语言重新 setFingerprint 应用（带 token）。
+  // 存量 profile 已在启动前修正，这里只覆盖"首次生成"场景。
+  let mut fonts_removed = false;
+  if let Some(wc) = launched_profile.wayfern_config.as_mut() {
+    if let Some(fp_str) = wc.fingerprint.as_mut() {
+      if let Ok(mut fp) = serde_json::from_str::<serde_json::Value>(fp_str) {
+        let removed = fp
+          .as_object_mut()
+          .map(|obj| obj.remove("fonts").is_some())
+          .unwrap_or(false);
+        if removed {
+          if let Ok(new_str) = serde_json::to_string(&fp) {
+            *fp_str = new_str;
+            fonts_removed = true;
+          }
+        }
+      }
+    }
+  }
+  if fonts_removed {
+    log_bwbrowser(
+      "open_vps_login",
+      "  新生成指纹含 fonts 字段，移除后重新应用",
+    );
+    let fp_obj = launched_profile
+      .wayfern_config
+      .as_ref()
+      .and_then(|c| c.fingerprint.as_deref())
+      .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+    if let Some(fp) = fp_obj {
+      let tz = fp
+        .get("timezone")
+        .and_then(|v| v.as_str())
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+          iana_time_zone::get_timezone().unwrap_or_else(|_| "Asia/Shanghai".to_string())
+        });
+      let lang = fp
+        .get("language")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+      match crate::wayfern_manager::WayfernManager::instance()
+        .set_wayfern_timezone(&launched_profile, &tz, Some(lang.as_str()), None, None)
+        .await
+      {
+        Ok(_) => {
+          log_bwbrowser("open_vps_login", "  ✓ 已用无 fonts 指纹重新应用");
+        }
+        Err(e) => {
+          log_bwbrowser_error("open_vps_login", &format!("  重新应用指纹失败: {}", e));
+        }
+      }
+    }
+    let pm = crate::profile::manager::ProfileManager::instance();
+    if let Err(e) = pm.save_profile(&launched_profile) {
+      log_bwbrowser_error("open_vps_login", &format!("  保存新生成指纹失败: {}", e));
+    }
+  }
+
+  // 无代理时，把虚拟指纹语言跟随本机系统语言。原因：虚拟指纹离线随机生成时
+  // language 可能抽中 es-GB 等西文值，Chromium 字体 fallback 会优先欧洲西文字体，
+  // Windows 上匹配不到 Segoe UI Emoji，导致爆文库页面所有 emoji 渲染成空心方框。
+  // 本机是中文环境（或其它），应与本机对齐，使字体回退正常、emoji 恢复显示。
+  if vps_geo_info.is_none() {
+    if let Some(host_locale) = sys_locale::get_locale() {
+      let host_lang = host_locale.trim().to_string();
+      if !host_lang.is_empty() {
+        // 读取当前指纹已有的时区（保持一致）；若没有则回退本机真实时区
+        let existing_tz: Option<String> = launched_profile
+          .wayfern_config
+          .as_ref()
+          .and_then(|c| c.fingerprint.as_deref())
+          .filter(|f| !f.is_empty() && *f != "{}")
+          .and_then(|fp_str| serde_json::from_str::<serde_json::Value>(fp_str).ok())
+          .and_then(|fp| {
+            fp.get("timezone")
+              .and_then(|v| v.as_str())
+              .map(str::to_string)
+          })
+          .filter(|tz| !tz.is_empty());
+        let tz_to_apply = existing_tz.unwrap_or_else(|| {
+          iana_time_zone::get_timezone().unwrap_or_else(|_| "Asia/Shanghai".to_string())
+        });
+        log_bwbrowser(
+          "open_vps_login",
+          &format!(
+            "  [VPS-TZ] 无代理：语言跟随本机系统语言 {}（临时区 {}）",
+            host_lang, tz_to_apply
+          ),
+        );
+        let res = crate::wayfern_manager::WayfernManager::instance()
+          .set_wayfern_timezone(
+            &launched_profile,
+            &tz_to_apply,
+            Some(host_lang.as_str()),
+            None,
+            None,
+          )
+          .await;
+        match res {
+          Ok(true) => {
+            log_bwbrowser(
+              "open_vps_login",
+              &format!("  [VPS-TZ] ✓ 无代理语言已设为本机系统语言: {}", host_lang),
+            );
+          }
+          Ok(false) => {
+            log_bwbrowser(
+              "open_vps_login",
+              "  [VPS-TZ] 无代理语言同步：内核不支持，回退到 CDP 注入",
+            );
+            if let Err(e) =
+              crate::cookie_sync::inject_timezone_via_cdp(&launched_profile, &tz_to_apply).await
+            {
+              log_bwbrowser_error(
+                "open_vps_login",
+                &format!("  [VPS-TZ] CDP 语言注入失败: {}", e),
+              );
+            }
+          }
+          Err(e) => {
+            log_bwbrowser_error(
+              "open_vps_login",
+              &format!("  [VPS-TZ] 无代理语言跟随失败: {}", e),
+            );
+          }
+        }
+      }
+    }
+  }
 
   // 注入 VPS 代理时区（Wayfern 内核级设置 + CDP 回退），无代理时保持本机时区
   if let Some(ref geo) = vps_geo_info {
@@ -7901,6 +8080,27 @@ async fn launch_account_impl(
     }
   };
 
+  // Fresh profile：启动浏览器的同时并行预取云端 Cookie（拉取+健康探测是纯
+  // HTTP，与内核启动的数秒完全重叠；浏览器 CDP 就绪时数据已在手，注入只剩
+  // 写 cookie + 导航。本机无数据、服务器有数据的场景，登录态恢复从 5-10 秒
+  // 缩短到 1-2 秒）。
+  let cloud_prefetch: Option<tokio::task::JoinHandle<Result<CloudCookiePrefetch, String>>> =
+    if is_fresh_profile {
+      if let Some((pf_user, pf_pass)) = BWBROWSER_AUTH.get_credentials() {
+        let pf_platform = server_platform
+          .clone()
+          .unwrap_or_else(|| "toutiao".to_string());
+        let pf_profile = profile.clone();
+        Some(tokio::spawn(async move {
+          prefetch_cloud_cookies(&pf_user, &pf_pass, account_id, &pf_platform, &pf_profile).await
+        }))
+      } else {
+        None
+      }
+    } else {
+      None
+    };
+
   // 4. 启动浏览器（使用 Advisory gate，不阻止指纹不匹配的启动）
   emit_progress(75, "启动浏览器内核..."); //    云端账号的指纹在启动时通过代理出口 IP 自动解析时区/语言
                                           //    提前获取平台 URL，作为启动 URL 直接传入（比 CDP 导航更可靠）
@@ -8161,6 +8361,7 @@ async fn launch_account_impl(
       is_fresh_profile,
       server_platform_spawn.as_deref(),
       launch_url_spawn.as_deref(),
+      cloud_prefetch,
     )
     .await
     {
@@ -9169,6 +9370,108 @@ async fn verify_fingerprint_via_cdp(
 /// 3. 通过 CDP 导出本地 Cookie 并评分
 /// 4. 对比云端与本地评分，决定是否注入
 /// 5. 注入后立即通过 CDP 导出回传云端
+///
+/// 该结构即 Fresh profile 场景的云端 Cookie 预取结果。
+struct CloudCookiePrefetch {
+  cloud_cookie_text: Option<String>,
+  cloud_platform: String,
+  /// true = 云端会话已失效（HTTP 探测 Expired），不应注入
+  cloud_probe_expired: bool,
+}
+
+/// 启动浏览器的同时并行预取云端 Cookie（含健康探测）。
+///
+/// Fresh profile 的注入路径原本完全串行：拉云端（HTTP）→ 等 CDP 就绪 → 导出
+/// 本地 → 本地探测 → 云端探测（HTTP）→ 注入 → 导航，页面早已用未登录状态
+/// 加载完，用户要干等几秒才看到登录态恢复。其中拉取与云端探测是纯 HTTP、
+/// 不依赖浏览器，与浏览器启动（数秒）完全重叠；预取后注入只剩"等 CDP +
+/// 写 cookie + 导航"。
+async fn prefetch_cloud_cookies(
+  username: &str,
+  password: &str,
+  account_id: i64,
+  default_platform: &str,
+  profile: &crate::profile::BrowserProfile,
+) -> Result<CloudCookiePrefetch, String> {
+  // 健康检查经由账号自己的节点出口，与注入路径一致
+  let account_proxy = crate::cookie_health::proxy_for_profile(profile);
+
+  let form_data = format!(
+    "action=get_account_cookies&username={}&password={}&account_id={}&platform={}",
+    urlencode(username),
+    urlencode(password),
+    account_id,
+    urlencode(default_platform),
+  );
+  let resp = BWBROWSER_AUTH
+    .client
+    .post(BWBROWSER_API_URL)
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .body(form_data)
+    .send()
+    .await
+    .map_err(|e| format!("获取云端 Cookie 失败: {}", e))?;
+  let body = resp
+    .text()
+    .await
+    .map_err(|e| format!("读取响应失败: {}", e))?;
+  let result: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::json!({}));
+  let success = result["success"].as_bool().unwrap_or(false);
+  let cloud_platform = result
+    .get("platform")
+    .and_then(|v| v.as_str())
+    .unwrap_or(default_platform)
+    .to_string();
+  let cloud_cookie_text = if success {
+    result["cookie"].as_str().map(|s| s.to_string())
+  } else {
+    None
+  };
+  let has_cloud = cloud_cookie_text
+    .as_ref()
+    .map(|s| !s.is_empty() && s != "[]")
+    .unwrap_or(false);
+
+  // 云端会话健康探测：Expired 则不注入（与原注入路径同一判定）
+  let mut cloud_probe_expired = false;
+  if has_cloud {
+    if let Ok(val) =
+      serde_json::from_str::<serde_json::Value>(cloud_cookie_text.as_deref().unwrap_or(""))
+    {
+      if let Some(arr) = val.as_array() {
+        match tokio::time::timeout(
+          std::time::Duration::from_secs(10),
+          crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref()),
+        )
+        .await
+        {
+          Ok(Some((crate::cookie_health::HealthStatus::Expired, msg))) => {
+            log_bwbrowser(
+              "inject_cookies",
+              &format!("⚠ 预取：云端 Cookie 探测已失效（{}），不注入", msg),
+            );
+            cloud_probe_expired = true;
+          }
+          Ok(Some((verdict, msg))) => {
+            log_bwbrowser(
+              "inject_cookies",
+              &format!("预取：云端 Cookie 探测: {:?} — {}", verdict, msg),
+            );
+          }
+          Ok(None) => log_bwbrowser("inject_cookies", "预取：该平台无探测规则，按判定继续"),
+          Err(_) => log_bwbrowser("inject_cookies", "预取：云端 Cookie 探测超时，按判定继续"),
+        }
+      }
+    }
+  }
+
+  Ok(CloudCookiePrefetch {
+    cloud_cookie_text,
+    cloud_platform,
+    cloud_probe_expired,
+  })
+}
+
 async fn inject_cloud_cookies_after_launch(
   app_handle: &tauri::AppHandle,
   account_id: i64,
@@ -9177,10 +9480,27 @@ async fn inject_cloud_cookies_after_launch(
   is_fresh_profile: bool,
   platform: Option<&str>,
   launch_url: Option<&str>,
+  prefetched: Option<tokio::task::JoinHandle<Result<CloudCookiePrefetch, String>>>,
 ) -> Result<(), String> {
   let (username, password) = BWBROWSER_AUTH
     .get_credentials()
     .ok_or_else(|| "未登录".to_string())?;
+
+  // Fresh profile：消费启动期间并行预取的云端 Cookie（拉取+探测已在浏览器
+  // 启动的同时完成，这里零等待）。预取失败则降级走完整串行路径。
+  let mut prefetched = prefetched;
+  let mut early: Option<CloudCookiePrefetch> = None;
+  if is_fresh_profile {
+    if let Some(handle) = prefetched.take() {
+      match handle.await {
+        Ok(Ok(p)) => early = Some(p),
+        Ok(Err(e)) => log_bwbrowser("inject_cookies", &format!("预取失败（{}），走完整路径", e)),
+        Err(_) => log_bwbrowser("inject_cookies", "预取任务已取消，走完整路径"),
+      }
+    }
+  }
+  // 预取阶段已完成的云端健康探测结论（true=会话失效不注入）
+  let mut cloud_probe_expired_prefetch = false;
 
   // 健康检查经由账号自己的节点出口，避免所有账号共享本机 IP 被平台关联。
   let account_proxy = crate::cookie_health::proxy_for_profile(profile);
@@ -9201,66 +9521,84 @@ async fn inject_cloud_cookies_after_launch(
 
   let default_platform = platform.unwrap_or("toutiao").to_string();
 
-  // 1. 从云端拉取 Cookie
-  let form_data = format!(
-    "action=get_account_cookies&username={}&password={}&account_id={}&platform={}",
-    urlencode(&username),
-    urlencode(&password),
-    account_id,
-    urlencode(&default_platform),
-  );
-
-  log_bwbrowser(
-    "inject_cookies",
-    &format!(
-      "请求云端 Cookie: account_id={}, platform={}, url={}",
-      account_id, default_platform, BWBROWSER_API_URL
-    ),
-  );
-
-  let resp = BWBROWSER_AUTH
-    .client
-    .post(BWBROWSER_API_URL)
-    .header("Content-Type", "application/x-www-form-urlencoded")
-    .body(form_data)
-    .send()
-    .await
-    .map_err(|e| format!("获取云端 Cookie 失败: {}", e))?;
-
-  let body = resp
-    .text()
-    .await
-    .map_err(|e| format!("读取响应失败: {}", e))?;
-
-  log_bwbrowser(
-    "inject_cookies",
-    &format!("API 响应长度: {} 字节", body.len()),
-  );
-  if !body.is_empty() {
-    let preview = if body.len() > 200 {
-      trunc(&body, 200).to_string()
-    } else {
-      body.clone()
-    };
-    log_bwbrowser("inject_cookies", &format!("响应前 200 字符: {}", preview));
-  }
-
-  let result: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::json!({}));
-
-  let success = result["success"].as_bool().unwrap_or(false);
-  let cloud_platform = result
-    .get("platform")
-    .and_then(|v| v.as_str())
-    .unwrap_or(&default_platform)
-    .to_string();
-
-  log_bwbrowser("inject_cookies", &format!("平台字段: {}", cloud_platform));
-
-  // 2. 解析云端 Cookie
-  let cloud_cookie_text = if success {
-    result["cookie"].as_str().map(|s| s.to_string())
+  // 1. 获取云端 Cookie（fresh+预取时已在启动期间并行完成，这里零等待）
+  let (cloud_cookie_text, cloud_platform) = if let Some(p) = early {
+    log_bwbrowser(
+      "inject_cookies",
+      &format!(
+        "✓ 使用启动期间预取的云端 Cookie（平台={}，{}）",
+        p.cloud_platform,
+        if p.cloud_cookie_text.is_some() {
+          "已拉取"
+        } else {
+          "云端为空"
+        }
+      ),
+    );
+    cloud_probe_expired_prefetch = p.cloud_probe_expired;
+    (p.cloud_cookie_text, p.cloud_platform)
   } else {
-    None
+    let form_data = format!(
+      "action=get_account_cookies&username={}&password={}&account_id={}&platform={}",
+      urlencode(&username),
+      urlencode(&password),
+      account_id,
+      urlencode(&default_platform),
+    );
+
+    log_bwbrowser(
+      "inject_cookies",
+      &format!(
+        "请求云端 Cookie: account_id={}, platform={}, url={}",
+        account_id, default_platform, BWBROWSER_API_URL
+      ),
+    );
+
+    let resp = BWBROWSER_AUTH
+      .client
+      .post(BWBROWSER_API_URL)
+      .header("Content-Type", "application/x-www-form-urlencoded")
+      .body(form_data)
+      .send()
+      .await
+      .map_err(|e| format!("获取云端 Cookie 失败: {}", e))?;
+
+    let body = resp
+      .text()
+      .await
+      .map_err(|e| format!("读取响应失败: {}", e))?;
+
+    log_bwbrowser(
+      "inject_cookies",
+      &format!("API 响应长度: {} 字节", body.len()),
+    );
+    if !body.is_empty() {
+      let preview = if body.len() > 200 {
+        trunc(&body, 200).to_string()
+      } else {
+        body.clone()
+      };
+      log_bwbrowser("inject_cookies", &format!("响应前 200 字符: {}", preview));
+    }
+
+    let result: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::json!({}));
+
+    let success = result["success"].as_bool().unwrap_or(false);
+    let cloud_platform = result
+      .get("platform")
+      .and_then(|v| v.as_str())
+      .unwrap_or(&default_platform)
+      .to_string();
+
+    log_bwbrowser("inject_cookies", &format!("平台字段: {}", cloud_platform));
+
+    // 2. 解析云端 Cookie
+    let cloud_cookie_text = if success {
+      result["cookie"].as_str().map(|s| s.to_string())
+    } else {
+      None
+    };
+    (cloud_cookie_text, cloud_platform)
   };
 
   let has_cloud_cookies = cloud_cookie_text
@@ -9320,18 +9658,21 @@ async fn inject_cloud_cookies_after_launch(
     None
   };
 
-  // 3. 等待 CDP 端口就绪（最多 20 秒）
+  // 3. 等待 CDP 端口就绪（最多 20 秒，250ms 粒度轮询，缩短就绪后的空等）
   log_bwbrowser("inject_cookies", "等待 CDP 端口就绪（最多 20 秒）...");
   let mut cdp_ready = false;
-  for i in 0..20 {
+  for i in 0..80 {
     match crate::cdp_target::resolve(profile).await {
       Ok(_) => {
         cdp_ready = true;
-        log_bwbrowser("inject_cookies", &format!("CDP 端口就绪（等待 {} 秒）", i));
+        log_bwbrowser(
+          "inject_cookies",
+          &format!("CDP 端口就绪（等待 {:.1} 秒）", i as f64 * 0.25),
+        );
         break;
       }
       Err(_) => {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
       }
     }
   }
@@ -9339,61 +9680,68 @@ async fn inject_cloud_cookies_after_launch(
     return Err("CDP 端口 20 秒内未就绪".to_string());
   }
 
-  // 4. 通过 CDP 导出本地 Cookie 并评分
-  let local_cookie_json = match crate::cookie_sync::export_cookies_via_cdp(profile).await {
-    Ok(s) => s,
-    Err(e) => {
-      log_bwbrowser_error(
+  // 4. 通过 CDP 导出本地 Cookie 并评分（fresh profile 本地必然为空，跳过省
+  //    一轮 CDP 往返与评分；后续本地探测同样无意义）
+  let (local_val, local_score) = if is_fresh_profile {
+    log_bwbrowser("inject_cookies", "全新 profile，跳过本地 Cookie 导出与评分");
+    (serde_json::Value::Array(vec![]), None)
+  } else {
+    let local_cookie_json = match crate::cookie_sync::export_cookies_via_cdp(profile).await {
+      Ok(s) => s,
+      Err(e) => {
+        log_bwbrowser_error(
+          "inject_cookies",
+          &format!("CDP 导出本地 Cookie 失败: {}", e),
+        );
+        return Err(format!("CDP 导出本地 Cookie 失败: {}", e));
+      }
+    };
+
+    log_bwbrowser(
+      "inject_cookies",
+      &format!("CDP 导出本地 Cookie 成功: {} 字节", local_cookie_json.len()),
+    );
+
+    let local_val = serde_json::from_str::<serde_json::Value>(&local_cookie_json)
+      .unwrap_or(serde_json::Value::Array(vec![]));
+    let local_cookies =
+      crate::cookie_sync::prepare_cookies_for_injection(&local_val, &cloud_platform);
+    let local_score = crate::cookie_sync::score_cookies(&local_cookies, &cloud_platform);
+
+    // 调试：列出本地 Cookie 的所有 domain
+    if let Some(arr) = local_val.as_array() {
+      let mut domains: Vec<String> = arr
+        .iter()
+        .filter_map(|c| {
+          c.get("domain")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+        })
+        .collect();
+      domains.sort();
+      domains.dedup();
+      log_bwbrowser(
         "inject_cookies",
-        &format!("CDP 导出本地 Cookie 失败: {}", e),
+        &format!(
+          "本地 CDP Cookie 共 {} 条，涉及 domain: [{}]",
+          arr.len(),
+          domains.join(", ")
+        ),
       );
-      return Err(format!("CDP 导出本地 Cookie 失败: {}", e));
     }
-  };
 
-  log_bwbrowser(
-    "inject_cookies",
-    &format!("CDP 导出本地 Cookie 成功: {} 字节", local_cookie_json.len()),
-  );
-
-  let local_val = serde_json::from_str::<serde_json::Value>(&local_cookie_json)
-    .unwrap_or(serde_json::Value::Array(vec![]));
-  let local_cookies =
-    crate::cookie_sync::prepare_cookies_for_injection(&local_val, &cloud_platform);
-  let local_score = crate::cookie_sync::score_cookies(&local_cookies, &cloud_platform);
-
-  // 调试：列出本地 Cookie 的所有 domain
-  if let Some(arr) = local_val.as_array() {
-    let mut domains: Vec<String> = arr
-      .iter()
-      .filter_map(|c| {
-        c.get("domain")
-          .and_then(|v| v.as_str())
-          .map(|s| s.to_string())
-      })
-      .collect();
-    domains.sort();
-    domains.dedup();
     log_bwbrowser(
       "inject_cookies",
       &format!(
-        "本地 CDP Cookie 共 {} 条，涉及 domain: [{}]",
-        arr.len(),
-        domains.join(", ")
+        "本地 Cookie 评分 (CDP): {} 分 (可用={}, 确定登录={})",
+        local_score.total, local_score.usable, local_score.definite_logged_in
       ),
     );
-  }
-
-  log_bwbrowser(
-    "inject_cookies",
-    &format!(
-      "本地 Cookie 评分 (CDP): {} 分 (可用={}, 确定登录={})",
-      local_score.total, local_score.usable, local_score.definite_logged_in
-    ),
-  );
+    (local_val, Some(local_score))
+  };
 
   // 5. 决定是否注入云端 Cookie（以本地为主）
-  //    - 首次创建 profile（is_fresh_profile）：服务器有就注入
+  //    - 首次创建 profile（is_fresh_profile）：服务器有就注入（探测失效的由预取/下方云端探测拦截）
   //    - 本地 cookie 分数低于服务器 20 分以上：注入服务器的
   //    - 否则：不注入，保留本地
   let has_cloud = cloud_cookie_text
@@ -9410,13 +9758,15 @@ async fn inject_cloud_cookies_after_launch(
   } else {
     // 都有 cookie，比较分数
     let cloud_total = cloud_score.as_ref().map(|s| s.total).unwrap_or(0);
-    let diff = cloud_total - local_score.total;
+    let diff = cloud_total - local_score.as_ref().map(|s| s.total).unwrap_or(0);
     if diff > 20 {
       log_bwbrowser(
         "inject_cookies",
         &format!(
           "云端 Cookie 分数比本地高 {} 分 ({} vs {})，注入云端",
-          diff, cloud_total, local_score.total
+          diff,
+          cloud_total,
+          local_score.as_ref().map(|s| s.total).unwrap_or(0)
         ),
       );
       true
@@ -9425,7 +9775,9 @@ async fn inject_cloud_cookies_after_launch(
         "inject_cookies",
         &format!(
           "本地 Cookie 分数足够 (本地={} 云端={} 差={}≤20)，保留本地",
-          local_score.total, cloud_total, diff
+          local_score.as_ref().map(|s| s.total).unwrap_or(0),
+          cloud_total,
+          diff
         ),
       );
       false
@@ -9435,35 +9787,38 @@ async fn inject_cloud_cookies_after_launch(
   // 本地已确认登录：绝不注入。防止云端旧 cookie 合并进本地，造成
   // sessionid/sid_guard 等会话族错配导致掉登录（merge 注入的缺陷）。
   // 登录判定以健康检查为准（评分只看 cookie 存在性，部分平台名单缺失会误判）。
-  if should_inject {
+  // fresh profile 本地没有可探测的会话，直接跳过。
+  if should_inject && !is_fresh_profile {
     if let Some(arr) = local_val.as_array() {
-      match tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref()),
-      )
-      .await
-      {
-        Ok(Some((crate::cookie_health::HealthStatus::Valid, msg))) => {
-          should_inject = false;
-          log_bwbrowser(
-            "inject_cookies",
-            &format!(
-              "本地 Cookie 健康检查有效（{}），跳过注入（保留本地自洽会话）",
-              msg
-            ),
-          );
-        }
-        Ok(Some((verdict, msg))) => {
-          log_bwbrowser(
-            "inject_cookies",
-            &format!("本地 Cookie 健康检查: {:?} — {}", verdict, msg),
-          );
-        }
-        Ok(None) | Err(_) => {
-          log_bwbrowser(
-            "inject_cookies",
-            "本地 Cookie 健康检查无规则/超时，按评分逻辑继续",
-          );
+      if !arr.is_empty() {
+        match tokio::time::timeout(
+          std::time::Duration::from_secs(10),
+          crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref()),
+        )
+        .await
+        {
+          Ok(Some((crate::cookie_health::HealthStatus::Valid, msg))) => {
+            should_inject = false;
+            log_bwbrowser(
+              "inject_cookies",
+              &format!(
+                "本地 Cookie 健康检查有效（{}），跳过注入（保留本地自洽会话）",
+                msg
+              ),
+            );
+          }
+          Ok(Some((verdict, msg))) => {
+            log_bwbrowser(
+              "inject_cookies",
+              &format!("本地 Cookie 健康检查: {:?} — {}", verdict, msg),
+            );
+          }
+          Ok(None) | Err(_) => {
+            log_bwbrowser(
+              "inject_cookies",
+              "本地 Cookie 健康检查无规则/超时，按评分逻辑继续",
+            );
+          }
         }
       }
     }
@@ -9472,7 +9827,8 @@ async fn inject_cloud_cookies_after_launch(
   // HTTP 交叉验证（注入前）：对云端 cookie 做一次真实请求探测。
   // 评分只看 cookie 存在性，会话可能早已过期 —— 若探测到已失效，拒绝把
   // 失效会话注入浏览器（避免写坏本地状态），改为保留本地。
-  if should_inject {
+  // 预取阶段已探测过的（fresh+预取路径）直接用其结论，不重复发起 HTTP。
+  if should_inject && !cloud_probe_expired_prefetch {
     if let Some(ref cloud_text) = cloud_cookie_text {
       let cloud_val = serde_json::from_str::<serde_json::Value>(cloud_text)
         .unwrap_or(serde_json::Value::Array(vec![]));
@@ -9527,9 +9883,30 @@ async fn inject_cloud_cookies_after_launch(
               "inject_cookies",
               &format!("✓ 云端 Cookie 注入成功: {} 个", count),
             );
+            // 标记该 profile 登录已恢复：让 autofill watcher 下一轮轮询即
+            // break（不再把它当"需要手填的登录页"反复探测抢页面），避免
+            // autofill 与云端 cookie 恢复并发冲突、把 tab 摁在 Google 登录页。
+            crate::cookie_health::set_profile_health(
+              &profile.id.to_string(),
+              crate::cookie_health::HealthStatus::Valid,
+              "cloud cookie restore success",
+            );
+            // 注入已导航到目标页，但 autofill 可能在注入前把页面带到登录页；
+            // 写入 Valid 后再补一次导航，确保浏览器停靠的 tab 落在目标页。
+            if let Some(url) = launch_url {
+              if let Err(ne) = crate::cookie_sync::navigate_to_url(profile, url).await {
+                log_bwbrowser_error("inject_cookies", &format!("注入后收尾导航失败: {}", ne));
+              }
+            }
           }
           Err(e) => {
             log_bwbrowser_error("inject_cookies", &format!("✗ 云端 Cookie 注入失败: {}", e));
+            // 兜底导航：注入失败也要把浏览器带到目标页，避免停在空白/未加载页
+            if let Some(url) = launch_url {
+              if let Err(ne) = crate::cookie_sync::navigate_to_url(profile, url).await {
+                log_bwbrowser_error("inject_cookies", &format!("兜底导航失败: {}", ne));
+              }
+            }
           }
         }
       }

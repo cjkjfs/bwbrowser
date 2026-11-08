@@ -214,8 +214,13 @@ pub async fn get_proxy_cloud_only(proxy_id: &str) -> Option<ProxySettings> {
     log::warn!("cloud_proxy_manager: failed to parse proxy_node from node: prefix");
   }
 
-  // Format 2: cloud numeric ID
-  let cloud_id = if let Some(rest) = proxy_id.strip_prefix("cloud_") {
+  // Format 2: cloud numeric ID.
+  // Accepts "cloud_<id>", "bwbrowser_<id>" (the id the cloud proxy list
+  // frontend uses) or a bare integer.
+  let cloud_id = if let Some(rest) = proxy_id
+    .strip_prefix("cloud_")
+    .or_else(|| proxy_id.strip_prefix("bwbrowser_"))
+  {
     rest.parse::<i64>().ok()
   } else {
     proxy_id.parse::<i64>().ok()

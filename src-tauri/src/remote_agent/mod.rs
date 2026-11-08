@@ -448,8 +448,12 @@ fn ensure_windows_firewall_rule(port: u16) {
      New-NetFirewallRule -DisplayName '{}_Out' -Direction Outbound -Program '{}' -Protocol TCP -LocalPort {} -Action Allow -Profile Any -ErrorAction SilentlyContinue",
     rule_name, exe, port, rule_name, exe, port
   );
+  use std::os::windows::process::CommandExt;
+  // CREATE_NO_WINDOW：隐藏 PowerShell 的控制台窗口，避免添加防火墙规则时弹黑窗。
+  const CREATE_NO_WINDOW: u32 = 0x08000000;
   match std::process::Command::new("powershell")
     .args(["-Command", &ps])
+    .creation_flags(CREATE_NO_WINDOW)
     .output()
   {
     Ok(out) => {

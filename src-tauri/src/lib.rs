@@ -127,7 +127,7 @@ mod ai_rewrite;
 mod audio_silence_remover;
 pub mod bwbrowser_cloud;
 pub mod cloud_auth;
-pub mod cloud_domain;
+mod cloud_domain;
 mod cloud_errors;
 pub mod cloud_proxy_manager;
 mod commercial_license;
@@ -1919,6 +1919,36 @@ pub async fn validate_profile_network(
     // is the user hitting their usage limit, which surfaces as a 402 at request
     // time. There's nothing to pre-validate here.
     if proxy_id == crate::proxy_manager::CLOUD_PROXY_ID {
+      return Ok(());
+    }
+    // Cloud proxy id ("cloud_<id>", "bwbrowser_<id>" or a bare integer) is
+    // resolved from MySQL (source of truth), not the local store — the local
+    // map won't contain it. Resolve it directly to validate reachability.
+    let is_cloud_numeric_id = proxy_id
+      .strip_prefix("cloud_")
+      .or_else(|| proxy_id.strip_prefix("bwbrowser_"))
+      .map(|rest| rest.parse::<i64>().is_ok())
+      .unwrap_or(proxy_id.parse::<i64>().is_ok());
+    if is_cloud_numeric_id {
+      if let Some(settings) = crate::cloud_proxy_manager::get_proxy_cloud_only(proxy_id).await {
+        match crate::proxy_manager::PROXY_MANAGER
+          .check_proxy_validity(proxy_id, &settings)
+          .await
+        {
+          Ok(result) if result.is_valid => {}
+          Ok(_) => {
+            return Err(serde_json::json!({ "code": "PROXY_NOT_WORKING" }).to_string());
+          }
+          Err(err) if err.contains("402") => {
+            return Err(serde_json::json!({ "code": "PROXY_PAYMENT_REQUIRED" }).to_string());
+          }
+          Err(_) => {
+            return Err(serde_json::json!({ "code": "PROXY_NOT_WORKING" }).to_string());
+          }
+        }
+      } else {
+        return Err(format!("Proxy '{proxy_id}' not found"));
+      }
       return Ok(());
     }
     let settings = crate::proxy_manager::PROXY_MANAGER

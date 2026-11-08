@@ -1266,6 +1266,19 @@ impl WayfernManager {
       }
     }
 
+    // Drop the kernel's `fonts: "default"` sentinel. The kernel reads that
+    // string as "turn font spoofing on", and its font-substitution layer breaks
+    // glyph reach: Segoe UI Emoji and the CJK fallback faces (Microsoft YaHei /
+    // SimSun) both render as .notdef boxes (measured 📈@32px = 9.4px vs 41.7px
+    // without the field; 中@32px = 9.4px vs 32px). Pages show hollow rectangles
+    // for every emoji and CJK character. A user-provided font list (array) is
+    // kept as-is — only the sentinel value is removed, so this invents nothing.
+    if let Some(obj) = payload.as_object_mut() {
+      if obj.get("fonts").and_then(|v| v.as_str()) == Some("default") {
+        obj.remove("fonts");
+      }
+    }
+
     // The Wayfern kernel reports the claimed screen scaled by devicePixelRatio
     // (2560 CSS px at 1.25 reads as a 3200x1800 physical screen) while every
     // other fingerprint field is injected verbatim. On a desktop host the
@@ -2807,9 +2820,7 @@ impl WayfernManager {
     // the bwbrowser login credentials — one request per launch, no background
     // cache to wait for. Without it the browser still launches; only cross-OS
     // fingerprinting is refused below.
-    let wayfern_token = crate::bwbrowser_cloud::BWBROWSER_AUTH
-      .get_wayfern_token()
-      .await;
+    let wayfern_token = get_wayfern_kernel_token().await;
 
     // A cross-OS claim is authorized from the `wayfernToken` PARAMETER of
     // setIdentity/setFingerprint, so with no token in hand the apply is refused
@@ -3131,7 +3142,7 @@ impl WayfernManager {
       let identity_id = config.identity_id.clone().unwrap_or_default();
       let overrides = Self::stored_object(config.identity_overrides.as_deref());
       let location = Self::stored_object(config.location.as_deref());
-      let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+      let wayfern_token = get_wayfern_kernel_token().await;
 
       let mut params = serde_json::Map::new();
       params.insert("identityId".to_string(), json!(identity_id));
@@ -3261,7 +3272,7 @@ impl WayfernManager {
       }
 
       // Include wayfern token if available (enables cross-OS fingerprinting for paid users)
-      let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+      let wayfern_token = get_wayfern_kernel_token().await;
 
       // The device as donut holds it, for the diagnostic below.
       let stored = fingerprint_for_cdp.as_object().cloned().unwrap_or_default();
@@ -3458,7 +3469,7 @@ impl WayfernManager {
           }
 
           // Include wayfern token if available
-          let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+          let wayfern_token = get_wayfern_kernel_token().await;
           let mut apply_params = fingerprint_for_cdp.clone();
           if let Some(ref token) = wayfern_token {
             if let Some(obj) = apply_params.as_object_mut() {
@@ -3636,6 +3647,11 @@ impl WayfernManager {
     // 2. Modify timezone, language and related fields
     let mut modified_fp = current_fp.clone();
     if let Some(obj) = modified_fp.as_object_mut() {
+      // Drop the kernel's `fonts: "default"` sentinel — see
+      // `launch_fingerprint_payload` for why (it breaks emoji/CJK glyph reach).
+      if obj.get("fonts").and_then(|v| v.as_str()) == Some("default") {
+        obj.remove("fonts");
+      }
       // Timezone
       obj.insert("timezone".to_string(), json!(timezone));
       if let Some(offset_minutes) = Self::timezone_offset_minutes(timezone) {
@@ -3682,7 +3698,7 @@ impl WayfernManager {
     // Save fingerprint for next launch (before moving into apply_params)
     let fp_to_save = modified_fp.clone();
     let mut apply_params = modified_fp;
-    let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+    let wayfern_token = get_wayfern_kernel_token().await;
     if let Some(ref token) = wayfern_token {
       if let Some(obj) = apply_params.as_object_mut() {
         obj.insert("wayfernToken".to_string(), json!(token));
@@ -4229,6 +4245,22 @@ fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
   let m = l - c / 2.0;
   let to_u8 = |v: f64| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8;
   (to_u8(r1), to_u8(g1), to_u8(b1))
+}
+
+/// One source of truth for the Wayfern kernel authorization token: the
+/// self-hosted endpoint first (the account the desktop is signed into),
+/// falling back to the official cloud login. Launch and fingerprint
+/// generation must see the same token, or the kernel accepts one path and
+/// refuses the other with "Cross-OS fingerprinting requires a paid plan"
+/// even when the signed-in account is entitled to cross-OS fingerprints.
+pub async fn get_wayfern_kernel_token() -> Option<String> {
+  if let Some(token) = crate::bwbrowser_cloud::BWBROWSER_AUTH
+    .get_wayfern_token()
+    .await
+  {
+    return Some(token);
+  }
+  crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await
 }
 
 #[cfg(test)]

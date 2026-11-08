@@ -14,6 +14,10 @@ macro_rules! cloud_host {
 }
 
 /// 裸域，例如 `yacm.xin`
+///
+/// 生产 URL 均由 `cloud_host!()` 直接展开（见下方各常量），此处单独定义仅供
+/// 文档与测试断言使用，因此允许 dead_code 以避免误报。
+#[allow(dead_code)]
 pub const CLOUD_DOMAIN: &str = cloud_host!();
 
 /// 站点根（HTTPS），例如 `https://yacm.xin`

@@ -93,6 +93,21 @@ fn store_profile_health(profile_id: &str, record: ProfileHealthRecord) {
   save_profile_health(&map);
 }
 
+/// Publicly persist a fresh health verdict for a profile. Used by the cookie-
+/// injection path to mark a session Valid immediately after a successful cloud
+/// restore, so competing mechanisms (e.g. the autofill watcher) stop treating
+/// the still-open page as "needs a manual login".
+pub fn set_profile_health(profile_id: &str, status: HealthStatus, message: &str) {
+  let record = ProfileHealthRecord {
+    status,
+    message: message.to_string(),
+    checked_at: crate::proxy_manager::now_secs(),
+  };
+  let mut map = profile_health_map();
+  map.insert(profile_id.to_string(), record);
+  save_profile_health(&map);
+}
+
 /// Reduce a set of per-platform probe results to one verdict: green only when
 /// at least one probe is `Valid`; otherwise the first probe's status. Returns
 /// None when there was nothing to judge (no cookies / cooldown fired).

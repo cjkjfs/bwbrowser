@@ -39,6 +39,7 @@
     "src-tauri/target",
     "e2e/app/target",
     "bwbrowser-sync",
-    "bak"
+    "bak",
+    "_backup_account_monitor_20261108"
   ]
 }
