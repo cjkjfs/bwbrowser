@@ -3846,6 +3846,304 @@ async fn translate_text(
   Ok(out.trim().to_string())
 }
 
+/// 目标语言显示名（写入翻译提示词）。
+fn lang_display_name(code: &str) -> &'static str {
+  match code {
+    "zh" => "中文",
+    "en" => "英语",
+    "fr" => "法语",
+    "es" => "西班牙语",
+    "de" => "德语",
+    "ru" => "俄语",
+    "ja" => "日语",
+    "ko" => "韩语",
+    "pt" => "葡萄牙语",
+    _ => "中文",
+  }
+}
+
+/// 粗粒度语言检测（启发式）：zh / ja / ko / ru / latn。
+/// 拉丁字母语言（英/法/西/德/葡等）统一归 latn，具体方向由目标语言选择决定。
+fn detect_lang(text: &str) -> &'static str {
+  let (mut zh, mut ja, mut ko, mut cyr, mut total) = (0, 0, 0, 0, 0);
+  for ch in text.chars() {
+    if ch.is_whitespace() || ch.is_ascii_punctuation() {
+      continue;
+    }
+    let c = ch as u32;
+    if matches!(c, 0x4E00..=0x9FFF | 0x3400..=0x4DBF) {
+      zh += 1;
+      total += 1;
+    } else if matches!(c, 0x3040..=0x30FF | 0x31F0..=0x31FF) {
+      ja += 1;
+      total += 1;
+    } else if matches!(c, 0xAC00..=0xD7AF | 0x1100..=0x11FF) {
+      ko += 1;
+      total += 1;
+    } else if matches!(c, 0x0400..=0x04FF) {
+      cyr += 1;
+      total += 1;
+    } else if ch.is_alphabetic() {
+      total += 1;
+    }
+  }
+  // 假名/谚文出现即判日/韩（汉字混排）；中文字符占比 ≥30% 判中文
+  if ja > 0 {
+    return "ja";
+  }
+  if ko > 0 {
+    return "ko";
+  }
+  if total > 0 && zh * 10 >= total * 3 {
+    return "zh";
+  }
+  if total > 0 && cyr * 2 >= total {
+    return "ru";
+  }
+  "latn"
+}
+
+/// 语言族归类：en/fr/es/de/pt/it 等拉丁语言同属 latn，用于「已是目标语言」判断。
+fn lang_family(code: &str) -> &'static str {
+  match code {
+    "zh" => "zh",
+    "ja" => "ja",
+    "ko" => "ko",
+    "ru" => "ru",
+    _ => "latn",
+  }
+}
+
+/// 逐行结构化翻译：让模型输出 JSON（译文 + 检测到的源语言 + 无法翻译的词）。
+/// 解析失败时回退：整段输出当译文。
+async fn translate_line_structured(
+  cfg: &AiEndpointConfig,
+  system_prompt: &str,
+  text: &str,
+) -> Result<(String, Option<String>, Vec<String>), String> {
+  let (out, _usage) = llm_chat(cfg, system_prompt, text).await?;
+  let out = out.trim();
+  if let (Some(s), Some(e)) = (out.find('{'), out.rfind('}')) {
+    if e > s {
+      if let Ok(v) = serde_json::from_str::<Value>(&out[s..=e]) {
+        let t = v
+          .get("t")
+          .and_then(|x| x.as_str())
+          .unwrap_or("")
+          .trim()
+          .to_string();
+        let lang = v
+          .get("lang")
+          .and_then(|x| x.as_str())
+          .map(|s| s.trim().to_string())
+          .filter(|s| !s.is_empty());
+        let nt: Vec<String> = v
+          .get("nt")
+          .and_then(|x| x.as_array())
+          .map(|a| {
+            a.iter()
+              .filter_map(|x| x.as_str())
+              .map(|s| s.trim().to_string())
+              .filter(|s| !s.is_empty() && s.chars().count() <= 60)
+              .collect()
+          })
+          .unwrap_or_default();
+        if !t.is_empty() {
+          return Ok((t, lang, nt));
+        }
+      }
+    }
+  }
+  Ok((out.to_string(), None, Vec::new()))
+}
+
+// ============================================================
+// 术语对照表（原文 ↔ 固定译文；用户可手动设对照，翻译时自动转换）
+// ============================================================
+
+/// 大小写不敏感的替换：把 text 中所有出现的 from 替换为 to（保留 from 原始大小写不匹配则用 to 原文）。
+fn replace_case_insensitive(text: &str, from: &str, to: &str) -> String {
+  if from.is_empty() {
+    return text.to_string();
+  }
+  let lower_text = text.to_lowercase();
+  let lower_from = from.to_lowercase();
+  let mut result = String::with_capacity(text.len() + 16);
+  let mut last = 0;
+  let mut search = 0;
+  while let Some(pos) = lower_text[search..].find(&lower_from) {
+    let abs = search + pos;
+    result.push_str(&text[last..abs]);
+    // 保留 to 原文大小写
+    result.push_str(to);
+    last = abs + from.len();
+    search = last;
+  }
+  result.push_str(&text[last..]);
+  result
+}
+
+/// 一条术语：`s` 原文，`t` 固定对照译文（空 = 保留原文不翻译）。
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct GlossaryEntry {
+  #[serde(default)]
+  pub s: String,
+  #[serde(default)]
+  pub t: String,
+}
+
+/// 词表文件：{data_dir}/translate-terms-{登录账号ID}.json，按登录身份隔离。
+fn translate_terms_path() -> PathBuf {
+  let uid = crate::bwbrowser_cloud::BWBROWSER_AUTH
+    .get_user_id()
+    .map(|id| id.to_string())
+    .unwrap_or_else(|| "anonymous".to_string());
+  crate::app_dirs::data_dir().join(format!("translate-terms-{uid}.json"))
+}
+
+/// 云端词表 KV key：存 user_setting（服务端按登录账号隔离）。
+/// 同公司不同用户各自一份（用户隔离），不同公司互不可见（公司隔离），换设备自动同步。
+const TRANSLATE_TERMS_KEY: &str = "translate_terms";
+
+/// 解析词表 JSON（云端 payload 与本地缓存共用）。
+/// 兼容三种格式：裸数组 [{s,t}]、{"terms":[...]}、旧纯字符串数组（视为无对照）。
+/// 解析失败返回 None（区分"空词表"与"损坏数据"）。
+fn parse_terms_json(text: &str) -> Option<Vec<GlossaryEntry>> {
+  let v: Value = serde_json::from_str(text).ok()?;
+  let arr = if let Some(a) = v.as_array() {
+    a.clone()
+  } else {
+    v.get("terms")?.as_array()?.clone()
+  };
+  Some(
+    arr
+      .iter()
+      .filter_map(|x| {
+        if let Some(s) = x.as_str() {
+          let s = s.trim().to_string();
+          if s.is_empty() {
+            return None;
+          }
+          return Some(GlossaryEntry {
+            s,
+            t: String::new(),
+          });
+        }
+        let obj = x.as_object()?;
+        let s = obj.get("s").and_then(|v| v.as_str()).unwrap_or("").trim();
+        if s.is_empty() {
+          return None;
+        }
+        let t = obj.get("t").and_then(|v| v.as_str()).unwrap_or("").trim();
+        Some(GlossaryEntry {
+          s: s.to_string(),
+          t: t.to_string(),
+        })
+      })
+      .collect(),
+  )
+}
+
+/// 本地缓存读取（离线/未登录回退用）。
+fn translate_terms_load_local() -> Vec<GlossaryEntry> {
+  let Ok(text) = std::fs::read_to_string(translate_terms_path()) else {
+    return Vec::new();
+  };
+  parse_terms_json(&text).unwrap_or_default()
+}
+
+/// 本地缓存写入（原子写），始终保存一份，供离线使用。
+fn translate_terms_save_local(entries: &[GlossaryEntry]) -> Result<(), String> {
+  let path = translate_terms_path();
+  if let Some(dir) = path.parent() {
+    let _ = std::fs::create_dir_all(dir);
+  }
+  let list: Vec<Value> = entries
+    .iter()
+    .map(|e| json!({ "s": e.s, "t": e.t }))
+    .collect();
+  let json = json!({ "terms": list });
+  let tmp = path.with_extension("json.tmp");
+  std::fs::write(
+    &tmp,
+    serde_json::to_vec_pretty(&json).map_err(|e| e.to_string())?,
+  )
+  .map_err(|e| e.to_string())?;
+  std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+  Ok(())
+}
+
+/// 读取词表：云端优先（服务器按登录账号隔离，跨设备同步），未登录/断网时回退本地缓存。
+async fn translate_terms_load() -> Vec<GlossaryEntry> {
+  match crate::bwbrowser_cloud::get_user_setting_impl(TRANSLATE_TERMS_KEY).await {
+    Ok(Some(text)) if !text.trim().is_empty() => {
+      if let Some(list) = parse_terms_json(&text) {
+        // 同步一份到本地缓存（静默，失败无碍）
+        let _ = translate_terms_save_local(&list);
+        return list;
+      }
+      translate_terms_load_local()
+    }
+    _ => translate_terms_load_local(),
+  }
+}
+
+/// 保存词表：写本地缓存 + 写云端（按账号隔离）。云端失败时报错（提示已存本地）。
+async fn translate_terms_save(entries: &[GlossaryEntry]) -> Result<(), String> {
+  // 1) 本地缓存（始终写，离线可用）
+  let local_err = translate_terms_save_local(entries).err();
+  // 2) 云端 user_setting（数组 JSON 形式）
+  let payload = serde_json::to_string(entries).map_err(|e| format!("词表序列化失败：{e}"))?;
+  match crate::bwbrowser_cloud::save_user_setting_impl(TRANSLATE_TERMS_KEY, &payload).await {
+    Ok(()) => Ok(()),
+    Err(e) => Err(match local_err {
+      Some(le) => format!("词表保存失败：云端{e}；本地{le}"),
+      None => format!("词表已存本地缓存，但云端同步失败：{e}"),
+    }),
+  }
+}
+
+#[tauri::command]
+pub async fn translate_terms_list() -> Result<Vec<GlossaryEntry>, String> {
+  Ok(translate_terms_load().await)
+}
+
+/// 添加/更新词条（按原文 s 去重、上限 500 条），返回更新后的全表。
+/// 已存在的同原文词条会被更新对照译文，而非重复添加。
+#[tauri::command]
+pub async fn translate_terms_add(terms: Vec<GlossaryEntry>) -> Result<Vec<GlossaryEntry>, String> {
+  let mut list = translate_terms_load().await;
+  for e in terms {
+    let s = e.s.trim().to_string();
+    if s.is_empty() || s.chars().count() > 60 {
+      continue;
+    }
+    let t = e.t.trim().to_string();
+    if let Some(found) = list.iter_mut().find(|x| x.s.eq_ignore_ascii_case(&s)) {
+      found.t = t;
+    } else {
+      list.push(GlossaryEntry { s, t });
+    }
+  }
+  if list.len() > 500 {
+    list.truncate(500);
+  }
+  translate_terms_save(&list).await?;
+  Ok(list)
+}
+
+#[tauri::command]
+pub async fn translate_terms_remove(term: String) -> Result<Vec<GlossaryEntry>, String> {
+  let key = term.trim().to_string();
+  let list: Vec<GlossaryEntry> = translate_terms_load()
+    .await
+    .into_iter()
+    .filter(|x| x.s != key)
+    .collect();
+  translate_terms_save(&list).await?;
+  Ok(list)
+}
+
 /// 从洗稿 JSON 中收集字幕条目（hook + body + cta），逐句一条。
 fn cues_from_rewrite(rewrite: &Value) -> Vec<String> {
   let mut text = String::new();
@@ -3969,7 +4267,7 @@ pub async fn ai_rewrite_build_srt(
           } else {
             creds.prompts.translate.clone()
           };
-          let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
+          let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
           let mut set: tokio::task::JoinSet<(usize, Result<String, String>)> =
             tokio::task::JoinSet::new();
           for (i, c) in cues.iter().enumerate() {
@@ -4070,6 +4368,324 @@ pub async fn ai_rewrite_build_srt(
   }))
 }
 
+/// 逐行翻译任务结果：(行索引, (译文, 检测到的源语言, 不可译词列表) 或错误)
+type LineTranslateTask = (usize, Result<(String, Option<String>, Vec<String>), String>);
+
+/// 逐行翻译（视频工具「文案」tab）。
+/// target_lang：目标语言代码（zh/en/fr/es/de/ru/ja/ko/pt），"auto" 或缺省时智能判断：
+/// 内容含中文 → 翻英语，否则 → 翻中文。
+/// 返回 translations / target_lang / detected_lang / untranslatable（行号+词，
+/// 行号对应过滤空行后的输入索引）/ new_terms（本次 AI 自动补充进词表的词）。
+#[tauri::command]
+pub async fn ai_rewrite_translate_lines(
+  app: tauri::AppHandle,
+  lines: Vec<String>,
+  target_lang: Option<String>,
+) -> Result<Value, String> {
+  let cleaned: Vec<String> = lines
+    .iter()
+    .map(|l| l.trim().to_string())
+    .filter(|l| !l.is_empty())
+    .collect();
+  if cleaned.is_empty() {
+    return Err("没有可翻译的内容".to_string());
+  }
+
+  // 解析目标语言
+  let requested = target_lang
+    .as_deref()
+    .unwrap_or("auto")
+    .trim()
+    .to_lowercase();
+  let resolved: &'static str = if requested.is_empty() || requested == "auto" {
+    if cleaned.iter().any(|l| is_chinese_text(l)) {
+      "en"
+    } else {
+      "zh"
+    }
+  } else {
+    match requested.as_str() {
+      "en" => "en",
+      "fr" => "fr",
+      "es" => "es",
+      "de" => "de",
+      "ru" => "ru",
+      "ja" => "ja",
+      "ko" => "ko",
+      "pt" => "pt",
+      _ => "zh",
+    }
+  };
+
+  // 整体已是目标语言（同语言族）：跳过模型调用
+  let family = lang_family(resolved);
+  if cleaned
+    .iter()
+    .all(|l| lang_family(detect_lang(l)) == family)
+  {
+    return Ok(json!({
+        "translations": cleaned,
+        "partial": false,
+        "note": "原文已是目标语言，无需翻译",
+        "target_lang": resolved,
+        "detected_lang": family,
+        "untranslatable": [],
+        "new_terms": [],
+    }));
+  }
+
+  // 配置回退链（与旧逻辑一致）：接口设置 translate → 接口设置 LLM →
+  // 统一密钥 translate → 统一密钥 LLM。
+  // 注意：结构化 JSON 输出必须用内置提示词，忽略用户自定义翻译提示词。
+  let mut cfg = AiEndpointConfig::default();
+  if let Ok(local) = AI_REWRITE.api_config().await {
+    cfg = local.translate;
+    if cfg.base_url.trim().is_empty() || cfg.api_key.trim().is_empty() {
+      cfg = local.llm;
+    }
+  }
+  if cfg.base_url.trim().is_empty() || cfg.api_key.trim().is_empty() {
+    let creds = AI_REWRITE.credentials().await?;
+    cfg = creds.translate.clone();
+    if cfg.base_url.trim().is_empty() || cfg.api_key.trim().is_empty() {
+      cfg = creds.llm.clone();
+    }
+  }
+  if cfg.base_url.trim().is_empty() || cfg.api_key.trim().is_empty() {
+    return Err(
+      "未配置翻译模型，请先在「AI 洗稿 → 接口设置」里补全翻译接口的地址与密钥".to_string(),
+    );
+  }
+
+  // 术语对照表注入提示词（上限 120 条，防止提示词无限膨胀）
+  // 分两类：有对照 → 强制用固定译文；无对照 → 保留原文不翻译
+  let glossary = translate_terms_load().await;
+  let glossary_note = if glossary.is_empty() {
+    String::new()
+  } else {
+    let fixed: Vec<&GlossaryEntry> = glossary
+      .iter()
+      .filter(|e| !e.t.is_empty())
+      .take(120)
+      .collect();
+    let keeplist: Vec<&GlossaryEntry> = glossary
+      .iter()
+      .filter(|e| e.t.is_empty())
+      .take(120)
+      .collect();
+    let mut note = String::new();
+    if !fixed.is_empty() {
+      let listed = fixed
+        .iter()
+        .map(|e| format!("“{}”必须译为“{}”", e.s, e.t))
+        .collect::<Vec<_>>()
+        .join("；");
+      let more = if fixed.len() < glossary.iter().filter(|e| !e.t.is_empty()).count() {
+        format!(
+          " 等共{}条",
+          glossary.iter().filter(|e| !e.t.is_empty()).count()
+        )
+      } else {
+        String::new()
+      };
+      note.push_str(&format!("\n术语对照（必须严格遵循）：{}{}", listed, more));
+    }
+    if !keeplist.is_empty() {
+      let kept = keeplist
+        .iter()
+        .map(|e| e.s.as_str())
+        .collect::<Vec<_>>()
+        .join("、");
+      let more = if keeplist.len() < glossary.iter().filter(|e| e.t.is_empty()).count() {
+        format!(
+          " 等共{}条",
+          glossary.iter().filter(|e| e.t.is_empty()).count()
+        )
+      } else {
+        String::new()
+      };
+      note.push_str(&format!(
+        "\n以下词语为用户指定保留原文，翻译时不要翻译：{}{}",
+        kept, more
+      ));
+    }
+    note
+  };
+
+  let sys_prompt = format!(
+    r#"你是专业翻译。把用户给出的单行文本翻译成{}。
+要求：
+1. 只翻译，不改写、不增删内容，保持口语语气。
+2. 专有名词、品牌名、网络流行语等无法准确翻译的词语保留原文。
+3. 只输出一个 JSON 对象，禁止输出解释或 markdown 代码块，格式：
+{{"t":"译文","lang":"原文语言代码（en/zh/fr/es/de/ru/ja/ko 等）","nt":["本行保留原文或无法翻译的词语，没有则为空数组"]}}"#,
+    lang_display_name(resolved),
+  );
+  let sys_prompt = if glossary_note.is_empty() {
+    sys_prompt
+  } else {
+    format!("{sys_prompt}{glossary_note}")
+  };
+
+  // 自适应并发调度：初始 8 路；成功 +1（上限 16），失败减半（保底 4）。
+  // 由主循环按当前并发上限补充任务，任务内不再需要信号量。
+  const CONC_MIN: usize = 4;
+  const CONC_MAX: usize = 16;
+  let mut concurrency = 8usize;
+  let mut next_line = 0usize;
+  let mut inflight = 0usize;
+  let mut set: tokio::task::JoinSet<LineTranslateTask> = tokio::task::JoinSet::new();
+  {
+    let spawn_one = |set: &mut tokio::task::JoinSet<LineTranslateTask>,
+                     i: usize,
+                     cfg: &AiEndpointConfig,
+                     prompt: &str,
+                     line: &str| {
+      let cfg = cfg.clone();
+      let prompt = prompt.to_string();
+      let line = line.to_string();
+      set.spawn(async move { (i, translate_line_structured(&cfg, &prompt, &line).await) });
+    };
+    while inflight < concurrency && next_line < cleaned.len() {
+      spawn_one(&mut set, next_line, &cfg, &sys_prompt, &cleaned[next_line]);
+      next_line += 1;
+      inflight += 1;
+    }
+  }
+
+  let mut out: Vec<String> = cleaned.clone();
+  let mut first_err: Option<String> = None;
+  let mut ok_count = 0usize;
+  let mut detected: Option<String> = None;
+  let mut untranslatable: Vec<Value> = Vec::new();
+  let mut found_terms: Vec<String> = Vec::new();
+  let total_lines = cleaned.len();
+  let mut done_lines = 0usize;
+  use tauri::Emitter;
+  while let Some(joined) = set.join_next().await {
+    inflight -= 1;
+    // 本行是否成功（成功带译文，供前端逐行实时上屏）
+    let mut done_ok: Option<(usize, Option<String>)> = None;
+    if let Ok((i, r)) = joined {
+      match r {
+        Ok((t, lang, nt)) if !t.is_empty() => {
+          // 确定性对照替换：已配置固定对照的原文词，即使模型没遵守也硬替换成固定译文
+          let mut translated = t;
+          for e in &glossary {
+            if e.t.is_empty() {
+              continue;
+            }
+            if translated.to_lowercase().contains(&e.s.to_lowercase()) {
+              translated = replace_case_insensitive(&translated, &e.s, &e.t);
+            }
+          }
+          out[i] = translated.clone();
+          ok_count += 1;
+          if detected.is_none() {
+            detected = Some(lang.unwrap_or_else(|| detect_lang(&cleaned[i]).to_string()));
+          }
+          for term in nt {
+            let term = term.trim().to_string();
+            if term.is_empty() {
+              continue;
+            }
+            untranslatable.push(json!({ "line": i, "term": term }));
+            let in_glossary = glossary.iter().any(|x| x.s.eq_ignore_ascii_case(&term));
+            let in_found = found_terms.iter().any(|f| f.eq_ignore_ascii_case(&term));
+            let known = in_glossary || in_found;
+            if !known {
+              found_terms.push(term);
+            }
+          }
+          done_ok = Some((i, Some(translated)));
+        }
+        Ok(_) => {
+          done_ok = Some((i, None));
+        }
+        Err(e) => {
+          if first_err.is_none() {
+            first_err = Some(e);
+          }
+          done_ok = Some((i, None));
+        }
+      }
+      // 自适应升降速：成功提速，失败（多为限流/接口异常）降速
+      if done_ok.as_ref().and_then(|(_, t)| t.as_ref()).is_some() {
+        concurrency = (concurrency + 1).min(CONC_MAX);
+      } else {
+        concurrency = (concurrency / 2).max(CONC_MIN);
+      }
+    }
+    // 逐行进度上报（成功与失败都计入完成数；成功行带译文供前端实时上屏）
+    done_lines += 1;
+    let payload = match &done_ok {
+      Some((i, Some(t))) => json!({
+          "done": done_lines,
+          "total": total_lines,
+          "line": i,
+          "translation": t,
+      }),
+      Some((i, None)) => json!({
+          "done": done_lines,
+          "total": total_lines,
+          "line": i,
+      }),
+      None => json!({ "done": done_lines, "total": total_lines }),
+    };
+    let _ = app.emit("copywriting:translate-progress", payload);
+    // 按当前并发上限补充新任务
+    while inflight < concurrency && next_line < total_lines {
+      let cfg = cfg.clone();
+      let prompt = sys_prompt.clone();
+      let line = cleaned[next_line].clone();
+      let i = next_line;
+      set.spawn(async move { (i, translate_line_structured(&cfg, &prompt, &line).await) });
+      next_line += 1;
+      inflight += 1;
+    }
+  }
+
+  if ok_count == 0 {
+    return Err(first_err.unwrap_or_else(|| "翻译失败".to_string()));
+  }
+
+  // AI 发现的不可译词自动补充进词表（以原文保存、无对照、去重、上限保护、静默失败）
+  let mut new_terms: Vec<String> = Vec::new();
+  if !found_terms.is_empty() {
+    let mut list = glossary.clone();
+    for t in &found_terms {
+      if list.len() >= 500 {
+        break;
+      }
+      if !list.iter().any(|x| x.s.eq_ignore_ascii_case(t)) {
+        list.push(GlossaryEntry {
+          s: t.clone(),
+          t: String::new(),
+        });
+        new_terms.push(t.clone());
+      }
+    }
+    if !new_terms.is_empty() {
+      let _ = translate_terms_save(&list).await;
+    }
+  }
+
+  let partial = ok_count < cleaned.len();
+  Ok(json!({
+      "translations": out,
+      "partial": partial,
+      "note": if partial {
+          format!("部分行翻译失败（保留原文）：{}", first_err.unwrap_or_default())
+      } else {
+          String::new()
+      },
+      "target_lang": resolved,
+      "detected_lang": detected.unwrap_or_default(),
+      "untranslatable": untranslatable,
+      "new_terms": new_terms,
+  }))
+}
+
 // ============================================================
 // 任务列表持久化（本地 tasks.json）
 // ============================================================
@@ -4083,6 +4699,46 @@ fn tasks_store_path() -> PathBuf {
     .map(|id| id.to_string())
     .unwrap_or_else(|| "anonymous".to_string());
   crate::app_dirs::data_dir().join(format!("ai-rewrite-tasks-{uid}.json"))
+}
+
+// ============================================================
+// 文案工具状态持久化（视频工具「文案」tab 的四个文本区）
+// ============================================================
+
+/// 文案工具本地状态文件：{data_dir}/copywriting-state-{登录账号ID}.json
+/// 按登录身份隔离，未登录落到 anonymous。
+fn copywriting_state_path() -> PathBuf {
+  let uid = crate::bwbrowser_cloud::BWBROWSER_AUTH
+    .get_user_id()
+    .map(|id| id.to_string())
+    .unwrap_or_else(|| "anonymous".to_string());
+  crate::app_dirs::data_dir().join(format!("copywriting-state-{uid}.json"))
+}
+
+/// 读取文案工具状态；文件不存在或损坏时返回空对象。
+#[tauri::command]
+pub fn copywriting_load_state() -> Result<Value, String> {
+  let path = copywriting_state_path();
+  let Ok(text) = std::fs::read_to_string(&path) else {
+    return Ok(json!({}));
+  };
+  match serde_json::from_str::<Value>(&text) {
+    Ok(v) => Ok(v),
+    Err(_) => Ok(json!({})),
+  }
+}
+
+/// 保存文案工具状态（原子写盘：先写临时文件再改名）。
+#[tauri::command]
+pub fn copywriting_save_state(state: Value) -> Result<Value, String> {
+  let path = copywriting_state_path();
+  let dir = path.parent().ok_or("无法确定数据目录")?;
+  std::fs::create_dir_all(dir).map_err(|e| format!("创建目录失败：{e}"))?;
+  let tmp = dir.join(format!("copywriting-state.json.tmp.{}", std::process::id()));
+  let data = serde_json::to_vec_pretty(&state).map_err(|e| format!("序列化失败：{e}"))?;
+  std::fs::write(&tmp, data).map_err(|e| format!("写入失败：{e}"))?;
+  std::fs::rename(&tmp, &path).map_err(|e| format!("保存失败：{e}"))?;
+  Ok(json!({ "success": true }))
 }
 
 /// 读取已落盘的任务列表。文件不存在 / 损坏时返回空列表。

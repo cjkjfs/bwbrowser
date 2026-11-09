@@ -7,6 +7,7 @@ import {
   AnimatedTabsTrigger,
 } from "@/components/ui/animated-tabs";
 import { VideoMatchTab } from "@/components/video-matcher";
+import { QuickCopywritingTab } from "@/components/video-tools-copywriting";
 import { QuickMergeTab } from "@/components/video-tools-merge";
 import { QuickSplitTab } from "@/components/video-tools-split";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ export function VideoToolsPage() {
       >
         <AnimatedTabsList className="mb-4 shrink-0">
           <AnimatedTabsTrigger value="match">视频匹配</AnimatedTabsTrigger>
+          <AnimatedTabsTrigger value="copywriting">文案</AnimatedTabsTrigger>
           <AnimatedTabsTrigger value="merge">快速合并</AnimatedTabsTrigger>
           <AnimatedTabsTrigger value="split">快速拆分</AnimatedTabsTrigger>
         </AnimatedTabsList>
@@ -34,6 +36,14 @@ export function VideoToolsPage() {
           )}
         >
           <VideoMatchTab />
+        </div>
+        <div
+          className={cn(
+            "flex min-h-0 flex-1 flex-col",
+            active !== "copywriting" && "hidden",
+          )}
+        >
+          <QuickCopywritingTab />
         </div>
         <div
           className={cn(

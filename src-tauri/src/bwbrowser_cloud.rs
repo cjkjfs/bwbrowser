@@ -2896,7 +2896,7 @@ pub async fn bwbrowser_list_companies() -> Result<CompanyListResponse, String> {
 }
 
 /// 保存用户级云端设置 KV（如 SRC-IP 映射表）。按登录用户隔离，换电脑登录后可读回。
-async fn save_user_setting_impl(setting_key: &str, data: &str) -> Result<(), String> {
+pub(crate) async fn save_user_setting_impl(setting_key: &str, data: &str) -> Result<(), String> {
   let (username, password) = BWBROWSER_AUTH
     .get_credentials()
     .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
@@ -2940,7 +2940,7 @@ async fn save_user_setting_impl(setting_key: &str, data: &str) -> Result<(), Str
 }
 
 /// 读取用户级云端设置 KV。未保存过时返回 None。
-async fn get_user_setting_impl(setting_key: &str) -> Result<Option<String>, String> {
+pub(crate) async fn get_user_setting_impl(setting_key: &str) -> Result<Option<String>, String> {
   let (username, password) = BWBROWSER_AUTH
     .get_credentials()
     .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;

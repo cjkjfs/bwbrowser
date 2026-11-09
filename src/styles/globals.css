@@ -206,6 +206,39 @@
   }
 }
 
+/* 加宽滚动条：文案 tab 人工审核用。加在滚动容器上覆盖全局 thin 样式。
+   Firefox 用 scrollbar-width: auto；Chromium（Tauri WebView2）用 webkit 伪元素。 */
+.wide-scrollbar {
+  scrollbar-width: auto;
+  scrollbar-color: oklch(0.55 0 0 / 45%) transparent;
+}
+.wide-scrollbar::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+.wide-scrollbar::-webkit-scrollbar-thumb {
+  background: oklch(0.55 0 0 / 45%);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.wide-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.4 0 0 / 60%);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.wide-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dark .wide-scrollbar {
+  scrollbar-color: oklch(0.75 0 0 / 35%) transparent;
+}
+.dark .wide-scrollbar::-webkit-scrollbar-thumb {
+  background: oklch(0.75 0 0 / 35%);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
 /* Scroll-fade utility: a vertical mask that thins the alpha of the top and
    bottom 24px of the scroll container ONLY when that direction is actually
    scrollable. useScrollFade() writes `data-fade-top` / `data-fade-bottom`
