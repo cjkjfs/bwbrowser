@@ -4175,6 +4175,7 @@ pub fn run_with_builder(
       ai_rewrite::ai_rewrite_run_links,
       ai_rewrite::ai_rewrite_build_srt,
       ai_rewrite::ai_rewrite_translate_lines,
+      ai_rewrite::copywriting_identify_source,
       ai_rewrite::translate_terms_list,
       ai_rewrite::translate_terms_add,
       ai_rewrite::translate_terms_remove,

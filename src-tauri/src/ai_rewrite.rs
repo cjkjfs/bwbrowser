@@ -4877,6 +4877,117 @@ pub async fn ai_rewrite_save_api_config(config: AiApiConfig) -> Result<Value, St
   Ok(json!({ "success": true }))
 }
 
+// ============================================================
+// 解说词出处识别（文案 tab：一键识别这段解说词是哪部影视/动漫的哪一集）
+// ============================================================
+
+/// 把多行解说词拼接成送识别的文本，控制长度防止提示词过大。
+fn join_identify_text(lines: &[String]) -> String {
+  let mut text = String::new();
+  for ln in lines {
+    let s = ln.trim();
+    if s.is_empty() {
+      continue;
+    }
+    if !text.is_empty() {
+      text.push('\n');
+    }
+    text.push_str(s);
+    if text.chars().count() > 6000 {
+      break;
+    }
+  }
+  text.trim().to_string()
+}
+
+/// 根据解说内容识别可能属于哪部影视/动漫及其季/集。
+/// 复用服务器 AI 配置（llm 优先，缺配置时回退 translate），逐条返回结构化结果。
+/// 返回: { found, type, title, season, episode, breakdown, evidence, confidence, raw }
+#[tauri::command]
+pub async fn copywriting_identify_source(lines: Vec<String>) -> Result<Value, String> {
+  let text = join_identify_text(&lines);
+  if text.is_empty() {
+    return Err("解说词为空，无法识别出处".to_string());
+  }
+
+  let creds = AI_REWRITE.credentials().await?;
+  let mut cfg = creds.llm.clone();
+  if cfg.base_url.trim().is_empty() || cfg.api_key.trim().is_empty() {
+    cfg = creds.translate.clone();
+  }
+  if cfg.base_url.trim().is_empty() || cfg.api_key.trim().is_empty() {
+    return Err("未配置 AI 模型，请先在「AI 洗稿 → 接口设置」里补全接口地址与密钥".to_string());
+  }
+
+  let sys_prompt = "你是一位资深影视/动漫解说内容分析师。用户会给你一段某个影视/动漫的解说口播文案（可能是剪辑的、语序被打乱的片段）。
+请根据其中的角色名、地名、设定、台词、剧情线索，判断它最可能出自哪部影视或动漫：作品名称、如果是剧集还尽量给出季数和集数（用整数，不确定填 0）。
+如果判断是动漫/剧集并给出了具体的季数和集数，请额外用一句中文（40 字以内）概括该集的核心剧情段落（如发生了什么事、关键场景），填到 breakdown 字段；无法确定集数时 breakdown 填空字符串。
+只输出一个 JSON 对象，字段如下（不要输出除 JSON 外的任何文字）：
+{
+  \"found\": true 或 false,      // 是否有把握判断出来源，完全没有把握才 false
+  \"type\": \"movie\" 或 \"tv\" 或 \"anime\" 或 \"unknown\",  // 来源类型
+  \"title\": \"作品名称\",        // 无法确定时填空字符串
+  \"season\": 数字,              // 季数，剧集不确定或非剧集填 0
+  \"episode\": 数字,             // 集数/话数，不确定填 0
+  \"breakdown\": \"该集核心剧情段落概括（40字内，非剧集或不确定集数时填空字符串）\",
+  \"evidence\": \"一句话说明你依据什么线索判断\",  // 简短，中文
+  \"confidence\": 数字            // 0 到 1 的置信度
+}";
+
+  let user_content = format!(
+    "请识别以下解说词可能出自哪部影视或动漫（如是系列作品请给出季/集数）：\n\n{}",
+    text
+  );
+
+  let (raw, _usage) = llm_chat(&cfg, sys_prompt, &user_content).await?;
+  let v = extract_json(&raw).unwrap_or_else(|| json!({ "found": false }));
+
+  // 规范化字段，防止模型缺字段或字段类型异常
+  let title = v
+    .get("title")
+    .and_then(|x| x.as_str())
+    .map(|s| s.trim().to_string())
+    .unwrap_or_default();
+  let found = v
+    .get("found")
+    .and_then(|x| x.as_bool())
+    .or_else(|| v.get("found").and_then(|x| x.as_u64()).map(|n| n != 0))
+    .unwrap_or(!title.is_empty());
+  let stype = v
+    .get("type")
+    .and_then(|x| x.as_str())
+    .map(|s| s.trim().to_string())
+    .unwrap_or_else(|| "unknown".to_string());
+  let season = v.get("season").and_then(|x| x.as_u64()).unwrap_or(0);
+  let episode = v.get("episode").and_then(|x| x.as_u64()).unwrap_or(0);
+  let evidence = v
+    .get("evidence")
+    .and_then(|x| x.as_str())
+    .map(|s| s.trim().to_string())
+    .unwrap_or_default();
+  let breakdown = v
+    .get("breakdown")
+    .and_then(|x| x.as_str())
+    .map(|s| s.trim().to_string())
+    .unwrap_or_default();
+  let confidence = v
+    .get("confidence")
+    .and_then(|x| x.as_f64())
+    .unwrap_or(if found { 0.5 } else { 0.0 });
+
+  Ok(json!({
+    "found": found,
+    "type": stype,
+    "title": title,
+    "season": season,
+    "episode": episode,
+    "breakdown": breakdown,
+    "evidence": evidence,
+    "confidence": confidence,
+    "raw": raw,
+  }))
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

@@ -246,6 +246,82 @@ jobs:
           echo "APPLE_PASSWORD=${{ secrets.APPLE_PASSWORD }}" >> $GITHUB_ENV
           echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> $GITHUB_ENV
 
+      # tauri-bundler 打包 NSIS 安装包时会从 GitHub 下载 nsis-3.13.zip，
+      # 偶发 504 会把 15 分钟的编译结果整个报废。这里预下载（带重试）并缓存，
+      # bundler 检测到 makensis.exe 已存在就跳过下载。
+      - name: Cache Tauri bundler tools (NSIS)
+        if: matrix.platform == 'windows-latest'
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/tauri
+          key: tauri-nsis-3.13-windows
+
+      - name: Pre-fetch NSIS (retry on transient GitHub 5xx)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          # 布局与 tauri-bundler 的预期完全一致（crates/tauri-bundler nsis/mod.rs）：
+          #   %LOCALAPPDATA%\tauri\NSIS\            <- nsis-3.13.zip 解压后重命名
+          #   %LOCALAPPDATA%\tauri\NSIS\Plugins\x86-unicode\additional\nsis_tauri_utils.dll
+          # REQUIRED_FILES 齐全时 bundler 跳过全部下载。
+          $tauriDir = Join-Path $env:LOCALAPPDATA 'tauri'
+          $dest = Join-Path $tauriDir 'NSIS'
+          $makensis = Join-Path $dest 'makensis.exe'
+          $dllPath = Join-Path $dest 'Plugins\x86-unicode\additional\nsis_tauri_utils.dll'
+          if ((Test-Path $makensis) -and (Test-Path $dllPath)) {
+            Write-Host "NSIS already cached, skip download"
+            exit 0
+          }
+
+          function Get-WithRetry([string]$Url, [string]$OutFile, [int]$Attempts = 5) {
+            foreach ($i in 1..$Attempts) {
+              try {
+                Write-Host "download attempt $i : $Url"
+                Invoke-WebRequest -Uri $Url -OutFile $OutFile -MaximumRedirection 10
+                return $true
+              } catch {
+                Write-Host "attempt $i failed: $($_.Exception.Message)"
+                Start-Sleep -Seconds (10 * $i)
+              }
+            }
+            return $false
+          }
+
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $zip = Join-Path $env:RUNNER_TEMP 'nsis-3.13.zip'
+          if (-not (Test-Path $makensis)) {
+            if (-not (Get-WithRetry 'https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.13/nsis-3.13.zip' $zip)) {
+              throw "Failed to download nsis-3.13.zip after retries"
+            }
+            $zipHash = (Get-FileHash -Algorithm SHA1 $zip).Hash
+            if ($zipHash -ne 'DB14F8AF2EA346B786C6AE19343F61AAF5E09B8E') {
+              throw "nsis-3.13.zip SHA1 mismatch: $zipHash"
+            }
+            # bundler: 解压到 tauri 目录后把 nsis-3.13 重命名为 NSIS
+            Expand-Archive -Path $zip -DestinationPath $tauriDir -Force
+            if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+            if (-not (Test-Path (Join-Path $tauriDir 'nsis-3.13'))) {
+              throw "nsis-3.13 folder missing after extraction"
+            }
+            Rename-Item (Join-Path $tauriDir 'nsis-3.13') 'NSIS'
+          }
+
+          if (-not (Test-Path $dllPath)) {
+            $dll = Join-Path $env:RUNNER_TEMP 'nsis_tauri_utils.dll'
+            if (-not (Get-WithRetry 'https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll' $dll)) {
+              throw "Failed to download nsis_tauri_utils.dll after retries"
+            }
+            $dllHash = (Get-FileHash -Algorithm SHA1 $dll).Hash
+            if ($dllHash -ne '75197FEE3C6A814FE035788D1C34EAD39349B860') {
+              throw "nsis_tauri_utils.dll SHA1 mismatch: $dllHash"
+            }
+            New-Item -ItemType Directory -Force -Path (Split-Path $dllPath) | Out-Null
+            Copy-Item $dll $dllPath -Force
+          }
+
+          if (-not (Test-Path $makensis)) { throw "makensis.exe still missing after pre-fetch" }
+          Write-Host "NSIS toolset ready: $dest"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f #v1.0.0
         env:

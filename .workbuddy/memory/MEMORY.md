@@ -48,7 +48,8 @@
   核心库 `tk/vless_proxy_lib.php`（解析/生成配置/排队/探测/测连通/给curl应用节点代理/多节点故障切换）。
 - **已弃用**：sudoers 白名单方案（因 disable_functions 放弃），`/etc/sudoers.d/xray-vless` 已删除。
 - **多节点自动切换**（2026-11-07 下午）：`vless_curl_apply_proxy`（仅 googleapis/google/youtube 域名走代理，开关 `vless_proxy_curl_enabled`）、`vless_failover_check`（不通依序切其它节点，失败回滚）、`vless-restart_service`。看门狗 `vless_failover_watchdog.php` + agent.sh 每 5 分钟跑一次。开关 `vless_failover` 默认 ON。
-- **备份**：`api_stats.php.bak_20261107`。本地工作稿：`D:\bian\vps\api_stats.php`、`D:\bian\vps\vless_proxy_lib.php`、`D:\bian\vps\_vless_proxy\`。
+- **代理中心节点拉取 + 轮询勾选**（2026-11-09）：指纹浏览器代理中心=`simprint_proxies` 表（124 节点，含 company_id→公司名；vless 完整链接在 protocol_config，裸串或 JSON vless_url 两种格式）。api_stats「节点设置」tab 新增「📥 代理中心节点」卡片：`list_center_proxies` 拉全部节点（显示公司名）、`import_center_nodes` 勾选导入节点库（id 前缀 c，按 host:port 去重；socks5/trojan/http 暂不支持导入）。**节点列表新增「轮询」勾选列**：勾选直接写节点记录 `rotate` 字段（不单独存池），`toggle_rotate` 切换；`vless_rotate_nodes`/`vless_rotate_next`（lib）实现看门狗每 5 分钟把出口轮换到下一个勾选节点（≥2 个生效），failover 候选优先池内。曾经做过又删掉的：「分配节点到指纹账号」功能（用户明确说无用）。备份 api_stats.php.bak_20261109_nodeassign。
+- **备份**：`api_stats.php.bak_20261107`。本地工作稿：`D:\bian\vps\api_stats.php`、`D:\bian\vps\vless_proxy_lib.php`、`D:\bian\vps\vless_failover_watchdog.php`、`D:\bian\vps\_vless_proxy\`。
 
 ### 相关文档
 - Magpie Trae 登录修复：`D:\bian\vps\_work\magpie_trae_login_fix.md`

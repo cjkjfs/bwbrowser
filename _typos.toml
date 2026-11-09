@@ -10,6 +10,11 @@ extend-exclude = [
     # Auto-generated from commit subjects by release.yml; typos here originate
     # in commit messages, which are immutable, so don't spell-check it.
     "CHANGELOG.md",
+    # Internal project notes (daily logs + long-term memory). They are
+    # append-only human notes that reference crate names (favored by typos as
+    # e.g. "flate2"->"flate") and punycode/IDN tokens (e.g. "akss" inside
+    # "xn--...akss.com"), so spell-checking them only generates noise.
+    ".workbuddy/",
 ]
 
 [default.extend-words]
@@ -20,6 +25,16 @@ caf = "caf"
 DBE = "DBE"
 nd = "nd"
 pn = "pn"
+# `flate` is a token split out of the Rust crate name `flate2` (a GzDecoder
+# dependency). typos wants to "correct" it to "flat" — a false positive, the
+# crate name is intentional.
+flate = "flate"
+# `akss` appears only inside punycode/IDN domain aliases (e.g.
+# "xn--74qz10cqsltibh40akss.com"). It is an encoding token, not a misspelling
+# of "asks"/"ass". Listed here too because typos' files-exclude does NOT apply
+# to file paths passed explicitly on the command line (as lint-staged does),
+# so the identifier-level ignore is the reliable fix.
+akss = "akss"
 
 [default.extend-identifiers]
 # Chrome Web Store extension name in the known-VPN list.

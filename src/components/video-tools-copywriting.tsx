@@ -74,6 +74,20 @@ interface RunResult {
   transcript_segments?: unknown;
 }
 
+/** 解说词出处识别结果（copywriting_identify_source 返回） */
+interface IdentifySourceResult {
+  found: boolean;
+  type: string;
+  title: string;
+  season: number;
+  episode: number;
+  /** 该集核心剧情段落概括（动漫/剧集给出具体集数时），非剧集或缺集数时为空 */
+  breakdown?: string;
+  evidence: string;
+  confidence: number;
+  raw?: string;
+}
+
 /** 把转录结果（segments 或整段文本）拆成每段一行 */
 function transcriptToLines(r: RunResult): string[] {
   const segs = Array.isArray(r.transcript_segments)
@@ -95,6 +109,20 @@ function transcriptToLines(r: RunResult): string[] {
     .split(/\r?\n/)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/** 出处识别：来源类型 → 中文标签 */
+function typeLabel(t: string): string {
+  switch (t) {
+    case "movie":
+      return "电影";
+    case "tv":
+      return "剧集";
+    case "anime":
+      return "动漫";
+    default:
+      return "";
+  }
 }
 
 export function QuickCopywritingTab() {
@@ -149,6 +177,27 @@ export function QuickCopywritingTab() {
   /** 批量粘贴区：展开状态 + 文本 */
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchText, setBatchText] = useState("");
+
+  // ---- 解说词出处识别（转录文案 → 影视/动漫出处）----
+  const [identifying, setIdentifying] = useState(false);
+  const [identifyResult, setIdentifyResult] =
+    useState<IdentifySourceResult | null>(null);
+  const [identifyOpen, setIdentifyOpen] = useState(false);
+  /** 识别已等待秒数（仅识别中计时，用户可感知“还没卡住”） */
+  const [identifyWaitSec, setIdentifyWaitSec] = useState(0);
+
+  // 识别中每秒刷新已等待秒数；非识别中立即归零
+  useEffect(() => {
+    if (!identifying) {
+      setIdentifyWaitSec(0);
+      return;
+    }
+    setIdentifyWaitSec(0);
+    const t = setInterval(() => {
+      setIdentifyWaitSec((s) => s + 1);
+    }, 1000);
+    return () => clearInterval(t);
+  }, [identifying]);
 
   // ---- 持久化：注入状态 + 防抖保存 ----
   const loadedRef = useRef(false);
@@ -371,6 +420,30 @@ export function QuickCopywritingTab() {
     ).then((fn) => (un = fn));
     return () => un?.();
   }, [transcribing]);
+
+  // ---- 识别解说词出处（影视/动漫）----
+  const identifySource = async () => {
+    const lines = transcript.map((s) => s.trim()).filter((s) => s.length > 0);
+    if (lines.length === 0) {
+      toast.error("转录文案为空，无法识别出处");
+      return;
+    }
+    setIdentifying(true);
+    setIdentifyResult(null);
+    setIdentifyOpen(true);
+    try {
+      const res = await invoke<IdentifySourceResult>(
+        "copywriting_identify_source",
+        { lines },
+      );
+      setIdentifyResult(res);
+    } catch (e) {
+      toast.error(`识别出处失败：${e}`);
+      setIdentifyOpen(false);
+    } finally {
+      setIdentifying(false);
+    }
+  };
 
   // ---- 翻译进度事件（后端逐行完成时上报真实 done/total + 译文实时上屏） ----
   useEffect(() => {
@@ -813,6 +886,8 @@ export function QuickCopywritingTab() {
         onTargetLangChange={setTopTargetLang}
         untranslatable={transcriptUntranslatable}
         onOpenTerms={openTerms}
+        identifying={identifying}
+        onIdentify={identifySource}
         onApplyGlossary={() =>
           applyGlossaryReplace(
             transcriptZh,
@@ -1017,6 +1092,92 @@ export function QuickCopywritingTab() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 解说词出处识别结果 */}
+      <Dialog open={identifyOpen} onOpenChange={setIdentifyOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>解说词出处识别</DialogTitle>
+            <DialogDescription>
+              根据转录文案判断这段解说词可能出自哪部影视或动漫。
+            </DialogDescription>
+          </DialogHeader>
+          {identifyResult ? (
+            <div className="flex flex-col gap-3">
+              {identifyResult.found ? (
+                <div className="flex items-center gap-3 rounded-md border bg-muted/40 p-3">
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="text-lg font-bold leading-tight text-primary">
+                      {identifyResult.title || "未识别到确切作品"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {typeLabel(identifyResult.type)}
+                      {identifyResult.season > 0 &&
+                        ` · 第 ${identifyResult.season} 季`}
+                      {identifyResult.episode > 0 &&
+                        ` · 第 ${identifyResult.episode} ${
+                          identifyResult.type === "anime" ? "话" : "集"
+                        }`}
+                      {identifyResult.confidence > 0 &&
+                        ` · 置信度 ${Math.round(
+                          identifyResult.confidence * 100,
+                        )}%`}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+                  未能依据这段文案确定出处，请确认文案是否完整，或补充更多上下文后再试。
+                </div>
+              )}
+              {identifyResult.found && identifyResult.breakdown && (
+                <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
+                  <span className="mb-1 block text-xs font-semibold text-primary">
+                    剧情段落（本集）
+                  </span>
+                  <span className="text-sm leading-relaxed text-foreground">
+                    {identifyResult.breakdown}
+                  </span>
+                </div>
+              )}
+              {identifyResult.evidence && (
+                <div className="text-sm leading-relaxed">
+                  <span className="font-medium text-foreground">
+                    判断依据：{" "}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {identifyResult.evidence}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => setIdentifyOpen(false)}
+                >
+                  关闭
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <div className="overflow-hidden rounded-full bg-muted">
+                <div className="h-1.5 w-1/3 rounded-full bg-primary/70 animate-progress-indeterminate" />
+              </div>
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5">
+                  <LuLoaderCircle className="size-3.5 animate-spin" />
+                  正在解读角色与剧情线索…
+                </span>
+                <span>已等待 {identifyWaitSec}s</span>
+              </div>
+              <div className="text-center text-[11px] text-muted-foreground">
+                识别是单次联机请求，通常 5~15 秒，请稍候
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1061,6 +1222,10 @@ interface PairEditorProps {
   rightOpen?: boolean;
   onLeftOpenChange?: (open: boolean) => void;
   onRightOpenChange?: (open: boolean) => void;
+  /** 正在识别出处（左栏标题栏「识别出处」按钮 loading 态） */
+  identifying?: boolean;
+  /** 提供时左栏标题栏显示「识别出处」按钮 */
+  onIdentify?: () => void;
 }
 
 // ============================================================
@@ -1219,6 +1384,8 @@ function PairEditor(props: PairEditorProps) {
           }
           fontSize={props.fontSize}
           registerScrollEl={(el) => (leftEl.current = el)}
+          identifying={props.identifying}
+          onIdentify={props.onIdentify}
         />
       ) : (
         <CollapsedStrip
@@ -1413,6 +1580,10 @@ interface LineListEditorProps {
   fontSize?: number;
   /** 把自身滚动容器注册给父级（用于左栏驱动右栏对齐） */
   registerScrollEl: (el: HTMLElement | null) => void;
+  /** 正在识别出处（显示 loading 图标） */
+  identifying?: boolean;
+  /** 提供时标题栏显示「识别出处」按钮（针对本栏文本做影视/动漫出处识别） */
+  onIdentify?: () => void;
 }
 
 function LineListEditor({
@@ -1428,6 +1599,8 @@ function LineListEditor({
   onCollapse,
   fontSize,
   registerScrollEl,
+  identifying,
+  onIdentify,
 }: LineListEditorProps) {
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
@@ -1538,6 +1711,23 @@ function LineListEditor({
           {label}
         </span>
         <div className="flex items-center gap-1">
+          {onIdentify && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 gap-1 px-2"
+              onClick={onIdentify}
+              disabled={identifying || value.length === 0}
+              title="识别这段文案出自哪部影视/动漫的哪一集"
+            >
+              {identifying ? (
+                <LuLoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <LuSearch className="size-3.5" />
+              )}
+              <span className="text-xs">识别出处</span>
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
