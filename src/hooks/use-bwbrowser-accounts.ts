@@ -152,6 +152,11 @@ interface UseBwbrowserAccountsReturn {
   setPlatformFilter: (platform: string) => void;
   setOwnerFilter: (ownerId: number | null) => void;
   setKeyword: (keyword: string) => void;
+  /** 局部更新单个账号的字段（乐观更新用；服务端保存失败时由调用方回滚） */
+  patchAccountLocal: (
+    accountId: number,
+    patch: Partial<BwbrowserAccount>,
+  ) => void;
 }
 
 /**
