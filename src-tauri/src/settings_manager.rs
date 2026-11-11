@@ -82,6 +82,15 @@ pub struct AppSettings {
   pub onboarding_completed: bool, // First-launch onboarding has been shown/handled (one-shot)
   #[serde(default)]
   pub disable_auto_updates: bool,
+  /// Whether a host-device launch (the VPS-login / Baowenku profile) gets GPU
+  /// acceleration launch switches (`--ignore-gpu-blocklist`,
+  /// `--enable-gpu-rasterization`, `--enable-zero-copy`). Defaults to on, which
+  /// matches the historical behavior; the toggle exists for VM / cloud hosts
+  /// where GPU rendering causes hangs or blank windows. Profiles with a
+  /// fingerprint identity are never touched by this flag — their reported
+  /// renderer is part of the fingerprint.
+  #[serde(default = "default_gpu_acceleration")]
+  pub gpu_acceleration: bool,
   /// When true, the decrypted in-RAM copy of a password-protected profile is
   /// preserved between launches for faster subsequent startups. The on-disk
   /// copy is always re-encrypted regardless of this flag.
@@ -134,6 +143,10 @@ fn default_theme() -> String {
   "system".to_string()
 }
 
+fn default_gpu_acceleration() -> bool {
+  true
+}
+
 fn default_api_port() -> u16 {
   10108
 }
@@ -184,6 +197,7 @@ impl Default for AppSettings {
       vpn_extension_warning_disabled: false,
       onboarding_completed: true,
       disable_auto_updates: false,
+      gpu_acceleration: true,
       keep_decrypted_profiles_in_ram: false,
       autofill_enabled: true,
       trash_retention_days: crate::profile::trash::DEFAULT_RETENTION_DAYS,
@@ -1346,6 +1360,7 @@ mod tests {
       vpn_extension_warning_disabled: false,
       onboarding_completed: true,
       disable_auto_updates: false,
+      gpu_acceleration: true,
       keep_decrypted_profiles_in_ram: false,
       trash_retention_days: 14,
       tips_auto_show: false,

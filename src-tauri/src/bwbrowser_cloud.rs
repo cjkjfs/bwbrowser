@@ -1014,22 +1014,47 @@ pub async fn bwbrowser_open_vps_login(
   let mut profile = match existing_profile {
     Some(mut p) => {
       log_bwbrowser("open_vps_login", &format!("复用已有 profile: id={}", p.id));
-      // 一次性迁移：真机模式遗留（fingerprint == "{}" 或残留 identity）重置为
-      // 空，让本次启动重新生成虚拟指纹。已生成过真实虚拟指纹的 profile 保持
-      // 原样，避免每次启动换指纹触发站点风控。
+      // 硬件加速开关决定 VPS 登录的指纹模式：
+      // - 开（真机模式）：不生成虚拟指纹，fingerprint 标记为 "{}"（host-device
+      //   标记）。browser_runner 视为已有设备不再生成，launch_wayfern 按
+      //   host-device 处理并追加 GPU 启用参数 → 真 GPU 硬件加速。代价：WebGL
+      //   显卡信息暴露真机（爆文库访问自家站点，可接受）。
+      // - 关（虚拟指纹模式）：维持原行为——启动时生成虚拟指纹，内核为兑现
+      //   WebGL 指纹注入 --use-angle=d3d11-warp 软件渲染（防指纹优先）。
+      let gpu_acceleration = crate::settings_manager::SettingsManager::instance()
+        .load_settings()
+        .map(|s| s.gpu_acceleration)
+        .unwrap_or(true);
+      // 一次性迁移：按当前模式检查 profile 是否处于目标态。非目标态（真机模式
+      // 遗留 / 残留 identity / 待生成）在浏览器未运行时归位。已生成过真实虚拟
+      // 指纹的 profile 保持原样，避免每次启动换指纹触发站点风控。
       let needs_reset = p
         .wayfern_config
         .as_ref()
         .map(|c| {
-          c.identity_id.is_some() || c.fingerprint.as_deref().map(|f| f == "{}").unwrap_or(false)
+          if gpu_acceleration {
+            // 真机模式目标态：fingerprint == "{}" 且无 identity
+            c.identity_id.is_some() || !matches!(c.fingerprint.as_deref(), Some("{}"))
+          } else {
+            // 虚拟指纹模式目标态：无 identity 无指纹（启动时自动生成）；
+            // "{}" 是真机模式遗留，归零。
+            c.identity_id.is_some() || c.fingerprint.as_deref().map(|f| f == "{}").unwrap_or(false)
+          }
         })
         .unwrap_or(true);
 
       if needs_reset {
-        log_bwbrowser(
-          "open_vps_login",
-          "  检测到真机模式遗留，本次启动生成虚拟指纹",
-        );
+        if gpu_acceleration {
+          log_bwbrowser(
+            "open_vps_login",
+            "  硬件加速开启：归位真机模式（不生成虚拟指纹，GPU 由真机提供）",
+          );
+        } else {
+          log_bwbrowser(
+            "open_vps_login",
+            "  检测到真机模式遗留，本次启动生成虚拟指纹",
+          );
+        }
       }
 
       // 注意：不调用 update_wayfern_config，因为它会自动携带旧的 identity_id
@@ -1038,18 +1063,30 @@ pub async fn bwbrowser_open_vps_login(
         Ok(false) => {
           if needs_reset {
             let mut new_config = wayfern_config.clone();
-            // 清空身份与载荷，browser_runner 将生成新的虚拟指纹
+            // 清空身份与载荷；fingerprint 按模式归位
             new_config.identity_id = None;
             new_config.identity_baseline = None;
             new_config.identity_overrides = None;
-            new_config.fingerprint = None;
             new_config.location = None;
             new_config.geo_proxy_signature = None;
             new_config.randomize_fingerprint_on_launch = None;
+            if gpu_acceleration {
+              // 真机模式标记（空对象）：browser_runner 的 needs_device 为
+              // false 不会生成指纹，launch_wayfern 的 is_host_device_launch
+              // 命中 → GPU 启用参数生效。
+              new_config.fingerprint = Some("{}".to_string());
+            } else {
+              // 留空 → browser_runner 在启动时生成虚拟指纹并持久化
+              new_config.fingerprint = None;
+            }
             p.wayfern_config = Some(new_config.clone());
             match pm.save_profile(&p) {
               Ok(_) => {
-                log_bwbrowser("open_vps_login", "  ✓ 已重置为虚拟指纹模式");
+                if gpu_acceleration {
+                  log_bwbrowser("open_vps_login", "  ✓ 已切换为真机模式（硬件加速）");
+                } else {
+                  log_bwbrowser("open_vps_login", "  ✓ 已重置为虚拟指纹模式");
+                }
               }
               Err(e) => {
                 log_bwbrowser_error("open_vps_login", &format!("  保存配置失败: {}", e));
@@ -2643,6 +2680,9 @@ pub struct BwbrowserAccount {
   /// 启动网址配置（JSON: {"include_platform":bool,"urls":[...]}），编辑账号维护
   #[serde(default)]
   pub start_urls: Option<String>,
+  /// 账号级硬件加速开关：true = 本次启动追加合成/光栅化 GPU 参数（WebGL 仍走虚拟指纹软件渲染）
+  #[serde(default, deserialize_with = "deserialize_int_or_bool")]
+  pub gpu_acceleration: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -5141,6 +5181,7 @@ pub async fn bwbrowser_update_account_info(
   backup_email: Option<String>,
   channel_id: Option<String>,
   start_urls: Option<String>,
+  gpu_acceleration: Option<bool>,
 ) -> Result<(), String> {
   let (username, password) = BWBROWSER_AUTH
     .get_credentials()
@@ -5197,6 +5238,9 @@ pub async fn bwbrowser_update_account_info(
   }
   if let Some(v) = start_urls {
     params.push(format!("start_urls={}", urlencode(&v)));
+  }
+  if let Some(v) = gpu_acceleration {
+    params.push(format!("gpu_acceleration={}", if v { 1 } else { 0 }));
   }
 
   let form_data = params.join("&");
@@ -7489,6 +7533,7 @@ async fn launch_account_impl(
     server_phone_id,
     server_channel_id,
     server_pure_username,
+    server_gpu_acceleration,
   ) = match BWBROWSER_AUTH.get_account_detail(account_id).await {
     Ok(detail) => {
       let env = detail.env_uuid.clone();
@@ -7517,6 +7562,7 @@ async fn launch_account_impl(
         detail.phone_id.clone(),
         detail.channel_id.clone(),
         detail.pure_username.clone(),
+        detail.gpu_acceleration,
       )
     }
     Err(e) => {
@@ -7529,6 +7575,7 @@ async fn launch_account_impl(
         account_name.clone(),
         platform.clone(),
         proxy_node,
+        None,
         None,
         None,
         None,
@@ -8269,6 +8316,7 @@ async fn launch_account_impl(
         &server_account_name,
         server_phone_id.as_deref(),
       )),
+      gpu_acceleration: server_gpu_acceleration,
       ..Default::default()
     };
     crate::browser_runner::launch_browser_profile_impl(
@@ -8676,6 +8724,7 @@ async fn launch_account_impl(
           None,
           None,
           send_id.clone(),
+          None,
           None,
         )
         .await

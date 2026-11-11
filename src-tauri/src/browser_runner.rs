@@ -268,6 +268,7 @@ impl BrowserRunner {
     shield_platform: Option<&str>,
     kernel_override: Option<&(String, String)>,
     profile_label: Option<&str>,
+    gpu_acceleration: bool,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
     // The override decides which kernel this launch runs on; the profile's own
     // fields are never rewritten, so the on-disk metadata keeps saying Wayfern
@@ -761,6 +762,7 @@ impl BrowserRunner {
           headless,
           kind,
           profile_label,
+          gpu_acceleration,
         )
         .await
         .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
@@ -1205,6 +1207,7 @@ impl BrowserRunner {
     shield_platform: Option<&str>,
     kernel_override: Option<&(String, String)>,
     profile_label: Option<&str>,
+    gpu_acceleration: bool,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
     // Wayfern starts (and PID-reconciles) its own local proxy
     // inside `launch_browser_internal`, so we hand it None here rather than
@@ -1222,6 +1225,7 @@ impl BrowserRunner {
         shield_platform,
         kernel_override,
         profile_label,
+        gpu_acceleration,
       )
       .await
   }
@@ -1240,6 +1244,7 @@ impl BrowserRunner {
     shield_platform: Option<&str>,
     kernel_override: Option<&(String, String)>,
     profile_label: Option<&str>,
+    gpu_acceleration: bool,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
     log::info!(
       "launch_or_open_url called for profile: {} (ID: {})",
@@ -1332,6 +1337,7 @@ impl BrowserRunner {
           shield_platform,
           kernel_override,
           profile_label,
+          gpu_acceleration,
         )
         .await
     }
@@ -2027,6 +2033,7 @@ impl BrowserRunner {
         None,
         None,
         None,
+        false,
       )
       .await
     {
@@ -2100,6 +2107,12 @@ pub struct LaunchOptions {
   pub kernel_override: Option<(String, String)>,
   /// A window label distinct from the stable profile identity.
   pub profile_label: Option<String>,
+  /// Per-account hardware acceleration override: `Some(true)` appends the
+  /// compositing/rasterization GPU switches for this launch even though the
+  /// profile carries a virtual fingerprint. The WebGL/ANGLE backend is never
+  /// touched on this path — the kernel keeps its software WebGL so the
+  /// spoofed renderer stays consistent. `None` = follow the profile kind.
+  pub gpu_acceleration: Option<bool>,
 }
 
 impl LaunchOptions {
@@ -2116,6 +2129,7 @@ impl LaunchOptions {
       shield_platform: None,
       kernel_override: None,
       profile_label: None,
+      gpu_acceleration: None,
     }
   }
 }
@@ -2229,7 +2243,11 @@ async fn launch_browser_profile_tracked(
     shield_platform,
     kernel_override,
     profile_label,
+    gpu_acceleration,
   } = options;
+  // Per-account override: `Some(true)` arms the compositing GPU switches even
+  // for a virtual-fingerprint launch (WebGL stays software either way).
+  let gpu_acceleration = gpu_acceleration.unwrap_or(false);
   let on_fingerprint_progress = on_fingerprint_progress
     .as_ref()
     .map(|cb| cb.as_ref() as &(dyn Fn(&str) + Sync));
@@ -2336,6 +2354,7 @@ async fn launch_browser_profile_tracked(
         shield_platform.as_deref(),
         kernel_override.as_ref(),
         profile_label.as_deref(),
+        gpu_acceleration,
       )
       .await
   } else {
@@ -2350,6 +2369,7 @@ async fn launch_browser_profile_tracked(
         shield_platform.as_deref(),
         kernel_override.as_ref(),
         profile_label.as_deref(),
+        gpu_acceleration,
       )
       .await
   };

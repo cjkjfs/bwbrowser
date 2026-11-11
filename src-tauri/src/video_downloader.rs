@@ -183,20 +183,143 @@ async fn effective_proxy_url(settings: &DownloadSettings) -> Option<String> {
   match settings.proxy_id.as_deref() {
     None | Some("follow") => {
       if let Some(aid) = settings.cookie_account_id {
-        cookie_account_proxy_url(aid).await
+        log::info!("[video_download] 跟随 Cookie 源账号 id={aid}, 提取其后台登录节点作为下载代理");
+        let url = cookie_account_proxy_url(aid).await;
+        match &url {
+          Some(u) => log::info!("[video_download] 跟随账号 {aid} → 走代理 {u}"),
+          None => log::info!(
+            "[video_download] 跟随账号 {aid} → 该账号节点不可用/侧车启动失败, 下载回落直连"
+          ),
+        }
+        url
       } else {
+        log::info!(
+          "[video_download] 跟随模式但未选 Cookie 源账号 (VPS 登录导出) → 无可跟随节点, 下载为直连"
+        );
         None
       }
     }
-    _ => build_proxy_url(&settings.proxy_id),
+    _ => {
+      let pid = settings.proxy_id.as_deref().unwrap_or("");
+      // 本地代理库中显式选中的代理；若 vless/trojan 经 Xray 侧车转 socks5
+      let url = if pid.is_empty() || pid == "direct" || pid == "none" {
+        None
+      } else {
+        let stored = crate::proxy_manager::PROXY_MANAGER.get_stored_proxies();
+        match stored.iter().find(|p| p.id == pid) {
+          Some(p) => proxy_settings_to_ytdlp_url(&p.proxy_settings).await,
+          None => {
+            log::warn!("[video_download] 本地代理 {pid} 未找到，回落直连");
+            None
+          }
+        }
+      };
+      match &url {
+        Some(u) => log::info!("[video_download] 显式选择本地代理 {pid} → 走 {u}"),
+        None => log::info!("[video_download] 代理选项={pid} → 直连"),
+      }
+      url
+    }
   }
 }
 
 type ServerProxyCache =
   tokio::sync::Mutex<std::collections::HashMap<i64, (std::time::Instant, Option<String>)>>;
 
+/// 视频下载端已启动的 Xray 侧车线路（URI → worker），按 URI 复用。
+/// 与 AI 洗稿（ai_rewrite::XRAY_WORKERS）各自独立池，避免互相干扰清理。
+type DownloadXrayPool =
+  std::sync::Mutex<std::collections::HashMap<String, crate::xray_worker_storage::XrayWorkerConfig>>;
+fn download_xray_pool() -> &'static DownloadXrayPool {
+  static POOL: std::sync::OnceLock<DownloadXrayPool> = std::sync::OnceLock::new();
+  POOL.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// 取 URI 对应的 Xray 侧车线路，没有则启动；命中缓存先做 SOCKS 握手存活检查，
+/// 失联则停掉重建。返回的 worker 提供了本机认证 socks5（yt-dlp 可用）。
+async fn download_xray_worker_for(
+  uri: &str,
+) -> Result<crate::xray_worker_storage::XrayWorkerConfig, String> {
+  // 先从池里取（不跨 await 持有锁）：clone 出候选条目
+  let cached = download_xray_pool().lock().unwrap().get(uri).cloned();
+  if let Some(existing) = cached {
+    if crate::xray_worker_runner::authenticated_socks_ready(&existing).await {
+      log::info!(
+        "[video_download] 复用 Xray 侧车 {uri}（端口 {}）",
+        existing.local_port
+      );
+      return Ok(existing);
+    }
+    log::warn!(
+      "[video_download] 侧车 {uri} 失联，停旧重启（端口 {}）",
+      existing.local_port
+    );
+    let _ = crate::xray_worker_runner::stop_xray_worker(&existing.id).await;
+    download_xray_pool().lock().unwrap().remove(uri);
+  }
+  // 不在池或已失联 → 全新启动
+  let worker = crate::xray_worker_runner::start_xray_worker(None, uri)
+    .await
+    .map_err(|e| format!("Xray 侧车启动失败：{e}"))?;
+  let pid = uri.to_string();
+  if crate::xray_worker_runner::authenticated_socks_ready(&worker).await {
+    log::info!(
+      "[video_download] vless 节点 → Xray 侧车就绪（端口 {}）",
+      worker.local_port
+    );
+  } else {
+    log::info!(
+      "[video_download] vless 节点 → Xray 侧车返回（端口 {}）",
+      worker.local_port
+    );
+  }
+  download_xray_pool()
+    .lock()
+    .unwrap()
+    .insert(pid, worker.clone());
+  Ok(worker)
+}
+
+/// vless/trojan 节点的完整 URI 如果该 URI 已通过 Xray 侧车转出，返回本机认证 socks5 URL。
+async fn proxy_settings_to_ytdlp_url(ps: &crate::browser::ProxySettings) -> Option<String> {
+  let kind = ps.proxy_type.to_lowercase();
+  match kind.as_str() {
+    "vless" | "trojan" => {
+      let uri = ps.vless_uri.as_deref()?;
+      match download_xray_worker_for(uri).await {
+        Ok(w) => Some(format!(
+          "socks5://{}:{}@127.0.0.1:{}",
+          w.username, w.password, w.local_port
+        )),
+        Err(e) => {
+          log::warn!("[video_download] vless 节点转侧车失败，回落直连：{e}");
+          None
+        }
+      }
+    }
+    "socks5" | "socks" | "http" | "https" => {
+      let auth = match (&ps.username, &ps.password) {
+        (Some(u), Some(p)) if !u.is_empty() => format!("{}:{}@", urlencode(u), urlencode(p)),
+        (Some(u), None) if !u.is_empty() => format!("{}@", urlencode(u)),
+        _ => String::new(),
+      };
+      let scheme = if kind == "socks5" || kind == "socks" {
+        "socks5"
+      } else {
+        "http"
+      };
+      Some(format!("{scheme}://{auth}{}:{}", ps.host, ps.port))
+    }
+    _ => {
+      log::warn!("[video_download] 未知代理协议 {kind}，回落直连");
+      None
+    }
+  }
+}
+
 /// Cookie 源账号的后台节点转 yt-dlp 代理 URL（10 分钟缓存）。
-/// VLESS/Trojan 节点 yt-dlp 不支持，返回 None 回落本地。
+/// http/https/socks5 直接用；vless/trojan 经 Xray 侧车转本机认证 socks5，
+/// 侧车启动失败回落直连。
 async fn cookie_account_proxy_url(account_id: i64) -> Option<String> {
   static CACHE: std::sync::OnceLock<ServerProxyCache> = std::sync::OnceLock::new();
   const TTL: std::time::Duration = std::time::Duration::from_secs(600);
@@ -205,6 +328,10 @@ async fn cookie_account_proxy_url(account_id: i64) -> Option<String> {
   let mut guard = cache.lock().await;
   if let Some((at, val)) = guard.get(&account_id) {
     if at.elapsed() < TTL {
+      log::info!(
+        "[video_download] 账号 {account_id} 节点命中 10 分钟缓存 → {:?}",
+        val
+      );
       return val.clone();
     }
   }
@@ -212,35 +339,37 @@ async fn cookie_account_proxy_url(account_id: i64) -> Option<String> {
     .get_account_detail(account_id)
     .await
     .ok();
-  let val = detail
-    .and_then(|d| d.proxy_node)
-    .as_deref()
-    .and_then(crate::cloud_proxy_manager::parse_proxy_node)
-    .and_then(|ps| {
-      match ps.proxy_type.as_str() {
-        "http" | "https" | "socks5" => {
-          let auth = match (&ps.username, &ps.password) {
-            (Some(u), Some(p)) if !u.is_empty() => {
-              format!("{}:{}@", urlencode(u), urlencode(p))
-            }
-            (Some(u), None) if !u.is_empty() => format!("{}@", urlencode(u)),
-            _ => String::new(),
-          };
-          let scheme = if ps.proxy_type == "socks5" {
-            "socks5"
-          } else {
-            "http"
-          };
-          Some(format!("{}://{}{}:{}", scheme, auth, ps.host, ps.port))
-        }
-        other => {
-          log::info!(
-            "[video_download] Cookie 源账号 {account_id} 的节点为 {other} 协议，yt-dlp 不支持，使用本地代理设置"
-          );
-          None
-        }
+  let detail = match detail {
+    Some(d) => d,
+    None => {
+      log::warn!("[video_download] 拉取账号 {account_id} 详情失败 → 无法获取登录节点, 回落直连");
+      guard.insert(account_id, (std::time::Instant::now(), None));
+      return None;
+    }
+  };
+  let Some(node) = detail.proxy_node.as_deref() else {
+    log::warn!(
+      "[video_download] 账号 {account_id} 后台未配置登录节点 (proxy_node 为空) → 回落直连"
+    );
+    guard.insert(account_id, (std::time::Instant::now(), None));
+    return None;
+  };
+  log::info!("[video_download] 账号 {account_id} 后台登录节点原始: {node}");
+  let val = match crate::cloud_proxy_manager::parse_proxy_node(node) {
+    Some(ps) => {
+      let kind = ps.proxy_type.to_lowercase();
+      if kind == "vless" || kind == "trojan" {
+        log::info!("[video_download] 账号 {account_id} 节点协议={kind}, 经 Xray 侧车转本机 socks5");
+      } else {
+        log::info!("[video_download] 账号 {account_id} 节点协议={kind} 且 yt-dlp 原生支持");
       }
-    });
+      proxy_settings_to_ytdlp_url(&ps).await
+    }
+    None => {
+      log::warn!("[video_download] 账号 {account_id} 节点解析失败 → 回落直连");
+      None
+    }
+  };
   guard.insert(account_id, (std::time::Instant::now(), val.clone()));
   val
 }
@@ -1419,7 +1548,20 @@ async fn run_single_download<R: Runtime>(
   // 代理信息 + 完整命令 写入日志
   let proxy_info = match effective_proxy {
     Some(url) => format!("代理: {}\n", url),
-    None => "代理: 直连（不使用代理）\n".to_string(),
+    None => {
+      let follow_note =
+        if settings.proxy_id.is_none() || settings.proxy_id.as_deref() == Some("follow") {
+          match settings.cookie_account_id {
+            Some(aid) => format!(
+              "（跟随 Cookie 源账号 id={aid}，但该账号节点不可用/节点转代理失败 → 已回落直连）\n"
+            ),
+            None => "（跟随模式但未选账号 → 直连）\n".to_string(),
+          }
+        } else {
+          String::new()
+        };
+      format!("代理: 直连（不使用代理）{}\n", follow_note)
+    }
   };
   let log_content = format!(
     "[{}] 开始下载\n{}\n命令: {} {}\n\n",
@@ -2559,9 +2701,15 @@ pub async fn fetch_native_subtitles<R: Runtime>(
       .to_string_lossy()
       .to_string(),
   ];
-  if let Some(proxy_url) = effective_proxy_url(&settings).await {
+  // 代理：跟随 Cookie 源账号或显式本地代理（effective_proxy_url 已打详细日志）
+  let _proxy_for_log = effective_proxy_url(&settings).await;
+  let _ = &_proxy_for_log;
+  if let Some(proxy_url) = _proxy_for_log {
     args.push("--proxy".to_string());
     args.push(proxy_url);
+    log::info!("[ai_rewrite] 原生字幕拉取使用代理: (见上方 effective_proxy_url 日志)");
+  } else {
+    log::info!("[ai_rewrite] 原生字幕拉取为直连");
   }
   let lower = url.to_lowercase();
   let is_youtube = lower.contains("youtube.com") || lower.contains("youtu.be");

@@ -30,6 +30,7 @@ import {
   LuWrench,
   LuX,
 } from "react-icons/lu";
+import { AnimatedSwitch } from "@/components/ui/animated-switch";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -509,6 +510,13 @@ export function RailNav({
   const [vpsProxyDialogOpen, setVpsProxyDialogOpen] = useState(false);
   const [vpsContextMenuOpen, setVpsContextMenuOpen] = useState(false);
   const [vpsContextMenuPos, setVpsContextMenuPos] = useState({ x: 0, y: 0 });
+  // 硬件加速开关（VPS 登录/爆文库打开时生效），与云端账号管理页入口共用同一设置
+  const [gpuAcceleration, setGpuAcceleration] = useState(true);
+  useEffect(() => {
+    void invoke<{ gpu_acceleration?: boolean }>("get_app_settings")
+      .then((s) => setGpuAcceleration(s.gpu_acceleration ?? true))
+      .catch(() => {});
+  }, []);
   const [cookieSubmenuOpen, setCookieSubmenuOpen] = useState(false);
   const cookieSubmenuRef = useRef<HTMLDivElement>(null);
   const [vpsProxySearch, setVpsProxySearch] = useState("");
@@ -681,6 +689,21 @@ export function RailNav({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       showErrorToast(`本地数据已清除，但删除云端 Cookie 失败: ${msg}`);
+    }
+  }, []);
+
+  // 硬件加速开关保存：get 全量取回 → 改单字段 → save 回写，失败回滚 UI。
+  const handleGpuAccelerationToggle = useCallback(async (checked: boolean) => {
+    setGpuAcceleration(checked);
+    try {
+      const current = await invoke<Record<string, unknown>>("get_app_settings");
+      await invoke("save_app_settings", {
+        settings: { ...current, gpu_acceleration: checked },
+      });
+    } catch (err) {
+      setGpuAcceleration((prev) => !prev);
+      const msg = err instanceof Error ? err.message : String(err);
+      showErrorToast(`设置保存失败: ${msg}`);
     }
   }, []);
 
@@ -1038,6 +1061,20 @@ export function RailNav({
             >
               <LuNetwork className="h-3.5 w-3.5 text-muted-foreground" />
               设置代理
+            </button>
+            <div className="my-1 h-px bg-border" />
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
+              onClick={() => void handleGpuAccelerationToggle(!gpuAcceleration)}
+              title="爆文库打开时是否启用 GPU 加速（VM 卡顿/白屏可关闭）"
+            >
+              <AnimatedSwitch
+                checked={gpuAcceleration}
+                onCheckedChange={() => {}}
+                className="pointer-events-none"
+              />
+              <span>硬件加速</span>
             </button>
             <div className="my-1 h-px bg-border" />
             <div

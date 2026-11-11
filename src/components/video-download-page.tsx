@@ -1517,7 +1517,12 @@ export function VideoDownloadPage({
                       if (pid === "direct") return "直连（不使用代理）";
                       const p = proxyList.find((x) => x.id === pid);
                       return p
-                        ? `${p.name} (${p.proxy_type}://${p.host}:${p.port})`
+                        ? `${p.name} (${
+                            p.proxy_type === "vless" ||
+                            p.proxy_type === "trojan"
+                              ? `${p.proxy_type} 节点`
+                              : `${p.proxy_type}://${p.host}:${p.port}`
+                          })`
                         : "跟随 Cookie 源账号（推荐）";
                     })()}
                   </span>
@@ -1585,7 +1590,11 @@ export function VideoDownloadPage({
                                 : "opacity-0"
                             }`}
                           />
-                          {p.name} ({p.proxy_type}://{p.host}:{p.port})
+                          {p.name} (
+                          {p.proxy_type === "vless" || p.proxy_type === "trojan"
+                            ? `${p.proxy_type} 节点（经 Xray 转 socks5）`
+                            : `${p.proxy_type}://${p.host}:${p.port}`}
+                          )
                         </CommandItem>
                       ))}
                     </CommandGroup>

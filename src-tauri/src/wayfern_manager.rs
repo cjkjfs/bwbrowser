@@ -2648,6 +2648,7 @@ impl WayfernManager {
     headless: bool,
     kind: LaunchKind,
     profile_label: Option<&str>,
+    gpu_acceleration: bool,
   ) -> Result<WayfernLaunchResult, Box<dyn std::error::Error + Send + Sync>> {
     let executable_path = BrowserRunner::instance()
       .get_browser_executable_path(profile)
@@ -2821,8 +2822,39 @@ impl WayfernManager {
     // launch reports the real machine GPU anyway, and the blocklist is the one
     // thing that can silently drop a capable VM GPU to SwiftShader software
     // rendering.
+    //
+    // The user toggle (Settings → Advanced → Hardware acceleration) only gates
+    // this host-device launch: an identity launch is never touched regardless
+    // of the flag. Defaults to on (historical behavior); turning it off is for
+    // VM / cloud hosts where GPU rendering hangs or blanks the window.
     if Self::is_host_device_launch(config) {
-      args.push("--ignore-gpu-blocklist".to_string());
+      let gpu_acceleration = crate::settings_manager::SettingsManager::instance()
+        .load_settings()
+        .map(|s| s.gpu_acceleration)
+        .unwrap_or(true);
+      if gpu_acceleration {
+        args.push("--ignore-gpu-blocklist".to_string());
+        args.push("--enable-gpu-rasterization".to_string());
+        args.push("--enable-zero-copy".to_string());
+        // The Wayfern kernel forces `--use-angle=d3d11-warp` (software WebGL)
+        // on every launch to keep the renderer fingerprint uniform. On a
+        // host-device launch there is nothing to spoof, so pin the real D3D11
+        // ANGLE backend instead and let it override the kernel's injected
+        // warp seed. A later real-GPU chrome://gpu (GL_RENDERER = 真显卡, not
+        // SwiftShader/SwANGLE) is the sign this is landing.
+        args.push("--use-angle=d3d11".to_string());
+      } else {
+        // Explicitly disable GPU compositing so software rendering is used,
+        // which is the whole point of the toggle for problematic VMs.
+        args.push("--disable-gpu".to_string());
+      }
+    } else if gpu_acceleration {
+      // Cloud-account hardware acceleration (per-account toggle): the profile
+      // keeps its virtual fingerprint, so the ANGLE/WebGL backend stays
+      // exactly what the kernel injects (software) — the spoofed renderer
+      // must stay consistent. Only the compositing/rasterization switches are
+      // appended, which speed up scrolling and video compositing without
+      // touching anything a WebGL fingerprint probe reads back.
       args.push("--enable-gpu-rasterization".to_string());
       args.push("--enable-zero-copy".to_string());
     }
@@ -3299,77 +3331,89 @@ impl WayfernManager {
         );
       }
     } else if let Some(fingerprint_json) = &config.fingerprint {
-      crate::bwbrowser_cloud::log_bwbrowser(
-        "launch_account",
-        &format!(
-          "  [Launch] Applying fingerprint to Wayfern browser, fingerprint length: {} chars",
-          fingerprint_json.len()
-        ),
-      );
-      Self::warn_on_screen_over_host(fingerprint_json, profile, _app_handle);
+      // Host-device marker (empty object, the VPS-login hardware-acceleration
+      // mode): nothing to apply — the browser keeps the real machine's device.
+      // Applying an empty payload would still run the kernel's spoofing path,
+      // so skip the whole setFingerprint flow for it.
+      let is_host_marker = Self::fingerprint_object(fingerprint_json)
+        .map(|obj| obj.is_empty())
+        .unwrap_or(false);
+      if is_host_marker {
+        log::info!(
+          "Host-device fingerprint marker (empty object); skipping setFingerprint — real machine device in use"
+        );
+      } else {
+        crate::bwbrowser_cloud::log_bwbrowser(
+          "launch_account",
+          &format!(
+            "  [Launch] Applying fingerprint to Wayfern browser, fingerprint length: {} chars",
+            fingerprint_json.len()
+          ),
+        );
+        Self::warn_on_screen_over_host(fingerprint_json, profile, _app_handle);
 
-      // Both stored shapes, the bare object and the legacy
-      // `{"fingerprint": {...}}` wrapper, are resolved by the same accessor the
-      // consistency gate reads, and nothing is defaulted in. A profile that
-      // declares no timezone is launched with none, which is exactly what the
-      // gate reports to the user.
-      let mut fingerprint_for_cdp = Self::launch_fingerprint_payload(fingerprint_json)?;
+        // Both stored shapes, the bare object and the legacy
+        // `{"fingerprint": {...}}` wrapper, are resolved by the same accessor the
+        // consistency gate reads, and nothing is defaulted in. A profile that
+        // declares no timezone is launched with none, which is exactly what the
+        // gate reports to the user.
+        let mut fingerprint_for_cdp = Self::launch_fingerprint_payload(fingerprint_json)?;
 
-      // 如果 config.location 里有正确的时区信息，合并到 fingerprint 里。
-      // 这对 setFingerprint 模式尤其重要：identity 模式通过 launch_identity_document 传时区，
-      // 但 setFingerprint 模式只用 fingerprint JSON，必须把 location 里的时区合并进去，
-      // 否则 browserscan 会检测出 IP 时区与浏览器时区不一致。
-      let location_obj = Self::stored_object(config.location.as_deref());
-      if !location_obj.is_empty() {
-        if let Some(obj) = fingerprint_for_cdp.as_object_mut() {
-          let mut merged = 0;
-          for key in LOCALE_CARRY_OVER_KEYS {
-            if let Some(value) = location_obj.get(key) {
-              if !value.is_null() {
-                obj.insert(key.to_string(), value.clone());
-                merged += 1;
+        // 如果 config.location 里有正确的时区信息，合并到 fingerprint 里。
+        // 这对 setFingerprint 模式尤其重要：identity 模式通过 launch_identity_document 传时区，
+        // 但 setFingerprint 模式只用 fingerprint JSON，必须把 location 里的时区合并进去，
+        // 否则 browserscan 会检测出 IP 时区与浏览器时区不一致。
+        let location_obj = Self::stored_object(config.location.as_deref());
+        if !location_obj.is_empty() {
+          if let Some(obj) = fingerprint_for_cdp.as_object_mut() {
+            let mut merged = 0;
+            for key in LOCALE_CARRY_OVER_KEYS {
+              if let Some(value) = location_obj.get(key) {
+                if !value.is_null() {
+                  obj.insert(key.to_string(), value.clone());
+                  merged += 1;
+                }
               }
             }
-          }
-          if merged > 0 {
-            log::info!(
-              "Merged {} location fields into setFingerprint payload (from config.location)",
-              merged
-            );
+            if merged > 0 {
+              log::info!(
+                "Merged {} location fields into setFingerprint payload (from config.location)",
+                merged
+              );
+            }
           }
         }
-      }
 
-      // An explicit color-scheme choice wins over the payload's absence (or
-      // the host Windows surface) so pages render in the selected scheme.
-      // When the user made no choice, inject the host's APP theme anyway:
-      // an omitted prefersDarkMode makes the kernel spoof prefers-color-scheme
-      // from the host's SYSTEM surface, which renders every page dark on
-      // hosts whose system surface is dark while apps are light (verified on
-      // 151.0.7922.76: TikTok et al. evaluate dark from the spoof, ignoring
-      // the real light media query).
-      let dark = config
-        .prefers_dark_mode
-        .unwrap_or_else(crate::browser::host_apps_prefers_dark);
-      if let Some(obj) = fingerprint_for_cdp.as_object_mut() {
-        if obj.get("prefersDarkMode").and_then(|v| v.as_bool()) != Some(dark) {
-          obj.insert("prefersDarkMode".to_string(), json!(dark));
-          log::info!(
+        // An explicit color-scheme choice wins over the payload's absence (or
+        // the host Windows surface) so pages render in the selected scheme.
+        // When the user made no choice, inject the host's APP theme anyway:
+        // an omitted prefersDarkMode makes the kernel spoof prefers-color-scheme
+        // from the host's SYSTEM surface, which renders every page dark on
+        // hosts whose system surface is dark while apps are light (verified on
+        // 151.0.7922.76: TikTok et al. evaluate dark from the spoof, ignoring
+        // the real light media query).
+        let dark = config
+          .prefers_dark_mode
+          .unwrap_or_else(crate::browser::host_apps_prefers_dark);
+        if let Some(obj) = fingerprint_for_cdp.as_object_mut() {
+          if obj.get("prefersDarkMode").and_then(|v| v.as_bool()) != Some(dark) {
+            obj.insert("prefersDarkMode".to_string(), json!(dark));
+            log::info!(
             "Merged prefersDarkMode={dark} into setFingerprint payload (config choice or host app-theme default)"
           );
+          }
         }
-      }
 
-      log::info!(
-        "Fingerprint prepared for CDP command, fields: {:?}",
-        fingerprint_for_cdp
-          .as_object()
-          .map(|o| o.keys().collect::<Vec<_>>())
-      );
-
-      // Log timezone and geolocation fields specifically for debugging
-      if let Some(obj) = fingerprint_for_cdp.as_object() {
         log::info!(
+          "Fingerprint prepared for CDP command, fields: {:?}",
+          fingerprint_for_cdp
+            .as_object()
+            .map(|o| o.keys().collect::<Vec<_>>())
+        );
+
+        // Log timezone and geolocation fields specifically for debugging
+        if let Some(obj) = fingerprint_for_cdp.as_object() {
+          log::info!(
           "Timezone/Geolocation fields - timezone: {:?}, timezoneOffset: {:?}, latitude: {:?}, longitude: {:?}, language: {:?}, languages: {:?}",
           obj.get("timezone"),
           obj.get("timezoneOffset"),
@@ -3378,112 +3422,113 @@ impl WayfernManager {
           obj.get("language"),
           obj.get("languages")
         );
-      }
+        }
 
-      // Include wayfern token if available (enables cross-OS fingerprinting for paid users)
-      let wayfern_token = get_wayfern_kernel_token().await;
+        // Include wayfern token if available (enables cross-OS fingerprinting for paid users)
+        let wayfern_token = get_wayfern_kernel_token().await;
 
-      // The device as donut holds it, for the diagnostic below.
-      let stored = fingerprint_for_cdp.as_object().cloned().unwrap_or_default();
+        // The device as donut holds it, for the diagnostic below.
+        let stored = fingerprint_for_cdp.as_object().cloned().unwrap_or_default();
 
-      // Sync the claimed UA to the running kernel before anything is sent:
-      // the payload's template version (Chrome/128…) disagrees with the
-      // kernel's engine (151…), and the network stack would keep reporting
-      // the kernel build regardless. See network_ua_override_params.
-      let kernel_version = profile.version.clone();
-      if !kernel_version.is_empty() {
-        if let Some(obj) = fingerprint_for_cdp.as_object_mut() {
-          if let Some(ua) = obj
-            .get("userAgent")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-          {
-            let synced = Self::chrome_synced_ua(&ua, &kernel_version);
-            obj.insert("userAgent".to_string(), json!(synced));
+        // Sync the claimed UA to the running kernel before anything is sent:
+        // the payload's template version (Chrome/128…) disagrees with the
+        // kernel's engine (151…), and the network stack would keep reporting
+        // the kernel build regardless. See network_ua_override_params.
+        let kernel_version = profile.version.clone();
+        if !kernel_version.is_empty() {
+          if let Some(obj) = fingerprint_for_cdp.as_object_mut() {
+            if let Some(ua) = obj
+              .get("userAgent")
+              .and_then(|v| v.as_str())
+              .map(str::to_string)
+            {
+              let synced = Self::chrome_synced_ua(&ua, &kernel_version);
+              obj.insert("userAgent".to_string(), json!(synced));
+            }
           }
         }
-      }
-      let ua_override = Self::network_ua_override_params(&fingerprint_for_cdp, &kernel_version);
+        let ua_override = Self::network_ua_override_params(&fingerprint_for_cdp, &kernel_version);
 
-      // `setFingerprint` is the only command that reproduces a whole payload
-      // exactly, and on a browser without the identity API it is the only
-      // command there is. A profile whose browser HAS that API never reaches
-      // here: the launch path mints it an identity and drops the payload
-      // first, so a stored device is never sent as a device again.
-      let mut apply_params = fingerprint_for_cdp.clone();
-      if let Some(ref token) = wayfern_token {
-        if let Some(obj) = apply_params.as_object_mut() {
-          obj.insert("wayfernToken".to_string(), json!(token));
+        // `setFingerprint` is the only command that reproduces a whole payload
+        // exactly, and on a browser without the identity API it is the only
+        // command there is. A profile whose browser HAS that API never reaches
+        // here: the launch path mints it an identity and drops the payload
+        // first, so a stored device is never sent as a device again.
+        let mut apply_params = fingerprint_for_cdp.clone();
+        if let Some(ref token) = wayfern_token {
+          if let Some(obj) = apply_params.as_object_mut() {
+            obj.insert("wayfernToken".to_string(), json!(token));
+          }
         }
-      }
 
-      // An apply that never lands is the worst outcome this launch has: the
-      // window opens on an unmanaged device while every surface in the app
-      // still shows the profile's stored one. Track it so the launch can fail
-      // instead of reporting success.
-      let mut applied_ok = false;
-      let mut last_apply_error: Option<String> = None;
+        // An apply that never lands is the worst outcome this launch has: the
+        // window opens on an unmanaged device while every surface in the app
+        // still shows the profile's stored one. Track it so the launch can fail
+        // instead of reporting success.
+        let mut applied_ok = false;
+        let mut last_apply_error: Option<String> = None;
 
-      for target in &page_targets {
-        if let Some(ws_url) = &target.websocket_debugger_url {
-          // Network-level UA first: it must be in place before the page loads
-          // any subresource, while setFingerprint only reshapes the JS world.
-          if let Some(params) = &ua_override {
-            if let Err(e) = self
-              .send_cdp_command(ws_url, "Network.setUserAgentOverride", params.clone())
+        for target in &page_targets {
+          if let Some(ws_url) = &target.websocket_debugger_url {
+            // Network-level UA first: it must be in place before the page loads
+            // any subresource, while setFingerprint only reshapes the JS world.
+            if let Some(params) = &ua_override {
+              if let Err(e) = self
+                .send_cdp_command(ws_url, "Network.setUserAgentOverride", params.clone())
+                .await
+              {
+                log::warn!("Network.setUserAgentOverride failed on page target: {e}");
+              }
+            }
+            crate::bwbrowser_cloud::log_bwbrowser(
+              "launch_account",
+              "  [Launch] Applying fingerprint to page target via setFingerprint...",
+            );
+            match self
+              .send_cdp_command(ws_url, "Wayfern.setFingerprint", apply_params.clone())
               .await
             {
-              log::warn!("Network.setUserAgentOverride failed on page target: {e}");
-            }
-          }
-          crate::bwbrowser_cloud::log_bwbrowser(
-            "launch_account",
-            "  [Launch] Applying fingerprint to page target via setFingerprint...",
-          );
-          match self
-            .send_cdp_command(ws_url, "Wayfern.setFingerprint", apply_params.clone())
-            .await
-          {
-            Ok(_) => {
-              applied_ok = true;
-              crate::bwbrowser_cloud::log_bwbrowser(
-                "launch_account",
-                "  [Launch] ✓ Successfully applied fingerprint to page target",
-              );
-            }
-            Err(e) => {
-              crate::bwbrowser_cloud::log_bwbrowser_error(
-                "launch_account",
-                &format!("  [Launch] ✗ Failed to apply fingerprint to target: {e}"),
-              );
-              last_apply_error = Some(e.to_string());
+              Ok(_) => {
+                applied_ok = true;
+                crate::bwbrowser_cloud::log_bwbrowser(
+                  "launch_account",
+                  "  [Launch] ✓ Successfully applied fingerprint to page target",
+                );
+              }
+              Err(e) => {
+                crate::bwbrowser_cloud::log_bwbrowser_error(
+                  "launch_account",
+                  &format!("  [Launch] ✗ Failed to apply fingerprint to target: {e}"),
+                );
+                last_apply_error = Some(e.to_string());
+              }
             }
           }
         }
-      }
 
-      if !applied_ok {
-        // Includes `page_targets` being empty: there was no target to send to,
-        // so the device was never applied either. Kill the browser rather than
-        // leave a window running a device the user did not choose and the app
-        // does not know about.
-        let detail = last_apply_error
-          .unwrap_or_else(|| "the browser exposed no page target to apply it to".to_string());
-        log::error!(
+        if !applied_ok {
+          // Includes `page_targets` being empty: there was no target to send to,
+          // so the device was never applied either. Kill the browser rather than
+          // leave a window running a device the user did not choose and the app
+          // does not know about.
+          let detail = last_apply_error
+            .unwrap_or_else(|| "the browser exposed no page target to apply it to".to_string());
+          log::error!(
           "Killing Wayfern (pid {process_id:?}) for profile {}: the fingerprint was never applied: {detail}",
           profile.name
         );
-        if let Some(pid) = process_id {
-          kill_browser_process(pid);
+          if let Some(pid) = process_id {
+            kill_browser_process(pid);
+          }
+          return Err(
+            Self::apply_failure_error(
+              &detail,
+              Self::claimed_operating_system(config, Some(&stored)),
+            )
+            .into(),
+          );
         }
-        return Err(
-          Self::apply_failure_error(
-            &detail,
-            Self::claimed_operating_system(config, Some(&stored)),
-          )
-          .into(),
-        );
-      }
+      } // end of non-host-marker setFingerprint flow
     } else {
       // No identity, no stored fingerprint. We may have written a
       // location-only launch identity file so the browser picks up the
@@ -4357,6 +4402,7 @@ impl WayfernManager {
         false,
         LaunchKind::Interactive,
         None,
+        false,
       )
       .await
   }

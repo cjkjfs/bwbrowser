@@ -729,10 +729,17 @@ export function BwbrowserCloudAccountsDialog({
   );
   const [sectorFilter, setSectorFilter] = useState<string | null>(null);
   const [autofillEnabled, setAutofillEnabled] = useState(true);
+  const [gpuAcceleration, setGpuAcceleration] = useState(true);
 
   useEffect(() => {
     void invoke<{ autofill_enabled: boolean }>("get_app_settings")
       .then((s) => setAutofillEnabled(s.autofill_enabled))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    void invoke<{ gpu_acceleration?: boolean }>("get_app_settings")
+      .then((s) => setGpuAcceleration(s.gpu_acceleration ?? true))
       .catch(() => {});
   }, []);
 
@@ -746,6 +753,25 @@ export function BwbrowserCloudAccountsDialog({
         });
       } catch (err) {
         setAutofillEnabled((prev) => !prev);
+        showErrorToast(`设置保存失败: ${translateBackendError(t, err)}`);
+      }
+    },
+    [t],
+  );
+
+  // 硬件加速开关（VPS 登录/爆文库打开时生效，改 gpu_acceleration 后保存）。
+  // save_app_settings 是全量保存，先取回完整设置、改单个字段再回写。
+  const handleGpuAccelerationToggle = useCallback(
+    async (checked: boolean) => {
+      setGpuAcceleration(checked);
+      try {
+        const current =
+          await invoke<Record<string, unknown>>("get_app_settings");
+        await invoke("save_app_settings", {
+          settings: { ...current, gpu_acceleration: checked },
+        });
+      } catch (err) {
+        setGpuAcceleration((prev) => !prev);
         showErrorToast(`设置保存失败: ${translateBackendError(t, err)}`);
       }
     },
@@ -1030,6 +1056,7 @@ export function BwbrowserCloudAccountsDialog({
     backup_email: "",
     channel_id: "",
     owner_id: 0 as number,
+    gpu_acceleration: false,
   });
   // 启动网址（存 tiktok_accounts.start_urls，JSON {"include_platform":bool,"urls":[...]}）
   const [editStartUrls, setEditStartUrls] = useState<{
@@ -1440,6 +1467,7 @@ export function BwbrowserCloudAccountsDialog({
           (account as BwbrowserAccount & { channel_id?: string }).channel_id ??
           "",
         owner_id: account.owner_id ?? 0,
+        gpu_acceleration: account.gpu_acceleration ?? false,
       });
       setEditStartUrls(parseAccountStartUrls(account.start_urls));
       setEditStartUrlInput("");
@@ -1514,6 +1542,7 @@ export function BwbrowserCloudAccountsDialog({
             (detail as BwbrowserAccount & { channel_id?: string }).channel_id ??
             prev.channel_id,
           owner_id: detail.owner_id ?? prev.owner_id,
+          gpu_acceleration: detail.gpu_acceleration ?? prev.gpu_acceleration,
         }));
         setEditStartUrls(parseAccountStartUrls(detail.start_urls));
       } catch (e) {
@@ -4397,6 +4426,20 @@ export function BwbrowserCloudAccountsDialog({
             <div className="my-1 h-px bg-border" />
             <button
               type="button"
+              className="pointer-events-auto flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
+              onClick={() => void handleGpuAccelerationToggle(!gpuAcceleration)}
+              title="VPS 登录/爆文库打开时是否启用 GPU 加速"
+            >
+              <AnimatedSwitch
+                checked={gpuAcceleration}
+                onCheckedChange={() => {}}
+                className="pointer-events-none"
+              />
+              <span>硬件加速</span>
+            </button>
+            <div className="my-1 h-px bg-border" />
+            <button
+              type="button"
               className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
               onClick={() => {
                 setVpsContextMenuOpen(false);
@@ -5746,6 +5789,36 @@ export function BwbrowserCloudAccountsDialog({
                     启动浏览器时同时打开这些网址，保存后云端生效（对所有设备）
                   </div>
                 </div>
+                <div className="space-y-2">
+                  <div className="text-xs font-medium">硬件加速</div>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2"
+                    onClick={() =>
+                      setEditForm((p) => ({
+                        ...p,
+                        gpu_acceleration: !p.gpu_acceleration,
+                      }))
+                    }
+                  >
+                    <Checkbox
+                      checked={editForm.gpu_acceleration}
+                      onCheckedChange={(v) =>
+                        setEditForm((p) => ({
+                          ...p,
+                          gpu_acceleration: v === true,
+                        }))
+                      }
+                    />
+                    <span className="text-xs">
+                      启动时开启合成/光栅化加速（滚动、视频更流畅）
+                    </span>
+                  </button>
+                  <div className="text-[11px] text-muted-foreground">
+                    WebGL
+                    仍走指纹伪装的软件渲染，防关联不受影响；保存后云端生效（对所有设备）
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <div className="text-xs font-medium">平台</div>
@@ -6184,6 +6257,8 @@ export function BwbrowserCloudAccountsDialog({
                     include_platform: editStartUrls.includePlatform,
                     urls: editStartUrls.urls,
                   }),
+                  // 硬件加速：始终发送（0/1 明确覆盖，编辑账号维护）
+                  gpuAcceleration: editForm.gpu_acceleration,
                 });
                 showSuccessToast("保存成功");
                 setEditDialogOpen(false);

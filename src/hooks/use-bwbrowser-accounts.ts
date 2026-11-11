@@ -58,6 +58,8 @@ export interface BwbrowserAccount {
   launch_allowed?: boolean;
   /** 启动网址配置 JSON（{"include_platform":bool,"urls":[...]}），编辑账号维护 */
   start_urls?: string | null;
+  /** 账号级硬件加速开关：true = 启动时追加合成/光栅化 GPU 参数（WebGL 仍走虚拟指纹软件渲染） */
+  gpu_acceleration?: boolean;
 }
 
 export interface PlatformStat {
@@ -465,6 +467,15 @@ export function useBwbrowserAccounts(
 
   return {
     accounts,
+    /** 局部更新单个账号的字段（乐观更新用；服务端保存失败时由调用方回滚） */
+    patchAccountLocal: (
+      accountId: number,
+      patch: Partial<BwbrowserAccount>,
+    ) => {
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === accountId ? { ...a, ...patch } : a)),
+      );
+    },
     total,
     totalPages,
     isLoading,
