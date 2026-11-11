@@ -104,6 +104,13 @@ pub struct WayfernConfig {
   /// piece of device state an identity-backed profile persists.
   #[serde(default)]
   pub location: Option<String>,
+  /// The user's explicit color-scheme choice for rendered pages:
+  /// `Some(false)` light, `Some(true)` dark, `None` follow the device. Applied
+  /// on launch both to Chromium's own theme preference and to the Wayfern
+  /// payload (setFingerprint / identity overrides), so pages like TikTok stop
+  /// following the host Windows dark surface.
+  #[serde(default)]
+  pub prefers_dark_mode: Option<bool>,
 }
 
 /// First Wayfern version that ships `createIdentity`/`setIdentity`/
@@ -1627,6 +1634,22 @@ impl WayfernManager {
         serde_json::Value::Object(overrides),
       );
     }
+    // An explicit color-scheme choice must reach the kernel even on an
+    // identity-only device, or pages keep following the host Windows surface.
+    // With no explicit choice, default to the host's APP theme — an omitted
+    // prefersDarkMode lets the kernel spoof dark from the system surface
+    // (see the setFingerprint path for the verified dark-page bug).
+    {
+      let dark = config
+        .prefers_dark_mode
+        .unwrap_or_else(crate::browser::host_apps_prefers_dark);
+      let entry = document
+        .entry("overrides".to_string())
+        .or_insert_with(|| json!({}));
+      if let Some(map) = entry.as_object_mut() {
+        map.insert("prefersDarkMode".to_string(), json!(dark));
+      }
+    }
     Some(serde_json::Value::Object(document))
   }
 
@@ -1684,6 +1707,19 @@ impl WayfernManager {
         "overrides".to_string(),
         serde_json::Value::Object(overrides),
       );
+    }
+    // Same color-scheme carry-over as the real identity document: default to
+    // the host's APP theme when the user made no explicit choice.
+    {
+      let dark = config
+        .prefers_dark_mode
+        .unwrap_or_else(crate::browser::host_apps_prefers_dark);
+      let entry = document
+        .entry("overrides".to_string())
+        .or_insert_with(|| json!({}));
+      if let Some(map) = entry.as_object_mut() {
+        map.insert("prefersDarkMode".to_string(), json!(dark));
+      }
     }
     Some(serde_json::Value::Object(document))
   }
@@ -2423,7 +2459,7 @@ impl WayfernManager {
         None => Err("No local fingerprint template available for the requested OS".into()),
       };
 
-    let (fingerprint, identity_id, geolocation_applied) = match generate_result {
+    let (mut fingerprint, identity_id, geolocation_applied) = match generate_result {
       Ok(result) => {
         // createIdentity returns { identityId, identity }; getFingerprint
         // returns { fingerprint: {...} }. A bare object is tolerated so a
@@ -2511,6 +2547,28 @@ impl WayfernManager {
 
     cleanup().await;
     stage("指纹生成完成，正在启动浏览器...");
+
+    // 创建用户数据（生成/保存指纹）时就落地显式浅色偏好：在 fingerprint 里写入
+    // prefersDarkMode，避免存进 metadata 的用户数据缺省该字段。内核在 payload
+    // 缺省 prefersDarkMode 时，会把页面 prefers-color-scheme 伪装成宿主「系统表面」
+    // 主题（Windows 上 AppsUseLightTheme=1 浅 而 SystemUsesLightTheme=0 暗时，页面
+    // 恒暗，验证于 151.0.7922.76）。用户显式选了深色则在生成时尊重；未选默认浅色
+    // （跟随宿主 APP 主题，与 host_apps_prefers_dark 一致）——这样新 profile 的用户
+    // 数据天生带浅色标记，内核启动 tab 与应用 setFingerprint 时都吃这个浅色值，
+    // 无需依赖任何运行时补丁。
+    {
+      let dark = config
+        .prefers_dark_mode
+        .unwrap_or_else(crate::browser::host_apps_prefers_dark);
+      if let Some(obj) = fingerprint.as_object_mut() {
+        if obj.get("prefersDarkMode").and_then(|v| v.as_bool()) != Some(dark) {
+          obj.insert("prefersDarkMode".to_string(), json!(dark));
+          log::info!(
+            "Seeded prefersDarkMode={dark} into generated fingerprint (config choice or host app-theme default)"
+          );
+        }
+      }
+    }
 
     let fingerprint_json = serde_json::to_string(&fingerprint)
       .map_err(|e| format!("Failed to serialize fingerprint: {e}"))?;
@@ -3251,6 +3309,26 @@ impl WayfernManager {
         }
       }
 
+      // An explicit color-scheme choice wins over the payload's absence (or
+      // the host Windows surface) so pages render in the selected scheme.
+      // When the user made no choice, inject the host's APP theme anyway:
+      // an omitted prefersDarkMode makes the kernel spoof prefers-color-scheme
+      // from the host's SYSTEM surface, which renders every page dark on
+      // hosts whose system surface is dark while apps are light (verified on
+      // 151.0.7922.76: TikTok et al. evaluate dark from the spoof, ignoring
+      // the real light media query).
+      let dark = config
+        .prefers_dark_mode
+        .unwrap_or_else(crate::browser::host_apps_prefers_dark);
+      if let Some(obj) = fingerprint_for_cdp.as_object_mut() {
+        if obj.get("prefersDarkMode").and_then(|v| v.as_bool()) != Some(dark) {
+          obj.insert("prefersDarkMode".to_string(), json!(dark));
+          log::info!(
+            "Merged prefersDarkMode={dark} into setFingerprint payload (config choice or host app-theme default)"
+          );
+        }
+      }
+
       log::info!(
         "Fingerprint prepared for CDP command, fields: {:?}",
         fingerprint_for_cdp
@@ -3974,6 +4052,91 @@ impl WayfernManager {
       }
     }
     None
+  }
+
+  /// Re-apply the profile's stored fingerprint to every page target of the
+  /// running browser. Tabs opened AFTER the launch-time apply (start URLs the
+  /// cloud launch flow opens once the browser is up) never receive
+  /// Wayfern.setFingerprint, and on such unapplied targets the kernel emulates
+  /// the host's dark system surface — every page in them renders with
+  /// `prefers-color-scheme: dark` regardless of browser.theme.color_scheme2
+  /// (verified on 151.0.7922.76: a target that never saw a setFingerprint
+  /// reloads dark; one that did — with or without an explicit prefersDarkMode —
+  /// reloads light). Re-sending the same payload clears that emulation and is
+  /// idempotent for targets that already received it at launch.
+  pub async fn reapply_fingerprint_to_page_targets(
+    &self,
+    profile_path: &str,
+    config: &WayfernConfig,
+    kernel_version: &str,
+  ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+    let Some(fingerprint_json) = config.fingerprint.as_deref() else {
+      // Identity-based profiles carry their device on setIdentity at launch;
+      // the same gap may exist for them but the color surface there is driven
+      // by the identity, which is out of scope for this fix.
+      return Ok(0);
+    };
+    let Some(port) = self.get_cdp_port(profile_path).await else {
+      return Ok(0);
+    };
+    // Mirror the launch payload exactly (stored fingerprint + location
+    // carry-over + explicit color scheme + kernel-synced UA + token) so the
+    // re-applied device is byte-identical to the one the first tabs got.
+    let mut payload = Self::launch_fingerprint_payload(fingerprint_json)?;
+    let location_obj = Self::stored_object(config.location.as_deref());
+    if !location_obj.is_empty() {
+      if let Some(obj) = payload.as_object_mut() {
+        for key in LOCALE_CARRY_OVER_KEYS {
+          if let Some(value) = location_obj.get(key) {
+            if !value.is_null() {
+              obj.insert(key.to_string(), value.clone());
+            }
+          }
+        }
+      }
+    }
+    if let Some(obj) = payload.as_object_mut() {
+      // Explicit choice wins; with no choice inject the host's APP theme —
+      // an omitted prefersDarkMode makes the kernel spoof dark from the
+      // system surface (the "always dark pages" bug this method clears).
+      let dark = config
+        .prefers_dark_mode
+        .unwrap_or_else(crate::browser::host_apps_prefers_dark);
+      obj.insert("prefersDarkMode".to_string(), json!(dark));
+    }
+    if !kernel_version.is_empty() {
+      if let Some(obj) = payload.as_object_mut() {
+        if let Some(ua) = obj
+          .get("userAgent")
+          .and_then(|v| v.as_str())
+          .map(str::to_string)
+        {
+          let synced = Self::chrome_synced_ua(&ua, kernel_version);
+          obj.insert("userAgent".to_string(), json!(synced));
+        }
+      }
+    }
+    let mut apply_params = payload;
+    if let Some(ref token) = get_wayfern_kernel_token().await {
+      if let Some(obj) = apply_params.as_object_mut() {
+        obj.insert("wayfernToken".to_string(), json!(token));
+      }
+    }
+
+    let targets = self.get_cdp_targets(port).await?;
+    let mut applied = 0usize;
+    for target in targets.iter().filter(|t| t.target_type == "page") {
+      if let Some(ws_url) = &target.websocket_debugger_url {
+        if self
+          .send_cdp_command(ws_url, "Wayfern.setFingerprint", apply_params.clone())
+          .await
+          .is_ok()
+        {
+          applied += 1;
+        }
+      }
+    }
+    Ok(applied)
   }
 
   pub async fn find_wayfern_by_profile(&self, profile_path: &str) -> Option<WayfernLaunchResult> {

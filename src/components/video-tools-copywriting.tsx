@@ -79,6 +79,8 @@ interface IdentifySourceResult {
   found: boolean;
   type: string;
   title: string;
+  /** 作品的其他常见译名/原名/别名（顿号分隔），两阶段识别阶段 1 返回 */
+  aliases?: string;
   season: number;
   episode: number;
   /** 该集核心剧情段落概括（动漫/剧集给出具体集数时），非剧集或缺集数时为空 */
@@ -512,32 +514,67 @@ export function QuickCopywritingTab() {
       toast.error("左侧没有可翻译的内容");
       return;
     }
+    // 重复句缓存：命中直接用，只把未命中的行发给翻译引擎
+    const cache = translateCacheRef.current;
+    const results: string[] = new Array(idxMap.length).fill("");
+    const pendingIdx: number[] = [];
+    const pendingTexts: string[] = [];
+    idxMap.forEach((orig, ci) => {
+      const text = makeRowText(source[orig]);
+      const hit = cache.get(`${targetLang}|${text}`);
+      if (hit !== undefined) {
+        results[ci] = hit;
+      } else {
+        pendingIdx.push(ci);
+        pendingTexts.push(text);
+      }
+    });
     setLoading(true);
     setTranslateProgress({ done: 0, total: idxMap.length });
-    // 注册实时上屏上下文：进度事件里每翻完一行立即更新对应行
-    translateCtxRef.current = { idxMap, setOut };
+    // 注册实时上屏上下文：事件行号对应本次实际发送的 pendingIdx
+    translateCtxRef.current = { idxMap: pendingIdx, setOut };
     try {
-      const res = await invoke<{
-        translations: string[];
-        partial: boolean;
-        note: string;
-        untranslatable?: { line: number; term: string }[];
-        new_terms?: string[];
-      }>("ai_rewrite_translate_lines", {
-        lines: idxMap.map((i) => makeRowText(source[i])),
-        targetLang,
-      });
+      let translations: string[] = [];
+      let untranslatableList: { line: number; term: string }[] = [];
+      let newTerms: string[] = [];
+      let note = "";
+      if (pendingTexts.length === 0) {
+        // 全部命中缓存：不发请求，直接上屏
+        note = "重复句命中缓存，秒出";
+      } else {
+        const res = await invoke<{
+          translations: string[];
+          partial: boolean;
+          note: string;
+          untranslatable?: { line: number; term: string }[];
+          new_terms?: string[];
+        }>("ai_rewrite_translate_lines", {
+          lines: pendingTexts,
+          targetLang,
+        });
+        translations = res.translations ?? [];
+        untranslatableList = res.untranslatable ?? [];
+        newTerms = res.new_terms ?? [];
+        note = res.note ?? "";
+        // 新译文写入缓存（限制容量防膨胀），并合并回结果数组
+        translations.forEach((t, idx) => {
+          if (cache.size > 3000) cache.clear();
+          cache.set(`${targetLang}|${pendingTexts[idx]}`, t);
+        });
+        pendingIdx.forEach((ci, idx) => {
+          results[ci] = translations[idx] ?? "";
+        });
+      }
       // cleaned 结果展开回原始行数组（空行保留空），行号严格对齐
-      const translations = res.translations ?? [];
       const full: string[] = source.map((_, i) => {
         const ci = idxMap.indexOf(i);
-        return ci >= 0 ? (translations[ci] ?? "") : "";
+        return ci >= 0 ? (results[ci] ?? "") : "";
       });
       setOut(full);
-      // 不可译词：cleaned 行号映射回原始行号
+      // 不可译词：pending 行号映射回原始行号
       const map: Record<number, string[]> = {};
-      for (const it of res.untranslatable ?? []) {
-        const orig = idxMap[it.line];
+      for (const it of untranslatableList) {
+        const orig = idxMap[pendingIdx[it.line]];
         if (orig === undefined) continue;
         (map[orig] ??= []).push(it.term);
       }
@@ -546,9 +583,8 @@ export function QuickCopywritingTab() {
         const glossary = await invoke<GlossaryEntry[]>("translate_terms_list");
         const fixed = (glossary ?? []).filter((g) => g.t.length > 0);
         if (fixed.length > 0) {
-          (res.translations ?? []).forEach((trans, idx) => {
-            const orig = idxMap[idx];
-            if (orig === undefined) return;
+          idxMap.forEach((orig, ci) => {
+            const trans = results[ci] ?? "";
             for (const g of fixed) {
               if (trans.includes(g.t)) {
                 (map[orig] ??= []).push(g.t);
@@ -560,13 +596,11 @@ export function QuickCopywritingTab() {
         // 词表读取失败不影响翻译结果
       }
       setUntranslatable(map);
-      if (res.new_terms && res.new_terms.length > 0) {
-        toast.info(
-          `AI 发现 ${res.new_terms.length} 个不可译词，已自动加入词表`,
-        );
+      if (newTerms.length > 0) {
+        toast.info(`AI 发现 ${newTerms.length} 个不可译词，已自动加入词表`);
       }
-      if (res.note) {
-        toast.warning(res.note);
+      if (note) {
+        toast.warning(note);
       } else {
         toast.success("翻译完成");
       }
@@ -589,6 +623,138 @@ export function QuickCopywritingTab() {
       setTerms([]);
     }
   }, []);
+
+  // ---- 翻译加速：重复句缓存 + 单行编辑防抖 ----
+  // 缓存：`${目标语言}|${源句}` → 译文，同一句重复出现直接秒出不再调引擎
+  const translateCacheRef = useRef<Map<string, string>>(new Map());
+  // 防抖：`${目标语言}|${行号}` → timer，快速连续编辑同一行只发最后一次请求
+  const translateDebounceRef = useRef<
+    Map<string, ReturnType<typeof setTimeout>>
+  >(new Map());
+
+  // ---- 单行重新翻译：左侧某行被编辑后，只对该行调翻译并更新右侧对应行 ----
+  // debounceMs > 0 时防抖（编辑提交场景）；= 0 立即执行（悬停按钮场景）
+  const translateSingleLineAfterEdit = useCallback(
+    async (
+      i: number,
+      newText: string,
+      deleted: boolean,
+      setOut: React.Dispatch<React.SetStateAction<string[]>>,
+      targetLang: string,
+      debounceMs = 0,
+    ) => {
+      if (deleted) {
+        // 该行被删除 → 右侧对应行一并删除
+        setOut((prev) => prev.filter((_, idx) => idx !== i));
+        return;
+      }
+      const text = makeRowText(newText);
+      if (!text) {
+        setOut((prev) => prev.map((x, idx) => (idx === i ? "" : x)));
+        return;
+      }
+      const cache = translateCacheRef.current;
+      const cacheKey = `${targetLang}|${text}`;
+      // 重复句缓存命中：直接上屏，不再调引擎
+      const cached = cache.get(cacheKey);
+      if (cached !== undefined) {
+        setOut((prev) => prev.map((x, idx) => (idx === i ? cached : x)));
+        return;
+      }
+      const doTranslate = async () => {
+        try {
+          const res = await invoke<{
+            translations: string[];
+            note: string;
+          }>("ai_rewrite_translate_lines", {
+            lines: [text],
+            targetLang,
+          });
+          const t = res.translations?.[0] ?? "";
+          if (cache.size > 3000) cache.clear();
+          cache.set(cacheKey, t);
+          setOut((prev) => prev.map((x, idx) => (idx === i ? t : x)));
+          if (res.note) toast.warning(res.note);
+        } catch (e) {
+          toast.error(`单行重译失败：${e}`);
+        }
+      };
+      if (debounceMs <= 0) {
+        await doTranslate();
+        return;
+      }
+      const timers = translateDebounceRef.current;
+      const timerKey = `${targetLang}|${i}`;
+      const prevTimer = timers.get(timerKey);
+      if (prevTimer) clearTimeout(prevTimer);
+      timers.set(
+        timerKey,
+        setTimeout(() => {
+          timers.delete(timerKey);
+          void doTranslate();
+        }, debounceMs),
+      );
+    },
+    [],
+  );
+
+  // 转录区：左侧行编辑联动 → 重译右侧对应行（回车=明确提交，立即翻译）
+  const onTranscriptLineCommit = useCallback(
+    (i: number, newText: string, deleted: boolean) => {
+      translateSingleLineAfterEdit(
+        i,
+        newText,
+        deleted,
+        setTranscriptZh,
+        topTargetLang,
+        0,
+      );
+    },
+    [translateSingleLineAfterEdit, topTargetLang],
+  );
+
+  // 自定义区：左侧行编辑联动 → 重译右侧对应行（回车=明确提交，立即翻译）
+  const onCustomLineCommit = useCallback(
+    (i: number, newText: string, deleted: boolean) => {
+      translateSingleLineAfterEdit(
+        i,
+        newText,
+        deleted,
+        setCustomZh,
+        bottomTargetLang,
+        0,
+      );
+    },
+    [translateSingleLineAfterEdit, bottomTargetLang],
+  );
+
+  // 转录区：点击某行悬停「翻译本行」→ 翻译该行
+  const onTranscriptTranslateLine = useCallback(
+    (i: number, text: string) => {
+      translateSingleLineAfterEdit(
+        i,
+        text,
+        false,
+        setTranscriptZh,
+        topTargetLang,
+      );
+    },
+    [translateSingleLineAfterEdit, topTargetLang],
+  );
+
+  // 自定义区：点击某行悬停「翻译本行」→ 翻译该行
+  const onCustomTranslateLine = useCallback(
+    (i: number, text: string) => {
+      translateSingleLineAfterEdit(
+        i,
+        text,
+        false,
+        setCustomZh,
+        bottomTargetLang,
+      );
+    },
+    [translateSingleLineAfterEdit, bottomTargetLang],
+  );
 
   const addTerm = async () => {
     const s = newTerm.trim();
@@ -895,6 +1061,8 @@ export function QuickCopywritingTab() {
             setTranscriptUntranslatable,
           )
         }
+        onLineCommit={onTranscriptLineCommit}
+        onTranslateLine={onTranscriptTranslateLine}
       />
 
       {/* 下：自定义文案 / 中文翻译（默认收起，左下/右下按钮展开） */}
@@ -940,6 +1108,8 @@ export function QuickCopywritingTab() {
         rightOpen={showCustomRight}
         onLeftOpenChange={setShowCustomLeft}
         onRightOpenChange={setShowCustomRight}
+        onLineCommit={onCustomLineCommit}
+        onTranslateLine={onCustomTranslateLine}
       />
 
       {/* 不可译词表管理 */}
@@ -1099,7 +1269,7 @@ export function QuickCopywritingTab() {
           <DialogHeader>
             <DialogTitle>解说词出处识别</DialogTitle>
             <DialogDescription>
-              根据转录文案判断这段解说词可能出自哪部影视或动漫。
+              两阶段识别：先判断作品，再在该作品范围内定位季/集，更准。
             </DialogDescription>
           </DialogHeader>
           {identifyResult ? (
@@ -1110,6 +1280,11 @@ export function QuickCopywritingTab() {
                     <span className="text-lg font-bold leading-tight text-primary">
                       {identifyResult.title || "未识别到确切作品"}
                     </span>
+                    {identifyResult.aliases && (
+                      <span className="text-xs text-muted-foreground/80">
+                        别名：{identifyResult.aliases}
+                      </span>
+                    )}
                     <span className="text-xs text-muted-foreground">
                       {typeLabel(identifyResult.type)}
                       {identifyResult.season > 0 &&
@@ -1226,6 +1401,10 @@ interface PairEditorProps {
   identifying?: boolean;
   /** 提供时左栏标题栏显示「识别出处」按钮 */
   onIdentify?: () => void;
+  /** 左侧某行提交编辑后触发：单行重新翻译联动（i=行号，newText=改后文本，deleted=该行是否被删） */
+  onLineCommit?: (i: number, newText: string, deleted: boolean) => void;
+  /** 点击左侧某行悬停的「翻译本行」按钮触发：翻译第 i 行 */
+  onTranslateLine?: (i: number, text: string) => void;
 }
 
 // ============================================================
@@ -1386,6 +1565,8 @@ function PairEditor(props: PairEditorProps) {
           registerScrollEl={(el) => (leftEl.current = el)}
           identifying={props.identifying}
           onIdentify={props.onIdentify}
+          onLineCommit={props.onLineCommit}
+          onTranslateLine={props.onTranslateLine}
         />
       ) : (
         <CollapsedStrip
@@ -1584,6 +1765,10 @@ interface LineListEditorProps {
   identifying?: boolean;
   /** 提供时标题栏显示「识别出处」按钮（针对本栏文本做影视/动漫出处识别） */
   onIdentify?: () => void;
+  /** 左侧某行提交编辑后触发：供父级做单行重新翻译联动 */
+  onLineCommit?: (i: number, newText: string, deleted: boolean) => void;
+  /** 点击行末悬停的「翻译本行」按钮触发：翻译第 i 行文本 */
+  onTranslateLine?: (i: number, text: string) => void;
 }
 
 function LineListEditor({
@@ -1601,6 +1786,8 @@ function LineListEditor({
   registerScrollEl,
   identifying,
   onIdentify,
+  onLineCommit,
+  onTranslateLine,
 }: LineListEditorProps) {
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
@@ -1628,13 +1815,14 @@ function LineListEditor({
     setEditIndex(i);
   };
 
-  /** 提交行内编辑；empty 则删除该行；moveNext 为 Enter 前进到下一行 */
-  const commitEdit = (moveNext: boolean) => {
+  /** 提交行内编辑（回车/失焦/ESC）；empty 则删除该行；提交即保存，不切行 */
+  const commitEdit = () => {
     if (editIndex === null) return;
     const i = editIndex;
     const val = makeRowText(editText);
     let next: string[];
-    if (val.length === 0) {
+    const deleted = val.length === 0;
+    if (deleted) {
       next = value.filter((_, idx) => idx !== i);
     } else {
       next = value.map((x, idx) => (idx === i ? val : x));
@@ -1642,14 +1830,8 @@ function LineListEditor({
     onChange(next);
     setEditIndex(null);
     setEditText("");
-    if (moveNext) {
-      const ni = val.length > 0 ? i + 1 : i;
-      const target = Math.min(ni, next.length - 1);
-      if (next[target] !== undefined) {
-        startEditAt(target);
-        onActivate(target);
-      }
-    }
+    // 左侧某行被编辑(改词/删除) → 通知父级对该行做单行重新翻译联动
+    onLineCommit?.(i, val, deleted);
   };
 
   /** 容器层面拦截粘贴：非编辑态下按换行拆成多行插入选中行之后 */
@@ -1803,6 +1985,9 @@ function LineListEditor({
                 onActivate(i);
               }}
               onKeyDown={(e) => {
+                // 编辑态时键盘事件由 input 处理（已在 input 里 stopPropagation，
+                // 此处再兜底防冒泡：避免提交后被重新拉回编辑态）
+                if (editIndex !== null) return;
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
                   startEditAt(i);
@@ -1828,15 +2013,17 @@ function LineListEditor({
                   value={editText}
                   onChange={(e) => setEditText(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") {
+                    // 中文输入法组合输入中的 Enter/ESC 是选字/取消候选，不触发提交
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    if (e.key === "Enter" || e.key === "Escape") {
+                      // 回车=保存本行并触发单行重译，不切到下一行；
+                      // stopPropagation 阻止冒泡到行容器的 Enter 快捷键（否则会立即重新进入编辑）
                       e.preventDefault();
-                      commitEdit(true);
-                    } else if (e.key === "Escape") {
-                      e.preventDefault();
-                      commitEdit(false);
+                      e.stopPropagation();
+                      commitEdit();
                     }
                   }}
-                  onBlur={() => commitEdit(false)}
+                  onBlur={() => commitEdit()}
                   style={
                     fontSize
                       ? { fontSize, lineHeight: `${fontSize * 1.6}px` }
@@ -1859,17 +2046,32 @@ function LineListEditor({
                 </span>
               )}
               {!editing && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onChange(value.filter((_, idx) => idx !== i));
-                  }}
-                  className="ml-auto shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
-                  title="删除该行"
-                >
-                  <LuX className="size-3.5" />
-                </button>
+                <>
+                  {onTranslateLine && line.trim().length > 0 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTranslateLine(i, line);
+                      }}
+                      className="ml-auto shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-primary"
+                      title="翻译本行"
+                    >
+                      <LuLanguages className="size-3.5" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onChange(value.filter((_, idx) => idx !== i));
+                    }}
+                    className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
+                    title="删除该行"
+                  >
+                    <LuX className="size-3.5" />
+                  </button>
+                </>
               )}
             </div>
           );

@@ -401,6 +401,30 @@ pub(crate) fn path_is_load_extension_safe(path: &Path) -> bool {
   !path.to_string_lossy().contains(',')
 }
 
+/// `Path::canonicalize` on Windows returns verbatim (`\\?\C:\...`) paths.
+/// Chromium wrongly caches unpacked extensions loaded from a verbatim path:
+/// `--load-extension` accepts it, but later manifest/script re-reads keep
+/// serving stale content, so extension updates never take effect until the
+/// directory itself moves. Strip the prefix so the stored `linked_path` is a
+/// plain Win32 path.
+pub(crate) fn strip_verbatim_prefix(p: PathBuf) -> PathBuf {
+  #[cfg(target_os = "windows")]
+  {
+    let s = p.as_os_str().to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+      return PathBuf::from(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+      return PathBuf::from(rest.to_string());
+    }
+    p
+  }
+  #[cfg(not(target_os = "windows"))]
+  {
+    p
+  }
+}
+
 fn err_code(code: &str) -> Box<dyn std::error::Error> {
   serde_json::json!({ "code": code }).to_string().into()
 }
@@ -683,7 +707,7 @@ impl ExtensionManager {
     dir: &Path,
     manifest: &serde_json::Value,
   ) -> Result<Extension, Box<dyn std::error::Error>> {
-    let absolute = dir.canonicalize()?;
+    let absolute = strip_verbatim_prefix(dir.canonicalize()?);
     if !path_is_load_extension_safe(&absolute) {
       return Err(err_code("EXTENSION_PATH_HAS_COMMA"));
     }
@@ -956,7 +980,7 @@ impl ExtensionManager {
     manifest: &serde_json::Value,
     explicit_name_provided: bool,
   ) -> Result<(), Box<dyn std::error::Error>> {
-    let absolute = dir.canonicalize()?;
+    let absolute = strip_verbatim_prefix(dir.canonicalize()?);
     if !path_is_load_extension_safe(&absolute) {
       return Err(err_code("EXTENSION_PATH_HAS_COMMA"));
     }

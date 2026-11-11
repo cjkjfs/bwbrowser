@@ -45,58 +45,154 @@ impl BrowserType {
   }
 }
 
+/// Apply a color scheme to a Chromium profile before launch.
+///
+/// `dark_override`: from the fingerprint's explicit `prefersDarkMode`. When set,
+/// it wins over the host Windows theme so the rendered pages match the user's
+/// choice in the fingerprint UI. When `None`, fall back to the host Windows
+/// light/dark theme.
 #[cfg(windows)]
-pub fn sync_system_color_scheme(profile_path: &Path) -> std::io::Result<()> {
-  let key = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
-    .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")?;
-  let apps_light = key.get_value::<u32, _>("AppsUseLightTheme").unwrap_or(1);
-  let system_light = key.get_value::<u32, _>("SystemUsesLightTheme").unwrap_or(1);
-  // Chromium can follow the Windows-system surface rather than the app surface
-  // when Windows' Custom mode gives them different values. Resolve that split
-  // from the user's explicit app preference, but never overwrite a browser
-  // appearance the user explicitly selected afterwards.
-  sync_color_scheme_pref(profile_path, apps_light == 0, apps_light == system_light)
+pub fn apply_color_scheme(profile_path: &Path, dark_override: Option<bool>) -> std::io::Result<()> {
+  sync_color_scheme_pref(profile_path, dark_override)
+}
+
+/// Read an explicit `prefersDarkMode` from a setFingerprint JSON. Returns
+/// `Some(dark)` when the payload declares it, `None` otherwise.
+pub fn fingerprint_color_pref(fingerprint_json: Option<&str>) -> Option<bool> {
+  let s = fingerprint_json?;
+  let v: serde_json::Value = serde_json::from_str(s).ok()?;
+  v.get("prefersDarkMode").and_then(|x| x.as_bool())
 }
 
 #[cfg(windows)]
-fn sync_color_scheme_pref(
-  profile_path: &Path,
-  dark: bool,
-  system_modes_match: bool,
-) -> std::io::Result<()> {
+fn sync_color_scheme_pref(profile_path: &Path, dark_override: Option<bool>) -> std::io::Result<()> {
   let path = profile_path.join("Default").join("Preferences");
   if !path.is_file() {
-    return Ok(());
+    // A first-launch profile has no Preferences yet; without seeding one the
+    // theme is skipped and the first window follows the host's dark surface.
+    // Chromium reads a seeded file at startup and merges its defaults over it.
+    if let Some(parent) = path.parent() {
+      std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, b"{}")?;
   }
   let mut prefs: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
-  let Some(theme) = prefs
-    .pointer_mut("/browser/theme")
+  // `browser.theme` may not exist in a fresh profile — create it instead of
+  // giving up, or the browser keeps following the host's dark system surface.
+  let theme = prefs
+    .as_object_mut()
+    .map(|o| {
+      o.entry("browser".to_string())
+        .or_insert_with(|| serde_json::json!({}))
+    })
     .and_then(|v| v.as_object_mut())
-  else {
+    .map(|o| {
+      o.entry("theme".to_string())
+        .or_insert_with(|| serde_json::json!({}))
+    })
+    .and_then(|v| v.as_object_mut());
+  let Some(theme) = theme else {
     return Ok(());
   };
-  let scheme = theme.get("color_scheme").and_then(|v| v.as_i64());
+  let scheme = theme
+    .get("color_scheme2")
+    .or_else(|| theme.get("color_scheme"))
+    .and_then(|v| v.as_i64());
   let previous_sync = theme.get("bw_system_color_scheme").and_then(|v| v.as_i64());
-  if system_modes_match {
-    if previous_sync == scheme {
-      theme.insert("color_scheme".to_string(), serde_json::json!(0));
-    }
-    theme.remove("bw_system_color_scheme");
-  } else if scheme == Some(0) || (previous_sync.is_some() && scheme == previous_sync) {
+
+  // Chromium 114+ reads `browser.theme.color_scheme2` and ignores the older
+  // `color_scheme` key; `follows_system_colors` must be false for the scheme
+  // to take effect at all. Write both shapes.
+  fn write_scheme(theme: &mut serde_json::Map<String, serde_json::Value>, scheme: i64) {
+    let v = serde_json::json!(scheme);
+    theme.insert("color_scheme2".to_string(), v.clone());
+    theme.insert("color_scheme".to_string(), v);
+    theme.insert(
+      "follows_system_colors".to_string(),
+      serde_json::json!(scheme == 0),
+    );
+  }
+
+  // An explicit fingerprint preference always wins: write it and record the
+  // source so a later host-theme change can't silently flip it back.
+  if let Some(dark) = dark_override {
     let scheme = if dark { 2 } else { 1 };
-    theme.insert("color_scheme".to_string(), serde_json::json!(scheme));
+    write_scheme(theme, scheme);
     theme.insert(
       "bw_system_color_scheme".to_string(),
       serde_json::json!(scheme),
     );
-  } else if previous_sync.is_some() {
-    theme.remove("bw_system_color_scheme");
-  } else {
+    write_theme_path(&prefs, &path)?;
     return Ok(());
   }
+
+  let apps_light = host_apps_light();
+  let system_light = host_system_light();
+  let system_modes_match = apps_light == system_light;
+  let dark = apps_light == 0;
+
+  if system_modes_match {
+    if previous_sync == scheme {
+      write_scheme(theme, 0);
+    }
+    theme.remove("bw_system_color_scheme");
+  } else {
+    // Windows gives the app and the system surface different modes. Chromium
+    // follows the system surface, so pin the app surface explicitly — for an
+    // unset scheme too, which is exactly the fresh-profile dark-window case.
+    let user_changed =
+      scheme.is_some_and(|s| s != 0) && previous_sync.is_none_or(|p| scheme != Some(p));
+    if !user_changed {
+      let scheme = if dark { 2 } else { 1 };
+      write_scheme(theme, scheme);
+      theme.insert(
+        "bw_system_color_scheme".to_string(),
+        serde_json::json!(scheme),
+      );
+    } else if previous_sync.is_some() {
+      theme.remove("bw_system_color_scheme");
+    }
+  }
+  write_theme_path(&prefs, &path)
+}
+
+#[cfg(windows)]
+fn write_theme_path(prefs: &serde_json::Value, path: &Path) -> std::io::Result<()> {
   let tmp = path.with_extension("bw-theme.tmp");
-  std::fs::write(&tmp, serde_json::to_vec(&prefs)?)?;
+  std::fs::write(&tmp, serde_json::to_vec(prefs)?)?;
   std::fs::rename(&tmp, path)
+}
+
+#[cfg(windows)]
+fn host_apps_light() -> u32 {
+  winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+    .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+    .and_then(|k| k.get_value::<u32, _>("AppsUseLightTheme"))
+    .unwrap_or(1)
+}
+
+/// What "follow the device" means for the Wayfern kernel's prefersDarkMode.
+/// The kernel spoofs page-visible `prefers-color-scheme` from the host's
+/// SYSTEM surface (SystemUsesLightTheme) when a payload omits prefersDarkMode,
+/// which turns every page dark on hosts whose system surface is dark while
+/// apps are light — exactly the "always dark" bug. Following the APP theme
+/// instead (what Windows dark-mode-aware apps honor) matches user expectation.
+#[cfg(windows)]
+pub fn host_apps_prefers_dark() -> bool {
+  host_apps_light() == 0
+}
+
+#[cfg(not(windows))]
+pub fn host_apps_prefers_dark() -> bool {
+  false
+}
+
+#[cfg(windows)]
+fn host_system_light() -> u32 {
+  winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+    .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+    .and_then(|k| k.get_value::<u32, _>("SystemUsesLightTheme"))
+    .unwrap_or(1)
 }
 
 pub trait Browser: Send + Sync {
@@ -689,75 +785,61 @@ mod tests {
     }
 
     #[test]
-    fn resolves_follow_system_from_windows_apps_mode() {
+    fn explicit_light_override_forces_light() {
       let dir = tempfile::tempdir().unwrap();
       write_theme(dir.path(), 0);
-      sync_color_scheme_pref(dir.path(), false, false).unwrap();
-      assert_eq!(
-        theme(dir.path()),
-        serde_json::json!({
-          "color_scheme": 1,
-          "bw_system_color_scheme": 1
-        })
-      );
-
-      sync_color_scheme_pref(dir.path(), true, false).unwrap();
-      assert_eq!(theme(dir.path())["color_scheme"], 2);
+      sync_color_scheme_pref(dir.path(), Some(false)).unwrap();
+      let t = theme(dir.path());
+      assert_eq!(t["color_scheme2"], 1);
+      assert_eq!(t["color_scheme"], 1);
+      assert_eq!(t["follows_system_colors"], false);
+      assert_eq!(t["bw_system_color_scheme"], 1);
     }
 
     #[test]
-    fn keeps_explicit_browser_appearance() {
+    fn explicit_dark_override_forces_dark() {
+      let dir = tempfile::tempdir().unwrap();
+      write_theme(dir.path(), 0);
+      sync_color_scheme_pref(dir.path(), Some(true)).unwrap();
+      let t = theme(dir.path());
+      assert_eq!(t["color_scheme2"], 2);
+      assert_eq!(t["follows_system_colors"], false);
+      assert_eq!(t["bw_system_color_scheme"], 2);
+    }
+
+    #[test]
+    fn explicit_override_wins_over_existing_choice() {
       let dir = tempfile::tempdir().unwrap();
       write_theme(dir.path(), 2);
-      sync_color_scheme_pref(dir.path(), false, false).unwrap();
-      assert_eq!(theme(dir.path()), serde_json::json!({ "color_scheme": 2 }));
-    }
-
-    #[test]
-    fn keeps_explicit_choice_after_previous_sync() {
-      let dir = tempfile::tempdir().unwrap();
-      write_theme(dir.path(), 0);
-      sync_color_scheme_pref(dir.path(), false, false).unwrap();
-      write_theme(dir.path(), 2);
-      sync_color_scheme_pref(dir.path(), true, false).unwrap();
-      assert_eq!(theme(dir.path()), serde_json::json!({ "color_scheme": 2 }));
-    }
-
-    #[test]
-    fn restores_follow_system_when_windows_modes_match() {
-      let dir = tempfile::tempdir().unwrap();
-      write_theme(dir.path(), 0);
-      sync_color_scheme_pref(dir.path(), false, false).unwrap();
-      sync_color_scheme_pref(dir.path(), false, true).unwrap();
-      assert_eq!(theme(dir.path()), serde_json::json!({ "color_scheme": 0 }));
-    }
-
-    #[test]
-    fn resolves_follow_system_again_after_previous_sync() {
-      let dir = tempfile::tempdir().unwrap();
-      write_theme(dir.path(), 0);
-      sync_color_scheme_pref(dir.path(), false, false).unwrap();
-      write_theme(dir.path(), 0);
-      sync_color_scheme_pref(dir.path(), false, false).unwrap();
-      assert_eq!(
-        theme(dir.path()),
-        serde_json::json!({
-          "color_scheme": 1,
-          "bw_system_color_scheme": 1
-        })
-      );
+      sync_color_scheme_pref(dir.path(), Some(false)).unwrap();
+      assert_eq!(theme(dir.path())["color_scheme2"], 1);
     }
 
     #[test]
     fn preserves_unrelated_preferences() {
       let dir = tempfile::tempdir().unwrap();
       write_theme(dir.path(), 0);
-      sync_color_scheme_pref(dir.path(), false, false).unwrap();
+      sync_color_scheme_pref(dir.path(), Some(false)).unwrap();
       let prefs: serde_json::Value = serde_json::from_slice(
         &std::fs::read(dir.path().join("Default").join("Preferences")).unwrap(),
       )
       .unwrap();
       assert_eq!(prefs["unrelated"], "unchanged");
+    }
+
+    #[test]
+    fn parses_prefers_dark_mode_from_fingerprint() {
+      assert_eq!(fingerprint_color_pref(None), None);
+      assert_eq!(fingerprint_color_pref(Some("{}")), None);
+      assert_eq!(
+        fingerprint_color_pref(Some(r#"{"prefersDarkMode":false}"#)),
+        Some(false)
+      );
+      assert_eq!(
+        fingerprint_color_pref(Some(r#"{"prefersDarkMode":true,"language":"en-US"}"#)),
+        Some(true)
+      );
+      assert_eq!(fingerprint_color_pref(Some("not json")), None);
     }
   }
 

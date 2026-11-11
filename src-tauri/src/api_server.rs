@@ -13,12 +13,13 @@ use axum::{
   http::{header, HeaderMap, Method, StatusCode},
   middleware::{self, Next},
   response::{IntoResponse, Json, Response},
-  routing::get,
+  routing::{get, post},
   Router,
 };
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tauri::Emitter;
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, Mutex};
 use tower_http::cors::CorsLayer;
@@ -883,6 +884,12 @@ impl ApiServer {
     let api_for_v1 = api.clone();
     let app = Router::new()
       .merge(v1_routes)
+      // Built-in video-sniffer extension enqueue endpoint. Kept OUTSIDE the
+      // auth layers on purpose: the extension ships inside our own browser
+      // bundle and must not hold the user's automation API token. Narrow by
+      // design — loopback-only listener, accepts a single http(s) URL, no
+      // reads, no profile control. All other /v1 routes stay token-gated.
+      .route("/v1/video-download/enqueue", post(enqueue_video_download))
       .route("/openapi.json", get(move || async move { Json(api) }))
       .route(
         "/v1/openapi.json",
@@ -1028,6 +1035,109 @@ async fn terms_check_middleware(
   }
 
   Ok(next.run(request).await)
+}
+
+/// Request body for the built-in video-sniffer extension's enqueue endpoint.
+#[derive(Debug, Deserialize)]
+struct VideoDownloadEnqueueRequest {
+  url: String,
+}
+
+/// Built-in video-sniffer extension hook: enqueue a page-detected video URL
+/// into the video downloader and surface the download page. Auth-free by
+/// design (see route registration comment): loopback-only, write-narrow.
+async fn enqueue_video_download(
+  State(state): State<ApiServerState>,
+  Json(req): Json<VideoDownloadEnqueueRequest>,
+) -> Response {
+  let url = req.url.trim().to_string();
+  if !(url.starts_with("http://") || url.starts_with("https://")) {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({ "ok": false, "error": "invalid url" })),
+    )
+      .into_response();
+  }
+  let task_id = crate::video_downloader::get_downloader()
+    .add_task(url, &state.app_handle)
+    .await;
+  // 切到视频下载页（前端监听 open-video-download）
+  let _ = state.app_handle.emit("open-video-download", ());
+  (
+    StatusCode::OK,
+    Json(serde_json::json!({ "ok": true, "taskId": task_id })),
+  )
+    .into_response()
+}
+
+/// Progress polling for the built-in video-sniffer extension: returns the
+/// in-app downloader task's status/progress so the overlay button in the
+/// browser can show a percentage. Auth-free by design (same narrow read as
+/// the enqueue endpoint: one task id, no listing, no control).
+async fn video_download_task_status(Path(task_id): Path<String>) -> Response {
+  let tasks = crate::video_downloader::get_downloader().list_tasks().await;
+  match tasks.into_iter().find(|t| t.id == task_id) {
+    Some(t) => (
+      StatusCode::OK,
+      Json(serde_json::json!({
+        "ok": true,
+        "found": true,
+        "id": t.id,
+        "status": t.status,
+        "progress": t.progress,
+        "speedText": t.speed_text,
+        "statusText": t.status_text,
+        "errorMsg": t.error_msg,
+      })),
+    )
+      .into_response(),
+    None => (
+      StatusCode::OK,
+      Json(serde_json::json!({ "ok": true, "found": false })),
+    )
+      .into_response(),
+  }
+}
+
+/// Always-on loopback mini server for the built-in video-sniffer extension.
+/// Deliberately independent of the `api_enabled` setting: the bundled browser
+/// extension must be able to hand videos to the in-app downloader without the
+/// user having to turn on the full automation API. Narrow surface: enqueue a
+/// single http(s) URL and poll one task's progress. Nothing else.
+const VIDEO_ENQUEUE_PORTS: [u16; 3] = [10118, 10119, 10120];
+
+pub async fn start_video_enqueue_server(app_handle: tauri::AppHandle) {
+  let state = ApiServerState {
+    app_handle: app_handle.clone(),
+  };
+  let mut bound: Option<(TcpListener, u16)> = None;
+  for port in VIDEO_ENQUEUE_PORTS {
+    match TcpListener::bind(format!("127.0.0.1:{port}")).await {
+      Ok(listener) => {
+        bound = Some((listener, port));
+        break;
+      }
+      Err(_) => continue,
+    }
+  }
+  let Some((listener, port)) = bound else {
+    log::warn!(
+      "video enqueue server: all ports {:?} unavailable, extension enqueue disabled",
+      VIDEO_ENQUEUE_PORTS
+    );
+    return;
+  };
+  log::info!("video enqueue server listening on 127.0.0.1:{port}");
+  let app = Router::new()
+    .route("/v1/video-download/enqueue", post(enqueue_video_download))
+    .route(
+      "/v1/video-download/task/{id}",
+      get(video_download_task_status),
+    )
+    .with_state(state);
+  if let Err(e) = axum::serve(listener, app).await {
+    log::warn!("video enqueue server stopped: {e}");
+  }
 }
 
 // Authentication middleware

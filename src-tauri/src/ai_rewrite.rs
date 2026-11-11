@@ -4901,6 +4901,9 @@ fn join_identify_text(lines: &[String]) -> String {
 }
 
 /// 根据解说内容识别可能属于哪部影视/动漫及其季/集。
+/// 两阶段识别（先定作品，再在作品范围内定季/集，收窄范围提升准确率）：
+///   阶段 1：只判断作品名称与类型（不猜季/集）；
+///   阶段 2：把阶段 1 的作品名作为限定上下文，让模型只回答该作品的季/集与该集剧情。
 /// 复用服务器 AI 配置（llm 优先，缺配置时回退 translate），逐条返回结构化结果。
 /// 返回: { found, type, title, season, episode, breakdown, evidence, confidence, raw }
 #[tauri::command]
@@ -4919,72 +4922,127 @@ pub async fn copywriting_identify_source(lines: Vec<String>) -> Result<Value, St
     return Err("未配置 AI 模型，请先在「AI 洗稿 → 接口设置」里补全接口地址与密钥".to_string());
   }
 
-  let sys_prompt = "你是一位资深影视/动漫解说内容分析师。用户会给你一段某个影视/动漫的解说口播文案（可能是剪辑的、语序被打乱的片段）。
-请根据其中的角色名、地名、设定、台词、剧情线索，判断它最可能出自哪部影视或动漫：作品名称、如果是剧集还尽量给出季数和集数（用整数，不确定填 0）。
-如果判断是动漫/剧集并给出了具体的季数和集数，请额外用一句中文（40 字以内）概括该集的核心剧情段落（如发生了什么事、关键场景），填到 breakdown 字段；无法确定集数时 breakdown 填空字符串。
+  // ---------- 阶段 1：识别作品 ----------
+  let sys_prompt1 = "你是一位资深影视/动漫解说内容分析师。用户会给你一段某个影视/动漫的解说口播文案（可能是剪辑的、语序被打乱的片段）。
+请只根据其中的角色名、地名、设定、台词、剧情线索，判断它最可能出自哪部影视或动漫作品。这一步只需要判断作品名称和类型，不要猜测季数和集数。
+如果判断出作品，请给出该作品的官方中文译名（若为外语作品可同时给出常见中文译名），以及一句话说明判断依据。
 只输出一个 JSON 对象，字段如下（不要输出除 JSON 外的任何文字）：
 {
-  \"found\": true 或 false,      // 是否有把握判断出来源，完全没有把握才 false
-  \"type\": \"movie\" 或 \"tv\" 或 \"anime\" 或 \"unknown\",  // 来源类型
-  \"title\": \"作品名称\",        // 无法确定时填空字符串
-  \"season\": 数字,              // 季数，剧集不确定或非剧集填 0
-  \"episode\": 数字,             // 集数/话数，不确定填 0
-  \"breakdown\": \"该集核心剧情段落概括（40字内，非剧集或不确定集数时填空字符串）\",
+  \"found\": true 或 false,      // 是否有把握判断出作品，完全没有把握才 false
+  \"type\": \"movie\" 或 \"tv\" 或 \"anime\" 或 \"unknown\",  // 作品类型
+  \"title\": \"作品名称（官方中文译名优先）\",  // 无法确定时填空字符串
+  \"aliases\": \"该作品的其他常见译名/原名/别名，多个用顿号分隔，没有填空字符串\",
   \"evidence\": \"一句话说明你依据什么线索判断\",  // 简短，中文
   \"confidence\": 数字            // 0 到 1 的置信度
 }";
 
-  let user_content = format!(
-    "请识别以下解说词可能出自哪部影视或动漫（如是系列作品请给出季/集数）：\n\n{}",
+  let user_content1 = format!(
+    "请识别以下解说词最可能出自哪部影视或动漫作品（这一步不要猜季/集）：\n\n{}",
     text
   );
 
-  let (raw, _usage) = llm_chat(&cfg, sys_prompt, &user_content).await?;
-  let v = extract_json(&raw).unwrap_or_else(|| json!({ "found": false }));
+  let (raw1, _usage1) = llm_chat(&cfg, sys_prompt1, &user_content1).await?;
+  let v1 = extract_json(&raw1).unwrap_or_else(|| json!({ "found": false }));
 
-  // 规范化字段，防止模型缺字段或字段类型异常
-  let title = v
+  let title = v1
     .get("title")
     .and_then(|x| x.as_str())
     .map(|s| s.trim().to_string())
     .unwrap_or_default();
-  let found = v
+  let aliases = v1
+    .get("aliases")
+    .and_then(|x| x.as_str())
+    .map(|s| s.trim().to_string())
+    .unwrap_or_default();
+  let found = v1
     .get("found")
     .and_then(|x| x.as_bool())
-    .or_else(|| v.get("found").and_then(|x| x.as_u64()).map(|n| n != 0))
+    .or_else(|| v1.get("found").and_then(|x| x.as_u64()).map(|n| n != 0))
     .unwrap_or(!title.is_empty());
-  let stype = v
+  let stype = v1
     .get("type")
     .and_then(|x| x.as_str())
     .map(|s| s.trim().to_string())
     .unwrap_or_else(|| "unknown".to_string());
-  let season = v.get("season").and_then(|x| x.as_u64()).unwrap_or(0);
-  let episode = v.get("episode").and_then(|x| x.as_u64()).unwrap_or(0);
-  let evidence = v
+  let evidence = v1
     .get("evidence")
     .and_then(|x| x.as_str())
     .map(|s| s.trim().to_string())
     .unwrap_or_default();
-  let breakdown = v
+  let confidence = v1
+    .get("confidence")
+    .and_then(|x| x.as_f64())
+    .unwrap_or(if found { 0.5 } else { 0.0 });
+
+  // 阶段 1 没识别出作品 → 直接返回，不进入阶段 2
+  if !found || title.is_empty() {
+    return Ok(json!({
+      "found": false,
+      "type": stype,
+      "title": title,
+      "aliases": aliases,
+      "season": 0,
+      "episode": 0,
+      "breakdown": "",
+      "evidence": evidence,
+      "confidence": confidence,
+      "raw": raw1,
+    }));
+  }
+
+  // ---------- 阶段 2：在作品范围内定位季/集 ----------
+  let alias_note = if aliases.is_empty() {
+    String::new()
+  } else {
+    format!("（别名：{}）", aliases)
+  };
+  let sys_prompt2 = "你是一位资深影视/动漫剧集考据师。已知某段解说词出自下面指定的作品，你的唯一任务是判断这段解说词对应该作品的哪一季、哪一集（若为单季作品或剧场版/电影，季数填 1、集数按该季顺序填；电影填季 0 集 0）。
+请结合解说词中的剧情细节、角色状态、场景线索，与该作品的实际剧集内容对照，给出最可能的季数、集数，并概括该集的核心剧情段落。
+只输出一个 JSON 对象，字段如下（不要输出除 JSON 外的任何文字）：
+{
+  \"season\": 数字,              // 季数；电影/剧场版填 0
+  \"episode\": 数字,             // 集数/话数；电影/剧场版填 0
+  \"breakdown\": \"该集核心剧情段落概括（40字内）\",
+  \"evidence\": \"一句话说明你依据什么剧情线索定位到这一集\",  // 简短，中文
+  \"confidence\": 数字            // 0 到 1 的置信度，完全无法定位时 season/episode 填 0
+}";
+
+  let user_content2 = format!(
+    "解说词出自作品：{}{}\n\n请判断以下解说词对应该作品的哪一季哪一集：\n\n{}",
+    title, alias_note, text
+  );
+
+  let (raw2, _usage2) = llm_chat(&cfg, sys_prompt2, &user_content2).await?;
+  let v2 = extract_json(&raw2).unwrap_or_else(|| json!({}));
+
+  let season = v2.get("season").and_then(|x| x.as_u64()).unwrap_or(0);
+  let episode = v2.get("episode").and_then(|x| x.as_u64()).unwrap_or(0);
+  let breakdown = v2
     .get("breakdown")
     .and_then(|x| x.as_str())
     .map(|s| s.trim().to_string())
     .unwrap_or_default();
-  let confidence = v
+  let evidence2 = v2
+    .get("evidence")
+    .and_then(|x| x.as_str())
+    .map(|s| s.trim().to_string())
+    .unwrap_or_default();
+  let confidence2 = v2
     .get("confidence")
     .and_then(|x| x.as_f64())
-    .unwrap_or(if found { 0.5 } else { 0.0 });
+    .unwrap_or(if episode > 0 { 0.5 } else { 0.0 });
 
   Ok(json!({
     "found": found,
     "type": stype,
     "title": title,
+    "aliases": aliases,
     "season": season,
     "episode": episode,
     "breakdown": breakdown,
-    "evidence": evidence,
-    "confidence": confidence,
-    "raw": raw,
+    "evidence": if evidence2.is_empty() { evidence.clone() } else { evidence2 },
+    "confidence": confidence2,
+    "raw": json!({ "stage1": raw1, "stage2": raw2 }).to_string(),
   }))
 }
 

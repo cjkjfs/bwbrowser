@@ -1451,7 +1451,7 @@ async fn run_single_download<R: Runtime>(
 
   // YouTube 专用 header + player_client（根据重试次数换策略）
   let is_youtube = url.contains("youtube.com") || url.contains("youtu.be");
-  let is_douyin = url.contains("douyin.com") || url.contains("v.douyin.com");
+  let is_douyin = is_douyin_url(url);
   if is_youtube {
     args.push("--add-header".to_string());
     args.push("Referer:https://www.youtube.com/".to_string());
@@ -1529,7 +1529,7 @@ async fn run_single_download<R: Runtime>(
         // 检查 cookie 文件是否包含对应平台的 cookie
         let cookie_content = std::fs::read_to_string(&cookie_file).unwrap_or_default();
         let lower_url = url.to_lowercase();
-        let needs_douyin = lower_url.contains("douyin.com") || lower_url.contains("v.douyin.com");
+        let needs_douyin = is_douyin_url(&lower_url);
         let needs_tiktok = lower_url.contains("tiktok.com");
         let needs_bilibili = lower_url.contains("bilibili.com") || lower_url.contains("b23.tv");
         let needs_youtube = lower_url.contains("youtube.com") || lower_url.contains("youtu.be");
@@ -2396,7 +2396,7 @@ pub async fn download_audio_for_asr<R: Runtime>(
   let lower = url.to_lowercase();
   let is_youtube = lower.contains("youtube.com") || lower.contains("youtu.be");
   let is_tiktok = lower.contains("tiktok.com");
-  let is_douyin = lower.contains("douyin.com") || lower.contains("v.douyin.com");
+  let is_douyin = is_douyin_url(&lower);
   if is_youtube {
     common.push("--add-header".to_string());
     common.push("Referer:https://www.youtube.com/".to_string());
@@ -3106,7 +3106,7 @@ async fn export_vps_cookies_to_file<R: Runtime>(
   let cookie_url = match download_url {
     Some(u) => {
       let lower = u.to_lowercase();
-      if lower.contains("douyin.com") || lower.contains("v.douyin.com") {
+      if is_douyin_url(&lower) {
         "https://www.douyin.com/"
       } else if lower.contains("tiktok.com") {
         "https://www.tiktok.com/"
@@ -3123,7 +3123,7 @@ async fn export_vps_cookies_to_file<R: Runtime>(
   let platform_tag = match download_url {
     Some(u) => {
       let lower = u.to_lowercase();
-      if lower.contains("douyin.com") || lower.contains("v.douyin.com") {
+      if is_douyin_url(&lower) {
         "douyin"
       } else if lower.contains("tiktok.com") {
         "tiktok"
@@ -3159,10 +3159,9 @@ async fn export_vps_cookies_to_file<R: Runtime>(
     }
   }
 
-  // 获取 yt-dlp 路径与系统浏览器回退开关
+  // 获取 yt-dlp 路径
   let inner = dl.inner.lock().await;
   let yt_dlp_path = inner.yt_dlp_path.clone();
-  let system_fallback = inner.settings.cookie_from_system_browser;
   drop(inner);
 
   // 找到 VPS 登录 profile（即左上角 logo 点击打开的浏览器）
@@ -3174,18 +3173,6 @@ async fn export_vps_cookies_to_file<R: Runtime>(
   {
     Some(p) => p,
     None => {
-      // 没有 VPS 登录 profile：设置允许时回退到系统浏览器
-      if system_fallback {
-        if let Some(yt_dlp) = yt_dlp_path.as_ref() {
-          if yt_dlp.exists() {
-            if let Ok(n) = try_system_browser_cookie(yt_dlp, &cookie_path, cookie_url).await {
-              dl.set_last_cookie_time(now_secs()).await;
-              log::info!("[video_download] Cookie 已刷新（系统浏览器回退，{n} 条）");
-              return Ok(cookie_path);
-            }
-          }
-        }
-      }
       return Err(
         "未找到名为「VPS登录」的浏览器 profile，请先点击左上角 Logo 创建并登录 YouTube".to_string(),
       );
@@ -3215,7 +3202,7 @@ async fn export_vps_cookies_to_file<R: Runtime>(
   let needs_douyin_nav = download_url
     .map(|u| {
       let lower = u.to_lowercase();
-      lower.contains("douyin.com") || lower.contains("v.douyin.com")
+      is_douyin_url(&lower)
     })
     .unwrap_or(false);
 
@@ -3284,24 +3271,6 @@ async fn export_vps_cookies_to_file<R: Runtime>(
       );
       let _ = app.emit("video-download:auto-open-vps", ());
 
-      // 设置允许时先回退系统浏览器，最后 SQLite
-      if system_fallback {
-        if let Some(yt_dlp) = yt_dlp_path.as_ref() {
-          if yt_dlp.exists() {
-            match try_system_browser_cookie(yt_dlp, &cookie_path, cookie_url).await {
-              Ok(n) => {
-                dl.set_last_cookie_time(now_secs()).await;
-                log::info!("[video_download] Cookie 已刷新（系统浏览器回退，{n} 条）");
-                return Ok(cookie_path);
-              }
-              Err(e) => {
-                log::warn!("[video_download] 系统浏览器回退失败: {}", e);
-              }
-            }
-          }
-        }
-      }
-
       // 全部失败，最终 fallback 到 SQLite 数据库
       log::warn!("[video_download] 回退到 SQLite 数据库");
       let result = crate::cookie_manager::CookieManager::read_cookies(&profile_id)
@@ -3319,136 +3288,6 @@ async fn export_vps_cookies_to_file<R: Runtime>(
       Ok(cookie_path)
     }
   }
-}
-
-/// 回退：从系统浏览器（Chrome/Edge/Firefox/Brave/Chromium）提取 Cookie。
-/// yt-dlp 直读默认 profile 的 cookie 库，无需浏览器在运行。
-/// Windows 下 Chrome 127+ 的 App-Bound 加密可能失败，因此逐个尝试。
-async fn try_system_browser_cookie(
-  yt_dlp_path: &std::path::Path,
-  output_path: &std::path::Path,
-  cookie_url: &str,
-) -> Result<usize, String> {
-  let mut errors: Vec<String> = Vec::new();
-  for browser in ["chrome", "edge", "firefox", "brave", "chromium"] {
-    if !system_browser_cookie_db_exists(browser) {
-      continue;
-    }
-    match extract_cookies_via_ytdlp(yt_dlp_path, browser, output_path, cookie_url).await {
-      Ok(n) if n > 0 => {
-        log::info!(
-          "[video_download] 从系统浏览器 {} 提取到 {} 条 cookie",
-          browser,
-          n
-        );
-        return Ok(n);
-      }
-      Ok(_) => errors.push(format!("{browser}: 0 条")),
-      Err(e) => errors.push(format!("{browser}: {e}")),
-    }
-  }
-  Err(format!(
-    "系统浏览器均未提取到 Cookie（{}）",
-    if errors.is_empty() {
-      "未检测到已安装的系统浏览器".to_string()
-    } else {
-      errors.join("; ")
-    }
-  ))
-}
-
-/// 判断某个系统浏览器的 cookie 库文件是否存在
-fn system_browser_cookie_db_exists(browser: &str) -> bool {
-  #[cfg(target_os = "windows")]
-  {
-    let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
-    let roaming = std::env::var("APPDATA").unwrap_or_default();
-    // Chromium 系 cookie 库：新版在 Default/Network/Cookies，旧版（<96）在 Default/Cookies
-    let chromium_db = |base: &str| {
-      let root = std::path::Path::new(base);
-      root.join("Default/Network/Cookies").exists() || root.join("Default/Cookies").exists()
-    };
-    match browser {
-      "chrome" => chromium_db(
-        &std::path::Path::new(&local)
-          .join("Google/Chrome/User Data")
-          .to_string_lossy(),
-      ),
-      "edge" => chromium_db(
-        &std::path::Path::new(&local)
-          .join("Microsoft/Edge/User Data")
-          .to_string_lossy(),
-      ),
-      "brave" => chromium_db(
-        &std::path::Path::new(&local)
-          .join("BraveSoftware/Brave-Browser/User Data")
-          .to_string_lossy(),
-      ),
-      "firefox" => firefox_cookie_db(&roaming).is_some(),
-      _ => false,
-    }
-  }
-  #[cfg(target_os = "macos")]
-  {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let app_support = format!("{home}/Library/Application Support");
-    match browser {
-      "chrome" => std::path::Path::new(&app_support)
-        .join("Google/Chrome/Default/Cookies")
-        .exists(),
-      "edge" => std::path::Path::new(&app_support)
-        .join("Microsoft Edge/Default/Cookies")
-        .exists(),
-      "brave" => std::path::Path::new(&app_support)
-        .join("BraveSoftware/Brave-Browser/Default/Cookies")
-        .exists(),
-      "firefox" => firefox_cookie_db(&format!("{app_support}/Firefox")).is_some(),
-      _ => false,
-    }
-  }
-  #[cfg(all(unix, not(target_os = "macos")))]
-  {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let config = format!("{home}/.config");
-    match browser {
-      "chrome" => std::path::Path::new(&config)
-        .join("google-chrome/Default/Cookies")
-        .exists(),
-      "edge" => std::path::Path::new(&config)
-        .join("microsoft-edge/Default/Cookies")
-        .exists(),
-      "brave" => std::path::Path::new(&config)
-        .join("BraveSoftware/Brave-Browser/Default/Cookies")
-        .exists(),
-      "chromium" => std::path::Path::new(&config)
-        .join("chromium/Default/Cookies")
-        .exists(),
-      "firefox" => firefox_cookie_db(&format!("{home}/.mozilla/firefox")).is_some(),
-      _ => false,
-    }
-  }
-}
-
-/// 找 Firefox 的 cookie 库（Profiles/<随机>.default*/cookies.sqlite）
-fn firefox_cookie_db(base: &str) -> Option<std::path::PathBuf> {
-  let profiles = std::path::Path::new(base).join("Profiles");
-  let mut entries: Vec<_> = std::fs::read_dir(&profiles).ok()?.flatten().collect();
-  entries.sort_by_key(|e| {
-    // modified 优先，其次 default-release 这类名字
-    let name = e.file_name().to_string_lossy().to_string();
-    let mtime = e
-      .metadata()
-      .ok()
-      .and_then(|m| m.modified().ok())
-      .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-      .map(|d| d.as_secs())
-      .unwrap_or(0);
-    (std::cmp::Reverse(mtime), name)
-  });
-  entries
-    .iter()
-    .map(|e| e.path().join("cookies.sqlite"))
-    .find(|p| p.exists())
 }
 
 /// 把 CDP 导出的 cookie JSON 数组转成 Netscape cookies.txt 格式
@@ -3745,6 +3584,20 @@ fn extract_status_text(line: &str) -> Option<String> {
   None
 }
 
+/// 判断某 URL 是否属于抖音平台（含精选页直链域名 douyinvod）。
+/// 抖音网页端直链是 `v26-web.douyinvod.com/...`（不含 douyin.com），
+/// 这类地址也需走抖音的 Referer + 签名插件 + cookie 链路，否则 yt-dlp generic
+/// 下载带签名直链会 403 失败（实测精进)。
+/// 注意：v(short).douyin.com 是分享跳转短链，www.douyin.com 是页面。
+fn is_douyin_url(url: &str) -> bool {
+  let lower = url.to_lowercase();
+  lower.contains("douyin.com")
+    || lower.contains("v.douyin.com")
+    || lower.contains("douyinvod.com")
+    || lower.contains("douyinstatic.com")
+    || lower.contains("iesdouyin.com")
+}
+
 /// 从文本中提取视频 URL（YouTube、Bilibili、抖音等常见视频平台）
 /// 支持从分享文本中提取 URL（如抖音分享：`https://v.douyin.com/xxx/` 复制此链接...）
 fn extract_video_urls(text: &str) -> Vec<String> {
@@ -4031,6 +3884,217 @@ pub async fn video_download_add_batch<R: Runtime>(
     }
   }
   Ok(ids)
+}
+
+/// 判断是否为「账号主页/频道」URL（批量下载入口）。
+/// 详情页（/video/、watch、shorts 等）不算主页。
+fn is_profile_url(url: &str) -> bool {
+  let lower = url.to_lowercase();
+  // 明确的详情页 → 不是主页
+  let detail = is_douyin_url(&lower) && (lower.contains("/video/") || lower.contains("/note/"))
+    || lower.contains("youtube.com/watch")
+    || lower.contains("youtube.com/shorts")
+    || lower.contains("youtu.be/")
+    || lower.contains("bilibili.com/video/")
+    || lower.contains("/festival/")
+    || lower.contains("tiktok.com/") && lower.contains("/video/");
+  if detail {
+    return false;
+  }
+  // 主页/频道特征
+  lower.contains("tiktok.com/@")
+    || lower.contains("douyin.com/@")
+    || lower.contains("youtube.com/@")
+    || lower.contains("youtube.com/channel/")
+    || lower.contains("youtube.com/c/")
+    || lower.contains("youtube.com/user/")
+    || lower.contains("bilibili.com/space/")
+    || lower.contains("ixigua.com/home/")
+    || lower.contains("kuaishou.com/profile/")
+}
+
+/// 粘贴账号主页链接 → yt-dlp --flat-playlist 流式展开该账号全部视频，
+/// **每解析到一条就立即 add_task 入队**（不等清单读完）：第一个视频马上开始
+/// 下载，后续逐条补入，已有任务进度互不影响。--print 每行输出「url<TAB>id」，
+/// url 缺失时按平台用 id 拼详情页地址。
+#[tauri::command]
+pub async fn video_download_enqueue_profile<R: Runtime>(
+  url: String,
+  app: tauri::AppHandle<R>,
+) -> Result<serde_json::Value, String> {
+  let url = url.trim().to_string();
+  if !is_profile_url(&url) {
+    return Err("请粘贴账号主页链接（如 tiktok.com/@用户名、youtube.com/@频道）".to_string());
+  }
+
+  // yt-dlp 路径：设置里的优先，否则工具目录
+  let yt_dlp = {
+    let inner = get_downloader().inner.lock().await;
+    inner.yt_dlp_path.clone()
+  }
+  .unwrap_or_else(|| {
+    let local = tools_dir().join(yt_dlp_filename());
+    if local.exists() {
+      local
+    } else {
+      PathBuf::from("yt-dlp")
+    }
+  });
+
+  let mut cmd = tokio::process::Command::new(&yt_dlp);
+  cmd
+    .args([
+      "--flat-playlist",
+      "--print",
+      "%(url)s\t%(id)s",
+      "--no-warnings",
+      "--ignore-errors",
+      "--skip-download",
+      &url,
+    ])
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped())
+    .kill_on_drop(true);
+  #[cfg(target_os = "windows")]
+  {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+  }
+  let mut child = cmd
+    .spawn()
+    .map_err(|e| format!("启动 yt-dlp 失败: {}", e))?;
+
+  // stderr 异步丢弃（不读会塞满管道缓冲区导致 yt-dlp 卡死）
+  if let Some(stderr) = child.stderr.take() {
+    tauri::async_runtime::spawn(async move {
+      use tokio::io::AsyncReadExt;
+      let mut e = stderr;
+      let mut buf = [0u8; 4096];
+      loop {
+        match e.read(&mut buf).await {
+          Ok(0) | Err(_) => break,
+          Ok(_) => {}
+        }
+      }
+    });
+  }
+
+  let stdout = child
+    .stdout
+    .take()
+    .ok_or_else(|| "无法读取 yt-dlp 输出".to_string())?;
+  use tokio::io::AsyncBufReadExt;
+  let mut lines = tokio::io::BufReader::new(stdout).lines();
+
+  // 主页标题（展示用）：从 URL 取 @用户名/空间号
+  let title = {
+    let l = url.to_lowercase();
+    if let Some(pos) = url.find("/@") {
+      let rest = &url[pos + 2..];
+      let name: String = rest
+        .chars()
+        .take_while(|c| *c != '/' && *c != '?')
+        .collect();
+      if !name.is_empty() {
+        format!("@{name}")
+      } else {
+        "账号视频".to_string()
+      }
+    } else if l.contains("bilibili.com/space/") {
+      let rest = url.split("space/").nth(1).unwrap_or("");
+      let uid: String = rest
+        .chars()
+        .take_while(|c| *c != '/' && *c != '?')
+        .collect();
+      format!("B站空间 {uid}")
+    } else {
+      "账号视频".to_string()
+    }
+  };
+
+  // 流式逐行：每条立即入队。行间隔 90s 无输出视为卡死停止。
+  let idle_timeout = std::time::Duration::from_secs(90);
+  let mut enqueued = 0usize;
+  let mut found = 0usize;
+  let mut stop_reason: Option<String> = None;
+  loop {
+    let line: String = match tokio::time::timeout(idle_timeout, lines.next_line()).await {
+      Ok(Ok(Some(l))) => l,
+      Ok(Ok(None)) => break, // 清单读完，正常结束
+      Ok(Err(e)) => {
+        stop_reason = Some(format!("读取输出失败: {e}"));
+        break;
+      }
+      Err(_) => {
+        stop_reason = Some("展开清单超时（90 秒无新输出），已停止展开".to_string());
+        break;
+      }
+    };
+    let l = line.trim();
+    if l.is_empty() || l == "NA" {
+      continue;
+    }
+    let (u, id) = match l.split_once('\t') {
+      Some((a, b)) => (a.trim(), b.trim()),
+      None => (l, ""),
+    };
+    // url 缺失时按平台用 id 拼详情页
+    let final_url = if u.starts_with("http") {
+      u.to_string()
+    } else if !id.is_empty() {
+      let lower = url.to_lowercase();
+      if lower.contains("tiktok.com/@") {
+        let pos = match url.find("/@") {
+          Some(p) => p,
+          None => continue,
+        };
+        let rest = &url[pos + 2..];
+        let user: String = rest
+          .chars()
+          .take_while(|c| *c != '/' && *c != '?')
+          .collect();
+        format!("https://www.tiktok.com/@{user}/video/{id}")
+      } else if lower.contains("youtube.com/@")
+        || lower.contains("youtube.com/channel/")
+        || lower.contains("youtube.com/c/")
+        || lower.contains("youtube.com/user/")
+      {
+        format!("https://www.youtube.com/watch?v={id}")
+      } else if lower.contains("bilibili.com/space/") {
+        format!("https://www.bilibili.com/video/{id}")
+      } else {
+        continue;
+      }
+    } else {
+      continue;
+    };
+    if !final_url.starts_with("http") {
+      continue;
+    }
+    found += 1;
+    // 立即入队：add_task 内置 URL 去重，try_start_next 受并发数约束排队
+    let _ = get_downloader().add_task(final_url, &app).await;
+    enqueued += 1;
+  }
+  let _ = child.wait().await;
+
+  if enqueued == 0 {
+    return Err(stop_reason.unwrap_or_else(|| "该主页没有解析到可下载的视频".to_string()));
+  }
+
+  log::info!(
+    "[video_download] 主页流式入队: {title} {enqueued} 条{}",
+    stop_reason
+      .as_deref()
+      .map(|s| format!("（{s}）"))
+      .unwrap_or_default()
+  );
+  Ok(serde_json::json!({
+    "enqueued": enqueued,
+    "total": found,
+    "title": title,
+    "stopped_reason": stop_reason,
+  }))
 }
 
 #[tauri::command]

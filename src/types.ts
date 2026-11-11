@@ -564,6 +564,9 @@ export interface WayfernConfig {
   identity_id?: string; // Internal: UUID the device is derived from on browsers with the identity API
   identity_overrides?: string; // JSON object of the user's own edits to an identity-backed device
   location?: string; // JSON object of the exit-derived location fields (timezone, language, coordinates)
+  /** Explicit color scheme for rendered pages: false=light, true=dark,
+   * undefined=follow device. Applied at launch to Chromium and Wayfern. */
+  prefers_dark_mode?: boolean;
 }
 
 // Wayfern fingerprint config - matches the blob the browser accepts

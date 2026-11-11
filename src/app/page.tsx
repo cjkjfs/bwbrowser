@@ -1201,6 +1201,13 @@ export default function Home() {
         }),
       );
 
+      // Listen for video download page request（内置视频嗅探扩展入队后自动跳转）
+      unlisteners.push(
+        await listen("open-video-download", () => {
+          setCurrentPage("videoDownload");
+        }),
+      );
+
       // Listen for custom logo click events
       handleLogoUrlEvent = (event: CustomEvent) => {
         console.log("Received logo URL event:", event.detail);

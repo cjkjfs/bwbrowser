@@ -22,6 +22,7 @@ import {
   LuSettings,
   LuSparkles,
   LuTrash2,
+  LuVideo,
   LuX,
 } from "react-icons/lu";
 import { toast } from "sonner";
@@ -803,6 +804,39 @@ export function VideoDownloadPage({
     };
   }, [downloadingTools, toolDownloadInfoMap]);
 
+  // 主页批量：从剪贴板读取账号主页链接 → 流式展开全部视频逐条入队
+  const [profileLoading, setProfileLoading] = useState(false);
+  const handleDownloadProfile = useCallback(async () => {
+    let text = "";
+    try {
+      const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
+      text = await readText();
+    } catch (e) {
+      console.error("[video_download] 剪贴板读取失败:", e);
+    }
+    const url = (text.match(/https?:\/\/[^\s'"<>`\]]+/g) || [])[0];
+    if (!url) {
+      toast.error("剪贴板没有主页链接（如 tiktok.com/@用户名）");
+      return;
+    }
+    setProfileLoading(true);
+    try {
+      const r = await invoke<{
+        enqueued: number;
+        total: number;
+        title: string;
+      }>("video_download_enqueue_profile", { url });
+      toast.success(
+        `「${r.title}」已入队 ${r.enqueued} 个视频（共发现 ${r.total} 个）`,
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`主页下载失败：${msg}`);
+    } finally {
+      setProfileLoading(false);
+    }
+  }, []);
+
   // 开始下载
   const handleStartDownload = useCallback(async () => {
     const urls = (urlInput.match(/https?:\/\/[^\s'"<>`\]]+/g) || [])
@@ -941,6 +975,50 @@ export function VideoDownloadPage({
 
   // 确定选择：选中账号时优先本机提取 Cookie（本机有该账号浏览器环境 →
   // 导出并回传服务端，云端解析拿到最新登录态），本机没有则服务端已存 Cookie 兜底
+  // 收紧「视频嗅探下载」扩展的绑定（跟随 Cookie 来源，严格互斥）：
+  // - 选了账号 A → accountIds=[A] + vpsLogin=false：仅账号 A 的浏览器有识别，
+  //   其它账号和 VPS 登录都没有；
+  // - 没选账号（VPS 登录默认）→ accountIds=[] + vpsLogin=true：仅 VPS 登录
+  //   浏览器有识别，所有账号都没有。
+  // 匹配依据（extension_user_assign::assignment_applies）：账号上下文要求
+  // account_ids 包含该账号；VPS 上下文要求 vps_login=true。空数组不含任何
+  // 账号 → 账号全不生效、VPS 生效，正好表达「仅 VPS」。
+  // 复用 assign_extension_to_user（更新绑定 + 重算 profile 分组 + 公司 KV
+  // 同步）；已开着的浏览器需重启才按新绑定加载/卸载。
+  const setSnifferBinding = useCallback(
+    async (accountIds: number[] | null, vpsLogin: boolean) => {
+      try {
+        const exts =
+          await invoke<Array<{ id: string; file_name: string }>>(
+            "list_extensions",
+          );
+        const sniffer = exts.find((e) => e.file_name === "video-sniffer");
+        if (!sniffer) return;
+        // user_id 沿用现有绑定条目（VPS 与账号上下文都按它匹配，不能换人）
+        const assigns = await invoke<
+          Array<{
+            extension_id: string;
+            user_id: number;
+            account_ids: number[] | null;
+            vps_login: boolean | null;
+          }>
+        >("list_extension_user_assignments");
+        const mine = assigns.find((a) => a.extension_id === sniffer.id);
+        if (!mine) return; // 从未绑定过嗅探扩展则不动
+        await invoke("assign_extension_to_user", {
+          extensionId: sniffer.id,
+          userId: mine.user_id,
+          accountIds,
+          vpsLogin,
+        });
+      } catch (e) {
+        // 联动失败不阻断 Cookie 来源设置（如未登录/服务端异常），只提示
+        console.warn("[video_download] 嗅探扩展绑定联动失败:", e);
+      }
+    },
+    [],
+  );
+
   const confirmCookieSource = useCallback(async () => {
     const picked = cookieSourcePicked;
     if (picked != null) {
@@ -967,7 +1045,12 @@ export function VideoDownloadPage({
         } catch (e) {
           toast.error(`本机 Cookie 上传失败：${e}，使用服务端已存 Cookie`);
         }
+        // 识别跟随 Cookie 来源（收紧）：仅该账号显示识别按钮
+        await setSnifferBinding([acc.id], false);
       }
+    } else {
+      // 没选账号（VPS 登录导出默认）：仅 VPS 登录浏览器显示识别按钮
+      await setSnifferBinding([], true);
     }
     updateSettings({
       ...settings,
@@ -980,23 +1063,52 @@ export function VideoDownloadPage({
     bwAccounts,
     settings,
     updateSettings,
+    setSnifferBinding,
   ]);
 
-  // 切换 Cookie 设置
-  const toggleCookieFromBrowser = useCallback(() => {
-    updateSettings({
-      ...settings,
-      cookie_from_browser: !settings.cookie_from_browser,
-    });
-  }, [settings, updateSettings]);
+  // 视频识别跟随 Cookie 来源账号：选了哪个账号，就在那个账号的浏览器环境里
+  // 启动视频识别（打开该账号的平台页，配合「视频嗅探下载」扩展浮球识别）。
+  // 首次确定账号时自动同时保存该账号为 Cookie 来源，两个动作一次完成。
+  const [launchingSniffer, setLaunchingSniffer] = useState(false);
 
-  // 切换系统浏览器 Cookie 回退
-  const toggleCookieFromSystemBrowser = useCallback(() => {
-    updateSettings({
-      ...settings,
-      cookie_from_system_browser: !settings.cookie_from_system_browser,
-    });
-  }, [settings, updateSettings]);
+  const launchSnifferForAccount = useCallback(
+    async (accountId: number | null) => {
+      if (accountId == null) return;
+      const acc =
+        dialogAccounts.find((a) => a.id === accountId) ??
+        bwAccounts.find((a) => a.id === accountId);
+      if (!acc) {
+        toast.error("未找到该账号信息");
+        return;
+      }
+      setLaunchingSniffer(true);
+      try {
+        // 先把这个账号存为 Cookie 来源（识别与下载用同一个账号）
+        if (settings.cookie_account_id !== accountId) {
+          updateSettings({ ...settings, cookie_account_id: accountId });
+        }
+        // 识别收紧到该账号：其它账号与 VPS 登录都不再显示识别按钮
+        await setSnifferBinding([acc.id], false);
+        await invoke("bwbrowser_launch_account", {
+          accountId: acc.id,
+          accountName: acc.account_name || String(acc.id),
+          envUuid: acc.env_uuid ?? null,
+          proxyNode: acc.proxy_node ?? null,
+          platform: acc.platform ?? null,
+        });
+        toast.success(
+          `已用「${acc.account_name}」环境打开${acc.platform || "平台"}，页面里点扩展浮球即可识别视频`,
+        );
+        setCookieSourceDialogOpen(false);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast.error(`启动识别环境失败：${msg}`);
+      } finally {
+        setLaunchingSniffer(false);
+      }
+    },
+    [dialogAccounts, bwAccounts, settings, updateSettings, setSnifferBinding],
+  );
 
   // 切换粘贴自动下载
   const toggleAutoPaste = useCallback(() => {
@@ -1114,6 +1226,20 @@ export function VideoDownloadPage({
               <Button onClick={handleStartDownload} size="sm">
                 <LuPlay className="w-4 h-4 mr-1" />
                 开始下载
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={profileLoading}
+                title="粘贴账号主页链接（tiktok.com/@用户名、youtube.com/@频道、bilibili.com/space 等），展开该账号全部视频逐个入队"
+                onClick={handleDownloadProfile}
+              >
+                {profileLoading ? (
+                  <LuLoader className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <LuLink className="w-4 h-4 mr-1" />
+                )}
+                {profileLoading ? "展开中..." : "主页全部视频"}
               </Button>
             </div>
           </div>
@@ -1494,114 +1620,51 @@ export function VideoDownloadPage({
               )}
           </div>
 
-          {/* 使用浏览器 Cookie */}
+          {/* Cookie 来源（唯一 Cookie 设置入口；不选账号 = 从 VPS 登录导出） */}
           <div className="space-y-2">
             <div className="flex items-center justify-between py-2">
               <div className="space-y-0.5">
-                <Label>使用浏览器 Cookie</Label>
+                <Label>Cookie 来源（云端解析 + 下载）</Label>
                 <p className="text-xs text-muted-foreground">
-                  从爆文浏览器导出 Cookie，自动登录会员视频网站
+                  {selectedCookieAccount
+                    ? `账号：${selectedCookieAccount.phone_id || "无编号"} · ${selectedCookieAccount.account_name}（${selectedCookieAccount.login_account || "-"}）`
+                    : "不选账号：从 VPS 登录导出（默认）"}
                 </p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={settings.cookie_from_browser}
-                onClick={toggleCookieFromBrowser}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                  settings.cookie_from_browser ? "bg-primary" : "bg-muted"
-                }`}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => void openCookieSourceDialog()}
               >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    settings.cookie_from_browser
-                      ? "translate-x-4"
-                      : "translate-x-0.5"
-                  }`}
-                />
-              </button>
+                设置
+              </Button>
             </div>
-            {settings.cookie_from_browser && (
-              <div className="flex items-center justify-between pl-1 py-1 border-t">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-medium">
-                    Cookie 来源（云端解析 + 下载）
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {selectedCookieAccount
-                      ? `账号：${selectedCookieAccount.phone_id || "无编号"} · ${selectedCookieAccount.account_name}（${selectedCookieAccount.login_account || "-"}）`
-                      : "VPS 登录导出（默认）"}
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => void openCookieSourceDialog()}
-                >
-                  设置
-                </Button>
+            <div className="flex items-center justify-between pl-1 py-1 border-t">
+              <div className="text-xs text-muted-foreground">
+                {lastCookieTime > 0
+                  ? `上次获取: ${formatCookieTime(lastCookieTime)}`
+                  : "尚未获取 Cookie"}
               </div>
-            )}
-            {settings.cookie_from_browser && (
-              <div className="flex items-center justify-between pl-1 py-1 border-t">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-medium">
-                    取不到时从系统浏览器获取
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    「VPS登录」未登录或未创建时，自动改用系统
-                    Chrome/Edge/Firefox 登录的 Cookie
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings.cookie_from_system_browser}
-                  onClick={toggleCookieFromSystemBrowser}
-                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
-                    settings.cookie_from_system_browser
-                      ? "bg-primary"
-                      : "bg-muted"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      settings.cookie_from_system_browser
-                        ? "translate-x-4"
-                        : "translate-x-0.5"
-                    }`}
-                  />
-                </button>
-              </div>
-            )}
-            {settings.cookie_from_browser && (
-              <div className="flex items-center justify-between pl-1">
-                <div className="text-xs text-muted-foreground">
-                  {lastCookieTime > 0
-                    ? `上次获取: ${formatCookieTime(lastCookieTime)}`
-                    : "尚未获取 Cookie"}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={isRefreshingCookie}
-                  onClick={async () => {
-                    const ok = await refreshCookie();
-                    if (ok) {
-                      toast.success("Cookie 已刷新");
-                    } else {
-                      toast.error("Cookie 刷新失败");
-                    }
-                  }}
-                >
-                  <LuRefreshCw
-                    className={`w-3.5 h-3.5 mr-1 ${isRefreshingCookie ? "animate-spin" : ""}`}
-                  />
-                  {isRefreshingCookie ? "刷新中..." : "刷新 Cookie"}
-                </Button>
-              </div>
-            )}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isRefreshingCookie}
+                onClick={async () => {
+                  const ok = await refreshCookie();
+                  if (ok) {
+                    toast.success("Cookie 已刷新");
+                  } else {
+                    toast.error("Cookie 刷新失败");
+                  }
+                }}
+              >
+                <LuRefreshCw
+                  className={`w-3.5 h-3.5 mr-1 ${isRefreshingCookie ? "animate-spin" : ""}`}
+                />
+                {isRefreshingCookie ? "刷新中..." : "刷新 Cookie"}
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -1947,6 +2010,23 @@ export function VideoDownloadPage({
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+          {cookieSourcePicked != null && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="mr-auto h-8 gap-1.5 text-xs"
+              disabled={launchingSniffer}
+              title="用该账号的登录环境打开其平台页，配合视频嗅探扩展识别视频"
+              onClick={() => void launchSnifferForAccount(cookieSourcePicked)}
+            >
+              {launchingSniffer ? (
+                <LuLoader className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <LuVideo className="h-3.5 w-3.5" />
+              )}
+              在该账号环境识别视频
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"

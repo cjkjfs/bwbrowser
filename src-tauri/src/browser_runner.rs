@@ -680,8 +680,18 @@ impl BrowserRunner {
       let profile_path_str = profile_data_path.to_string_lossy().to_string();
 
       #[cfg(windows)]
-      if let Err(e) = crate::browser::sync_system_color_scheme(&profile_data_path) {
-        log::warn!("Failed to synchronize browser appearance with Windows: {e}");
+      {
+        let cfg = updated_profile.wayfern_config.as_ref();
+        let dark_override = cfg.and_then(|c| c.prefers_dark_mode).or_else(|| {
+          cfg.and_then(|c| {
+            crate::browser::fingerprint_color_pref(
+              c.fingerprint.as_deref().or(c.identity_overrides.as_deref()),
+            )
+          })
+        });
+        if let Err(e) = crate::browser::apply_color_scheme(&profile_data_path, dark_override) {
+          log::warn!("Failed to synchronize browser appearance: {e}");
+        }
       }
 
       // Install extensions if an extension group is assigned
@@ -810,6 +820,34 @@ impl BrowserRunner {
         guard.worker_id = None;
       }
 
+      // 补应用指纹到浏览器上已存在的 page target（含启动网址标签页以及启动后
+      // 打开的标签）。内核会对「从未收到过 setFingerprint」的 target 施加宿主系统
+      // 表面主题的暗色模拟（prefers-color-scheme: dark），本地手动启动 profile 后
+      // 手工导航到的新标签页、或 apply_color_scheme 无法覆盖的暗色，都靠这次补发
+      // 清除。这是云启动路径 already 有的兜底，本地启动补齐使两条路径一致。
+      // reapply 对已应用指纹的 target 是幂等的，重复调用无副作用。
+      if wayfern_config.fingerprint.is_some() {
+        let kernel_version = updated_profile.version.clone();
+        match self
+          .wayfern_manager
+          .reapply_fingerprint_to_page_targets(&profile_path_str, &wayfern_config, &kernel_version)
+          .await
+        {
+          Ok(n) => {
+            log::info!(
+              "✓ 本地启动补应用指纹到 {n} 个标签页（清除内核暗色模拟）: {}",
+              updated_profile.name
+            );
+          }
+          Err(e) => {
+            log::warn!(
+              "⚠ 本地启动补应用指纹失败（页面可能维持暗色）: {}: {e}",
+              updated_profile.name
+            );
+          }
+        }
+      }
+
       // Update profile with the process info
       updated_profile.process_id = Some(process_id);
       updated_profile.last_launch = Some(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs());
@@ -934,8 +972,18 @@ impl BrowserRunner {
       let profile_path_str = profile_data_path.to_string_lossy().to_string();
 
       #[cfg(windows)]
-      if let Err(e) = crate::browser::sync_system_color_scheme(&profile_data_path) {
-        log::warn!("Failed to synchronize browser appearance with Windows: {e}");
+      {
+        let cfg = profile.wayfern_config.as_ref();
+        let dark_override = cfg.and_then(|c| c.prefers_dark_mode).or_else(|| {
+          cfg.and_then(|c| {
+            crate::browser::fingerprint_color_pref(
+              c.fingerprint.as_deref().or(c.identity_overrides.as_deref()),
+            )
+          })
+        });
+        if let Err(e) = crate::browser::apply_color_scheme(&profile_data_path, dark_override) {
+          log::warn!("Failed to synchronize browser appearance: {e}");
+        }
       }
 
       let port = match remote_debugging_port {

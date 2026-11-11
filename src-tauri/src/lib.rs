@@ -3595,6 +3595,15 @@ pub fn run_with_builder(
 
       // Nodecar warm-up is now triggered from the frontend to allow UI blocking overlay
 
+      // Always-on loopback mini server for the built-in video-sniffer
+      // extension (enqueue + progress polling). Independent of api_enabled:
+      // the bundled browser extension hands videos to the in-app downloader
+      // without requiring the user to turn on the automation API.
+      let app_handle_ve = app.handle().clone();
+      tauri::async_runtime::spawn(async move {
+        crate::api_server::start_video_enqueue_server(app_handle_ve).await;
+      });
+
       // Start API server if enabled in settings
       let app_handle_api = app.handle().clone();
       tauri::async_runtime::spawn(async move {
@@ -4114,6 +4123,7 @@ pub fn run_with_builder(
       video_downloader::video_download_list_tasks,
       video_downloader::video_download_add,
       video_downloader::video_download_add_batch,
+      video_downloader::video_download_enqueue_profile,
       video_downloader::video_download_cancel,
       video_downloader::video_download_pause,
       video_downloader::video_download_resume,

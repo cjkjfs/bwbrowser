@@ -1060,6 +1060,50 @@ export function WayfernConfigForm({
             </div>
           </div>
 
+          {/* Color scheme */}
+          <div className="space-y-3">
+            <Label>{t("fingerprint.colorScheme")}</Label>
+            <p className="text-sm text-muted-foreground">
+              {t("fingerprint.colorSchemeDescription")}
+            </p>
+            <Select
+              value={
+                config.prefers_dark_mode === false
+                  ? "light"
+                  : config.prefers_dark_mode === true
+                    ? "dark"
+                    : "default"
+              }
+              onValueChange={(value: string) => {
+                if (value === "light") {
+                  onConfigChange("prefers_dark_mode", false);
+                } else if (value === "dark") {
+                  onConfigChange("prefers_dark_mode", true);
+                } else {
+                  onConfigChange("prefers_dark_mode", undefined);
+                }
+              }}
+              disabled={isEditingDisabled}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={t("fingerprint.colorSchemePlaceholder")}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">
+                  {t("fingerprint.colorSchemeFollowDevice")}
+                </SelectItem>
+                <SelectItem value="light">
+                  {t("fingerprint.colorSchemeLight")}
+                </SelectItem>
+                <SelectItem value="dark">
+                  {t("fingerprint.colorSchemeDark")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Timezone and Geolocation */}
           <div className="space-y-3">
             <Label>{t("fingerprint.timezoneAndGeolocation")}</Label>
@@ -1555,6 +1599,50 @@ export function WayfernConfigForm({
               <p className="ml-6 text-sm text-muted-foreground">
                 {t("fingerprint.generateRandomDescription")}
               </p>
+            </div>
+
+            {/* Color scheme (also applies to automatically generated fingerprints) */}
+            <div className="space-y-3">
+              <Label>{t("fingerprint.colorScheme")}</Label>
+              <p className="text-sm text-muted-foreground">
+                {t("fingerprint.colorSchemeDescription")}
+              </p>
+              <Select
+                value={
+                  config.prefers_dark_mode === false
+                    ? "light"
+                    : config.prefers_dark_mode === true
+                      ? "dark"
+                      : "default"
+                }
+                onValueChange={(value: string) => {
+                  if (value === "light") {
+                    onConfigChange("prefers_dark_mode", false);
+                  } else if (value === "dark") {
+                    onConfigChange("prefers_dark_mode", true);
+                  } else {
+                    onConfigChange("prefers_dark_mode", undefined);
+                  }
+                }}
+                disabled={readOnly}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={t("fingerprint.colorSchemePlaceholder")}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">
+                    {t("fingerprint.colorSchemeFollowDevice")}
+                  </SelectItem>
+                  <SelectItem value="light">
+                    {t("fingerprint.colorSchemeLight")}
+                  </SelectItem>
+                  <SelectItem value="dark">
+                    {t("fingerprint.colorSchemeDark")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <SessionRestoreOption

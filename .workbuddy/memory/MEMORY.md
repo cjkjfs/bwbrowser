@@ -53,3 +53,13 @@
 
 ### 相关文档
 - Magpie Trae 登录修复：`D:\bian\vps\_work\magpie_trae_login_fix.md`
+
+---
+## 视频嗅探下载扩展（内置 MV3，2026-11-09~10）
+
+- **加载目录**：Chrome `--load-extension` 加载的是 `target/debug/extensions/video-sniffer/`（构建时从 `src-tauri/extensions/` 拷贝的独立副本，**非链接**）。改源码必须手动 `cp` 同步 target，且 content script 改动需**重开爆文库浏览器**才生效。
+- **⚠️ verbatim 路径缓存坑（2026-11-10 定位，最关键）**：Rust `Path::canonicalize()` 在 Windows 返回 `\\?\C:\...`；Chromium 对 verbatim 路径加载的 unpacked 扩展会**错误缓存文件**（reload/后续读取永远拿旧内容）。修复：`extension_manager.rs` 新增 `strip_verbatim_prefix`（需重编译），现有 metadata.json linked_path 已手动去 `\\?\`。**以后凡新增/编辑内置扩展且涉及 canonicalize→--load-extension，必须保证路径无 `\\?\` 前缀。**
+- **扩展 id**：嗅探=`jegkpjdekbkkdikkplpppnniankhlgpj`（"视频嗅探下载"）；达人精灵=`llpkfdob...`（DISABLED）；文字转语音=`iekblgkc...`。`--load-extension` 里 verbatim path 项即嗅探扩展。
+- **下载链路**：扩展按钮 `POST 127.0.0.1:[10118..10120]/v1/video-download/enqueue`（常驻 mini server，不依赖 api_enabled，免 token 窄端）→ `get_downloader().add_task()`（与前端导航栏视频下载同队列）→ 按钮轮询 `GET .../v1/video-download/task/{id}` 显示百分比。SW 休眠丢事件已用页面内 hook（hook.js 注入 MAIN world + postMessage）修复；该 Chromium 151 对 manifest `world:"MAIN"` 无效，须用 `<script src=getURL>` 注入 + web_accessible_resources。
+- **平台页 URL 下载（2026-11-10）**：主程序下载器=yt-dlp，原生支持 YT/TikTok/抖音/B站 页面 URL。扩展对已知平台页（`PLATFORM_RE` 与 Rust 白名单一致）：
+  主播放器（`scoreVideo` 打分）无 http 直链（blob:/MSE）时，按钮改走 `location.href`（viaPage，交 yt-dlp 解析），文案「下载视频」；`engage()` 另有 `extraPageFallback` 兜底，保证平台页必出下载入口。这解决了 YT/TikTok「识别不到视频」。改 content.js 需重开浏览器生效。

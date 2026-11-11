@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "视频嗅探下载",
+  "version": "1.1.0",
+  "description": "识别页面内视频资源，一键发送到 BwBrowser 视频下载",
+  "permissions": ["webRequest", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["hook.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

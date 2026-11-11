@@ -896,6 +896,72 @@ pub fn bwbrowser_refresh_profile() -> Result<CloudUser, String> {
   BWBROWSER_AUTH.refresh_profile_sync()
 }
 
+/// 内置「视频嗅探下载」扩展的资源目录名（打包映射 extensions/video-sniffer）。
+const VIDEO_SNIFFER_EXT_NAME: &str = "视频嗅探下载";
+
+/// 确保内置「视频嗅探下载」扩展已安装并分配给 VPS 登录（爆文库）：
+/// 1) 扩展库中没有 → 从打包资源目录 link 安装（原地加载，随程序升级自动更新）；
+/// 2) 当前用户没有 vps_login=true 的分配记录 → 写入（后续
+///    apply_owner_assignments 会把它放进 VPS profile 的自动分组）。
+///    任何失败都只记日志静默降级：嗅探不可用不影响 VPS 登录启动。
+async fn ensure_video_sniffer_extension(app_handle: &tauri::AppHandle) {
+  use tauri::Manager;
+
+  let ext_id = {
+    let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
+    match mgr
+      .list_extensions()
+      .ok()
+      .and_then(|list| list.into_iter().find(|e| e.name == VIDEO_SNIFFER_EXT_NAME))
+    {
+      Some(ext) => ext.id,
+      None => {
+        let dir = match app_handle.path().resolve(
+          "extensions/video-sniffer",
+          tauri::path::BaseDirectory::Resource,
+        ) {
+          Ok(p) => p,
+          Err(e) => {
+            log_bwbrowser_error(
+              "video_sniffer",
+              &format!("内置嗅探扩展资源路径解析失败: {e}"),
+            );
+            return;
+          }
+        };
+        match mgr.add_unpacked_extension(VIDEO_SNIFFER_EXT_NAME.to_string(), &dir, true) {
+          Ok(ext) => {
+            log_bwbrowser("video_sniffer", "内置嗅探扩展已安装（linked）");
+            ext.id
+          }
+          Err(e) => {
+            log_bwbrowser_error("video_sniffer", &format!("内置嗅探扩展安装失败: {e}"));
+            return;
+          }
+        }
+      }
+    }
+  };
+
+  let Some(user_id) = BWBROWSER_AUTH.get_user_id() else {
+    log_bwbrowser_error("video_sniffer", "未登录云端账号，跳过嗅探扩展分配");
+    return;
+  };
+  let already = crate::extension_user_assign::list_extension_user_assignments()
+    .unwrap_or_default()
+    .iter()
+    .any(|a| a.extension_id == ext_id && a.user_id == user_id && a.vps_login == Some(true));
+  if already {
+    return;
+  }
+  match crate::extension_user_assign::assign_extension_to_user(ext_id, user_id, None, Some(true))
+    .await
+  {
+    Ok(_) => log_bwbrowser("video_sniffer", "内置嗅探扩展已分配给 VPS 登录"),
+    Err(e) => log_bwbrowser_error("video_sniffer", &format!("内置嗅探扩展分配失败: {e}")),
+  }
+}
+
 #[tauri::command]
 pub async fn bwbrowser_open_vps_login(
   app_handle: tauri::AppHandle,
@@ -1031,6 +1097,11 @@ pub async fn bwbrowser_open_vps_login(
     }
   };
   emit_progress(30, "profile 就绪");
+
+  // 确保内置「视频嗅探下载」扩展可用：未安装则从打包资源 link 安装，
+  // 并分配给当前用户 vps_login=true（经 apply_owner_assignments 进入
+  // VPS profile 的自动分组）。失败静默降级——嗅探不可用不影响登录启动。
+  ensure_video_sniffer_extension(&app_handle).await;
 
   // 先拉一次公司级绑定（管理员机器分配的插件跨机器生效；失败静默降级）
   crate::extension_user_assign::pull_company_assignments().await;
@@ -8706,6 +8777,38 @@ async fn launch_account_impl(
           "launch_account",
           &format!("  ⚠ 打开启动网址失败 {}: {}", url, e),
         ),
+      }
+    }
+
+    // 上面这些标签页是在启动时指纹应用之后才打开的，从未收到
+    // Wayfern.setFingerprint；内核会对这种未应用指纹的 target 模拟宿主暗色
+    // 系统表面（SystemUsesLightTheme=0 → prefers-color-scheme: dark），
+    // 导致"跟随设备也一直是暗色"。补发同一份指纹即可清除该模拟
+    // （对已应用过的 target 幂等无害）。
+    if launched_profile.browser == "wayfern" {
+      if let Some(cfg) = launched_profile.wayfern_config.as_ref() {
+        let pm = crate::profile::manager::ProfileManager::instance();
+        let profiles_dir = pm.get_profiles_dir();
+        let profile_data_path =
+          crate::ephemeral_dirs::get_effective_profile_path(&launched_profile, &profiles_dir);
+        match crate::wayfern_manager::WayfernManager::instance()
+          .reapply_fingerprint_to_page_targets(
+            &profile_data_path.to_string_lossy(),
+            cfg,
+            &launched_profile.version,
+          )
+          .await
+        {
+          Ok(n) if n > 0 => log_bwbrowser(
+            "launch_account",
+            &format!("  ✓ 指纹已补应用到 {n} 个标签页（清除内核暗色模拟）"),
+          ),
+          Ok(_) => {}
+          Err(e) => log_bwbrowser(
+            "launch_account",
+            &format!("  ⚠ 指纹补应用失败（页面可能维持暗色）: {e}"),
+          ),
+        }
       }
     }
   }

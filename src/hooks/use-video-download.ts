@@ -98,6 +98,21 @@ export function useVideoDownload() {
       const result = await invoke<DownloadSettings>(
         "video_download_get_settings",
       );
+      // UI 已收敛为仅「Cookie 来源」一个功能：总开关不再暴露。
+      // 老用户若把 cookie_from_browser 关过，这里一次性归位为 true，
+      // 否则 Cookie 来源（账号/VPS）整条提取链都会被关掉。
+      if (!result.cookie_from_browser) {
+        const fixed = { ...result, cookie_from_browser: true };
+        setSettings(fixed);
+        try {
+          await invoke("video_download_update_settings", {
+            settings: fixed,
+          });
+        } catch {
+          /* 回写失败不影响本次会话使用 */
+        }
+        return;
+      }
       setSettings(result);
     } catch (e) {
       console.error("[video_download] 加载设置失败:", e);
