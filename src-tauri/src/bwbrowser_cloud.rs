@@ -9544,7 +9544,12 @@ async fn prefetch_cloud_cookies(
       if let Some(arr) = val.as_array() {
         match tokio::time::timeout(
           std::time::Duration::from_secs(10),
-          crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref()),
+          crate::cookie_health::gate_youtube_probe_with_cdp(
+            profile,
+            &cloud_platform,
+            crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref())
+              .await,
+          ),
         )
         .await
         {
@@ -9896,7 +9901,12 @@ async fn inject_cloud_cookies_after_launch(
       if !arr.is_empty() {
         match tokio::time::timeout(
           std::time::Duration::from_secs(10),
-          crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref()),
+          crate::cookie_health::gate_youtube_probe_with_cdp(
+            profile,
+            &cloud_platform,
+            crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref())
+              .await,
+          ),
         )
         .await
         {
@@ -9938,7 +9948,12 @@ async fn inject_cloud_cookies_after_launch(
       if let Some(arr) = cloud_val.as_array() {
         match tokio::time::timeout(
           std::time::Duration::from_secs(10),
-          crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref()),
+          crate::cookie_health::gate_youtube_probe_with_cdp(
+            profile,
+            &cloud_platform,
+            crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref())
+              .await,
+          ),
         )
         .await
         {
@@ -10121,7 +10136,12 @@ async fn inject_cloud_cookies_after_launch(
       Some(
         tokio::time::timeout(
           std::time::Duration::from_secs(10),
-          crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref()),
+          crate::cookie_health::gate_youtube_probe_with_cdp(
+            profile,
+            &cloud_platform,
+            crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref())
+              .await,
+          ),
         )
         .await,
       )

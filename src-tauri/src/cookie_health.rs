@@ -1752,6 +1752,190 @@ async fn read_page_html_via_cdp(cdp: &crate::cdp_target::CdpTarget) -> Option<St
     .map(str::to_string)
 }
 
+/// Parse the `LOGGED_IN` flag from a YouTube page's inlined ytcfg JSON.
+/// The flag is written by Google's server while rendering the page — it is
+/// the server's own verdict on the session at load time, so leftover cookies
+/// from a revoked session cannot fake it (unlike cookie-name checks or HTTP
+/// body probes). `false` wins over `true` when several occurrences disagree:
+/// a dead session must never be uploaded.
+fn parse_logged_in_from_html(html: &str) -> Option<bool> {
+  const NEEDLE: &str = "\"LOGGED_IN\":";
+  let mut found_true = false;
+  let mut cursor = 0usize;
+  while let Some(off) = html[cursor..].find(NEEDLE) {
+    let after = cursor + off + NEEDLE.len();
+    let rest = html[after..].trim_start();
+    if rest.starts_with("false") {
+      return Some(false);
+    }
+    if rest.starts_with("true") {
+      found_true = true;
+    }
+    cursor = after;
+    if cursor >= html.len() {
+      break;
+    }
+  }
+  if found_true {
+    Some(true)
+  } else {
+    None
+  }
+}
+
+/// Extract the DevTools HTTP port from a `ws://127.0.0.1:PORT/devtools/...` URL.
+fn cdp_port_from_ws_url(ws_url: &str) -> Option<u16> {
+  let rest = ws_url.strip_prefix("ws://")?;
+  let host_part = rest.split('/').next()?;
+  host_part.rsplit(':').next()?.parse().ok()
+}
+
+/// Final word on YouTube login state: read the `LOGGED_IN` flag from the
+/// running browser's pages via CDP.
+///
+/// Reads the page the launch flow currently drives first; when that page
+/// carries no YouTube ytcfg (login wall, user navigated elsewhere) it looks
+/// for any YouTube-domain tab, and as a last resort opens a temporary tab on
+/// `www.youtube.com`, reads the flag, and closes the tab. Returns `None` when
+/// nothing readable exists (browser not up, CDP gated) — the caller then
+/// keeps its original verdict unchanged.
+pub async fn youtube_logged_in_via_cdp(profile: &crate::profile::BrowserProfile) -> Option<bool> {
+  // 1) The page the launch flow drives (studio.youtube.com after navigation).
+  if let Ok(cdp) = crate::cdp_target::resolve(profile).await {
+    if let Some(html) = read_page_html_via_cdp(&cdp).await {
+      if let Some(v) = parse_logged_in_from_html(&html) {
+        return Some(v);
+      }
+    }
+    // 2) Local browsers only: enumerate tabs for a YouTube-domain page; if
+    //    none has the flag, open a throwaway tab on the main site.
+    if let crate::cdp_target::CdpTarget::Local { ws_url } = &cdp {
+      let port = cdp_port_from_ws_url(ws_url)?;
+      let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .no_proxy()
+        .build()
+        .ok()?;
+      let targets: serde_json::Value = client
+        .get(format!("http://127.0.0.1:{port}/json"))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+      if let Some(arr) = targets.as_array() {
+        for t in arr {
+          if t.get("type").and_then(serde_json::Value::as_str) != Some("page") {
+            continue;
+          }
+          let url = t
+            .get("url")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+          if !url.contains("youtube.com") || url.contains("accounts.google.com") {
+            continue;
+          }
+          let Some(ws) = t
+            .get("webSocketDebuggerUrl")
+            .and_then(serde_json::Value::as_str)
+          else {
+            continue;
+          };
+          let cdp_t = crate::cdp_target::CdpTarget::Local {
+            ws_url: ws.to_string(),
+          };
+          if let Some(html) = read_page_html_via_cdp(&cdp_t).await {
+            if let Some(v) = parse_logged_in_from_html(&html) {
+              return Some(v);
+            }
+          }
+        }
+      }
+      // 2b) No YouTube page carries the flag: open a throwaway tab on the
+      // main site, let it render, read the flag, then close the tab.
+      let new_tab: serde_json::Value = client
+        .put(format!(
+          "http://127.0.0.1:{port}/json/new?https://www.youtube.com/"
+        ))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+      let tid = new_tab
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+      let mut verdict = None;
+      if let Some(ws) = new_tab
+        .get("webSocketDebuggerUrl")
+        .and_then(serde_json::Value::as_str)
+      {
+        // Give the page time to load and for the server-rendered ytcfg to
+        // be present in the DOM.
+        tokio::time::sleep(Duration::from_millis(3500)).await;
+        let cdp_t = crate::cdp_target::CdpTarget::Local {
+          ws_url: ws.to_string(),
+        };
+        verdict = read_page_html_via_cdp(&cdp_t)
+          .await
+          .and_then(|h| parse_logged_in_from_html(&h));
+      }
+      if let Some(tid) = tid {
+        let _ = client
+          .get(format!("http://127.0.0.1:{port}/json/close/{tid}"))
+          .send()
+          .await;
+      }
+      return verdict;
+    }
+  }
+  None
+}
+
+/// YouTube-specific gate wrapped around the HTTP probe verdict. The bare
+/// HTTP probe cannot tell Google sessions apart (logged-out visitors' HTML
+/// also matches `session_indicators`, and the CookieMismatch branch is
+/// deliberately lenient), so a `Valid` verdict is double-checked against the
+/// running page's `LOGGED_IN` flag:
+/// - page says logged in → verdict stands,
+/// - page says logged out → flipped to Expired (no upload, no dead-session
+///   injection),
+/// - CDP unreadable → original verdict unchanged (same behavior as before).
+pub async fn gate_youtube_probe_with_cdp(
+  profile: &crate::profile::BrowserProfile,
+  platform: &str,
+  verdict: Option<(HealthStatus, String)>,
+) -> Option<(HealthStatus, String)> {
+  let key = platform.trim().to_lowercase();
+  if key != "youtube" && key != "yt" {
+    return verdict;
+  }
+  let (status, msg) = verdict?;
+  if status != HealthStatus::Valid {
+    return Some((status, msg));
+  }
+  match youtube_logged_in_via_cdp(profile).await {
+    Some(true) => Some((
+      HealthStatus::Valid,
+      format!("{msg}；CDP页面 LOGGED_IN=true 复核通过"),
+    )),
+    Some(false) => {
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "inject_cookies",
+        &format!("⚠ CDP 页面 LOGGED_IN=false（页面亲证未登录），推翻 HTTP 探测的 Valid: {msg}"),
+      );
+      Some((
+        HealthStatus::Expired,
+        format!("CDP page LOGGED_IN=false (page disagrees with HTTP probe: {msg})"),
+      ))
+    }
+    None => Some((status, msg)),
+  }
+}
+
 async fn fetch_youtube_channel_meta(
   client: Option<&reqwest::Client>,
   cookie_header: Option<&str>,

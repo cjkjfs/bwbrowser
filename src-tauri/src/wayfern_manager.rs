@@ -936,7 +936,7 @@ pub struct WayfernManager {
   http_client: Client,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct CdpTarget {
   #[serde(rename = "type")]
   target_type: String,
@@ -1809,6 +1809,12 @@ impl WayfernManager {
       document["operatingSystem"].as_str().unwrap_or("unknown"),
     ))
   }
+
+  /// How long the launcher keeps polling for the first page target after the
+  /// DevTools HTTP server is up (60 × 500ms = 30s). Covers slow starts —
+  /// larger kernels, cold caches, session restore — where /json/version
+  /// answers before any page window exists.
+  const PAGE_TARGET_POLL_MAX_ATTEMPTS: usize = 60;
 
   async fn wait_for_cdp_ready(
     &self,
@@ -3104,11 +3110,36 @@ impl WayfernManager {
 
     self.wait_for_cdp_ready(port).await?;
 
-    let targets = self.get_cdp_targets(port).await?;
-    log::info!("Found {} CDP targets", targets.len());
-
-    let page_targets: Vec<_> = targets.iter().filter(|t| t.target_type == "page").collect();
-    log::info!("Found {} page targets", page_targets.len());
+    // /json/version answering only proves the DevTools HTTP server is up, not
+    // that the browser has created its first page window. Grabbing the target
+    // list at that instant raced the first page on slow starts (larger kernels
+    // like 156, cold caches, session restore) and the legacy setFingerprint
+    // path — which needs a page target to apply to — aborted the whole launch
+    // with "the browser exposed no page target to apply it to". Poll until a
+    // page exists; a start that already has pages returns on the first probe
+    // and behaves exactly as before.
+    let mut page_targets: Vec<CdpTarget> = Vec::new();
+    let mut last_target_count = 0usize;
+    for attempt in 0..Self::PAGE_TARGET_POLL_MAX_ATTEMPTS {
+      let targets = self.get_cdp_targets(port).await?;
+      last_target_count = targets.len();
+      page_targets = targets
+        .iter()
+        .filter(|t| t.target_type == "page")
+        .cloned()
+        .collect();
+      if !page_targets.is_empty() {
+        if attempt > 0 {
+          log::info!("Page target appeared after {attempt} extra poll(s) on port {port}");
+        }
+        break;
+      }
+      tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    log::info!(
+      "Found {last_target_count} CDP targets, {} page targets",
+      page_targets.len()
+    );
 
     crate::bwbrowser_cloud::log_bwbrowser(
       "launch_account",
