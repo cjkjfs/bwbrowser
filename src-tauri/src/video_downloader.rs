@@ -1533,10 +1533,16 @@ async fn run_single_download<R: Runtime>(
 
   // 输出文件名：红果直链无标题，URL 尾巴含非法字符，必须用固定名
   args.push("-o".to_string());
-  args.push(
-    hongguo_fixed_name
-      .unwrap_or_else(|| "%(uploader|Unknown)s_%(title).80B_%(id)s.%(ext)s".to_string()),
-  );
+  args.push(hongguo_fixed_name.unwrap_or_else(|| {
+    // index.m3u8 这类无元数据直链：不同视频 %(title)s/%(id)s 恒相同
+    // （都是 "index"），同名文件互相覆盖 → 用 平台名_时间戳 保证唯一
+    if bare_stream_needs_timestamp_name(url) {
+      let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+      format!("{}_{}.%(ext)s", bare_stream_platform_label(url), stamp)
+    } else {
+      "%(uploader|Unknown)s_%(title).80B_%(id)s.%(ext)s".to_string()
+    }
+  }));
 
   // 代理：服务端按用户指派的优先，未指派用本地选择
   let effective_proxy = effective_proxy_url(settings).await;
@@ -1969,6 +1975,9 @@ async fn run_single_download<R: Runtime>(
   let mut stderr_lines: Vec<String> = Vec::new();
   let mut completed = false;
   let mut error_output = String::new();
+  // 上一次发出进度事件的原始行：m3u8 碎片下载会重复输出完全相同的进度行
+  // （2501 碎片可产生 2.7 万行），逐行发事件会以数百次/秒的频率轰炸前端
+  let mut last_progress_line = String::new();
 
   // 异步循环：接收行 + 更新状态
   loop {
@@ -2016,6 +2025,11 @@ async fn run_single_download<R: Runtime>(
 
         // 进度行：[download]  23.9% of   81.01MiB at   11.11MiB/s ETA 00:05
         if trimmed.starts_with("[download]") && trimmed.contains("% of") {
+          // 与上一行完全相同的进度（碎片下载高频重复输出）跳过，不发事件不重算
+          if trimmed == last_progress_line {
+            continue;
+          }
+          last_progress_line = trimmed.to_string();
           if let Some((percent, total, speed)) = parse_download_line(trimmed) {
             let downloaded = if total > 0 {
               (total as f64 * percent / 100.0) as u64
@@ -3562,7 +3576,9 @@ fn parse_size_and_speed(size_str: &str, rest: &str) -> (u64, String) {
 }
 
 fn parse_human_size(s: &str) -> u64 {
-  let s = s.trim().trim_start_matches('~');
+  // m3u8 估算大小形如 "~   1.98GiB"（~ 后跟多个空格），去掉 ~ 后必须再 trim，
+  // 否则数字段从空格开始解析成 0 → 整个下载期间 total=0，前端不显示进度条。
+  let s = s.trim().trim_start_matches('~').trim();
   if s.is_empty() {
     return 0;
   }
@@ -3572,7 +3588,14 @@ fn parse_human_size(s: &str) -> u64 {
     .find(|c: char| !c.is_ascii_digit() && c != '.')
     .unwrap_or(s.len());
   let num: f64 = s[..num_end].parse().unwrap_or(0.0);
-  let unit = s[num_end..].trim().to_lowercase();
+  // 单位只取第一个连续字母段：容错 "GiB in 00:00:32"（下载完成行）、
+  // "MiB/s"（速度）这类带尾巴的写法，避免单位匹配不上按 1 计算成几字节。
+  let unit = s[num_end..]
+    .trim()
+    .split(|c: char| !c.is_ascii_alphabetic())
+    .next()
+    .unwrap_or("")
+    .to_lowercase();
 
   let multiplier: u64 = match unit.as_str() {
     "b" | "" => 1,
@@ -3720,11 +3743,28 @@ fn extract_status_text(line: &str) -> Option<String> {
     return Some("正在解析视频链接...".to_string());
   }
 
+  // m3u8 / HLS 直链（观影等平台）常见阶段
+  if line.contains("m3u8 information") || line.contains("m3u8 manifest") {
+    return Some("正在解析视频流...".to_string());
+  }
+  if line.contains("Checking m3u8 live status") {
+    return Some("正在检查视频流...".to_string());
+  }
+  if line.starts_with("[Fixup") {
+    // 大文件封装修复可能持续十几秒，此时进度已 100% 但任务未完成，
+    // 必须给用户明确反馈，否则像"卡死"
+    return Some("正在修复视频封装...".to_string());
+  }
+  if line.contains("Following redirect") {
+    return Some("正在跟随跳转...".to_string());
+  }
+
   // 其他 [xxx] 行，去掉前缀，取最后一部分
   if let Some(colon_pos) = line.find(':') {
     let after = &line[colon_pos + 1..];
     let trimmed = after.trim();
-    if !trimmed.is_empty() && trimmed.len() < 80 {
+    // 不把原始 URL 当状态文案显示（如 "[generic] Extracting URL: https://..."）
+    if !trimmed.is_empty() && trimmed.len() < 80 && !trimmed.contains("://") {
       return Some(trimmed.to_string());
     }
   }
@@ -3744,6 +3784,62 @@ fn is_douyin_url(url: &str) -> bool {
     || lower.contains("douyinvod.com")
     || lower.contains("douyinstatic.com")
     || lower.contains("iesdouyin.com")
+}
+
+/// 直链流 URL 是否需要「平台名_时间戳」命名：
+/// index.m3u8 这类直链没有任何元数据，%(title)s/%(id)s 恒为 "index"，
+/// 不同视频生成同名文件互相覆盖（yt-dlp 还会误判 "has already been
+/// downloaded" 直接跳过下载）→ 必须用唯一命名。已知平台有真实元数据，
+/// 保持默认命名不变。
+fn bare_stream_needs_timestamp_name(url: &str) -> bool {
+  let lower = url.to_lowercase();
+  let known_platform = lower.contains("youtube.com")
+    || lower.contains("youtu.be")
+    || lower.contains("tiktok.com")
+    || lower.contains("bilibili.com")
+    || lower.contains("b23.tv")
+    || is_douyin_url(url);
+  if known_platform {
+    return false;
+  }
+  // 取路径最后一段的文件主干（去查询参数、去扩展名）
+  let path = lower.split(['?', '&']).next().unwrap_or("");
+  let stem = path.rsplit('/').next().unwrap_or("");
+  let stem = stem
+    .strip_suffix(".m3u8")
+    .or_else(|| stem.strip_suffix(".mp4"))
+    .or_else(|| stem.strip_suffix(".flv"))
+    .or_else(|| stem.strip_suffix(".ts"))
+    .unwrap_or(stem);
+  // 主干无意义（通用名/为空）→ 用时间戳命名；有真实名字（如 movie.mp4）保持默认
+  stem == "index" || stem == "video" || stem == "playlist" || stem.is_empty()
+}
+
+/// 从直链 URL 提取平台标签作文件名前缀：svip.xgplay17.com → xgplay17
+fn bare_stream_platform_label(url: &str) -> String {
+  let host = url
+    .split("://")
+    .nth(1)
+    .unwrap_or("")
+    .split(['/', ':', '?'])
+    .next()
+    .unwrap_or("");
+  let parts: Vec<&str> = host.split('.').collect();
+  // 取主域段（倒数第二段）；单段 host 用它自己
+  let label = if parts.len() >= 2 {
+    parts[parts.len() - 2]
+  } else {
+    parts.first().copied().unwrap_or("video")
+  };
+  let sanitized: String = label
+    .chars()
+    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+    .collect();
+  if sanitized.is_empty() {
+    "video".to_string()
+  } else {
+    sanitized
+  }
 }
 
 /// 从文本中提取视频 URL（YouTube、Bilibili、抖音等常见视频平台）

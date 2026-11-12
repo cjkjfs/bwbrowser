@@ -985,39 +985,81 @@ export function VideoDownloadPage({
   // 账号 → 账号全不生效、VPS 生效，正好表达「仅 VPS」。
   // 复用 assign_extension_to_user（更新绑定 + 重算 profile 分组 + 公司 KV
   // 同步）；已开着的浏览器需重启才按新绑定加载/卸载。
-  const setSnifferBinding = useCallback(
-    async (accountIds: number[] | null, vpsLogin: boolean) => {
-      try {
-        const exts =
-          await invoke<Array<{ id: string; file_name: string }>>(
-            "list_extensions",
-          );
-        const sniffer = exts.find((e) => e.file_name === "video-sniffer");
-        if (!sniffer) return;
-        // user_id 沿用现有绑定条目（VPS 与账号上下文都按它匹配，不能换人）
-        const assigns = await invoke<
-          Array<{
-            extension_id: string;
-            user_id: number;
-            account_ids: number[] | null;
-            vps_login: boolean | null;
-          }>
-        >("list_extension_user_assignments");
-        const mine = assigns.find((a) => a.extension_id === sniffer.id);
-        if (!mine) return; // 从未绑定过嗅探扩展则不动
-        await invoke("assign_extension_to_user", {
+  const setSnifferBinding = useCallback(async (accountIds: number[] | null) => {
+    try {
+      const exts =
+        await invoke<Array<{ id: string; file_name: string }>>(
+          "list_extensions",
+        );
+      const sniffer = exts.find((e) => e.file_name === "video-sniffer");
+      if (!sniffer) return;
+      const assigns = await invoke<
+        Array<{
+          extension_id: string;
+          user_id: number;
+          account_ids: number[] | null;
+          vps_login: boolean | null;
+        }>
+      >("list_extension_user_assignments");
+      const mine = assigns.filter((a) => a.extension_id === sniffer.id);
+      // 账号限定的绑定只按「账号 id」匹配（assignment_applies 对
+      // (Some(list), Some(aid)) 不看 user_id），user_id 仅是条目载体——
+      // 沿用现有条目的 user 即可，挂谁都不影响「勾了哪些账号哪些账号
+      // 就有嗅探」。user_id 字段只是扩展管理「分配给用户」通用机制要求。
+      if (accountIds && accountIds.length > 0) {
+        const carrier = mine[0]?.user_id;
+        if (carrier == null) return; // 从未绑定过嗅探扩展则不动
+        const toUnassign = mine
+          .map((a) => a.user_id)
+          .filter((uid) => uid !== carrier);
+        await invoke("assign_extension_to_users_bulk", {
           extensionId: sniffer.id,
-          userId: mine.user_id,
-          accountIds,
-          vpsLogin,
+          toAssign: [
+            {
+              user_id: carrier,
+              account_ids: accountIds,
+              vps_login: false,
+            },
+          ],
+          toUnassign,
         });
-      } catch (e) {
-        // 联动失败不阻断 Cookie 来源设置（如未登录/服务端异常），只提示
-        console.warn("[video_download] 嗅探扩展绑定联动失败:", e);
+      } else {
+        // VPS 分支挂「当前登录用户」（VPS/爆文库启动按 BWBROWSER_AUTH
+        // 的登录用户匹配绑定），与 Rust 侧 apply_owner_assignments 一致
+        let loginUserId: number | null = null;
+        try {
+          const auth = await invoke<{
+            user: { id: number };
+          } | null>("bwbrowser_get_user");
+          loginUserId = auth?.user.id ?? null;
+        } catch {
+          /* 未登录时 fallback 旧条目 */
+        }
+        const vpsUser =
+          loginUserId ??
+          mine.find((a) => a.vps_login === true)?.user_id ??
+          mine[0]?.user_id;
+        if (vpsUser == null) return;
+        const toUnassign = mine
+          .map((a) => a.user_id)
+          .filter((uid) => uid !== vpsUser);
+        await invoke("assign_extension_to_users_bulk", {
+          extensionId: sniffer.id,
+          toAssign: [
+            {
+              user_id: vpsUser,
+              account_ids: null,
+              vps_login: true,
+            },
+          ],
+          toUnassign,
+        });
       }
-    },
-    [],
-  );
+    } catch (e) {
+      // 联动失败不阻断 Cookie 来源设置（如未登录/服务端异常），只提示
+      console.warn("[video_download] 嗅探扩展绑定联动失败:", e);
+    }
+  }, []);
 
   const confirmCookieSource = useCallback(async () => {
     const picked = cookieSourcePicked;
@@ -1046,11 +1088,11 @@ export function VideoDownloadPage({
           toast.error(`本机 Cookie 上传失败：${e}，使用服务端已存 Cookie`);
         }
         // 识别跟随 Cookie 来源（收紧）：仅该账号显示识别按钮
-        await setSnifferBinding([acc.id], false);
+        await setSnifferBinding([acc.id]);
       }
     } else {
       // 没选账号（VPS 登录导出默认）：仅 VPS 登录浏览器显示识别按钮
-      await setSnifferBinding([], true);
+      await setSnifferBinding(null);
     }
     updateSettings({
       ...settings,
@@ -1088,7 +1130,7 @@ export function VideoDownloadPage({
           updateSettings({ ...settings, cookie_account_id: accountId });
         }
         // 识别收紧到该账号：其它账号与 VPS 登录都不再显示识别按钮
-        await setSnifferBinding([acc.id], false);
+        await setSnifferBinding([acc.id]);
         await invoke("bwbrowser_launch_account", {
           accountId: acc.id,
           accountName: acc.account_name || String(acc.id),

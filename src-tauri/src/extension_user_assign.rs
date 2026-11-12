@@ -562,16 +562,28 @@ async fn fetch_all_cloud_accounts(
 }
 
 /// 单条绑定是否对 (user, account 上下文) 生效。
+/// 账号限定的绑定（account_ids 显式列出）只按账号 id 匹配——账号 id 全局
+/// 唯一，「勾了哪些账号哪些账号就有」，与条目挂在哪个 user 名下无关
+/// （视频嗅探跟随 Cookie 来源场景：owner 信息缺失/挂错人不再导致失效）。
+/// 不限账号的绑定（account_ids=null）仍按 user 匹配：扩展管理「分配给
+/// 用户」的按人语义保持不变。
 fn assignment_applies(a: &ExtensionUserAssignment, user_id: i64, account_id: Option<i64>) -> bool {
-  if a.user_id != user_id {
-    return false;
-  }
   match (&a.account_ids, account_id) {
-    (None, _) => true,
-    // 爆文库（无账号上下文）：不限账号的绑定始终生效；账号限定的绑定
-    // 只在显式勾选了「VPS 登录」时生效
-    (Some(_), None) => a.vps_login == Some(true),
+    // 账号限定 + 有账号上下文：只按账号 id 匹配（不看 user）
     (Some(list), Some(aid)) => list.contains(&aid),
+    _ => {
+      if a.user_id != user_id {
+        return false;
+      }
+      match (&a.account_ids, account_id) {
+        // 不限账号的绑定：user 匹配即生效（账号上下文/爆文库/VPS 均可）
+        (None, _) => true,
+        // 爆文库（无账号上下文）：账号限定的绑定只在勾选了「VPS 登录」时生效
+        (Some(_), None) => a.vps_login == Some(true),
+        // (Some, Some) 已被外层第一分支接住，不可达
+        (Some(_), Some(_)) => false,
+      }
+    }
   }
 }
 

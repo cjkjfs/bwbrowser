@@ -431,16 +431,53 @@ impl CookieManager {
     // Use immutable=1 URI so we can read even while the browser is running
     // and holding an exclusive lock on the database. The trade-off is a
     // potentially slightly stale snapshot, which is fine for cookie reads.
-    let path_str = db_path.to_string_lossy();
-    let uri = format!("file:{}?mode=ro&immutable=1", path_str);
-    let conn = Connection::open_with_flags(
-      &uri,
-      OpenFlags::SQLITE_OPEN_READ_ONLY
-        | OpenFlags::SQLITE_OPEN_URI
-        | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(|e| format!("Failed to open cookie database: {e}"))?;
+    let open_ro = |path: &Path| -> Result<Connection, String> {
+      let uri = format!("file:{}?mode=ro&immutable=1", path.to_string_lossy());
+      Connection::open_with_flags(
+        &uri,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+          | OpenFlags::SQLITE_OPEN_URI
+          | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+      )
+      .map_err(|e| format!("Failed to open cookie database: {e}"))
+    };
+    // 浏览器运行中（EXCLUSIVE locking / WAL checkpoint 窗口）连 immutable=1
+    // 都可能 CANTOPEN。兜底：把库文件复制成临时快照再读（Chromium 的句柄
+    // 允许共享读，复制通常成功），读完删快照。
+    let mut snapshot_path: Option<PathBuf> = None;
+    let conn = match open_ro(db_path) {
+      Ok(c) => c,
+      Err(direct_err) => {
+        let nanos = std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .map(|d| d.as_nanos())
+          .unwrap_or_default();
+        let tmp =
+          std::env::temp_dir().join(format!("bw_cookies_{}_{}.db", std::process::id(), nanos));
+        std::fs::copy(db_path, &tmp)
+          .map_err(|ce| format!("{direct_err}; snapshot copy also failed: {ce}"))?;
+        let c = open_ro(&tmp).inspect_err(|_| {
+          let _ = std::fs::remove_file(&tmp);
+        })?;
+        snapshot_path = Some(tmp);
+        c
+      }
+    };
 
+    let read_result = Self::read_chrome_cookies_from_conn(&conn, encryption_key);
+    drop(conn);
+    if let Some(tmp) = snapshot_path {
+      let _ = std::fs::remove_file(&tmp);
+    }
+    read_result
+  }
+
+  /// 从已打开的 Cookies 连接读取并解密（read_chrome_cookies 的正文抽出，
+  /// 便于直连/快照两种打开方式共用 + 统一清理临时文件）。
+  fn read_chrome_cookies_from_conn(
+    conn: &Connection,
+    encryption_key: Option<&[u8; 16]>,
+  ) -> Result<Vec<UnifiedCookie>, String> {
     let mut stmt = conn
       .prepare(
         "SELECT name, value, host_key, path, expires_utc, is_secure,
