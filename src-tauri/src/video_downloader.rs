@@ -1691,6 +1691,15 @@ async fn run_single_download<R: Runtime>(
               || cookie_content.to_lowercase().contains("google.com")))
           || (!needs_douyin && !needs_tiktok && !needs_bilibili && !needs_youtube);
 
+        // YouTube 登录态检查：只有 VISITOR_INFO1_LIVE/PREF 这类游客 cookie
+        // 而没有 SID/__Secure-1PSID/SAPISID 登录会话时（Cookie 源账号只是
+        // 匿名浏览过 YouTube，从未登录），YouTube 会对可疑 IP 触发
+        // "Sign in to confirm you're not a bot" —— 提前把根因告诉用户
+        let has_youtube_login = {
+          let lower_cookie = cookie_content.to_lowercase();
+          lower_cookie.contains("psid") || lower_cookie.contains("sapisid")
+        };
+
         if has_platform_cookie {
           log::info!(
             "[video_download] 使用浏览器 cookie: {}",
@@ -1698,13 +1707,22 @@ async fn run_single_download<R: Runtime>(
           );
           args.push("--cookies".to_string());
           args.push(cookie_file.to_string_lossy().to_string());
-          dl.set_task_status_text(task_id, "Cookie 提取完成，正在启动下载...".to_string())
+          let cookie_status_text = if needs_youtube && !has_youtube_login {
+            // 游客 cookie 仍传给 yt-dlp（聊胜于无），但明确提示可能被风控
+            log::warn!(
+              "[video_download] Cookie 文件有 youtube.com 域但无登录会话（SID/PSID/SAPISID 缺失），Cookie 源账号未登录 YouTube"
+            );
+            "Cookie 源账号未登录 YouTube（仅游客 Cookie），易触发人机验证，建议改用已登录 YouTube 的账号...".to_string()
+          } else {
+            "Cookie 提取完成，正在启动下载...".to_string()
+          };
+          dl.set_task_status_text(task_id, cookie_status_text.clone())
             .await;
           let _ = app.emit(
             "video-download:status",
             &serde_json::json!({
               "taskId": task_id,
-              "statusText": "Cookie 提取完成，正在启动下载...",
+              "statusText": cookie_status_text,
               "status": "downloading"
             }),
           );
@@ -3244,25 +3262,92 @@ async fn export_account_cookies_to_file(
   Ok(true)
 }
 
+/// 从指定浏览器 profile 实时导出最新 Cookie（本地优先）。
+/// 优先级：yt-dlp 直读 profile > CDP 实时内存 > SQLite 数据库。
+/// 全部失败返回 Err，由调用方决定回退服务端快照 / VPS 登录老链路。
+/// skip_ytdlp：抖音平台 yt-dlp 访问会 403，需跳过直读。
+async fn try_export_profile_fresh(
+  profile: &crate::profile::types::BrowserProfile,
+  profiles_dir: &std::path::Path,
+  cookie_path: &std::path::Path,
+  cookie_url: &str,
+  skip_ytdlp: bool,
+  yt_dlp_path: Option<&std::path::PathBuf>,
+  dl: &VideoDownloader,
+) -> Result<(), String> {
+  let profile_id = profile.id.to_string();
+  let user_data_dir = profile.get_profile_data_path(profiles_dir);
+
+  // 1) yt-dlp 直读 profile（最全面，含登录 Cookie）
+  if !skip_ytdlp {
+    if let Some(yt_dlp) = yt_dlp_path {
+      if yt_dlp.exists() && user_data_dir.exists() {
+        let arg = format!("chrome:{}:Default", user_data_dir.to_string_lossy());
+        match extract_cookies_via_ytdlp(yt_dlp, &arg, cookie_path, cookie_url).await {
+          Ok(count) if count > 0 => {
+            dl.set_last_cookie_time(now_secs()).await;
+            log::info!(
+              "[video_download] Cookie 已刷新（yt-dlp 直读 profile，{} 条）",
+              count
+            );
+            return Ok(());
+          }
+          Ok(_) => log::warn!(
+            "[video_download] yt-dlp 提取到 0 条（{}），尝试 CDP",
+            profile.name
+          ),
+          Err(e) => log::warn!("[video_download] yt-dlp 提取 Cookie 失败: {}，尝试 CDP", e),
+        }
+      }
+    }
+  }
+
+  // 2) CDP 实时导出（浏览器开着时能读到内存中的全部 cookie）
+  match crate::cookie_sync::export_cookies_via_cdp(profile).await {
+    Ok(cookie_json) => {
+      let cookies: Vec<serde_json::Value> =
+        serde_json::from_str(&cookie_json).map_err(|e| format!("解析 cookie 失败: {e}"))?;
+      log::info!(
+        "[video_download] 通过 CDP 导出到 {} 条 cookie",
+        cookies.len()
+      );
+      let txt = cookies_to_netscape(&cookies);
+      std::fs::write(cookie_path, txt).map_err(|e| format!("写入 cookie 文件失败: {e}"))?;
+      dl.set_last_cookie_time(now_secs()).await;
+      log::info!("[video_download] Cookie 已刷新（CDP 导出）");
+      Ok(())
+    }
+    Err(cdp_err) => {
+      // 3) SQLite 数据库兜底
+      log::warn!("[video_download] CDP 导出失败: {cdp_err}，回退 SQLite");
+      let result = crate::cookie_manager::CookieManager::read_cookies(&profile_id)
+        .map_err(|e| format!("Cookie 导出失败（CDP 不可用，SQLite: {e}）"))?;
+      let all_cookies: Vec<crate::cookie_manager::UnifiedCookie> =
+        result.domains.into_iter().flat_map(|d| d.cookies).collect();
+      log::info!(
+        "[video_download] 从 Cookie 数据库读取到 {} 条 cookie",
+        all_cookies.len()
+      );
+      let txt = crate::cookie_manager::CookieManager::format_netscape_cookies(&all_cookies);
+      std::fs::write(cookie_path, txt).map_err(|e| format!("写入 cookie 文件失败: {e}"))?;
+      dl.set_last_cookie_time(now_secs()).await;
+      log::info!("[video_download] Cookie 已刷新（SQLite 回退）");
+      Ok(())
+    }
+  }
+}
+
 async fn export_vps_cookies_to_file<R: Runtime>(
   force_refresh: bool,
   dl: &VideoDownloader,
   app: &tauri::AppHandle<R>,
   download_url: Option<&str>,
 ) -> Result<PathBuf, String> {
-  // 找到 VPS 登录 profile（即左上角 logo 点击打开的浏览器）
+  // 列出全部本地 profile（后续按「账号名后缀」定位指定 Cookie 源账号的 profile，
+  // 再按「VPS登录」名定位兜底 profile），全程不消耗掉该 Vec。
   let pm = crate::profile::manager::ProfileManager::instance();
   let profiles = pm.list_profiles().map_err(|e| e.to_string())?;
-  let vps_profile = profiles
-    .into_iter()
-    .find(|p| p.name.to_lowercase() == "vps登录")
-    .ok_or_else(|| {
-      "未找到名为「VPS登录」的浏览器 profile，请先点击左上角 Logo 创建并登录 YouTube".to_string()
-    })?;
-
-  let profile_id = vps_profile.id.to_string();
   let profiles_dir = pm.get_profiles_dir();
-  let user_data_dir = vps_profile.get_profile_data_path(&profiles_dir);
 
   // 根据下载 URL 决定访问哪个网站提取对应平台的 cookie
   let cookie_url = match download_url {
@@ -3299,13 +3384,55 @@ async fn export_vps_cookies_to_file<R: Runtime>(
   };
   let cookie_path = tools_dir().join(format!("cookies_{}.txt", platform_tag));
 
-  // 设置了 Cookie 来源账号 → 直接用服务端该账号的 Cookie，
-  // 不再打开/提取 VPS 登录 profile；账号无 Cookie 时回退老链路。
+  // 设置了 Cookie 来源账号 → 优先实时导出该账号本地 profile 的 Cookie
+  // （浏览器开着就能拿到最新登录态），本地不可用再回退服务端快照。
   let cookie_account_id = {
     let inner = dl.inner.lock().await;
     inner.settings.cookie_account_id
   };
   if let Some(aid) = cookie_account_id {
+    let account_profile = profiles
+      .iter()
+      .find(|p| p.name.to_lowercase().ends_with(&format!("_{aid}")));
+    if let Some(acc) = account_profile {
+      log::info!(
+        "[video_download] Cookie 源账号 {aid}，本地 profile「{}」优先实时导出",
+        acc.name
+      );
+      let yt_dlp_path = {
+        let inner = dl.inner.lock().await;
+        inner.yt_dlp_path.clone()
+      };
+      // 抖音跳过 yt-dlp（访问 douyin.com 会 403）
+      let skip_ytdlp = download_url
+        .map(|u| is_douyin_url(&u.to_lowercase()))
+        .unwrap_or(false);
+      match try_export_profile_fresh(
+        acc,
+        &profiles_dir,
+        &cookie_path,
+        cookie_url,
+        skip_ytdlp,
+        yt_dlp_path.as_ref(),
+        dl,
+      )
+      .await
+      {
+        Ok(()) => {
+          log::info!("[video_download] Cookie 来自指定账号 {aid} 本地 profile（{platform_tag}）");
+          return Ok(cookie_path);
+        }
+        Err(local_err) => {
+          log::warn!(
+            "[video_download] 本地实时导出账号 {aid} Cookie 失败（{local_err}），回退服务端快照"
+          );
+        }
+      }
+    } else {
+      log::info!(
+        "[video_download] 本机无 Cookie 源账号 {aid} 的 profile（或未创建），回退服务端快照"
+      );
+    }
     match export_account_cookies_to_file(aid, &cookie_path).await {
       Ok(true) => {
         dl.set_last_cookie_time(now_secs()).await;
@@ -3313,7 +3440,9 @@ async fn export_vps_cookies_to_file<R: Runtime>(
         return Ok(cookie_path);
       }
       Ok(false) => {
-        log::info!("[video_download] 指定账号 {aid} 无 Cookie，回退 VPS 登录提取");
+        log::info!(
+          "[video_download] 指定账号 {aid} 无 Cookie（含本地与服务端），回退 VPS 登录提取"
+        );
       }
       Err(e) => {
         log::warn!("[video_download] 拉取账号 {aid} Cookie 失败（{e}），回退 VPS 登录提取");
@@ -3326,20 +3455,16 @@ async fn export_vps_cookies_to_file<R: Runtime>(
   let yt_dlp_path = inner.yt_dlp_path.clone();
   drop(inner);
 
-  // 找到 VPS 登录 profile（即左上角 logo 点击打开的浏览器）
-  let pm = crate::profile::manager::ProfileManager::instance();
-  let profiles = pm.list_profiles().map_err(|e| e.to_string())?;
-  let vps_profile = match profiles
-    .into_iter()
+  // 找到 VPS 登录 profile（即左上角 logo 点击打开的浏览器），走老链路
+  let vps_profile = profiles
+    .iter()
     .find(|p| p.name.to_lowercase() == "vps登录")
-  {
-    Some(p) => p,
-    None => {
-      return Err(
-        "未找到名为「VPS登录」的浏览器 profile，请先点击左上角 Logo 创建并登录 YouTube".to_string(),
-      );
-    }
-  };
+    .ok_or_else(|| {
+      "未找到名为「VPS登录」的浏览器 profile，请先点击左上角 Logo 创建并登录 YouTube".to_string()
+    })?;
+  let vps_profile = vps_profile.clone();
+  let profile_id = vps_profile.id.to_string();
+  let user_data_dir = vps_profile.get_profile_data_path(&profiles_dir);
 
   // 如果不是强制刷新且文件存在且1小时内，直接复用
   if !force_refresh && cookie_path.exists() {

@@ -438,8 +438,19 @@
   const TIKTOK_PLAY_RE = /^https?:\/\/[^/]*tiktok\.com\/aweme\/v1\/play\//i;
   // 平台「视频详情页」地址格式（列表页/主页 URL 不算——yt-dlp 会当成合集
   // 下载第一个视频，不是用户点的那个）
+  // 抖音实际卡片/详情页 URL 形态（实测只认 /video/\d+ 时 9 种只中 1 种）：
+  //   /video/7361234567890                直接详情页
+  //   /@用户名/video/7361234567890        主页卡片链接（带 @）
+  //   /user/UID/video/7361234567890       旧格式卡片
+  //   /note/7361234567890                 图集详情页
+  //   /discover?modal_id=7361234567890    弹窗形式（视频 ID 在查询参数，
+  //     精选/关注/搜索页的卡片最常见这种）——由 cleanPageUrl 换算成 /video/id
   const VIDEO_PAGE_URL_RE =
-    /tiktok\.com\/@[^/]+\/video\/\d+|youtube\.com\/(watch|shorts)|youtu\.be\/|bilibili\.com\/video\/|douyin\.com\/video\/\d+|ixigua\.com\/\d+/i;
+    /tiktok\.com\/@[^/]+\/video\/\d+|youtube\.com\/(watch|shorts)|youtu\.be\/|bilibili\.com\/video\/|douyin\.com\/(?:@[^/]+\/|user\/[^/]+\/)?(?:video|note)\/\d+|ixigua\.com\/\d+/i;
+  // 抖音弹窗形式卡片（视频 ID 在 modal_id 查询参数里）
+  const DOUYIN_MODAL_RE = /douyin\.com\/[^\s]*[?&]modal_id=(\d+)/i;
+  const isVideoDetailHref = (href) =>
+    VIDEO_PAGE_URL_RE.test(href) || DOUYIN_MODAL_RE.test(href);
   // 解析某 video 元素对应的「视频详情页」地址：
   // ① 卡片祖先链上的 <a href=详情页>（主页/列表页每张卡片本身就是链接，实测可用）
   // ② 当前页面本身就是详情页（watch 页）
@@ -449,6 +460,11 @@
   // 直接切会得到 youtube.com/watch（无 ID），交给 yt-dlp 会下成别的视频（实测踩坑）。
   // 唯一 ID 在查询参数里的是 YouTube watch/?v=，须 strip 掉其它参数但保留 v。
   const cleanPageUrl = (href) => {
+    // 抖音 modal_id 弹窗形式：视频 ID 在查询参数里，换算成规范详情页。
+    // 放在 split("?") 之前——对弹窗 URL 直接去参数会丢掉视频 ID（与 YT v= 同坑）。
+    const mi = href.match(/[?&]modal_id=(\d+)/i);
+    if (mi && /douyin\.com/i.test(href))
+      return "https://www.douyin.com/video/" + mi[1];
     const qi = href.indexOf("?");
     if (qi < 0) return href;
     const base = href.slice(0, qi);
@@ -459,11 +475,30 @@
     }
     return base;
   };
+  // 解析某 video 元素对应的「视频详情页」地址：
+  // ① 卡片祖先链上的 href（主页/列表页每张卡片本身就是链接，实测可用）
+  //    ⚠️ 抖音卡片是**带 href 属性的 div**（React 模拟链接），不是 <a> 标签
+  //    ——closest("a[href]") 会漏掉，必须 closest("[href]") + getAttribute 取值，
+  //    且 div 无 .href getter，协议相对值（//host/...）需用 URL 补全。
+  // ② 当前页面本身就是详情页（watch 页）
+  // 都拿不到 → null（宁可不出按钮，也不绑主页/列表页 URL 下错视频）
+  const hrefOf = (el) => {
+    // 优先 DOM 属性（<a> 的 .href 是解析后的完整 URL），div 用 getAttribute
+    const raw =
+      typeof el.href === "string" && el.href
+        ? el.href
+        : el.getAttribute("href") || "";
+    if (!raw) return "";
+    try {
+      return new URL(raw, location.href).href; // 补全协议相对 //host/...
+    } catch (e) {
+      return raw;
+    }
+  };
   const resolveCardPageUrl = (v) => {
-    const a = v.closest && v.closest("a[href]");
-    if (a && VIDEO_PAGE_URL_RE.test(a.href || "")) return cleanPageUrl(a.href);
-    if (VIDEO_PAGE_URL_RE.test(location.href))
-      return cleanPageUrl(location.href);
+    const a = v.closest && v.closest("[href]");
+    if (a && isVideoDetailHref(hrefOf(a))) return cleanPageUrl(hrefOf(a));
+    if (isVideoDetailHref(location.href)) return cleanPageUrl(location.href);
     return null;
   };
 
@@ -545,16 +580,31 @@
         }
         return false;
       };
-      document.querySelectorAll("a[href]").forEach((a) => {
-        const href = a.href || "";
-        if (!VIDEO_PAGE_URL_RE.test(href)) return;
+      // ⚠️ 扫 [href] 而不是 a[href]：抖音瀑布流卡片是**带 href 属性的 div**
+      //（React 模拟链接，实测 66 张卡片 0 个 <a>），只扫 a 会全部漏掉。
+      // href 取值/补全用 hrefOf（div 无 .href getter）。
+      document.querySelectorAll("[href]").forEach((el) => {
+        const href = hrefOf(el);
+        if (!isVideoDetailHref(href)) return;
         const u = cleanPageUrl(href);
         if (seenUrl.has(u)) return;
-        const r = a.getBoundingClientRect();
+        const r = el.getBoundingClientRect();
         if (!r || r.width === 0 || r.height === 0) return; // 虚拟滚动未渲染
-        if (overlapsVideo(a)) return; // 同一卡片已有 video 按钮，去重
+        if (overlapsVideo(el)) return; // 同一卡片已有 video 按钮，去重
         seenUrl.add(u);
-        out.push({ el: a, url: u, dir: "right-top", viaPage: true });
+        out.push({ el, url: u, dir: "right-top", viaPage: true });
+      });
+      // 兜底：抖音部分元素带 data-aweme-id（视频 ID）属性，直接换算详情页
+      document.querySelectorAll("[data-aweme-id]").forEach((el) => {
+        const id = el.getAttribute("data-aweme-id") || "";
+        if (!/^\d{10,}$/.test(id)) return;
+        const u = "https://www.douyin.com/video/" + id;
+        if (seenUrl.has(u)) return;
+        const r = el.getBoundingClientRect();
+        if (!r || r.width === 0 || r.height === 0) return;
+        if (overlapsVideo(el)) return;
+        seenUrl.add(u);
+        out.push({ el, url: u, dir: "right-top", viaPage: true });
       });
     }
     return out;

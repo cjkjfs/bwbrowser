@@ -1146,6 +1146,26 @@ impl WayfernManager {
     }))
   }
 
+  /// 主显示器当前分辨率。指纹要求的窗口比屏幕还大时，OS 会截断窗口，
+  /// 「可见窗口与指纹一致」本就不可达——那种情况调用方改用 --start-maximized
+  /// （可见性优先）。取不到尺寸返回 None，调用方保持原行为。
+  #[cfg(windows)]
+  fn primary_screen_size() -> Option<(u32, u32)> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+    let w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+    let h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    if w > 0 && h > 0 {
+      Some((w as u32, h as u32))
+    } else {
+      None
+    }
+  }
+
+  #[cfg(not(windows))]
+  fn primary_screen_size() -> Option<(u32, u32)> {
+    None
+  }
+
   /// Derive the on-screen window size Chromium should open at, from the stored
   /// fingerprint. Applying a device over CDP only spoofs what the page
   /// *reports* for `windowOuterWidth`/`screenWidth`/etc.; it does not move or
@@ -2800,9 +2820,24 @@ impl WayfernManager {
       // agrees with the reported windowOuterWidth/screen dimensions. Anchor at
       // 0,0 so the window also fits within the spoofed screen origin. Skipped in
       // headless mode, where there is no on-screen window.
-      log::info!("Sizing Wayfern window to fingerprint dimensions: {w}x{h}");
-      args.push(format!("--window-size={w},{h}"));
-      args.push("--window-position=0,0".to_string());
+      //
+      // 指纹窗口比真实屏幕还大时（如指纹 3840x2120、屏幕 2560x1440），开窗
+      // 必然被 OS 截断，「窗口与指纹一致」本就不可达——此时改用
+      // --start-maximized（可见性优先，用户要求）；尺寸放得下才精确开窗。
+      let fits_screen = match Self::primary_screen_size() {
+        Some((sw, sh)) => w <= sw && h <= sh,
+        None => true, // 取不到屏幕尺寸时保持精确开窗的原行为
+      };
+      if fits_screen {
+        log::info!("Sizing Wayfern window to fingerprint dimensions: {w}x{h}");
+        args.push(format!("--window-size={w},{h}"));
+        args.push("--window-position=0,0".to_string());
+      } else {
+        log::info!(
+          "Fingerprint window {w}x{h} exceeds the real screen; launching maximized instead"
+        );
+        args.push("--start-maximized".to_string());
+      }
       args.push("--force-device-scale-factor=1".to_string());
     } else if Self::is_host_device_launch(config) {
       // A host-device launch (the VPS-login profile stores an empty object)
@@ -2812,6 +2847,9 @@ impl WayfernManager {
       // DIP while the native select popup is positioned in physical pixels,
       // which pushes the option list left and clips its text. The fingerprint
       // branch above pins the same value for the same reason.
+      //
+      // 无指纹即无窗口尺寸一致性约束——直接最大化开窗（用户要求）。
+      args.push("--start-maximized".to_string());
       args.push("--force-device-scale-factor=1".to_string());
     }
 
