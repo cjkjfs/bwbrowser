@@ -917,6 +917,79 @@ pub fn list_extension_user_assignments() -> Result<Vec<ExtensionUserAssignment>,
   Ok(load())
 }
 
+/// 从「云端账号编辑」侧按账号勾选扩展：为 (owner, account) 维护账号限定绑定
+/// （account_ids=[account_id]），勾上的建、取消的摘。只动这一类条目——归属人
+/// 的不限账号绑定、其它账号的限定绑定、vps_login 绑定一律不碰。
+/// 保存后重算该归属人名下 profile 分组（下次启动生效）并同步公司云端 KV。
+/// 嗅探扩展由「视频嗅探」开关单独控制，不在此列（前端过滤）。
+#[tauri::command]
+pub async fn set_account_extensions(
+  account_id: i64,
+  owner_id: i64,
+  enabled_extension_ids: Vec<String>,
+) -> Result<serde_json::Value, String> {
+  if owner_id <= 0 {
+    return Err("账号缺少归属人，无法按账号绑定扩展".to_string());
+  }
+  let desired: std::collections::BTreeSet<&str> =
+    enabled_extension_ids.iter().map(|s| s.as_str()).collect();
+
+  let mut store = load_store();
+  let now = crate::proxy_manager::now_secs();
+  let acct_slice = [account_id];
+
+  // 当前该 (owner, account) 的账号限定绑定集合
+  let current: std::collections::BTreeSet<String> = store
+    .items
+    .iter()
+    .filter(|a| a.user_id == owner_id && a.account_ids.as_deref() == Some(acct_slice.as_slice()))
+    .map(|a| a.extension_id.clone())
+    .collect();
+
+  // 新增：勾上但还没有账号限定条目的
+  let mut added = 0usize;
+  for ext in &desired {
+    if current.contains(*ext) {
+      continue;
+    }
+    store.items.push(ExtensionUserAssignment {
+      extension_id: (*ext).to_string(),
+      user_id: owner_id,
+      assigned_at: now,
+      account_ids: Some(vec![account_id]),
+      vps_login: None,
+    });
+    added += 1;
+  }
+  // 摘除：有条目但没勾上的（条目存在才删，纯靠归属人全局分配生效的不动）
+  let before = store.items.len();
+  store.items.retain(|a| {
+    !(a.user_id == owner_id
+      && a.account_ids.as_deref() == Some(acct_slice.as_slice())
+      && !desired.contains(a.extension_id.as_str()))
+  });
+  let removed = before - store.items.len();
+
+  if added == 0 && removed == 0 {
+    return Ok(serde_json::json!({ "added": 0, "removed": 0 }));
+  }
+  store.updated_at = now;
+  persist_store(&store)?;
+  crate::bwbrowser_cloud::log_bwbrowser(
+    "extension_user_assign",
+    &format!("账号 {account_id}（归属人 {owner_id}）扩展勾选已保存: 新增 {added}，摘除 {removed}"),
+  );
+
+  // 重算该归属人名下 profile 分组（账号上下文的扩展集合即时更新）
+  let map = fetch_all_cloud_accounts().await.unwrap_or_default();
+  reapply_users_profiles_bulk(&[owner_id], &map).await;
+
+  // 同步公司云端 KV（其它机器登录/启动时自动拉取生效）
+  spawn_sync_after_change(None);
+
+  Ok(serde_json::json!({ "added": added, "removed": removed }))
+}
+
 /// 把 from 扩展的用户/账号范围绑定整份复制给 to 扩展（覆盖 to 的现有绑定），
 /// 并对涉及的每个用户重算本地 profile 分组。
 #[tauri::command]

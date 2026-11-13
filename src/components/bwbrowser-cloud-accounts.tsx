@@ -659,46 +659,58 @@ export function BwbrowserCloudAccountsDialog({
   const { t } = useTranslation();
   const [sorting, setSorting] = useState<SortingState>([]);
   // 列显隐：表头「列设置」可勾选（平台/归属/环境/节点IP/时区/Cookie更新/备注标签编辑/操作）；
-  // 用户的选择存 localStorage，下次打开保持。默认全部开启（2026-11-13）。
-  // v2 key：旧 key 存的是"默认关闭"时代的选择，换新 key 使新默认（全开）生效。
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
-    (() => {
-      const defaults: VisibilityState = {
-        platform: true,
-        owner_name: true,
-        env_uuid: true,
-        proxy_node: true,
-        timezone: true,
-        cookie_updated_at: true,
-        remark_tags: true,
-        actions: true,
-      };
-      try {
-        const raw = localStorage.getItem("bwbrowser_cloud_columns_v2");
-        if (!raw) return defaults;
-        const saved = JSON.parse(raw) as VisibilityState;
-        return saved && typeof saved === "object"
-          ? { ...defaults, ...saved }
-          : defaults;
-      } catch {
-        return defaults;
-      }
-    })(),
-  );
+  // 选择通过 ui_pref_save/ui_pref_load 存本地 JSON 文件（settings_dir/ui_pref_cloud_columns.json），
+  // 不用 webview localStorage——指纹浏览器缓存清理/重装/换 profile 会清掉 webview 数据，
+  // 本地文件才是真正的"保存到本地"（用户反馈重新登录后设置丢失）。默认全部开启。
+  const CLOUD_COLUMNS_PREF_KEY = "cloud_columns";
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    platform: true,
+    owner_name: true,
+    env_uuid: true,
+    proxy_node: true,
+    timezone: true,
+    cookie_updated_at: true,
+    remark_tags: true,
+    actions: true,
+  });
+  // 组件挂载后从本地文件恢复上次的选择（文件不存在/损坏时保持默认全开）
+  useEffect(() => {
+    void invoke<string | null>("ui_pref_load", {
+      key: CLOUD_COLUMNS_PREF_KEY,
+    })
+      .then((raw) => {
+        if (!raw) return;
+        try {
+          const saved = JSON.parse(raw) as VisibilityState;
+          if (saved && typeof saved === "object") {
+            setColumnVisibility((prev) => ({ ...prev, ...saved }));
+          }
+        } catch {
+          // 文件内容损坏：保持默认
+        }
+      })
+      .catch(() => {
+        // 读取失败（文件缺失等）：保持默认
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const handleColumnVisibilityChange = useCallback(
     (
       updater: VisibilityState | ((old: VisibilityState) => VisibilityState),
     ) => {
       setColumnVisibility((prev) => {
         const next = typeof updater === "function" ? updater(prev) : updater;
-        try {
-          localStorage.setItem("bwbrowser_cloud_columns", JSON.stringify(next));
-        } catch {
-          // 存储不可用时仅本次会话生效
-        }
+        // 持久化到本地文件（不受 webview 缓存清理/重装影响；失败仅本次会话生效）
+        void invoke("ui_pref_save", {
+          key: CLOUD_COLUMNS_PREF_KEY,
+          value: JSON.stringify(next),
+        }).catch(() => {
+          // 存储不可用时忽略
+        });
         return next;
       });
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
   // 文字大小三档（小/中/大）：作用域 class 挂在弹窗根节点上，由 globals.css
@@ -1117,6 +1129,65 @@ export function BwbrowserCloudAccountsDialog({
     // 作为下载 Cookie 来源（云端清单为准，默认关闭）
     cookie_source: false,
   });
+  // ===== 编辑账号：浏览器扩展勾选（账号维度绑定，保存时按账号对齐） =====
+  // checked = 该账号生效（账号限定绑定 或 归属人全局分配）；
+  // locked = 仅靠归属人全局分配生效，账号侧取消无效（需在扩展管理里解绑）。
+  // 内置「视频嗅探下载」不在此列表——由上方「视频嗅探」开关单独控制。
+  type EditAccountExtItem = {
+    id: string;
+    name: string;
+    checked: boolean;
+    locked: boolean;
+  };
+  const [editAccountExts, setEditAccountExts] = useState<EditAccountExtItem[]>(
+    [],
+  );
+  const [editExtsLoading, setEditExtsLoading] = useState(false);
+  // 拉扩展库 + 绑定关系，算出该账号当前生效的扩展勾选态。
+  const loadEditAccountExts = useCallback(
+    async (accountId: number, ownerId: number) => {
+      setEditExtsLoading(true);
+      try {
+        const [exts, assignments] = await Promise.all([
+          invoke<{ id: string; name: string }[]>("list_extensions"),
+          invoke<
+            {
+              extension_id: string;
+              user_id: number;
+              account_ids?: number[] | null;
+              vps_login?: boolean | null;
+            }[]
+          >("list_extension_user_assignments"),
+        ]);
+        const acctBound = new Set<string>();
+        const ownerGlobal = new Set<string>();
+        for (const a of assignments ?? []) {
+          if (Array.isArray(a.account_ids)) {
+            if (a.account_ids.includes(accountId)) {
+              acctBound.add(a.extension_id);
+            }
+          } else if (ownerId > 0 && a.user_id === ownerId) {
+            ownerGlobal.add(a.extension_id);
+          }
+        }
+        setEditAccountExts(
+          (exts ?? [])
+            .filter((e) => e.name !== "视频嗅探下载")
+            .map((e) => ({
+              id: e.id,
+              name: e.name,
+              checked: acctBound.has(e.id) || ownerGlobal.has(e.id),
+              locked: !acctBound.has(e.id) && ownerGlobal.has(e.id),
+            })),
+        );
+      } catch {
+        setEditAccountExts([]);
+      } finally {
+        setEditExtsLoading(false);
+      }
+    },
+    [],
+  );
   // ===== 子账号设置弹窗（独立静态编辑框，服务端分页懒加载，仅管理员）=====
   const [childDialogOpen, setChildDialogOpen] = useState(false);
   const [childAccount, setChildAccount] = useState<BwbrowserAccount | null>(
@@ -1651,13 +1722,18 @@ export function BwbrowserCloudAccountsDialog({
         } catch {
           // 读取失败按默认（关闭）处理
         }
+        // 浏览器扩展勾选（账号维度绑定）：内置嗅探扩展不在此列（上方开关管）
+        void loadEditAccountExts(
+          account.id,
+          detail.owner_id ?? account.owner_id ?? 0,
+        );
       } catch (e) {
         console.error("获取账号详情失败:", e);
       } finally {
         setEditLoading(false);
       }
     },
-    [isManager, isSuperAdmin, canViewPassword],
+    [isManager, isSuperAdmin, canViewPassword, loadEditAccountExts],
   );
 
   // 拉取子账号候选分页（服务端过滤：未挂主账号 OR 已挂到该主账号，排除主账号自身）
@@ -6268,6 +6344,73 @@ export function BwbrowserCloudAccountsDialog({
                     </Tooltip>
                   </button>
                 </div>
+                {/* 浏览器扩展（按账号勾选，保存时与主保存一起提交） */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-medium">浏览器扩展</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        勾选的扩展将注入该账号的浏览器（下次启动生效），保存并同步云端。视频嗅探由上方开关单独控制。
+                      </TooltipContent>
+                    </Tooltip>
+                    {editExtsLoading && (
+                      <span className="text-xs text-muted-foreground">
+                        加载中…
+                      </span>
+                    )}
+                  </div>
+                  {editAccountExts.length === 0 && !editExtsLoading ? (
+                    <div className="text-xs text-muted-foreground">
+                      扩展库里还没有可分配的扩展，去「扩展管理」添加
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                      {editAccountExts.map((e) => (
+                        <button
+                          key={e.id}
+                          type="button"
+                          className="flex items-center gap-1.5 text-xs"
+                          onClick={() =>
+                            setEditAccountExts((p) =>
+                              p.map((x) =>
+                                x.id === e.id
+                                  ? { ...x, checked: !x.checked }
+                                  : x,
+                              ),
+                            )
+                          }
+                        >
+                          <Checkbox
+                            checked={e.checked}
+                            disabled={e.locked || editExtsLoading}
+                            onCheckedChange={(v) =>
+                              setEditAccountExts((p) =>
+                                p.map((x) =>
+                                  x.id === e.id
+                                    ? { ...x, checked: v === true }
+                                    : x,
+                                ),
+                              )
+                            }
+                          />
+                          <span
+                            className={cn(e.locked && "text-muted-foreground")}
+                          >
+                            {e.name}
+                          </span>
+                          {e.locked && (
+                            <span className="text-[10px] text-muted-foreground">
+                              （归属人全局分配，取消请到扩展管理）
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <div className="text-xs font-medium">平台</div>
@@ -6729,6 +6872,23 @@ export function BwbrowserCloudAccountsDialog({
                   } catch (e) {
                     showErrorToast(
                       `视频嗅探开关保存失败: ${e instanceof Error ? e.message : String(e)}`,
+                    );
+                  }
+                  // 浏览器扩展勾选（账号维度绑定，公司 KV 云端同步）；失败只提示
+                  try {
+                    const desired = editAccountExts
+                      .filter((e) => e.checked)
+                      .map((e) => e.id);
+                    await invoke("set_account_extensions", {
+                      accountId: editAccount.id,
+                      ownerId: editPerms.canEditAll
+                        ? editForm.owner_id || editAccount.owner_id || 0
+                        : editAccount.owner_id || 0,
+                      enabledExtensionIds: desired,
+                    });
+                  } catch (e) {
+                    showErrorToast(
+                      `浏览器扩展保存失败: ${e instanceof Error ? e.message : String(e)}`,
                     );
                   }
                   // Cookie 来源账号开关（公司 KV 云端同步）；失败只提示，不回滚主保存

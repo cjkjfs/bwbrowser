@@ -1041,7 +1041,6 @@ export function UserManagementPage() {
               <TableHead className="w-12">#</TableHead>
               <TableHead>用户名</TableHead>
               <TableHead>姓名</TableHead>
-              <TableHead>角色</TableHead>
               <TableHead>权限组</TableHead>
               <TableHead>状态</TableHead>
               <TableHead>最后登录</TableHead>
@@ -1052,7 +1051,7 @@ export function UserManagementPage() {
             {isLoading && users.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={7}
                   className="text-center py-12 text-muted-foreground"
                 >
                   <LuLoaderCircle className="w-6 h-6 animate-spin mx-auto mb-2" />
@@ -1062,7 +1061,7 @@ export function UserManagementPage() {
             ) : users.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={7}
                   className="text-center py-12 text-muted-foreground"
                 >
                   暂无用户
@@ -1086,11 +1085,6 @@ export function UserManagementPage() {
                     )}
                   </TableCell>
                   <TableCell>{user.real_name}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">
-                      {user.role_label || user.role}
-                    </Badge>
-                  </TableCell>
                   <TableCell>
                     {(() => {
                       const profile = resolveProfileForUser(user);

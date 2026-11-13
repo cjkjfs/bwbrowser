@@ -1,18 +1,15 @@
 //! 视频嗅探开关（云端为准，默认关闭）。
 //!
-//! 嗅探扩展本身是公司级分配（`extension_user_assign`：按用户/账号分组注入），
-//! 这里只记录「哪些账号 / 爆文库开启了嗅探」，并在两个位置生效：
-//!
-//! 1. 自动分组的扩展集合（`extension_user_assign::assigned_ids_from_items`）：
-//!    未开启的账号（或爆文库）不再把嗅探扩展算进分组；
-//! 2. 启动装载（`ExtensionManager::install_extensions_for_profile`）：兜底拦截，
-//!    即使该 profile 用的是手动分组，也不会注入嗅探扩展。
+//! 账号开关是「嗅探/开始/下载按钮」是否出现的**唯一依据**，与扩展分组/绑定/
+//! 归属人彻底解耦：开关开启的账号，其 profile 启动时由 browser_runner 直接
+//! 注入内置嗅探扩展（`ExtensionManager::linked_sniffer_path`），
+//! `is_profile_sniffer_allowed` 统一判定「该 profile 是否允许注入」。
+//! 爆文库（VPS 登录）profile 走 `is_vps_enabled`。
 //!
 //! **默认关闭**：云端名单里没有记录 = 关闭。存储只有公司级云端 KV 一份
-//! （key `video_sniffer_enabled_accounts`，与扩展分配同一套 save/get_company_setting），
-//! 本地 JSON 只是它的镜像缓存——每个判定点（启动、编辑框、右键菜单）都先
-//! pull 一次云端再判定，保证开关即时生效；写操作推送失败会回滚本地并报错，
-//! 让本地永远跟云端一致。任何网络错误都不影响浏览器启动本身。
+//! （key `video_sniffer_enabled_accounts`），本地 JSON 只是它的镜像缓存——每
+//! 个判定点都先 pull 一次云端再判定，保证开关即时生效；写操作推送失败会回滚
+//! 本地并报错，让本地永远跟云端一致。任何网络错误都不影响浏览器启动本身。
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -66,6 +63,22 @@ fn persist(settings: &VideoSnifferSettings) -> Result<(), String> {
 /// 该云端账号的视频嗅探是否开启（云端名单里没有 = 关闭）。
 pub fn is_account_enabled(account_id: i64) -> bool {
   load().enabled.contains(&account_id)
+}
+
+/// 统一判定：某 profile 是否应注入嗅探扩展。账号开关是唯一依据——只要账号
+/// 开着就注入，不依赖扩展分组/绑定/归属人。云端账号（名字 `_<账号id>` 结尾）
+/// 看账号名单；「VPS登录」专用 profile 看爆文库开关；其它本地 profile 默认注
+/// 入（嗅探本就该随程序内置可用）。
+pub fn is_profile_sniffer_allowed(profile_name: &str) -> bool {
+  match profile_name
+    .rsplit('_')
+    .next()
+    .and_then(|s| s.parse::<i64>().ok())
+  {
+    Some(account_id) => is_account_enabled(account_id),
+    None if profile_name.to_lowercase() == "vps登录" => is_vps_enabled(),
+    None => true,
+  }
 }
 
 /// 爆文库（VPS 登录）浏览器是否注入嗅探扩展（默认关闭）。
@@ -129,46 +142,6 @@ fn current_user_id() -> Option<i64> {
   crate::bwbrowser_cloud::BWBROWSER_AUTH.get_user_id()
 }
 
-/// 从自动分组名 `__user_<uid>_acct_<aid>` 反推归属人 id。
-fn owner_from_account_group(group_id: &str) -> Option<i64> {
-  let name = {
-    let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
-    mgr.get_group(group_id).ok()?.name
-  };
-  let rest = name.strip_prefix("__user_")?;
-  let uid = rest.split("_acct_").next()?;
-  uid.parse::<i64>().ok()
-}
-
-/// 把开关立刻落到该账号已存在的 profile 分组上（下次启动生效）。
-/// owner_id 缺失时从现有自动分组名反推；都没有则只写云端，
-/// 下次云端账号启动时 `apply_owner_assignments` 会自然对齐。
-fn reapply_account_group(account_id: i64, owner_id: Option<i64>) {
-  let pm = crate::profile::manager::ProfileManager::instance();
-  let Ok(profiles) = pm.list_profiles() else {
-    return;
-  };
-  let suffix = format!("_{account_id}");
-  let Some(profile) = profiles
-    .iter()
-    .find(|p| p.name.to_lowercase().ends_with(&suffix))
-  else {
-    return;
-  };
-  let owner = owner_id.filter(|id| *id > 0).or_else(|| {
-    profile
-      .extension_group_id
-      .as_deref()
-      .and_then(owner_from_account_group)
-  });
-  crate::extension_user_assign::apply_owner_assignments(
-    owner,
-    Some(account_id),
-    &profile.id.to_string(),
-    profile.extension_group_id.as_deref(),
-  );
-}
-
 /// 把开关立刻落到爆文库（VPS 登录）profile 的分组上。
 fn reapply_vps_group() {
   let Some(user_id) = current_user_id() else {
@@ -190,12 +163,13 @@ fn reapply_vps_group() {
   );
 }
 
-/// 编辑账号里「开启视频嗅探」：写云端 + 镜像本地 + 立即对齐分组。
+/// 编辑账号里「开启视频嗅探」：写云端 + 镜像本地。按钮是否出现由账号开关
+/// 唯一决定，启动时按开关注入拓展；此处无需再动扩展绑定/分组。
 #[tauri::command]
 pub async fn set_account_video_sniffer(
   account_id: i64,
   enabled: bool,
-  owner_id: Option<i64>,
+  _owner_id: Option<i64>,
 ) -> Result<(), String> {
   update_remote(|s| {
     if enabled {
@@ -212,7 +186,6 @@ pub async fn set_account_video_sniffer(
       if enabled { "开启" } else { "关闭" }
     ),
   );
-  reapply_account_group(account_id, owner_id);
   Ok(())
 }
 

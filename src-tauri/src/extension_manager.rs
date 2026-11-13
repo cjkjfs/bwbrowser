@@ -93,6 +93,20 @@ fn extensions_base_dir() -> PathBuf {
   crate::app_dirs::extensions_dir()
 }
 
+/// 内置「视频嗅探下载」扩展的打包资源目录（登录链路解析后注册）。
+/// 嗅探不进扩展库：这里是注入的唯一正式来源；扩展管理里因此永远
+/// 看不到、也删不掉嗅探。
+static SNIFFER_RESOURCE_DIR: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// 注册嗅探扩展的打包资源目录（登录链路调用）。
+pub fn register_sniffer_resource_dir(dir: PathBuf) {
+  *SNIFFER_RESOURCE_DIR.lock().unwrap() = Some(dir);
+}
+
+fn sniffer_resource_dir() -> Option<PathBuf> {
+  SNIFFER_RESOURCE_DIR.lock().unwrap().clone()
+}
+
 fn extension_groups_file() -> PathBuf {
   crate::app_dirs::data_subdir().join("extension_groups.json")
 }
@@ -1512,6 +1526,9 @@ impl ExtensionManager {
     profile: &crate::profile::BrowserProfile,
     _profile_data_path: &std::path::Path,
   ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    // 本函数只负责「扩展分组」里的扩展装载。视频嗅探(开始/下载)按钮由
+    // browser_runner 启动链路在守卫外按账号开关独立注入（见
+    // linked_sniffer_path / is_profile_sniffer_allowed），不再走分组。
     let group_id = match &profile.extension_group_id {
       Some(id) => id,
       None => return Ok(Vec::new()),
@@ -1528,24 +1545,6 @@ impl ExtensionManager {
 
     let mut extension_paths = Vec::new();
 
-    // 视频嗅探开关（云端为准，默认关闭）：云端账号 profile 的名字固定以
-    // `_<账号id>` 结尾，按账号名单判定；「VPS登录」专用 profile 按爆文库开关
-    // 判定；其它本地 profile 不受此开关管辖。这里兜底拦载入，即使 profile
-    // 指向的是手动分组也不会注入嗅探（分组内容另由 extension_user_assign 同步）。
-    let sniffer_allowed = match profile
-      .name
-      .rsplit('_')
-      .next()
-      .and_then(|s| s.parse::<i64>().ok())
-    {
-      Some(account_id) => crate::video_sniffer_settings::is_account_enabled(account_id),
-      // 与 bwbrowser_open_vps_login 的查找约定一致：专用 profile 固定叫「VPS登录」
-      None if profile.name.to_lowercase() == "vps登录" => {
-        crate::video_sniffer_settings::is_vps_enabled()
-      }
-      None => true,
-    };
-
     // Staging is per-profile. Chromium records the absolute staging path and
     // reads the extension's files lazily for the life of the process, so a
     // shared directory would let one profile's launch pull the files out from
@@ -1558,11 +1557,9 @@ impl ExtensionManager {
 
     for ext_id in &group.extension_ids {
       if let Ok(ext) = self.get_extension(ext_id) {
-        if !sniffer_allowed && ext.name == crate::bwbrowser_cloud::VIDEO_SNIFFER_EXT_NAME {
-          log::info!(
-            "Skipping built-in video sniffer for profile '{}': disabled for its cloud account",
-            profile.name
-          );
+        // 视频嗅探扩展一律由 browser_runner 启动链路按账号开关独立注入
+        // （linked_sniffer_path），不随分组装载，避免重复注入到 --load-extension。
+        if ext.name == crate::bwbrowser_cloud::VIDEO_SNIFFER_EXT_NAME {
           continue;
         }
 
@@ -1616,6 +1613,33 @@ impl ExtensionManager {
 
   pub(crate) fn unpacked_dir_for_profile(profile_id: &str) -> PathBuf {
     extensions_base_dir().join("unpacked").join(profile_id)
+  }
+
+  /// 内置「视频嗅探下载」扩展的注入路径。
+  /// 嗅探已脱离扩展库：优先用启动时注册的打包资源目录（登录链路
+  /// `ensure_video_sniffer_extension` 解析并注册）；扩展库记录只作为
+  /// 旧版本的兼容回退。嗅探按钮是否出现只依赖这个路径存在 + 账号开关，
+  /// 与扩展分组无关。
+  pub fn linked_sniffer_path() -> Option<String> {
+    if let Some(dir) = sniffer_resource_dir() {
+      if dir.join("manifest.json").exists() && path_is_load_extension_safe(&dir) {
+        return Some(dir.to_string_lossy().into_owned());
+      }
+    }
+    // 兼容回退：旧版本把嗅探装进了扩展库（linked 记录）
+    EXTENSION_MANAGER
+      .lock()
+      .unwrap()
+      .list_extensions()
+      .ok()?
+      .into_iter()
+      .find(|e| e.name == crate::bwbrowser_cloud::VIDEO_SNIFFER_EXT_NAME)
+      .and_then(|ext| {
+        ext.linked_path.filter(|linked| {
+          let maybe = PathBuf::from(linked);
+          maybe.join("manifest.json").exists() && path_is_load_extension_safe(&maybe)
+        })
+      })
   }
 
   /// Drop a profile's staged extension copies once its browser has exited.

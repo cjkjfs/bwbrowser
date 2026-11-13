@@ -707,9 +707,45 @@ impl BrowserRunner {
         .as_deref()
         .is_some_and(crate::extension_user_assign::is_user_auto_group_id);
       let mut extension_paths = Vec::new();
+
+      // 自动补齐：启动前拉一次公司级绑定，管理员机器新分配/更新的扩展包
+      // 在这台机器落地（ensure_extension_local 从公司 KV 拼包校验后写入）。
+      // 成员机首次启动或在其它机器装好从此取，无需手动重新分配。失败仅记
+      // 日志静默降级，不影响浏览器启动；未登录时直接返回也不阻断。
+      crate::extension_user_assign::pull_company_assignments().await;
+
+      // 视频嗅探(开始/下载)按钮：账号开关是唯一依据，与分组/绑定/归属人彻底
+      // 解耦。只要开关开启就注入内置嗅探扩展——即使该 profile 没有扩展分组
+      // （extension_group_id=null）或不是用户指派分组，也照样有按钮。
+      let sniffer_allowed =
+        crate::video_sniffer_settings::is_profile_sniffer_allowed(&updated_profile.name);
+      if sniffer_allowed {
+        if let Some(linked) = crate::extension_manager::ExtensionManager::linked_sniffer_path() {
+          extension_paths.push(linked);
+          crate::bwbrowser_cloud::log_bwbrowser(
+            "video_sniffer",
+            &format!(
+              "profile '{}' 账号开关开启，直接注入嗅探扩展（开始/下载按钮已注入）",
+              updated_profile.name
+            ),
+          );
+        } else {
+          crate::bwbrowser_cloud::log_bwbrowser_error(
+            "video_sniffer",
+            &format!(
+              "profile '{}' 开关开启但嗅探扩展未安装，按钮将缺失",
+              updated_profile.name
+            ),
+          );
+        }
+      }
+
       if updated_profile.extension_group_id.is_some() && (!cloud_launch || group_is_user_assigned) {
-        let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
-        match mgr.install_extensions_for_profile(&updated_profile, &profile_data_path) {
+        match crate::extension_manager::EXTENSION_MANAGER
+          .lock()
+          .unwrap()
+          .install_extensions_for_profile(&updated_profile, &profile_data_path)
+        {
           Ok(paths) => {
             if !paths.is_empty() {
               log::info!(
@@ -718,12 +754,51 @@ impl BrowserRunner {
                 updated_profile.name
               );
             }
-            extension_paths = paths;
+            // 合并嗅探扩展 + 分组扩展；install_extensions_for_profile 返回的
+            // paths 在内部已含嗅探，这里避免重复并入。
+            let group_paths: Vec<String> = paths
+              .into_iter()
+              .filter(|p| !extension_paths.contains(p))
+              .collect();
+            crate::bwbrowser_cloud::log_bwbrowser(
+              "extension_launch",
+              &format!(
+                "profile '{}' 实际装载 {} 个扩展: {}",
+                updated_profile.name,
+                group_paths.len() + extension_paths.len(),
+                if group_paths.is_empty() && extension_paths.is_empty() {
+                  "（空，开始/嗅探按钮不会出现）".to_string()
+                } else {
+                  let mut all = extension_paths.clone();
+                  all.extend(group_paths.clone());
+                  all.join(", ")
+                }
+              ),
+            );
+            extension_paths.extend(group_paths);
           }
           Err(e) => {
             log::warn!("Failed to install extensions for Wayfern profile: {e}");
+            crate::bwbrowser_cloud::log_bwbrowser_error(
+              "extension_launch",
+              &format!("profile '{}' 装载分组扩展失败: {e}", updated_profile.name),
+            );
           }
         }
+      } else {
+        // profile 无扩展分组或云端启动+非用户指派分组：此时只注入嗅探（如开关
+        // 开启已在上方完成），其它扩展不注入。这不是「按钮缺失」——嗅探按钮
+        // 由上方开关独立决定。
+        crate::bwbrowser_cloud::log_bwbrowser(
+          "extension_launch",
+          &format!(
+            "profile '{}' 无分组扩展装载（extension_group_id={:?}, 分组用户指派={}, 云端启动={}），嗅探按钮由账号开关注入",
+            updated_profile.name,
+            updated_profile.extension_group_id,
+            group_is_user_assigned,
+            cloud_launch
+          ),
+        );
       }
 
       // Get proxy URL from config

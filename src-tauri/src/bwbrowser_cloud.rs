@@ -900,66 +900,69 @@ pub fn bwbrowser_refresh_profile() -> Result<CloudUser, String> {
 /// 账号级开关按这个名字识别内置嗅探扩展（见 video_sniffer_settings）。
 pub(crate) const VIDEO_SNIFFER_EXT_NAME: &str = "视频嗅探下载";
 
-/// 确保内置「视频嗅探下载」扩展已安装并分配给 VPS 登录（爆文库）：
-/// 1) 扩展库中没有 → 从打包资源目录 link 安装（原地加载，随程序升级自动更新）；
-/// 2) 当前用户没有 vps_login=true 的分配记录 → 写入（后续
-///    apply_owner_assignments 会把它放进 VPS profile 的自动分组）。
-///    任何失败都只记日志静默降级：嗅探不可用不影响 VPS 登录启动。
-async fn ensure_video_sniffer_extension(app_handle: &tauri::AppHandle) {
+/// 确保内置「视频嗅探下载」扩展可用：嗅探已脱离扩展库——这里只做两件事：
+/// 1) 解析打包资源目录 `extensions/video-sniffer` 并注册为注入来源
+///    （`ExtensionManager::linked_sniffer_path` 启动浏览器时直接用它）；
+/// 2) 清理旧版本残留：扩展库里若还有嗅探扩展记录（旧版 add_unpacked_extension
+///    装进去的），删掉记录 + 清掉它的绑定/分组引用——扩展管理里因此永远
+///    看不到、也删不掉嗅探。
+///
+/// 任何失败都只记日志静默降级：嗅探不可用不影响浏览器启动。
+fn ensure_video_sniffer_extension(app_handle: &tauri::AppHandle) {
   use tauri::Manager;
 
-  let ext_id = {
-    let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
-    match mgr
-      .list_extensions()
-      .ok()
-      .and_then(|list| list.into_iter().find(|e| e.name == VIDEO_SNIFFER_EXT_NAME))
-    {
-      Some(ext) => ext.id,
-      None => {
-        let dir = match app_handle.path().resolve(
-          "extensions/video-sniffer",
-          tauri::path::BaseDirectory::Resource,
-        ) {
-          Ok(p) => p,
-          Err(e) => {
-            log_bwbrowser_error(
-              "video_sniffer",
-              &format!("内置嗅探扩展资源路径解析失败: {e}"),
-            );
-            return;
-          }
-        };
-        match mgr.add_unpacked_extension(VIDEO_SNIFFER_EXT_NAME.to_string(), &dir, true) {
-          Ok(ext) => {
-            log_bwbrowser("video_sniffer", "内置嗅探扩展已安装（linked）");
-            ext.id
-          }
-          Err(e) => {
-            log_bwbrowser_error("video_sniffer", &format!("内置嗅探扩展安装失败: {e}"));
-            return;
-          }
-        }
-      }
+  let dir = match app_handle.path().resolve(
+    "extensions/video-sniffer",
+    tauri::path::BaseDirectory::Resource,
+  ) {
+    Ok(p) => p,
+    Err(e) => {
+      log_bwbrowser_error(
+        "video_sniffer",
+        &format!("内置嗅探扩展资源路径解析失败: {e}"),
+      );
+      return;
     }
   };
-
-  let Some(user_id) = BWBROWSER_AUTH.get_user_id() else {
-    log_bwbrowser_error("video_sniffer", "未登录云端账号，跳过嗅探扩展分配");
-    return;
-  };
-  let already = crate::extension_user_assign::list_extension_user_assignments()
-    .unwrap_or_default()
-    .iter()
-    .any(|a| a.extension_id == ext_id && a.user_id == user_id && a.vps_login == Some(true));
-  if already {
+  if !dir.join("manifest.json").exists() {
+    log_bwbrowser_error(
+      "video_sniffer",
+      &format!("内置嗅探扩展资源目录缺少 manifest: {}", dir.display()),
+    );
     return;
   }
-  match crate::extension_user_assign::assign_extension_to_user(ext_id, user_id, None, Some(true))
-    .await
-  {
-    Ok(_) => log_bwbrowser("video_sniffer", "内置嗅探扩展已分配给 VPS 登录"),
-    Err(e) => log_bwbrowser_error("video_sniffer", &format!("内置嗅探扩展分配失败: {e}")),
+  crate::extension_manager::register_sniffer_resource_dir(dir);
+
+  // 清理旧版本残留：扩展库里不应再有嗅探扩展记录
+  let stale_id = {
+    let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
+    mgr.list_extensions().ok().and_then(|list| {
+      list
+        .into_iter()
+        .find(|e| e.name == VIDEO_SNIFFER_EXT_NAME)
+        .map(|e| e.id)
+    })
+  };
+  if let Some(id) = stale_id {
+    // 删库目录（只含 metadata/icon，linked 本体在资源目录，不受影响）+ 清分组引用
+    let removed = {
+      let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
+      mgr.delete_extension_internal(&id)
+    };
+    // 清掉嗅探的所有绑定（vps_login / 账号限定等）——嗅探注入只认开关
+    let cleared = crate::extension_user_assign::remove_assignments_for_extension(&id);
+    log_bwbrowser(
+      "video_sniffer",
+      &format!(
+        "已从扩展库移除内置嗅探扩展（{}；绑定清理 {}）——嗅探由开关直接注入，不再进扩展库",
+        if removed.is_ok() {
+          "记录已删"
+        } else {
+          "记录删除失败"
+        },
+        if cleared { "完成" } else { "无绑定" },
+      ),
+    );
   }
 }
 
@@ -1136,10 +1139,10 @@ pub async fn bwbrowser_open_vps_login(
   };
   emit_progress(30, "profile 就绪");
 
-  // 确保内置「视频嗅探下载」扩展可用：未安装则从打包资源 link 安装，
-  // 并分配给当前用户 vps_login=true（经 apply_owner_assignments 进入
-  // VPS profile 的自动分组）。失败静默降级——嗅探不可用不影响登录启动。
-  ensure_video_sniffer_extension(&app_handle).await;
+  // 确保内置「视频嗅探下载」扩展可用：嗅探已脱离扩展库——注册打包资源
+  // 目录作为注入来源，并清理库里旧版残留记录。失败静默降级——嗅探不可用
+  // 不影响登录启动。
+  ensure_video_sniffer_extension(&app_handle);
 
   // 先拉一次公司级绑定（管理员机器分配的插件跨机器生效；失败静默降级）
   crate::extension_user_assign::pull_company_assignments().await;

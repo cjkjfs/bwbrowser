@@ -1489,24 +1489,6 @@ export function ExtensionManagementDialog({
                     size="sm"
                     className="size-7 p-0"
                     onClick={() => {
-                      setAssignUsersExtension(ext);
-                      setAssignUsersTargets([]);
-                    }}
-                  >
-                    <LuUsers className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {t("extensions.assignUsers.title")}
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="size-7 p-0"
-                    onClick={() => {
                       setEditingExtension(ext);
                       setEditExtensionName(ext.name);
                       setPendingUpdateSource(null);

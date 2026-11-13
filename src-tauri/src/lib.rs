@@ -148,6 +148,7 @@ pub mod remote_agent;
 mod revenue_shield;
 mod tag_manager;
 mod team_lock;
+mod ui_prefs;
 mod vault;
 mod version_updater;
 mod video_downloader;
@@ -2787,6 +2788,30 @@ pub fn run_with_builder(
       // Recover ephemeral dir mappings from RAM-backed storage (tmpfs/ramdisk)
       ephemeral_dirs::recover_ephemeral_dirs();
 
+      // 注册内置「视频嗅探下载」扩展的打包资源目录。
+      // 嗅探已脱离扩展库，主程序启动即注册注入来源：本地（非云端账号）
+      // profile 的嗅探按钮也由 `linked_sniffer_path` 从这里取路径。
+      // （登录链路 `ensure_video_sniffer_extension` 会再次注册，幂等无害，
+      //  同时负责清理扩展库里的旧版残留记录。）
+      {
+        use tauri::Manager;
+        if let Ok(dir) = app
+          .path()
+          .resolve("extensions/video-sniffer", tauri::path::BaseDirectory::Resource)
+        {
+          if dir.join("manifest.json").exists() {
+            crate::extension_manager::register_sniffer_resource_dir(dir);
+          } else {
+            log::warn!(
+              "内置嗅探扩展资源目录缺少 manifest，嗅探按钮将不可用: {}",
+              dir.display()
+            );
+          }
+        } else {
+          log::warn!("内置嗅探扩展资源路径解析失败，嗅探按钮将不可用");
+        }
+      }
+
       // Extract icons and metadata for existing extensions that don't have them yet
       {
         let mgr = extension_manager::ExtensionManager::new();
@@ -3874,6 +3899,7 @@ pub fn run_with_builder(
       extension_user_assign::assign_extension_to_users_bulk,
       extension_user_assign::copy_extension_assignments,
       extension_user_assign::list_extension_user_assignments,
+      extension_user_assign::set_account_extensions,
       is_geoip_database_available,
       download_geoip_database,
       start_api_server,
@@ -4161,6 +4187,8 @@ pub fn run_with_builder(
       cookie_source_accounts::get_cookie_source_accounts,
       cookie_source_accounts::set_account_cookie_source,
       cookie_source_accounts::set_vps_cookie_source,
+      ui_prefs::ui_pref_save,
+      ui_prefs::ui_pref_load,
       audio_silence_remover::audio_detect_silence,
       audio_silence_remover::audio_remove_silence,
       audio_silence_remover::audio_get_waveform,
