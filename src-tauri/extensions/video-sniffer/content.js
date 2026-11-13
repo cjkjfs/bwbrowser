@@ -232,6 +232,27 @@
     }
   });
 
+  // 候选死链探测缓存：url -> true(活/未知，保守) | false(明确 404/410)。
+  // 只按 background 的明确死链判定剔除；结果缓存避免重复探测拖慢重扫。
+  const probeCache = new Map();
+  // 探测对象：直链媒体（m3u8/mpd/mp4 等）。纯网页/详情页地址不探测。
+  const PROBE_TARGET_RE = /\.(m3u8|mpd|mp4|flv|webm|mov|m4v|avi|mkv)(\?|#|$)/i;
+  const PROBE_BATCH = 8; // 单轮最多并发探测数，防极端页面拖垮 engage
+  const filterDeadCandidates = async (urls) => {
+    const targets = urls.filter(
+      (u) => PROBE_TARGET_RE.test(u) && !probeCache.has(u),
+    );
+    for (const u of targets.slice(0, PROBE_BATCH)) {
+      try {
+        const r = await chrome.runtime.sendMessage({ type: "PROBE", url: u });
+        probeCache.set(u, r?.ok !== false);
+      } catch (e) {
+        probeCache.set(u, true); // 探测失败保守保留
+      }
+    }
+    return urls.filter((u) => probeCache.get(u) !== false);
+  };
+
   // ------------------------------------------------------------ 发送下载
   // 入队成功后轮询进度：按钮显示「百分比 / 速度」，终态显示 ✓ / ✗
   const sendToDownloader = async (url, btn) => {
@@ -649,6 +670,15 @@
     const rankUrl = (u) =>
       /\.mp4(\?|#|$)/i.test(u) ? 3 : /\.(m3u8|mpd)(\?|#|$)/i.test(u) ? 2 : 1;
     sniffed.sort((a, b) => rankUrl(b) - rankUrl(a));
+    // 死链剔除：片源列表里已删的旧地址（404/410）不绑按钮——否则浏览器
+    // 播放器挑活的在播、按钮却绑到死链，一点下载就 404。探测失败/防盗链
+    // 403 等不确定情况一律保守保留。
+    const beforeProbe = sniffed;
+    sniffed = await filterDeadCandidates(sniffed);
+    if (sniffed.length === 0 && beforeProbe.length > 0) {
+      // 候选全是死链：退回剔除前的列表兜底（总比没按钮强——万一是探测误判）
+      sniffed = beforeProbe;
+    }
 
     // ⚠️ 配对原则：绝不按顺序「猜配」。DOM 里 blob 播放器和嗅探直链之间没有
     // 可靠的对应关系，多个 video 按序分配必然张冠李戴（视频1绑到视频3的地址）。

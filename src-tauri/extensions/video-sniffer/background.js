@@ -115,6 +115,41 @@ async function pollTask(taskId, port) {
   return { ok: false, error: "无法查询进度" };
 }
 
+// 候选可用性探测：很多视频站把片源列表整包发给前端，里面混着已删的死链
+// （播放器自己挑活的播，嗅探却可能绑到死链）。这里用 GET + Range 头轻量探测，
+// 只把明确的 404/410 判为死链；403/网络错误/超时一律保守返回 ok（可能是
+// 防盗链或临时抖动，误杀活链比多绑一条死链更糟）。
+const PROBE_TIMEOUT_MS = 6000;
+
+async function probeUrl(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { Range: "bytes=0-1" },
+      signal: ctrl.signal,
+      credentials: "omit",
+      redirect: "follow",
+    });
+    // 尽早断开 body：mp4 之类大文件不能真的拖全量
+    try {
+      await res.body?.cancel();
+    } catch (e) {
+      /* ignore */
+    }
+    if (res.status === 404 || res.status === 410) {
+      return { ok: false, status: res.status };
+    }
+    return { ok: true, status: res.status };
+  } catch (e) {
+    // 超时/网络错误/CORS 异常：不判死，保守保留
+    return { ok: true, status: 0 };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "SNAPSHOT") {
     // content script 无 sender.tab（扩展页调用时才可能），正常页面一定有
@@ -141,6 +176,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg?.type === "POLL") {
     pollTask(String(msg.taskId || ""), msg.port).then(sendResponse);
+    return true; // async sendResponse
+  }
+  if (msg?.type === "PROBE") {
+    probeUrl(String(msg.url || "")).then(sendResponse);
     return true; // async sendResponse
   }
 });
