@@ -1138,6 +1138,7 @@ export function BwbrowserCloudAccountsDialog({
     name: string;
     checked: boolean;
     locked: boolean;
+    icon?: string;
   };
   const [editAccountExts, setEditAccountExts] = useState<EditAccountExtItem[]>(
     [],
@@ -1171,14 +1172,28 @@ export function BwbrowserCloudAccountsDialog({
           }
         }
         setEditAccountExts(
-          (exts ?? [])
-            .filter((e) => e.name !== "视频嗅探下载")
-            .map((e) => ({
-              id: e.id,
-              name: e.name,
-              checked: acctBound.has(e.id) || ownerGlobal.has(e.id),
-              locked: !acctBound.has(e.id) && ownerGlobal.has(e.id),
-            })),
+          await Promise.all(
+            (exts ?? [])
+              .filter((e) => e.name !== "视频嗅探下载")
+              .map(async (e) => {
+                let icon: string | undefined;
+                try {
+                  icon =
+                    (await invoke<string | null>("get_extension_icon", {
+                      extensionId: e.id,
+                    })) ?? undefined;
+                } catch {
+                  // 扩展可能没有图标，非致命
+                }
+                return {
+                  id: e.id,
+                  name: e.name,
+                  checked: acctBound.has(e.id) || ownerGlobal.has(e.id),
+                  locked: !acctBound.has(e.id) && ownerGlobal.has(e.id),
+                  icon,
+                };
+              }),
+          ),
         );
       } catch {
         setEditAccountExts([]);
@@ -6383,6 +6398,19 @@ export function BwbrowserCloudAccountsDialog({
                             )
                           }
                         >
+                          {e.icon ? (
+                            // biome-ignore lint/performance/noImgElement: base64 data URI 图标无法用 next/image
+                            <img
+                              src={e.icon}
+                              alt=""
+                              className="h-4 w-4 shrink-0 rounded-sm object-contain"
+                            />
+                          ) : (
+                            // 无图标时用扩展名首字符占位，保持对齐
+                            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-muted text-[9px] font-medium text-muted-foreground">
+                              {e.name.charAt(0)}
+                            </span>
+                          )}
                           <Checkbox
                             checked={e.checked}
                             disabled={e.locked || editExtsLoading}
