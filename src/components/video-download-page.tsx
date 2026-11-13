@@ -172,10 +172,21 @@ export function VideoDownloadPage({
     openDir,
     openFile,
     proxyList,
+    loadProxies,
   } = useVideoDownload();
 
   const [urlInput, setUrlInput] = useState("");
   const [activeTab, setActiveTab] = useState("tasks");
+
+  // 打开「下载代理」下拉（点击修改）时：重新同步+刷新一次代理列表，
+  // 保证公司云端代理（新增/删除）即时反映在下拉里
+  const handleProxySelectOpenChange = useCallback(
+    (open: boolean) => {
+      setProxySelectOpen(open);
+      if (open) void loadProxies();
+    },
+    [loadProxies],
+  );
 
   /** 把已完成的本地视频投递给 AI 洗稿：后端后台运行（wait:false，条目自动落盘），
    *  进度事件驱动本页百分比显示，完成后轻提示。投递前按内存记录与落盘任务列表去重。 */
@@ -1544,7 +1555,10 @@ export function VideoDownloadPage({
           {/* 下载代理 */}
           <div className="space-y-2">
             <Label>下载代理</Label>
-            <Popover open={proxySelectOpen} onOpenChange={setProxySelectOpen}>
+            <Popover
+              open={proxySelectOpen}
+              onOpenChange={handleProxySelectOpenChange}
+            >
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"

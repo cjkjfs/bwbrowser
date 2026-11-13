@@ -894,6 +894,8 @@ fn tool_query_accounts() -> DynamicTool {
             None,
             None,
             None,
+            None,
+            None,
           )
           .await
           .map_err(tool_err)?;

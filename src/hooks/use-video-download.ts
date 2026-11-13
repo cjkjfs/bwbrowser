@@ -131,8 +131,15 @@ export function useVideoDownload() {
     }
   }, []);
 
-  // 加载代理列表
+  // 加载代理列表：先把公司云端代理同步到本地（公司代理平时不落本地库，
+  // 只在代理管理页增删时同步），再读本地列表——保证「下载代理」下拉里
+  // 始终能看到公司代理资源。未登录云端 / 网络失败时静默降级为本地已有代理。
   const loadProxies = useCallback(async () => {
+    try {
+      await invoke("bwbrowser_sync_proxies_to_local");
+    } catch {
+      /* 未登录或网络失败：只用本地已有代理 */
+    }
     try {
       const result = await invoke<ProxyItem[]>("video_download_list_proxies");
       setProxyList(result);

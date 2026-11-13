@@ -1672,7 +1672,9 @@ async fn run_single_download<R: Runtime>(
         "status": "downloading"
       }),
     );
-    match export_vps_cookies_to_file(force_refresh_cookie, dl, app, Some(url)).await {
+    match export_vps_cookies_to_file(force_refresh_cookie, dl, app, Some(url), Some(&log_path))
+      .await
+    {
       Ok(cookie_file) => {
         // 检查 cookie 文件是否包含对应平台的 cookie
         let cookie_content = std::fs::read_to_string(&cookie_file).unwrap_or_default();
@@ -2584,7 +2586,7 @@ pub async fn download_audio_for_asr<R: Runtime>(
 
   // Cookie：沿用「视频下载」的浏览器 Cookie 提取逻辑（抖音/YouTube 等需要）
   if settings.cookie_from_browser && !is_tiktok {
-    match export_vps_cookies_to_file(true, dl, app, Some(url)).await {
+    match export_vps_cookies_to_file(true, dl, app, Some(url), None).await {
       Ok(cookie_file) => {
         common.push("--cookies".to_string());
         common.push(cookie_file.to_string_lossy().to_string());
@@ -2754,7 +2756,7 @@ pub async fn fetch_native_subtitles<R: Runtime>(
   // Cookie：登录墙/年龄限制/会员视频的字幕也需要登录态，与「视频下载」同一套提取逻辑
   let is_tiktok = lower.contains("tiktok.com");
   if settings.cookie_from_browser && !is_tiktok {
-    match export_vps_cookies_to_file(true, dl, app, Some(url)).await {
+    match export_vps_cookies_to_file(true, dl, app, Some(url), None).await {
       Ok(cookie_file) => {
         args.push("--cookies".to_string());
         args.push(cookie_file.to_string_lossy().to_string());
@@ -3342,7 +3344,29 @@ async fn export_vps_cookies_to_file<R: Runtime>(
   dl: &VideoDownloader,
   app: &tauri::AppHandle<R>,
   download_url: Option<&str>,
+  task_log_path: Option<&std::path::Path>,
 ) -> Result<PathBuf, String> {
+  // 任务日志辅助：Cookie 来源链路的关键节点直接写进 download_<task>.log，
+  // 方便用户排查「这次 Cookie 是从哪个账号/profile 提取的」。
+  // （log::info! 在发布包里被 tauri_plugin_log Off 吞掉，任务日志是唯一可见落点）
+  let log_task = move |msg: &str| {
+    if let Some(p) = task_log_path {
+      let line = format!(
+        "[{}] [Cookie来源] {}\n",
+        chrono::Local::now().format("%H:%M:%S"),
+        msg
+      );
+      let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(p)
+        .and_then(|mut f| {
+          use std::io::Write;
+          f.write_all(line.as_bytes())
+        });
+    }
+  };
+
   // 列出全部本地 profile（后续按「账号名后缀」定位指定 Cookie 源账号的 profile，
   // 再按「VPS登录」名定位兜底 profile），全程不消耗掉该 Vec。
   let pm = crate::profile::manager::ProfileManager::instance();
@@ -3384,21 +3408,64 @@ async fn export_vps_cookies_to_file<R: Runtime>(
   };
   let cookie_path = tools_dir().join(format!("cookies_{}.txt", platform_tag));
 
-  // 设置了 Cookie 来源账号 → 优先实时导出该账号本地 profile 的 Cookie
-  // （浏览器开着就能拿到最新登录态），本地不可用再回退服务端快照。
+  // 依次尝试各 Cookie 来源账号（优先级降序，先开优先）：每个账号先实时导出
+  // 本地 profile 的 Cookie（浏览器开着就能拿到最新登录态），本地不可用再回退
+  // 服务端快照；都失败再试下一个账号，最终回退 VPS 登录老链路。
   let cookie_account_id = {
     let inner = dl.inner.lock().await;
     inner.settings.cookie_account_id
   };
-  if let Some(aid) = cookie_account_id {
+  let candidate_accounts =
+    crate::cookie_source_accounts::download_candidate_accounts(cookie_account_id).await;
+  if candidate_accounts.is_empty() {
+    log_task("未设置任何 Cookie 来源账号，直接从 VPS 登录浏览器提取");
+  } else {
+    let ids = candidate_accounts
+      .iter()
+      .map(|id| id.to_string())
+      .collect::<Vec<_>>()
+      .join(" → ");
+    log_task(&format!("候选账号顺序（先开的优先）: {ids}"));
+    log::info!(
+      "[video_download] Cookie 来源账号优先级: {:?}",
+      candidate_accounts
+    );
+  }
+  let mut tried_any = false;
+  'next_account: for (idx, aid) in candidate_accounts.iter().enumerate() {
+    // 标记 0 = 爆文库（VPS登录）作为 Cookie 来源候选：轮到它就结束账号循环，
+    // 直接走下面的「VPS登录」老链路提取（其顺序位置由开关开启先后决定）。
+    if *aid == crate::cookie_source_accounts::VPS_COOKIE_SOURCE_ID {
+      tried_any = true;
+      log::info!(
+        "[video_download] 候选中含「VPS登录」标记（第 {}/{} 位），走 VPS 登录老链路提取",
+        idx + 1,
+        candidate_accounts.len()
+      );
+      log_task(&format!(
+        "轮到「VPS登录」（第 {}/{} 位候选）：从 VPS 登录浏览器提取 Cookie...",
+        idx + 1,
+        candidate_accounts.len()
+      ));
+      break 'next_account;
+    }
+    tried_any = true;
     let account_profile = profiles
       .iter()
       .find(|p| p.name.to_lowercase().ends_with(&format!("_{aid}")));
     if let Some(acc) = account_profile {
       log::info!(
-        "[video_download] Cookie 源账号 {aid}，本地 profile「{}」优先实时导出",
+        "[video_download] Cookie 源账号 {aid}（第 {}/{} 个候选），本地 profile「{}」优先实时导出",
+        idx + 1,
+        candidate_accounts.len(),
         acc.name
       );
+      log_task(&format!(
+        "账号 {aid}（第 {}/{} 个候选）：本机有 profile「{}」，实时导出本地 Cookie...",
+        idx + 1,
+        candidate_accounts.len(),
+        acc.name
+      ));
       let yt_dlp_path = {
         let inner = dl.inner.lock().await;
         inner.yt_dlp_path.clone()
@@ -3420,34 +3487,64 @@ async fn export_vps_cookies_to_file<R: Runtime>(
       {
         Ok(()) => {
           log::info!("[video_download] Cookie 来自指定账号 {aid} 本地 profile（{platform_tag}）");
+          log_task(&format!(
+            "✓ Cookie 来自账号 {aid} 的本地 profile「{}」（实时导出成功）",
+            acc.name
+          ));
           return Ok(cookie_path);
         }
         Err(local_err) => {
           log::warn!(
             "[video_download] 本地实时导出账号 {aid} Cookie 失败（{local_err}），回退服务端快照"
           );
+          log_task(&format!(
+            "✗ 账号 {aid} 本地实时导出失败（{local_err}），尝试服务端快照..."
+          ));
         }
       }
     } else {
       log::info!(
         "[video_download] 本机无 Cookie 源账号 {aid} 的 profile（或未创建），回退服务端快照"
       );
+      log_task(&format!(
+        "账号 {aid}（第 {}/{} 个候选）：本机无该账号浏览器环境，尝试服务端快照...",
+        idx + 1,
+        candidate_accounts.len()
+      ));
     }
-    match export_account_cookies_to_file(aid, &cookie_path).await {
+    match export_account_cookies_to_file(*aid, &cookie_path).await {
       Ok(true) => {
         dl.set_last_cookie_time(now_secs()).await;
         log::info!("[video_download] Cookie 来自指定账号 {aid}（{platform_tag}）");
+        log_task(&format!("✓ Cookie 来自账号 {aid} 的服务端快照"));
         return Ok(cookie_path);
       }
       Ok(false) => {
         log::info!(
-          "[video_download] 指定账号 {aid} 无 Cookie（含本地与服务端），回退 VPS 登录提取"
+          "[video_download] 指定账号 {aid} 无 Cookie（含本地与服务端），若仍有候选账号则试下一个"
         );
+        log_task(&format!(
+          "✗ 账号 {aid} 无 Cookie（本地与服务端都没有），切换下一个候选账号"
+        ));
+        continue 'next_account; // 无 Cookie → 试下一个候选账号
       }
       Err(e) => {
-        log::warn!("[video_download] 拉取账号 {aid} Cookie 失败（{e}），回退 VPS 登录提取");
+        log::warn!("[video_download] 拉取账号 {aid} Cookie 失败（{e}），若仍有候选账号则试下一个");
+        log_task(&format!(
+          "✗ 账号 {aid} 服务端快照拉取失败（{e}），切换下一个候选账号"
+        ));
+        continue 'next_account;
       }
     }
+  }
+
+  // 设置了候选账号但全部失败（且 VPS 不是显式候选），才提示走 VPS 老链路；
+  // 若「VPS登录」本身在候选里，走老链路是正常轮到它，不算回退。
+  let vps_is_candidate =
+    candidate_accounts.contains(&crate::cookie_source_accounts::VPS_COOKIE_SOURCE_ID);
+  if tried_any && !vps_is_candidate {
+    log::info!("[video_download] 全部 Cookie 来源账号都取不到 Cookie，回退 VPS 登录提取");
+    log_task("✗ 全部候选账号都取不到 Cookie，回退从 VPS 登录浏览器提取");
   }
 
   // 获取 yt-dlp 路径
@@ -3473,6 +3570,9 @@ async fn export_vps_cookies_to_file<R: Runtime>(
         if let Ok(elapsed) = modified.elapsed() {
           if elapsed.as_secs() < 3600 {
             log::debug!("[video_download] 复用缓存的 cookie 文件 ({})", platform_tag);
+            log_task(&format!(
+              "复用 1 小时内的缓存 cookie 文件（cookies_{platform_tag}.txt，未重新提取）"
+            ));
             return Ok(cookie_path);
           }
         }
@@ -3506,6 +3606,9 @@ async fn export_vps_cookies_to_file<R: Runtime>(
               "[video_download] Cookie 已刷新（yt-dlp 提取，{} 条）",
               count
             );
+            log_task(&format!(
+              "✓ Cookie 来自「VPS登录」浏览器 profile（yt-dlp 直读，{count} 条）"
+            ));
             return Ok(cookie_path);
           }
           Ok(_) => {
@@ -3548,6 +3651,10 @@ async fn export_vps_cookies_to_file<R: Runtime>(
       std::fs::write(&cookie_path, txt).map_err(|e| format!("写入 cookie 文件失败: {}", e))?;
       dl.set_last_cookie_time(now_secs()).await;
       log::info!("[video_download] Cookie 已刷新（CDP 导出）");
+      log_task(&format!(
+        "✓ Cookie 来自「VPS登录」浏览器内存（CDP 实时导出，{} 条）",
+        cookies.len()
+      ));
       Ok(cookie_path)
     }
     Err(cdp_err) => {
@@ -3572,6 +3679,10 @@ async fn export_vps_cookies_to_file<R: Runtime>(
       std::fs::write(&cookie_path, txt).map_err(|e| format!("写入 cookie 文件失败: {}", e))?;
       dl.set_last_cookie_time(now_secs()).await;
       log::info!("[video_download] Cookie 已刷新（SQLite 回退）");
+      log_task(&format!(
+        "✓ Cookie 来自「VPS登录」本地 Cookie 数据库（SQLite 回退，{} 条）",
+        all_cookies.len()
+      ));
       Ok(cookie_path)
     }
   }
@@ -5341,7 +5452,7 @@ pub async fn video_download_refresh_cookie<R: Runtime>(
   }
 
   let dl = get_downloader().clone();
-  let _cookie_path = export_vps_cookies_to_file(true, &dl, &app, None).await?;
+  let _cookie_path = export_vps_cookies_to_file(true, &dl, &app, None, None).await?;
   let last_time = dl.get_last_cookie_time().await;
   let _ = app.emit("video-download:cookie-refreshed", &last_time);
   Ok(last_time)

@@ -517,6 +517,22 @@ export function RailNav({
       .then((s) => setGpuAcceleration(s.gpu_acceleration ?? true))
       .catch(() => {});
   }, []);
+  // 爆文库（VPS 登录）视频嗅探开关（云端名单为准，默认关闭）
+  const [vpsVideoSniffer, setVpsVideoSniffer] = useState(false);
+  // 爆文库（VPS 登录）下载 Cookie 来源开关（云端清单含标记 0 = 开启）
+  const [vpsCookieSource, setVpsCookieSource] = useState(false);
+  useEffect(() => {
+    void invoke<{ accounts?: number[]; vps?: boolean }>(
+      "get_video_sniffer_state",
+    )
+      .then((s) => setVpsVideoSniffer(s.vps === true))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    void invoke<{ accounts?: number[] }>("get_cookie_source_accounts")
+      .then((s) => setVpsCookieSource((s.accounts ?? []).includes(0)))
+      .catch(() => {});
+  }, []);
   const [cookieSubmenuOpen, setCookieSubmenuOpen] = useState(false);
   const cookieSubmenuRef = useRef<HTMLDivElement>(null);
   const [vpsProxySearch, setVpsProxySearch] = useState("");
@@ -704,6 +720,30 @@ export function RailNav({
       setGpuAcceleration((prev) => !prev);
       const msg = err instanceof Error ? err.message : String(err);
       showErrorToast(`设置保存失败: ${msg}`);
+    }
+  }, []);
+
+  // 爆文库嗅探开关：云端保存（失败回滚 UI），成功后下次爆文库启动即生效
+  const handleVpsVideoSnifferToggle = useCallback(async (checked: boolean) => {
+    setVpsVideoSniffer(checked);
+    try {
+      await invoke("set_vps_video_sniffer", { enabled: checked });
+    } catch (err) {
+      setVpsVideoSniffer((prev) => !prev);
+      const msg = err instanceof Error ? err.message : String(err);
+      showErrorToast(`视频嗅探开关保存失败: ${msg}`);
+    }
+  }, []);
+
+  // 爆文库 Cookie 来源开关：云端保存（失败回滚 UI），下载候选顺序即时生效
+  const handleVpsCookieSourceToggle = useCallback(async (checked: boolean) => {
+    setVpsCookieSource(checked);
+    try {
+      await invoke("set_vps_cookie_source", { enabled: checked });
+    } catch (err) {
+      setVpsCookieSource((prev) => !prev);
+      const msg = err instanceof Error ? err.message : String(err);
+      showErrorToast(`Cookie 来源开关保存失败: ${msg}`);
     }
   }, []);
 
@@ -1075,6 +1115,33 @@ export function RailNav({
                 className="pointer-events-none"
               />
               <span>硬件加速</span>
+            </button>
+            <div className="my-1 h-px bg-border" />
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
+              onClick={() => void handleVpsVideoSnifferToggle(!vpsVideoSniffer)}
+              title="爆文库打开时是否加载视频嗅探扩展（右下角下载按钮）"
+            >
+              <AnimatedSwitch
+                checked={vpsVideoSniffer}
+                onCheckedChange={() => {}}
+                className="pointer-events-none"
+              />
+              <span>视频嗅探</span>
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
+              onClick={() => void handleVpsCookieSourceToggle(!vpsCookieSource)}
+              title="把爆文库（VPS登录）加入视频下载的 Cookie 来源候选（按开启先后排优先级，可与账号多开兜底）"
+            >
+              <AnimatedSwitch
+                checked={vpsCookieSource}
+                onCheckedChange={() => {}}
+                className="pointer-events-none"
+              />
+              <span>Cookie 来源</span>
             </button>
             <div className="my-1 h-px bg-border" />
             <div

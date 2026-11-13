@@ -1528,6 +1528,24 @@ impl ExtensionManager {
 
     let mut extension_paths = Vec::new();
 
+    // 视频嗅探开关（云端为准，默认关闭）：云端账号 profile 的名字固定以
+    // `_<账号id>` 结尾，按账号名单判定；「VPS登录」专用 profile 按爆文库开关
+    // 判定；其它本地 profile 不受此开关管辖。这里兜底拦载入，即使 profile
+    // 指向的是手动分组也不会注入嗅探（分组内容另由 extension_user_assign 同步）。
+    let sniffer_allowed = match profile
+      .name
+      .rsplit('_')
+      .next()
+      .and_then(|s| s.parse::<i64>().ok())
+    {
+      Some(account_id) => crate::video_sniffer_settings::is_account_enabled(account_id),
+      // 与 bwbrowser_open_vps_login 的查找约定一致：专用 profile 固定叫「VPS登录」
+      None if profile.name.to_lowercase() == "vps登录" => {
+        crate::video_sniffer_settings::is_vps_enabled()
+      }
+      None => true,
+    };
+
     // Staging is per-profile. Chromium records the absolute staging path and
     // reads the extension's files lazily for the life of the process, so a
     // shared directory would let one profile's launch pull the files out from
@@ -1540,6 +1558,14 @@ impl ExtensionManager {
 
     for ext_id in &group.extension_ids {
       if let Ok(ext) = self.get_extension(ext_id) {
+        if !sniffer_allowed && ext.name == crate::bwbrowser_cloud::VIDEO_SNIFFER_EXT_NAME {
+          log::info!(
+            "Skipping built-in video sniffer for profile '{}': disabled for its cloud account",
+            profile.name
+          );
+          continue;
+        }
+
         if !ext.browser_compatibility.contains(&"chromium".to_string()) {
           continue;
         }

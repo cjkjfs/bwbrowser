@@ -897,7 +897,8 @@ pub fn bwbrowser_refresh_profile() -> Result<CloudUser, String> {
 }
 
 /// 内置「视频嗅探下载」扩展的资源目录名（打包映射 extensions/video-sniffer）。
-const VIDEO_SNIFFER_EXT_NAME: &str = "视频嗅探下载";
+/// 账号级开关按这个名字识别内置嗅探扩展（见 video_sniffer_settings）。
+pub(crate) const VIDEO_SNIFFER_EXT_NAME: &str = "视频嗅探下载";
 
 /// 确保内置「视频嗅探下载」扩展已安装并分配给 VPS 登录（爆文库）：
 /// 1) 扩展库中没有 → 从打包资源目录 link 安装（原地加载，随程序升级自动更新）；
@@ -1142,6 +1143,8 @@ pub async fn bwbrowser_open_vps_login(
 
   // 先拉一次公司级绑定（管理员机器分配的插件跨机器生效；失败静默降级）
   crate::extension_user_assign::pull_company_assignments().await;
+  // 视频嗅探开关（云端为准）也在这里拉取：爆文库是否注入嗅探由 vps_enabled 决定
+  crate::video_sniffer_settings::pull_remote().await;
 
   // 爆文库启动前应用当前登录用户绑定的扩展：扩展管理里绑定给这个用户的
   // 插件，在爆文库浏览器里自动装/卸（只覆盖空分组或自动分组，手动分组
@@ -2153,6 +2156,9 @@ impl BwbrowserAuthManager {
     company_id: Option<i64>,
     sort_by: Option<String>,
     sort_order: Option<String>,
+    // 子账号设置弹窗专用：child_parent_filter（候选过滤）/ child_parent_only（仅已挂子账号）
+    child_parent_filter: Option<i64>,
+    child_parent_only: Option<i64>,
   ) -> Result<BwbrowserAccountListResponse, String> {
     let (username, password) = self
       .get_credentials()
@@ -2194,6 +2200,13 @@ impl BwbrowserAuthManager {
         "desc"
       };
       form_data.push_str(&format!("&sort_by={}&sort_order={}", urlencode(s), order));
+    }
+    // 子账号设置弹窗专用过滤（服务端 WHERE）
+    if let Some(pid) = child_parent_filter {
+      form_data.push_str(&format!("&child_parent_filter={}", pid));
+    }
+    if let Some(pid) = child_parent_only {
+      form_data.push_str(&format!("&child_parent_only={}", pid));
     }
 
     let bwbrowser_form_data = form_data
@@ -2680,6 +2693,15 @@ pub struct BwbrowserAccount {
   /// 启动网址配置（JSON: {"include_platform":bool,"urls":[...]}），编辑账号维护
   #[serde(default)]
   pub start_urls: Option<String>,
+  /// 主/子账号：子账号存其主账号 id；None = 主账号/普通账号。
+  /// 列表渲染时子账号折叠进主账号展开区，顶层只显示主账号
+  #[serde(default)]
+  pub parent_id: Option<i64>,
+  /// 多母列表虚拟扩展行：同一子账号挂到第 2 个及以后母账号时，
+  /// 服务端以该母账号 id 附加一条重复行，前端据此在对应母展开区重复渲染。
+  /// None = 非虚拟扩展行（正常行 / 首母下的子行）
+  #[serde(default)]
+  pub virtual_parent: Option<i64>,
   /// 账号级硬件加速开关：true = 本次启动追加合成/光栅化 GPU 参数（WebGL 仍走虚拟指纹软件渲染）
   #[serde(default, deserialize_with = "deserialize_int_or_bool")]
   pub gpu_acceleration: Option<bool>,
@@ -2804,6 +2826,10 @@ pub async fn bwbrowser_list_accounts(
   company_id: Option<i64>,
   sort_by: Option<String>,
   sort_order: Option<String>,
+  // 子账号设置弹窗专用：只返回「未挂主账号 OR 已挂到该主账号」且排除主账号自身的候选
+  child_parent_filter: Option<i64>,
+  // 子账号设置弹窗专用：只返回已挂到该主账号下的子账号
+  child_parent_only: Option<i64>,
 ) -> Result<BwbrowserAccountListResponse, String> {
   let result = BWBROWSER_AUTH
     .list_cloud_accounts(
@@ -2815,6 +2841,8 @@ pub async fn bwbrowser_list_accounts(
       company_id,
       sort_by,
       sort_order,
+      child_parent_filter,
+      child_parent_only,
     )
     .await?;
 
@@ -2831,7 +2859,7 @@ pub async fn bwbrowser_get_account_health_states() -> Result<serde_json::Value, 
   let profiles = pm.list_profiles().unwrap_or_default();
 
   let list = BWBROWSER_AUTH
-    .list_cloud_accounts(1, 500, None, None, None, None, None, None)
+    .list_cloud_accounts(1, 500, None, None, None, None, None, None, None, None)
     .await?;
   let mut views = Vec::new();
   if let Some(accounts) = list.accounts {
@@ -2941,7 +2969,7 @@ pub async fn bwbrowser_get_account_summary(
 #[tauri::command]
 pub async fn bwbrowser_get_owner_profile_map() -> Result<serde_json::Value, String> {
   let list = BWBROWSER_AUTH
-    .list_cloud_accounts(1, 500, None, None, None, None, None, None)
+    .list_cloud_accounts(1, 500, None, None, None, None, None, None, None, None)
     .await?;
   let accounts = list.accounts.unwrap_or_default();
 
@@ -2974,7 +3002,18 @@ pub async fn bwbrowser_get_owner_profile_map() -> Result<serde_json::Value, Stri
 /// 匹配，账号首次启动后才有）。供「分配给用户」的自动装/卸解析目标。
 pub(crate) async fn owner_profile_ids(owner_id: i64) -> Result<Vec<String>, String> {
   let list = BWBROWSER_AUTH
-    .list_cloud_accounts(1, 500, None, None, Some(owner_id), None, None, None)
+    .list_cloud_accounts(
+      1,
+      500,
+      None,
+      None,
+      Some(owner_id),
+      None,
+      None,
+      None,
+      None,
+      None,
+    )
     .await?;
   let accounts = list.accounts.unwrap_or_default();
   let pm = crate::profile::manager::ProfileManager::instance();
@@ -5182,6 +5221,8 @@ pub async fn bwbrowser_update_account_info(
   channel_id: Option<String>,
   start_urls: Option<String>,
   gpu_acceleration: Option<bool>,
+  // 主/子账号：Some(0) = 清除子账号关系；Some(n>0) = 挂到主账号 n 下；None = 不动（本次不修改）。仅管理员有权限，服务端校验。
+  parent_id: Option<i64>,
 ) -> Result<(), String> {
   let (username, password) = BWBROWSER_AUTH
     .get_credentials()
@@ -5238,6 +5279,9 @@ pub async fn bwbrowser_update_account_info(
   }
   if let Some(v) = start_urls {
     params.push(format!("start_urls={}", urlencode(&v)));
+  }
+  if let Some(v) = parent_id {
+    params.push(format!("parent_id={}", v));
   }
   if let Some(v) = gpu_acceleration {
     params.push(format!("gpu_acceleration={}", if v { 1 } else { 0 }));
@@ -5308,6 +5352,75 @@ pub async fn bwbrowser_update_account_info(
       &format!("✓ 账号 {} 基本信息已更新 (无返回数据)", account_id),
     );
   }
+  Ok(())
+}
+
+/// 主/子账号多母关系：on=true 把 child_id 挂到 parent_id 下；on=false 解除该母-子关系。
+/// 仅管理员有权限，服务端校验。服务端返回 success=true 即成功。
+#[tauri::command]
+pub async fn bwbrowser_set_child_relation(
+  parent_id: i64,
+  child_id: i64,
+  on: bool,
+) -> Result<(), String> {
+  let (username, password) = BWBROWSER_AUTH
+    .get_credentials()
+    .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+
+  let form_data = format!(
+    "action=set_child_relation&username={}&password={}&parent_id={}&child_id={}&on={}",
+    urlencode(&username),
+    urlencode(&password),
+    parent_id,
+    child_id,
+    if on { 1 } else { 0 }
+  );
+
+  log_bwbrowser(
+    "set_child_relation",
+    &format!(
+      "→ 发送请求: parent_id={}, child_id={}, on={}",
+      parent_id, child_id, on
+    ),
+  );
+
+  let resp = BWBROWSER_AUTH
+    .client
+    .post(BWBROWSER_API_URL)
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .body(form_data)
+    .send()
+    .await
+    .map_err(|e| format!("请求失败: {}", e))?;
+
+  let body = resp
+    .text()
+    .await
+    .map_err(|e| format!("读取响应失败: {}", e))?;
+
+  log_bwbrowser(
+    "set_child_relation",
+    &format!(
+      "← 响应: {}",
+      if body.len() > 500 {
+        trunc(&body, 500).to_string()
+      } else {
+        body.clone()
+      }
+    ),
+  );
+
+  let result: serde_json::Value = parse_body("api", &body)?;
+
+  if !result["success"].as_bool().unwrap_or(false) {
+    return Err(
+      result["message"]
+        .as_str()
+        .unwrap_or("设置子账号关系失败")
+        .to_string(),
+    );
+  }
+
   Ok(())
 }
 
@@ -8074,6 +8187,8 @@ async fn launch_account_impl(
   //     分组不动）。取消绑定则不会在这里出现——unassign 已清掉。
   //     先拉一次公司级绑定，让管理员机器新分配的插件在这台机器生效。
   crate::extension_user_assign::pull_company_assignments().await;
+  // 视频嗅探开关（云端为准，默认关闭）：拉取后再算分组，未开启的账号这一轮就不装
+  crate::video_sniffer_settings::pull_remote().await;
   // 账号上下文：账号限定的扩展绑定只对该账号的浏览器生效
   crate::extension_user_assign::apply_owner_assignments(
     server_owner_id,
@@ -8724,6 +8839,7 @@ async fn launch_account_impl(
           None,
           None,
           send_id.clone(),
+          None,
           None,
           None,
         )

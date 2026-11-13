@@ -867,6 +867,8 @@ pub async fn doubao_load_cloud_accounts() -> Result<DoubaoCloudLoadResult, Strin
       None,
       None,
       None,
+      None,
+      None,
     )
     .await?;
   let cloud_accounts: Vec<_> = list.accounts.unwrap_or_default();

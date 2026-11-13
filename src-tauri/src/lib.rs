@@ -135,6 +135,7 @@ mod cookie_bot;
 pub mod cookie_health;
 mod cookie_manager;
 mod cookie_paste;
+mod cookie_source_accounts;
 mod cookie_sync;
 pub mod events;
 mod login_autofill;
@@ -153,6 +154,7 @@ mod video_downloader;
 mod video_matcher;
 mod video_matcher_pr;
 mod video_matcher_queue;
+mod video_sniffer_settings;
 mod video_tools;
 pub mod vpn;
 mod vpn_extension_detect;
@@ -4094,6 +4096,7 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_update_account_codes,
       bwbrowser_cloud::bwbrowser_update_account_env,
       bwbrowser_cloud::bwbrowser_update_account_info,
+      bwbrowser_cloud::bwbrowser_set_child_relation,
       bwbrowser_cloud::bwbrowser_get_account_detail_full,
       bwbrowser_cloud::bwbrowser_create_account,
       bwbrowser_cloud::bwbrowser_get_account_cookies,
@@ -4152,6 +4155,12 @@ pub fn run_with_builder(
       video_downloader::video_download_delete_all,
       video_downloader::video_download_start_clipboard_monitor,
       video_downloader::video_download_stop_clipboard_monitor,
+      video_sniffer_settings::get_video_sniffer_state,
+      video_sniffer_settings::set_account_video_sniffer,
+      video_sniffer_settings::set_vps_video_sniffer,
+      cookie_source_accounts::get_cookie_source_accounts,
+      cookie_source_accounts::set_account_cookie_source,
+      cookie_source_accounts::set_vps_cookie_source,
       audio_silence_remover::audio_detect_silence,
       audio_silence_remover::audio_remove_silence,
       audio_silence_remover::audio_get_waveform,

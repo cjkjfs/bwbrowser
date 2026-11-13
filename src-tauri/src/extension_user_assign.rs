@@ -542,7 +542,7 @@ async fn fetch_all_cloud_accounts(
   let mut fetched_total = 0usize;
   for page in 1.. {
     let list = crate::bwbrowser_cloud::BWBROWSER_AUTH
-      .list_cloud_accounts(page, 200, None, None, None, None, None, None)
+      .list_cloud_accounts(page, 200, None, None, None, None, None, None, None, None)
       .await?;
     let rows = list.accounts.unwrap_or_default();
     let got = rows.len();
@@ -587,6 +587,18 @@ fn assignment_applies(a: &ExtensionUserAssignment, user_id: i64, account_id: Opt
   }
 }
 
+/// 内置「视频嗅探下载」扩展的本地 id（按名字识别；未安装时 None）。
+fn video_sniffer_extension_id() -> Option<String> {
+  crate::extension_manager::EXTENSION_MANAGER
+    .lock()
+    .unwrap()
+    .list_extensions()
+    .ok()?
+    .into_iter()
+    .find(|e| e.name == crate::bwbrowser_cloud::VIDEO_SNIFFER_EXT_NAME)
+    .map(|e| e.id)
+}
+
 /// 该用户在给定账号上下文下生效的扩展集合（去重），基于已加载的绑定条目。
 fn assigned_ids_from_items(
   items: &[ExtensionUserAssignment],
@@ -597,6 +609,18 @@ fn assigned_ids_from_items(
   for a in items {
     if assignment_applies(a, user_id, account_id) {
       ids.insert(a.extension_id.clone());
+    }
+  }
+  // 视频嗅探开关（云端为准，默认关闭）：账号上下文看账号名单；None = 爆文库
+  // （VPS 登录），看 vps_enabled。未开启就把这一个扩展从集合里摘掉，绑定关系
+  // 保持原样，打开开关后下一次启动自然回到分组。
+  let sniffer_allowed = match account_id {
+    Some(aid) => crate::video_sniffer_settings::is_account_enabled(aid),
+    None => crate::video_sniffer_settings::is_vps_enabled(),
+  };
+  if !sniffer_allowed {
+    if let Some(sniffer) = video_sniffer_extension_id() {
+      ids.remove(&sniffer);
     }
   }
   ids.into_iter().collect()

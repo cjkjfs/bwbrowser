@@ -11,7 +11,7 @@ import {
 } from "@tanstack/react-table";
 import { invoke } from "@tauri-apps/api/core";
 import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { FiCheck, FiX } from "react-icons/fi";
@@ -29,6 +29,7 @@ import {
   LuEyeOff,
   LuGlobe,
   LuHeartPulse,
+  LuInfo,
   LuLoaderCircle,
   LuMonitor,
   LuNetwork,
@@ -98,6 +99,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   type BwbrowserAccount,
   type CloudUser,
@@ -652,18 +658,23 @@ export function BwbrowserCloudAccountsDialog({
 }: BwbrowserCloudAccountsDialogProps) {
   const { t } = useTranslation();
   const [sorting, setSorting] = useState<SortingState>([]);
-  // 列显隐：平时少看的列（节点IP/环境/时区/Cookie更新）默认折叠，表头「列设置」可勾选
-  // 显示；用户的选择存 localStorage，下次打开保持。
+  // 列显隐：表头「列设置」可勾选（平台/归属/环境/节点IP/时区/Cookie更新/备注标签编辑/操作）；
+  // 用户的选择存 localStorage，下次打开保持。默认全部开启（2026-11-13）。
+  // v2 key：旧 key 存的是"默认关闭"时代的选择，换新 key 使新默认（全开）生效。
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
     (() => {
       const defaults: VisibilityState = {
-        proxy_node: false,
-        env_uuid: false,
-        timezone: false,
-        cookie_updated_at: false,
+        platform: true,
+        owner_name: true,
+        env_uuid: true,
+        proxy_node: true,
+        timezone: true,
+        cookie_updated_at: true,
+        remark_tags: true,
+        actions: true,
       };
       try {
-        const raw = localStorage.getItem("bwbrowser_cloud_columns");
+        const raw = localStorage.getItem("bwbrowser_cloud_columns_v2");
         if (!raw) return defaults;
         const saved = JSON.parse(raw) as VisibilityState;
         return saved && typeof saved === "object"
@@ -730,6 +741,10 @@ export function BwbrowserCloudAccountsDialog({
   const [sectorFilter, setSectorFilter] = useState<string | null>(null);
   const [autofillEnabled, setAutofillEnabled] = useState(true);
   const [gpuAcceleration, setGpuAcceleration] = useState(true);
+  // 爆文库（VPS 登录）视频嗅探开关（云端名单为准，默认关闭）
+  const [vpsVideoSniffer, setVpsVideoSniffer] = useState(false);
+  // 爆文库（VPS 登录）下载 Cookie 来源开关（云端清单含标记 0 = 开启）
+  const [vpsCookieSource, setVpsCookieSource] = useState(false);
 
   useEffect(() => {
     void invoke<{ autofill_enabled: boolean }>("get_app_settings")
@@ -741,6 +756,46 @@ export function BwbrowserCloudAccountsDialog({
     void invoke<{ gpu_acceleration?: boolean }>("get_app_settings")
       .then((s) => setGpuAcceleration(s.gpu_acceleration ?? true))
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    void invoke<{ accounts?: number[]; vps?: boolean }>(
+      "get_video_sniffer_state",
+    )
+      .then((s) => setVpsVideoSniffer(s.vps === true))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    void invoke<{ accounts?: number[] }>("get_cookie_source_accounts")
+      .then((s) => setVpsCookieSource((s.accounts ?? []).includes(0)))
+      .catch(() => {});
+  }, []);
+
+  // 爆文库嗅探开关：云端保存（失败回滚 UI），成功后下次爆文库启动即生效
+  const handleVpsVideoSnifferToggle = useCallback(async (checked: boolean) => {
+    setVpsVideoSniffer(checked);
+    try {
+      await invoke("set_vps_video_sniffer", { enabled: checked });
+    } catch (err) {
+      setVpsVideoSniffer((prev) => !prev);
+      showErrorToast(
+        `视频嗅探开关保存失败: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }, []);
+
+  // 爆文库 Cookie 来源开关：云端保存（失败回滚 UI），下载候选顺序即时生效
+  const handleVpsCookieSourceToggle = useCallback(async (checked: boolean) => {
+    setVpsCookieSource(checked);
+    try {
+      await invoke("set_vps_cookie_source", { enabled: checked });
+    } catch (err) {
+      setVpsCookieSource((prev) => !prev);
+      showErrorToast(
+        `Cookie 来源开关保存失败: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }, []);
 
   // Persist the 自动输入 switch; revert the UI if the backend refuses.
@@ -1057,7 +1112,30 @@ export function BwbrowserCloudAccountsDialog({
     channel_id: "",
     owner_id: 0 as number,
     gpu_acceleration: false,
+    // 账号级视频嗅探开关（云端名单为准，默认关闭）
+    video_sniffer: false,
+    // 作为下载 Cookie 来源（云端清单为准，默认关闭）
+    cookie_source: false,
   });
+  // ===== 子账号设置弹窗（独立静态编辑框，服务端分页懒加载，仅管理员）=====
+  const [childDialogOpen, setChildDialogOpen] = useState(false);
+  const [childAccount, setChildAccount] = useState<BwbrowserAccount | null>(
+    null,
+  );
+  // 勾选中的子账号 id（跨页保留）
+  const [childChildIds, setChildChildIds] = useState<number[]>([]);
+  // 当前页候选账号（服务端分页：child_parent_filter 过滤 + keyword + page）
+  const [childPageAccounts, setChildPageAccounts] = useState<
+    BwbrowserAccount[]
+  >([]);
+  const [childTotal, setChildTotal] = useState(0);
+  // 已挂到当前主账号下的子账号（打开弹窗时一次拉取，顶部展示 + 勾选初始化）
+  const [childExisting, setChildExisting] = useState<BwbrowserAccount[]>([]);
+  const [childQuery, setChildQuery] = useState("");
+  const [childLoading, setChildLoading] = useState(false);
+  const [childSaving, setChildSaving] = useState(false);
+  const [childPage, setChildPage] = useState(1);
+  const CHILD_PAGE_SIZE = 10;
   // 启动网址（存 tiktok_accounts.start_urls，JSON {"include_platform":bool,"urls":[...]}）
   const [editStartUrls, setEditStartUrls] = useState<{
     includePlatform: boolean;
@@ -1468,6 +1546,8 @@ export function BwbrowserCloudAccountsDialog({
           "",
         owner_id: account.owner_id ?? 0,
         gpu_acceleration: account.gpu_acceleration ?? false,
+        video_sniffer: false,
+        cookie_source: false,
       });
       setEditStartUrls(parseAccountStartUrls(account.start_urls));
       setEditStartUrlInput("");
@@ -1545,6 +1625,32 @@ export function BwbrowserCloudAccountsDialog({
           gpu_acceleration: detail.gpu_acceleration ?? prev.gpu_acceleration,
         }));
         setEditStartUrls(parseAccountStartUrls(detail.start_urls));
+        // 账号级嗅探开关：云端名单里记的是「开启了嗅探的账号」，默认关闭
+        try {
+          const state = await invoke<{ accounts?: number[]; vps?: boolean }>(
+            "get_video_sniffer_state",
+          );
+          const enabled = Array.isArray(state.accounts) ? state.accounts : [];
+          setEditForm((prev) => ({
+            ...prev,
+            video_sniffer: enabled.includes(account.id),
+          }));
+        } catch {
+          // 读取失败按默认（关闭）处理
+        }
+        // Cookie 来源账号开关：云端清单（作为下载 Cookie 来源）
+        try {
+          const cs = await invoke<{ accounts?: number[] }>(
+            "get_cookie_source_accounts",
+          );
+          const list = Array.isArray(cs.accounts) ? cs.accounts : [];
+          setEditForm((prev) => ({
+            ...prev,
+            cookie_source: list.includes(account.id),
+          }));
+        } catch {
+          // 读取失败按默认（关闭）处理
+        }
       } catch (e) {
         console.error("获取账号详情失败:", e);
       } finally {
@@ -1553,6 +1659,141 @@ export function BwbrowserCloudAccountsDialog({
     },
     [isManager, isSuperAdmin, canViewPassword],
   );
+
+  // 拉取子账号候选分页（服务端过滤：未挂主账号 OR 已挂到该主账号，排除主账号自身）
+  const loadChildPage = useCallback(
+    async (page: number, query: string, accountId: number) => {
+      setChildLoading(true);
+      try {
+        const result = await invoke<{
+          accounts: BwbrowserAccount[];
+          total?: number;
+        }>("bwbrowser_list_accounts", {
+          page,
+          pageSize: CHILD_PAGE_SIZE,
+          platform: null,
+          keyword: query.trim() || null,
+          ownerId: null,
+          companyId: selectedCompanyId ?? null,
+          sortBy: null,
+          sortOrder: null,
+          childParentFilter: accountId,
+          childParentOnly: null,
+        });
+        setChildPageAccounts(result.accounts ?? []);
+        setChildTotal(result.total ?? 0);
+      } catch {
+        setChildPageAccounts([]);
+        setChildTotal(0);
+      } finally {
+        setChildLoading(false);
+      }
+    },
+    [selectedCompanyId],
+  );
+
+  // 打开子账号设置弹窗（懒加载 + 服务端分页：打开秒显第一页；已挂子账号单独并发拉取）
+  const handleOpenChildDialog = useCallback(
+    async (account: BwbrowserAccount) => {
+      if (!(isManager || isSuperAdmin)) return;
+      setChildAccount(account);
+      setChildQuery("");
+      setChildChildIds([]);
+      setChildPageAccounts([]);
+      setChildTotal(0);
+      setChildExisting([]);
+      setChildPage(1);
+      setChildDialogOpen(true);
+      // 并发：①候选第一页（秒显） ②已挂子账号全量（顶部展示 + 勾选初始化）
+      void loadChildPage(1, "", account.id);
+      try {
+        const result = await invoke<{
+          accounts: BwbrowserAccount[];
+          total?: number;
+        }>("bwbrowser_list_accounts", {
+          page: 1,
+          pageSize: 200,
+          platform: null,
+          keyword: null,
+          ownerId: null,
+          companyId: selectedCompanyId ?? null,
+          sortBy: null,
+          sortOrder: null,
+          childParentFilter: null,
+          childParentOnly: account.id,
+        });
+        const existing = result.accounts ?? [];
+        // 多母：child_parent_only 由服务端精确返回「已挂到本主账号」的全部子账号（关系表，
+        // 包含首母非本账号的跨母子账号）。注意子账号行可能 virtual_parent/首母 指向其他账号，
+        // 因此不能再用 parent_id===account.id 过滤，直接采用服务端结果。
+        setChildExisting(existing);
+        setChildChildIds(existing.map((a) => a.id));
+      } catch {
+        setChildExisting([]);
+        setChildChildIds([]);
+      }
+    },
+    [isManager, isSuperAdmin, selectedCompanyId, loadChildPage],
+  );
+
+  // 搜索防抖（输入停顿 300ms 后按新关键词请求第一页）
+  const childSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleChildQueryChange = useCallback(
+    (q: string) => {
+      setChildQuery(q);
+      if (!childAccount) return;
+      if (childSearchTimer.current) clearTimeout(childSearchTimer.current);
+      childSearchTimer.current = setTimeout(() => {
+        setChildPage(1);
+        void loadChildPage(1, q, childAccount.id);
+      }, 300);
+    },
+    [childAccount, loadChildPage],
+  );
+
+  // 保存子账号关系（diff 基于打开时的服务端状态 childExisting：新增挂到本主账号、移除清空关系）
+  const handleSaveChild = useCallback(async () => {
+    if (!childAccount) return;
+    setChildSaving(true);
+    try {
+      const prevChildIds = new Set(childExisting.map((a) => a.id));
+      const nextChildIds = new Set(childChildIds);
+      const toAdd = childChildIds.filter((id) => !prevChildIds.has(id));
+      const toRemove = [...prevChildIds].filter((id) => !nextChildIds.has(id));
+      let childErr: string | null = null;
+      for (const childId of toAdd) {
+        try {
+          await invoke("bwbrowser_set_child_relation", {
+            parentId: childAccount.id,
+            childId,
+            on: true,
+          });
+        } catch (e) {
+          childErr = `账号 ${childId}: ${e instanceof Error ? e.message : String(e)}`;
+        }
+      }
+      for (const childId of toRemove) {
+        try {
+          await invoke("bwbrowser_set_child_relation", {
+            parentId: childAccount.id,
+            childId,
+            on: false,
+          });
+        } catch (e) {
+          childErr = `账号 ${childId}: ${e instanceof Error ? e.message : String(e)}`;
+        }
+      }
+      if (childErr) {
+        showErrorToast(`部分子账号保存失败: ${childErr}`);
+      } else {
+        showSuccessToast("子账号已保存");
+      }
+      setChildDialogOpen(false);
+      void refresh();
+    } finally {
+      setChildSaving(false);
+    }
+  }, [childAccount, childExisting, childChildIds, refresh]);
 
   // 启动浏览器时同时打开这些网址（对所有设备生效）
   const addEditStartUrl = useCallback(() => {
@@ -2949,6 +3190,44 @@ export function BwbrowserCloudAccountsDialog({
     }
   }, []);
 
+  // ========== 主/子账号树 ==========
+  // 子账号（parent_id 非空）折叠进主账号展开区，顶层只显示主账号；默认全收缩。
+  // 服务端排序保证子账号紧随主账号，普通用户也只看得到授权给自己的（服务端过滤）。
+  const [expandedAccountIds, setExpandedAccountIds] = useState<Set<number>>(
+    new Set(),
+  );
+  const childAccountsByParent = useMemo(() => {
+    const map = new Map<number, BwbrowserAccount[]>();
+    for (const a of accounts) {
+      // 首母（parent_id）与多母附加行（virtual_parent）都算进对应母账号的子列表，
+      // 这样 A/B 两个母账号都能正确显示自己名下的子账号个数与展开箭头
+      const keys = new Set<number>();
+      if (a.parent_id != null && a.parent_id > 0) keys.add(a.parent_id);
+      if (a.virtual_parent != null && a.virtual_parent > 0)
+        keys.add(a.virtual_parent);
+      for (const pid of keys) {
+        const list = map.get(pid);
+        if (list) {
+          list.push(a);
+        } else {
+          map.set(pid, [a]);
+        }
+      }
+    }
+    return map;
+  }, [accounts]);
+  const toggleAccountExpand = useCallback((accountId: number) => {
+    setExpandedAccountIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(accountId)) {
+        next.delete(accountId);
+      } else {
+        next.add(accountId);
+      }
+      return next;
+    });
+  }, []);
+
   // 表格列定义
   const columns = useMemo<ColumnDef<BwbrowserAccount>[]>(() => {
     const isAdmin = isManager || isSuperAdmin;
@@ -3055,6 +3334,13 @@ export function BwbrowserCloudAccountsDialog({
           const account = row.original;
           const avatarUrl = resolveAvatarUrl(account.avatar_url);
           const displayName = account.account_name;
+          // 主/子账号：主账号（有子账号）显示展开箭头；子账号显示「子」徽章
+          const childCount = childAccountsByParent.get(account.id)?.length ?? 0;
+          const isChildAccount =
+            (account.parent_id != null && account.parent_id > 0) ||
+            (account.virtual_parent != null && account.virtual_parent > 0);
+          const childBelongsTo = account.virtual_parent ?? account.parent_id;
+          const expanded = expandedAccountIds.has(account.id);
           // 健康检测：图标颜色即结果（绿=健康，黄=需重新登录，灰=未检测）
           const h = healthStates[account.id];
           const hStatus = h?.status ?? "unknown";
@@ -3065,6 +3351,24 @@ export function BwbrowserCloudAccountsDialog({
           return (
             <div className="flex max-w-[200px] flex-col gap-1">
               <div className="flex items-center gap-2">
+                {childCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleAccountExpand(account.id)}
+                    className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    title={
+                      expanded ? "收起子账号" : `展开 ${childCount} 个子账号`
+                    }
+                  >
+                    {expanded ? (
+                      <LuChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <LuChevronRight className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                ) : (
+                  <span className="w-[22px] shrink-0" />
+                )}
                 <button
                   type="button"
                   onClick={() => void handleCheckHealth(account)}
@@ -3123,6 +3427,14 @@ export function BwbrowserCloudAccountsDialog({
                 >
                   {displayName || "-"}
                 </button>
+                {isChildAccount && (
+                  <span
+                    className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[10px] leading-none text-primary"
+                    title={`「${childBelongsTo}」的子账号`}
+                  >
+                    子
+                  </span>
+                )}
               </div>
               {lp && (launching || lp.pct >= 100) && (
                 <div className="flex items-center gap-1 text-[10px] leading-none text-emerald-600">
@@ -3778,6 +4090,9 @@ export function BwbrowserCloudAccountsDialog({
     handleRepairAccount,
     serverSort,
     setServerSort,
+    childAccountsByParent,
+    expandedAccountIds,
+    toggleAccountExpand,
   ]);
 
   const table = useReactTable({
@@ -4136,12 +4451,16 @@ export function BwbrowserCloudAccountsDialog({
                 列设置
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuContent align="end" className="w-48">
               {[
-                ["proxy_node", "节点IP"],
+                ["platform", "平台"],
+                ["owner_name", "归属"],
                 ["env_uuid", "环境"],
+                ["proxy_node", "节点IP"],
                 ["timezone", "时区"],
                 ["cookie_updated_at", "Cookie更新"],
+                ["remark_tags", "备注/标签/编辑"],
+                ["actions", "操作"],
               ].map(([key, label]) => (
                 <DropdownMenuItem
                   key={key}
@@ -4246,29 +4565,49 @@ export function BwbrowserCloudAccountsDialog({
               ))}
             </TableHeader>
             <TableBody>
-              {table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
-                  className={cn(
-                    row.original.status === 1 &&
-                      "text-emerald-600 dark:text-emerald-400",
-                  )}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell
-                      key={cell.id}
-                      style={{ width: cell.column.getSize() }}
-                      className="py-1.5"
-                    >
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
+              {table.getRowModel().rows.flatMap((row) => {
+                const acc = row.original;
+                const isChildRow =
+                  (acc.parent_id != null && acc.parent_id > 0) ||
+                  (acc.virtual_parent != null && acc.virtual_parent > 0);
+                // 多母列表：子账号可在多个母账号下各出现一行（首母=parent_id，其余=virtual_parent）。
+                // 展开归属用 virtual_parent ?? parent_id 定位到对应母账号的展开区。
+                const parentKey = acc.virtual_parent ?? acc.parent_id;
+                // 子账号行：只在其母账号处于展开状态时渲染（缩进显示）；
+                // 搜索时不过滤（keyword 命中家族任一成员会返回整个家族，直接平铺展示，方便搜到子账号）
+                if (isChildRow) {
+                  if (
+                    !keyword.trim() &&
+                    !expandedAccountIds.has((parentKey ?? 0) as number)
+                  ) {
+                    return [];
+                  }
+                }
+                return [
+                  <TableRow
+                    key={`${row.id}-${acc.virtual_parent ?? "x"}`}
+                    data-state={row.getIsSelected() && "selected"}
+                    className={cn(
+                      row.original.status === 1 &&
+                        "text-emerald-600 dark:text-emerald-400",
+                      isChildRow && "bg-muted/30",
+                    )}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell
+                        key={cell.id}
+                        style={{ width: cell.column.getSize() }}
+                        className={cn("py-1.5", isChildRow && "pl-8")}
+                      >
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>,
+                ];
+              })}
             </TableBody>
           </Table>
         )}
@@ -4436,6 +4775,33 @@ export function BwbrowserCloudAccountsDialog({
                 className="pointer-events-none"
               />
               <span>硬件加速</span>
+            </button>
+            <div className="my-1 h-px bg-border" />
+            <button
+              type="button"
+              className="pointer-events-auto flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
+              onClick={() => void handleVpsVideoSnifferToggle(!vpsVideoSniffer)}
+              title="爆文库打开时是否加载视频嗅探扩展（右下角下载按钮）"
+            >
+              <AnimatedSwitch
+                checked={vpsVideoSniffer}
+                onCheckedChange={() => {}}
+                className="pointer-events-none"
+              />
+              <span>视频嗅探</span>
+            </button>
+            <button
+              type="button"
+              className="pointer-events-auto flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
+              onClick={() => void handleVpsCookieSourceToggle(!vpsCookieSource)}
+              title="把爆文库（VPS登录）加入视频下载的 Cookie 来源候选（按开启先后排优先级，可与账号多开兜底）"
+            >
+              <AnimatedSwitch
+                checked={vpsCookieSource}
+                onCheckedChange={() => {}}
+                className="pointer-events-none"
+              />
+              <span>Cookie 来源</span>
             </button>
             <div className="my-1 h-px bg-border" />
             <button
@@ -5603,7 +5969,7 @@ export function BwbrowserCloudAccountsDialog({
       open={editDialogOpen}
       onOpenChange={(open) => !open && setEditDialogOpen(false)}
     >
-      <DialogContent className="w-[700px] max-w-[90vw] p-0 overflow-hidden max-h-[85vh] flex flex-col">
+      <DialogContent className="w-[860px] max-w-[92vw] p-0 overflow-hidden max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between border-b px-4 py-3 flex-shrink-0">
           <span className="text-sm font-semibold">
             编辑账号 - {editAccount?.account_name}
@@ -5630,56 +5996,77 @@ export function BwbrowserCloudAccountsDialog({
                   基本信息
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <div className="text-xs font-medium">手机编号</div>
-                    <Input
-                      value={editForm.device_id}
-                      onChange={(e) =>
-                        setEditForm((p) => ({
-                          ...p,
-                          device_id: e.target.value,
-                        }))
-                      }
-                      disabled={!editPerms.canEditAll}
-                      className={cn(
-                        !editPerms.canEditAll && "bg-muted opacity-70",
-                      )}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="text-xs font-medium">账号名称</div>
-                    <Input
-                      value={editForm.account_name}
-                      onChange={(e) =>
-                        setEditForm((p) => ({
-                          ...p,
-                          account_name: e.target.value,
-                        }))
-                      }
-                      disabled={!editPerms.canEditAll}
-                      className={cn(
-                        !editPerms.canEditAll && "bg-muted opacity-70",
-                      )}
-                    />
-                  </div>
-                  {(editForm.platform === "youtube" ||
-                    editForm.platform === "YouTube") && (
+                  <div className="space-y-3">
                     <div className="space-y-1">
-                      <div className="text-xs font-medium">
-                        ▶ YouTube Channel ID
-                      </div>
+                      <div className="text-xs font-medium">手机编号</div>
                       <Input
-                        value={editForm.channel_id}
+                        value={editForm.device_id}
                         onChange={(e) =>
                           setEditForm((p) => ({
                             ...p,
-                            channel_id: e.target.value,
+                            device_id: e.target.value,
                           }))
                         }
-                        placeholder="UC 开头的频道 ID"
+                        disabled={!editPerms.canEditAll}
+                        className={cn(
+                          !editPerms.canEditAll && "bg-muted opacity-70",
+                        )}
                       />
                     </div>
-                  )}
+                    {(editForm.platform === "youtube" ||
+                      editForm.platform === "YouTube") && (
+                      <div className="space-y-1">
+                        <div className="text-xs font-medium">
+                          ▶ YouTube Channel ID
+                        </div>
+                        <Input
+                          value={editForm.channel_id}
+                          onChange={(e) =>
+                            setEditForm((p) => ({
+                              ...p,
+                              channel_id: e.target.value,
+                            }))
+                          }
+                          placeholder="UC 开头的频道 ID"
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <div className="text-xs font-medium">账号名称</div>
+                      <Input
+                        value={editForm.account_name}
+                        onChange={(e) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            account_name: e.target.value,
+                          }))
+                        }
+                        disabled={!editPerms.canEditAll}
+                        className={cn(
+                          !editPerms.canEditAll && "bg-muted opacity-70",
+                        )}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs font-medium">平台用户名</div>
+                      <Input
+                        value={editForm.pure_username}
+                        onChange={(e) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            pure_username: e.target.value,
+                          }))
+                        }
+                        placeholder="平台用户名"
+                        disabled={!editPerms.canEditAll}
+                        className={cn(
+                          !editPerms.canEditAll && "bg-muted opacity-70",
+                        )}
+                      />
+                    </div>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <div className="text-xs font-medium">启动网址</div>
@@ -5789,8 +6176,7 @@ export function BwbrowserCloudAccountsDialog({
                     启动浏览器时同时打开这些网址，保存后云端生效（对所有设备）
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <div className="text-xs font-medium">硬件加速</div>
+                <div className="grid grid-cols-3 gap-3">
                   <button
                     type="button"
                     className="flex items-center gap-2"
@@ -5810,14 +6196,77 @@ export function BwbrowserCloudAccountsDialog({
                         }))
                       }
                     />
-                    <span className="text-xs">
-                      启动时开启合成/光栅化加速（滚动、视频更流畅）
-                    </span>
+                    <span className="text-xs">硬件加速</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        启动时开启合成/光栅化加速（滚动、视频更流畅）；WebGL
+                        仍走指纹伪装的软件渲染，防关联不受影响；保存后云端生效（对所有设备）
+                      </TooltipContent>
+                    </Tooltip>
                   </button>
-                  <div className="text-[11px] text-muted-foreground">
-                    WebGL
-                    仍走指纹伪装的软件渲染，防关联不受影响；保存后云端生效（对所有设备）
-                  </div>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2"
+                    onClick={() =>
+                      setEditForm((p) => ({
+                        ...p,
+                        video_sniffer: !p.video_sniffer,
+                      }))
+                    }
+                  >
+                    <Checkbox
+                      checked={editForm.video_sniffer}
+                      onCheckedChange={(v) =>
+                        setEditForm((p) => ({
+                          ...p,
+                          video_sniffer: v === true,
+                        }))
+                      }
+                    />
+                    <span className="text-xs">视频嗅探</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        开启后该账号浏览器注入嗅探扩展，页面右下角出现视频下载按钮。默认关闭，云端保存、即时生效
+                      </TooltipContent>
+                    </Tooltip>
+                  </button>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2"
+                    onClick={() =>
+                      setEditForm((p) => ({
+                        ...p,
+                        cookie_source: !p.cookie_source,
+                      }))
+                    }
+                  >
+                    <Checkbox
+                      checked={editForm.cookie_source}
+                      onCheckedChange={(v) =>
+                        setEditForm((p) => ({
+                          ...p,
+                          cookie_source: v === true,
+                        }))
+                      }
+                    />
+                    <span className="text-xs">Cookie 来源</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        作为视频下载的 Cookie
+                        来源账号。可开启多个，按开启先后作为优先级，前面取不到
+                        Cookie 自动回退到下一个。默认关闭，云端保存、即时生效
+                      </TooltipContent>
+                    </Tooltip>
+                  </button>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -5828,25 +6277,6 @@ export function BwbrowserCloudAccountsDialog({
                       className="bg-muted"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <div className="text-xs font-medium">平台用户名</div>
-                    <Input
-                      value={editForm.pure_username}
-                      onChange={(e) =>
-                        setEditForm((p) => ({
-                          ...p,
-                          pure_username: e.target.value,
-                        }))
-                      }
-                      placeholder="平台用户名"
-                      disabled={!editPerms.canEditAll}
-                      className={cn(
-                        !editPerms.canEditAll && "bg-muted opacity-70",
-                      )}
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium">代理节点</span>
@@ -5867,73 +6297,82 @@ export function BwbrowserCloudAccountsDialog({
                     />
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <div className="text-xs font-medium">登录账号</div>
-                  <Input
-                    value={editForm.login_account}
-                    onChange={(e) =>
-                      setEditForm((p) => ({
-                        ...p,
-                        login_account: e.target.value,
-                      }))
-                    }
-                    disabled={!editPerms.canEditAll}
-                    className={cn(
-                      !editPerms.canEditAll && "bg-muted opacity-70",
-                    )}
-                  />
-                </div>
-                {editPerms.canViewPassword && (
+                <div
+                  className={cn(
+                    "gap-3",
+                    editPerms.canViewPassword
+                      ? "grid grid-cols-2"
+                      : "space-y-1",
+                  )}
+                >
                   <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium">登录密码</span>
-                      <div className="flex items-center gap-1">
-                        {editForm.login_password && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(
-                                editForm.login_password,
-                              );
-                              showSuccessToast("密码已复制");
-                            }}
-                            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                            title="复制密码"
-                          >
-                            <LuCopy className="h-3 w-3" />
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setShowEditPassword((v) => !v)}
-                          className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          title={showEditPassword ? "隐藏密码" : "查看密码"}
-                        >
-                          {showEditPassword ? (
-                            <LuEyeOff className="h-3 w-3" />
-                          ) : (
-                            <LuEye className="h-3 w-3" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
+                    <div className="text-xs font-medium">登录账号</div>
                     <Input
-                      type={showEditPassword ? "text" : "password"}
-                      value={editForm.login_password}
+                      value={editForm.login_account}
                       onChange={(e) =>
                         setEditForm((p) => ({
                           ...p,
-                          login_password: e.target.value,
+                          login_account: e.target.value,
                         }))
                       }
-                      placeholder="留空则不修改密码"
                       disabled={!editPerms.canEditAll}
                       className={cn(
                         !editPerms.canEditAll && "bg-muted opacity-70",
                       )}
                     />
                   </div>
-                )}
+                  {editPerms.canViewPassword && (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium">登录密码</span>
+                        <div className="flex items-center gap-1">
+                          {editForm.login_password && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(
+                                  editForm.login_password,
+                                );
+                                showSuccessToast("密码已复制");
+                              }}
+                              className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                              title="复制密码"
+                            >
+                              <LuCopy className="h-3 w-3" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setShowEditPassword((v) => !v)}
+                            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            title={showEditPassword ? "隐藏密码" : "查看密码"}
+                          >
+                            {showEditPassword ? (
+                              <LuEyeOff className="h-3 w-3" />
+                            ) : (
+                              <LuEye className="h-3 w-3" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                      <Input
+                        type={showEditPassword ? "text" : "password"}
+                        value={editForm.login_password}
+                        onChange={(e) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            login_password: e.target.value,
+                          }))
+                        }
+                        placeholder="留空则不修改密码"
+                        disabled={!editPerms.canEditAll}
+                        className={cn(
+                          !editPerms.canEditAll && "bg-muted opacity-70",
+                        )}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* 安全信息 */}
@@ -5961,38 +6400,37 @@ export function BwbrowserCloudAccountsDialog({
                   </div>
                 )}
                 {editPerms.canEditAll && (
-                  <div className="space-y-1">
-                    <div className="text-xs font-medium">绑定手机号</div>
-                    <Input
-                      value={editForm.bind_phone}
-                      onChange={(e) =>
-                        setEditForm((p) => ({
-                          ...p,
-                          bind_phone: e.target.value,
-                        }))
-                      }
-                      placeholder="短信验证手机号"
-                      disabled={!editPerms.canEditAll}
-                      className={cn(
-                        !editPerms.canEditAll && "bg-muted opacity-70",
-                      )}
-                    />
-                  </div>
-                )}
-                {editPerms.canEditAll && (
-                  <div className="space-y-1">
-                    <div className="text-xs font-medium">备用邮箱</div>
-                    <Input
-                      type="email"
-                      value={editForm.backup_email}
-                      onChange={(e) =>
-                        setEditForm((p) => ({
-                          ...p,
-                          backup_email: e.target.value,
-                        }))
-                      }
-                      placeholder="备用邮箱地址"
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <div className="text-xs font-medium">绑定手机号</div>
+                      <Input
+                        value={editForm.bind_phone}
+                        onChange={(e) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            bind_phone: e.target.value,
+                          }))
+                        }
+                        placeholder="短信验证手机号"
+                        className={cn(
+                          !editPerms.canEditAll && "bg-muted opacity-70",
+                        )}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs font-medium">备用邮箱</div>
+                      <Input
+                        type="email"
+                        value={editForm.backup_email}
+                        onChange={(e) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            backup_email: e.target.value,
+                          }))
+                        }
+                        placeholder="备用邮箱地址"
+                      />
+                    </div>
                   </div>
                 )}
                 {editDetail && (
@@ -6210,69 +6648,375 @@ export function BwbrowserCloudAccountsDialog({
             </>
           )}
         </div>
+        <div className="flex items-center justify-between gap-2 border-t px-4 py-3 flex-shrink-0">
+          {(isManager || isSuperAdmin) &&
+          editAccount &&
+          !(editAccount.parent_id != null && editAccount.parent_id > 0) ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void handleOpenChildDialog(editAccount);
+              }}
+              title={`子账号：${
+                childAccountsByParent.get(editAccount.id)?.length ?? 0
+              } 个`}
+            >
+              设置子账号
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setEditDialogOpen(false)}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              disabled={editLoading || editSaving}
+              onClick={async () => {
+                if (!editAccount) return;
+                setEditSaving(true);
+                try {
+                  const tagsStr = editForm.tags.join(",");
+                  await invoke("bwbrowser_update_account_info", {
+                    accountId: editAccount.id,
+                    accountName: editForm.account_name.trim() || null,
+                    loginAccount: editForm.login_account.trim() || null,
+                    loginPassword: editForm.login_password.trim() || null,
+                    // 备注/标签：空串也要发送（清空=覆盖服务器），|| null 会把空值吞掉导致不更新
+                    remark: editForm.remark ?? "",
+                    tags: tagsStr,
+                    category: editForm.category.trim() || null,
+                    pureUsername: editForm.pure_username.trim() || null,
+                    phoneId: editPerms.canEditAll
+                      ? editForm.device_id.trim()
+                      : null,
+                    bindPhone: editPerms.canEditAll
+                      ? editForm.bind_phone.trim() || null
+                      : null,
+                    safeLink: editPerms.canEditAll
+                      ? editForm.safe_link.trim() || null
+                      : null,
+                    backupEmail: editPerms.canEditAll
+                      ? editForm.backup_email.trim() || null
+                      : null,
+                    ownerId: editPerms.canEditAll
+                      ? editForm.owner_id || null
+                      : null,
+                    channelId: editForm.channel_id.trim() || null,
+                    // 启动网址：始终发送（JSON，编辑账号维护），空 urls 数组 = 清除
+                    startUrls: JSON.stringify({
+                      include_platform: editStartUrls.includePlatform,
+                      urls: editStartUrls.urls,
+                    }),
+                    // 硬件加速：始终发送（0/1 明确覆盖，编辑账号维护）
+                    gpuAcceleration: editForm.gpu_acceleration,
+                  });
+                  // 视频嗅探开关（本地 + 公司 KV 跨机同步）；失败只提示，不回滚主保存
+                  try {
+                    await invoke("set_account_video_sniffer", {
+                      accountId: editAccount.id,
+                      enabled: editForm.video_sniffer,
+                      ownerId: editPerms.canEditAll
+                        ? editForm.owner_id || null
+                        : null,
+                    });
+                  } catch (e) {
+                    showErrorToast(
+                      `视频嗅探开关保存失败: ${e instanceof Error ? e.message : String(e)}`,
+                    );
+                  }
+                  // Cookie 来源账号开关（公司 KV 云端同步）；失败只提示，不回滚主保存
+                  try {
+                    await invoke("set_account_cookie_source", {
+                      accountId: editAccount.id,
+                      enabled: editForm.cookie_source,
+                    });
+                  } catch (e) {
+                    showErrorToast(
+                      `Cookie 来源开关保存失败: ${e instanceof Error ? e.message : String(e)}`,
+                    );
+                  }
+                  showSuccessToast("保存成功");
+                  setEditDialogOpen(false);
+                  void refresh();
+                } catch (e) {
+                  showErrorToast(
+                    `保存失败: ${e instanceof Error ? e.message : String(e)}`,
+                  );
+                } finally {
+                  setEditSaving(false);
+                }
+              }}
+            >
+              {editSaving ? "保存中..." : "保存"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
+  // 已勾选子账号的对象映射（顶部「已设置的子账号」展示用）：初始已挂 + 本轮新勾选
+  const childSelectedAccounts = useMemo(() => {
+    const byId = new Map<number, BwbrowserAccount>();
+    for (const a of childExisting) byId.set(a.id, a);
+    for (const a of childPageAccounts) {
+      if (childChildIds.includes(a.id)) byId.set(a.id, a);
+    }
+    return childChildIds
+      .map((id) => byId.get(id))
+      .filter((a): a is BwbrowserAccount => !!a);
+  }, [childExisting, childPageAccounts, childChildIds]);
+  const childFilteredPages = Math.max(
+    1,
+    Math.ceil(childTotal / CHILD_PAGE_SIZE),
+  );
+  const childPageClamped = Math.min(childPage, childFilteredPages);
+  const childGoPage = useCallback(
+    (page: number) => {
+      if (!childAccount) return;
+      const p = Math.min(Math.max(1, page), childFilteredPages);
+      setChildPage(p);
+      void loadChildPage(p, childQuery, childAccount.id);
+    },
+    [childAccount, childFilteredPages, childQuery, loadChildPage],
+  );
+
+  // 子账号设置弹窗（独立静态编辑框：点击主账号行「设置子账号」触发，账号列表懒加载）
+  const childAccountDialog = (
+    <Dialog
+      open={childDialogOpen}
+      onOpenChange={(open) => {
+        if (!open && !childSaving) setChildDialogOpen(false);
+      }}
+    >
+      <DialogContent className="w-[760px] max-w-[95vw] p-0 overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between border-b px-4 py-3 flex-shrink-0">
+          <span className="text-sm font-semibold">
+            设置子账号
+            {childAccount && (
+              <span className="ml-1 text-xs font-normal text-muted-foreground">
+                - {childAccount.account_name || `#${childAccount.id}`}（主账号）
+              </span>
+            )}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={() => setChildDialogOpen(false)}
+            disabled={childSaving}
+          >
+            <LuX className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="space-y-3 p-4 overflow-y-auto flex-1">
+          {/* 已设置的子账号（每个账号一行）：打开弹窗即展示服务端已挂的子账号 + 本轮新勾选 */}
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium">
+              已设置的子账号
+              <span className="ml-1 font-normal text-muted-foreground">
+                （{childSelectedAccounts.length} 个）
+              </span>
+            </div>
+            <div className="max-h-32 overflow-y-auto rounded-md border border-border">
+              {childSelectedAccounts.length === 0 ? (
+                <div className="p-2.5 text-center text-xs text-muted-foreground">
+                  暂无子账号
+                </div>
+              ) : (
+                childSelectedAccounts.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex items-center gap-2 border-b border-border px-2 py-1.5 text-xs last:border-b-0"
+                  >
+                    <span
+                      className={cn(
+                        "inline-block shrink-0 rounded px-1.5 py-0.5 text-[10px] border",
+                        getPlatformColor(a.platform || ""),
+                      )}
+                    >
+                      {getPlatformLabel(a.platform || "") || "-"}
+                    </span>
+                    <span className="truncate font-medium">
+                      {a.account_name || `#${a.id}`}
+                    </span>
+                    <span className="truncate text-muted-foreground">
+                      {a.login_account || ""}
+                    </span>
+                    <button
+                      type="button"
+                      className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-[11px] text-red-500 transition-colors hover:bg-red-500/10"
+                      onClick={() =>
+                        setChildChildIds((prev) =>
+                          prev.filter((x) => x !== a.id),
+                        )
+                      }
+                    >
+                      移除
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+          <Input
+            value={childQuery}
+            onChange={(e) => handleChildQueryChange(e.target.value)}
+            placeholder="搜索：账号名称 / 登录账号 / 手机编号 / 备注"
+            className="h-8 text-xs"
+          />
+          <div className="rounded-md border border-border">
+            {childLoading ? (
+              <div className="p-6 text-center text-xs text-muted-foreground">
+                加载中...
+              </div>
+            ) : childPageAccounts.length === 0 ? (
+              <div className="p-3 text-center text-xs text-muted-foreground">
+                无可选账号
+              </div>
+            ) : (
+              <>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="w-8" />
+                      <TableHead className="text-xs">手机编号</TableHead>
+                      <TableHead className="text-xs">账号名称</TableHead>
+                      <TableHead className="text-xs">登录账号</TableHead>
+                      <TableHead className="text-xs">平台</TableHead>
+                      <TableHead className="text-xs">归属人</TableHead>
+                      <TableHead className="text-xs">备注/标签</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {childPageAccounts.map((a) => (
+                      <TableRow
+                        key={a.id}
+                        className="cursor-pointer"
+                        onClick={() =>
+                          setChildChildIds((prev) =>
+                            prev.includes(a.id)
+                              ? prev.filter((x) => x !== a.id)
+                              : [...prev, a.id],
+                          )
+                        }
+                      >
+                        <TableCell className="py-1.5">
+                          <Checkbox
+                            aria-label={`设为 ${a.account_name || `#${a.id}`} 子账号`}
+                            checked={childChildIds.includes(a.id)}
+                            onCheckedChange={(v) =>
+                              setChildChildIds((prev) =>
+                                v
+                                  ? [...prev, a.id]
+                                  : prev.filter((x) => x !== a.id),
+                              )
+                            }
+                          />
+                        </TableCell>
+                        <TableCell className="py-1.5 font-mono text-xs text-muted-foreground">
+                          {a.phone_id || a.device_id || "-"}
+                        </TableCell>
+                        <TableCell className="py-1.5 text-xs font-medium">
+                          {a.account_name || `#${a.id}`}
+                        </TableCell>
+                        <TableCell className="py-1.5 text-xs text-muted-foreground">
+                          {a.login_account || "-"}
+                        </TableCell>
+                        <TableCell className="py-1.5">
+                          <span
+                            className={cn(
+                              "inline-block rounded px-1.5 py-0.5 text-[10px] border",
+                              getPlatformColor(a.platform || ""),
+                            )}
+                          >
+                            {getPlatformLabel(a.platform || "") || "-"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-1.5 text-xs text-muted-foreground">
+                          {a.owner_name || "-"}
+                        </TableCell>
+                        <TableCell className="max-w-[160px] py-1.5">
+                          <div className="flex flex-wrap items-center gap-1">
+                            {(a.tags_list ?? []).slice(0, 2).map((t, i) => (
+                              <span
+                                key={i}
+                                className="rounded bg-purple-500/10 px-1 text-[10px] leading-4 text-purple-600 dark:text-purple-400"
+                              >
+                                {t}
+                              </span>
+                            ))}
+                            {a.remark && (
+                              <span
+                                className="truncate text-[11px] text-amber-600 dark:text-amber-500"
+                                title={a.remark}
+                              >
+                                {a.remark}
+                              </span>
+                            )}
+                            {!a.remark && (a.tags_list ?? []).length === 0 && (
+                              <span className="text-[11px] text-muted-foreground">
+                                -
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <div className="flex items-center justify-between border-t border-border px-2 py-1.5">
+                  <span className="text-[11px] text-muted-foreground">
+                    共 {childTotal} 个账号 · 第 {childPageClamped}/
+                    {childFilteredPages} 页
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px]"
+                      disabled={childPageClamped <= 1}
+                      onClick={() => childGoPage(childPageClamped - 1)}
+                    >
+                      上一页
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px]"
+                      disabled={childPageClamped >= childFilteredPages}
+                      onClick={() => childGoPage(childPageClamped + 1)}
+                    >
+                      下一页
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
         <div className="flex items-center justify-end gap-2 border-t px-4 py-3 flex-shrink-0">
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setEditDialogOpen(false)}
+            onClick={() => setChildDialogOpen(false)}
+            disabled={childSaving}
           >
             取消
           </Button>
           <Button
             size="sm"
-            disabled={editLoading || editSaving}
-            onClick={async () => {
-              if (!editAccount) return;
-              setEditSaving(true);
-              try {
-                const tagsStr = editForm.tags.join(",");
-                await invoke("bwbrowser_update_account_info", {
-                  accountId: editAccount.id,
-                  accountName: editForm.account_name.trim() || null,
-                  loginAccount: editForm.login_account.trim() || null,
-                  loginPassword: editForm.login_password.trim() || null,
-                  // 备注/标签：空串也要发送（清空=覆盖服务器），|| null 会把空值吞掉导致不更新
-                  remark: editForm.remark ?? "",
-                  tags: tagsStr,
-                  category: editForm.category.trim() || null,
-                  pureUsername: editForm.pure_username.trim() || null,
-                  phoneId: editPerms.canEditAll
-                    ? editForm.device_id.trim()
-                    : null,
-                  bindPhone: editPerms.canEditAll
-                    ? editForm.bind_phone.trim() || null
-                    : null,
-                  safeLink: editPerms.canEditAll
-                    ? editForm.safe_link.trim() || null
-                    : null,
-                  backupEmail: editPerms.canEditAll
-                    ? editForm.backup_email.trim() || null
-                    : null,
-                  ownerId: editPerms.canEditAll
-                    ? editForm.owner_id || null
-                    : null,
-                  channelId: editForm.channel_id.trim() || null,
-                  // 启动网址：始终发送（JSON，编辑账号维护），空 urls 数组 = 清除
-                  startUrls: JSON.stringify({
-                    include_platform: editStartUrls.includePlatform,
-                    urls: editStartUrls.urls,
-                  }),
-                  // 硬件加速：始终发送（0/1 明确覆盖，编辑账号维护）
-                  gpuAcceleration: editForm.gpu_acceleration,
-                });
-                showSuccessToast("保存成功");
-                setEditDialogOpen(false);
-                void refresh();
-              } catch (e) {
-                showErrorToast(
-                  `保存失败: ${e instanceof Error ? e.message : String(e)}`,
-                );
-              } finally {
-                setEditSaving(false);
-              }
-            }}
+            onClick={() => void handleSaveChild()}
+            disabled={childLoading || childSaving}
           >
-            {editSaving ? "保存中..." : "保存"}
+            {childSaving ? "保存中..." : "保存"}
           </Button>
         </div>
       </DialogContent>
@@ -6803,6 +7547,7 @@ export function BwbrowserCloudAccountsDialog({
         {boundEnvDialog}
         {codeEditDialog}
         {editAccountDialog}
+        {childAccountDialog}
         {addAccountDialog}
         {cookieViewDialog}
       </div>
@@ -6829,6 +7574,7 @@ export function BwbrowserCloudAccountsDialog({
       {boundEnvDialog}
       {codeEditDialog}
       {editAccountDialog}
+      {childAccountDialog}
       {addAccountDialog}
       {cookieViewDialog}
     </>

@@ -60,6 +60,10 @@ export interface BwbrowserAccount {
   start_urls?: string | null;
   /** 账号级硬件加速开关：true = 启动时追加合成/光栅化 GPU 参数（WebGL 仍走虚拟指纹软件渲染） */
   gpu_acceleration?: boolean;
+  /** 主/子账号：主/普通账号为 undefined；子账号存其主账号 id，仅在其主账号下以展开态显示 */
+  parent_id?: number;
+  /** 多母列表附加行：同一子账号挂到第 2 个及以后母账号时，由服务端以该母账号 id 附加*/
+  virtual_parent?: number;
 }
 
 export interface PlatformStat {
