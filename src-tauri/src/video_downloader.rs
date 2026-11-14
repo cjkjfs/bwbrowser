@@ -4036,23 +4036,30 @@ fn bare_stream_needs_timestamp_name(url: &str) -> bool {
     || lower.contains("b23.tv")
     || is_douyin_url(url);
   if known_platform {
-    return false;
+    return false; // 已知平台有真实元数据（甚至经 yt-dlp 原生 extractor），保持默认命名
   }
-  // 取路径最后一段的文件主干（去查询参数、去扩展名）
-  let path = lower.split(['?', '&']).next().unwrap_or("");
-  let stem = path.rsplit('/').next().unwrap_or("");
-  let stem = stem
-    .strip_suffix(".m3u8")
-    .or_else(|| stem.strip_suffix(".mp4"))
-    .or_else(|| stem.strip_suffix(".flv"))
-    .or_else(|| stem.strip_suffix(".ts"))
-    .unwrap_or(stem);
-  // 主干无意义（通用名/为空）→ 用时间戳命名；有真实名字（如 movie.mp4）保持默认
-  stem == "index" || stem == "video" || stem == "playlist" || stem.is_empty()
+  // 未知平台的第三方 CDN 直链（各类 img / vod / CDN 域名）：yt-dlp generic
+  // 拿不到真实标题，常把 URL 路径当 %(title)s/%(id)s 展开——超长文件名里
+  // 的斜杠会被当成子目录 → "unable to open for writing: No such file or
+  // directory"。这类裸流必须用「平台标签_时间戳」唯一命名，绝不依赖 title。
+  // ⚠️ 不再看 URL stem 是否为 index/video 等通用名：CDN 直链的 stem 再"像样"
+  //    （如 b_B02d45....mp4）也是无元数据的乱串，展开必炸，一律时间戳命名。
+  true
 }
 
-/// 从直链 URL 提取平台标签作文件名前缀：svip.xgplay17.com → xgplay17
+/// 从直链 URL 提取平台标签作文件名前缀：svip.xgplay17.com → xgplay17；
+/// 快手 CDN 直链（域名无 kuaishou/kwai 字样，但 URL 带 kcdntag=p:kuaishou）
+/// → 统一标 kuaishou，方便辨别。
 fn bare_stream_platform_label(url: &str) -> String {
+  // 快手 CDN 特征：参数里的 kcdntag=p:kuaishou / ss=vpm / kwai-not
+  let lower = url.to_lowercase();
+  if lower.contains("kuaishou")
+    || lower.contains("kwai")
+    || lower.contains("kcdntag")
+    || lower.contains("ndcimgs.com")
+  {
+    return "kuaishou".to_string();
+  }
   let host = url
     .split("://")
     .nth(1)

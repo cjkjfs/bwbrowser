@@ -899,15 +899,6 @@ export function BwbrowserCloudAccountsDialog({
   // 权限判断：根据 users.php 的 allow_2fa 和 allow_sms_management 字段
   const canView2FACode = canView2FA || isManager || isSuperAdmin;
   const canViewSMSCode = canViewSMS || isManager || isSuperAdmin;
-  console.log("[CloudAccounts] 权限:", {
-    canView2FA,
-    canViewSMS,
-    isManager,
-    isSuperAdmin,
-    canView2FACode,
-    canViewSMSCode,
-    canViewPassword,
-  });
 
   // 按账号加载并展示 Cookie 健康状态（绿=通过，黄=未通过，灰=未检测）
   const loadHealthStates = useCallback(async () => {
@@ -940,12 +931,17 @@ export function BwbrowserCloudAccountsDialog({
     }
   }, [t]);
 
-  useEffect(() => {
-    if (isBwbrowserLoggedIn) void loadHealthStates();
-  }, [isBwbrowserLoggedIn, loadHealthStates]);
+  // 健康状态手动模式（2026-11-14）：页面打开不再自动拉取，首次手动检测时才加载历史缓存
+  const healthLoadedRef = useRef(false);
+  const ensureHealthLoaded = useCallback(() => {
+    if (healthLoadedRef.current) return;
+    healthLoadedRef.current = true;
+    void loadHealthStates();
+  }, [loadHealthStates]);
 
   const handleCheckHealth = useCallback(
     async (account: BwbrowserAccount) => {
+      ensureHealthLoaded();
       setHealthLoadingIds((prev) => {
         const next = new Set(prev);
         next.add(account.id);
@@ -988,7 +984,7 @@ export function BwbrowserCloudAccountsDialog({
         });
       }
     },
-    [t],
+    [t, ensureHealthLoaded],
   );
 
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -1647,7 +1643,6 @@ export function BwbrowserCloudAccountsDialog({
           is_manager: boolean;
           is_super_admin: boolean;
         }>("bwbrowser_get_permissions");
-        console.log("[EditAccount] get_permissions 返回:", perms);
         const canEdit = perms.is_manager || perms.is_super_admin;
         setEditPerms({
           canViewPassword: perms.allow_view_password,
@@ -1674,14 +1669,6 @@ export function BwbrowserCloudAccountsDialog({
             accountId: account.id,
           },
         );
-        console.log("[EditAccount] get_account_detail 返回:", {
-          id: detail.id,
-          phone_id: detail.phone_id,
-          owner_id: detail.owner_id,
-          safe_link: detail.safe_link,
-          bind_phone: detail.bind_phone,
-          account_name: detail.account_name,
-        });
         setEditDetail(detail);
         const tags =
           detail.tags_list ??
@@ -3287,6 +3274,28 @@ export function BwbrowserCloudAccountsDialog({
   const [expandedAccountIds, setExpandedAccountIds] = useState<Set<number>>(
     new Set(),
   );
+  // 子账号平铺显示开关：开启后子账号也单独出现在列表顶层（带「子」徽章），
+  // 不再只折叠在母账号展开区里。纯显示层开关，不改动任何母子关系数据；
+  // localStorage 记住选择，下次打开沿用。
+  const SHOW_CHILDREN_FLAT_KEY = "bwbrowser_show_children_flat";
+  const [showChildrenFlat, setShowChildrenFlat] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SHOW_CHILDREN_FLAT_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleShowChildrenFlat = useCallback(() => {
+    setShowChildrenFlat((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SHOW_CHILDREN_FLAT_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
   const childAccountsByParent = useMemo(() => {
     const map = new Map<number, BwbrowserAccount[]>();
     for (const a of accounts) {
@@ -3318,6 +3327,14 @@ export function BwbrowserCloudAccountsDialog({
       return next;
     });
   }, []);
+  // 当前结果集里存在的账号 id：折叠的前提是母账号可见。母账号被人员/平台
+  // 筛选掉（如子账号归属人与母账号不同）或分页跨页切开时，子账号再折叠
+  // 就会"总数有、列表空"——此时直接平铺显示。
+  const accountIdsInPage = useMemo(() => {
+    const ids = new Set<number>();
+    for (const a of accounts) ids.add(a.id);
+    return ids;
+  }, [accounts]);
 
   // 表格列定义
   const columns = useMemo<ColumnDef<BwbrowserAccount>[]>(() => {
@@ -4530,6 +4547,20 @@ export function BwbrowserCloudAccountsDialog({
             )}
             一键检测健康
           </Button>
+          <button
+            type="button"
+            className={cn(
+              "flex h-7 items-center gap-1 rounded-md border px-3 text-xs transition-colors",
+              showChildrenFlat
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-background hover:bg-accent",
+            )}
+            onClick={toggleShowChildrenFlat}
+            title="开启后子账号也会单独显示在列表里（默认折叠在母账号展开区）。仅影响显示，不改变母子关系。"
+          >
+            <LuUsers className="h-3.5 w-3.5" />
+            子账号平铺
+          </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -4664,12 +4695,18 @@ export function BwbrowserCloudAccountsDialog({
                 // 多母列表：子账号可在多个母账号下各出现一行（首母=parent_id，其余=virtual_parent）。
                 // 展开归属用 virtual_parent ?? parent_id 定位到对应母账号的展开区。
                 const parentKey = acc.virtual_parent ?? acc.parent_id;
-                // 子账号行：只在其母账号处于展开状态时渲染（缩进显示）；
+                // 子账号行：默认只在其母账号处于展开状态时渲染（缩进显示）；
+                // 「单独显示子账号」开关开启后平铺展示（不再折叠）；
+                // 母账号不在当前结果集（被人员/平台筛选掉、或分页跨页切开）
+                // 时也平铺显示——否则子账号会凭空消失（总数有、列表空）；
                 // 搜索时不过滤（keyword 命中家族任一成员会返回整个家族，直接平铺展示，方便搜到子账号）
                 if (isChildRow) {
                   if (
                     !keyword.trim() &&
-                    !expandedAccountIds.has((parentKey ?? 0) as number)
+                    !showChildrenFlat &&
+                    parentKey != null &&
+                    accountIdsInPage.has(parentKey) &&
+                    !expandedAccountIds.has(parentKey)
                   ) {
                     return [];
                   }

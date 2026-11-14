@@ -120,7 +120,18 @@ pub async fn pull_remote() {
 
 /// 修改开关并推送云端；推送失败回滚本地镜像并报错（云端为准，本地不领先）。
 /// `edit` 收到 &mut settings 做具体修改，返回 true 表示确有变化。
+/// 保存前先吸收云端最新名单：这两个 key 允许公司成员写（员工自定开关自己
+/// 账号），别的成员可能刚保存过——基于本地旧镜像编辑会覆盖掉他人改动，
+/// 所以编辑前把云端较新的名单 adopt 进本地再改。
 async fn update_remote(edit: impl FnOnce(&mut VideoSnifferSettings) -> bool) -> Result<(), String> {
+  // 吸收云端最新（仅当云端确实比本地新；失败静默降级用本地镜像）
+  if let Ok(Some((json, _))) = crate::bwbrowser_cloud::company_setting_get(COMPANY_KEY).await {
+    if let Ok(remote) = serde_json::from_str::<VideoSnifferSettings>(&json) {
+      if remote.updated_at > load().updated_at {
+        let _ = persist(&remote);
+      }
+    }
+  }
   let old = load();
   let mut settings = old.clone();
   if !edit(&mut settings) {

@@ -105,6 +105,10 @@ struct BwbrowserLoginResponse {
   success: bool,
   message: Option<String>,
   user: Option<BwbrowserUser>,
+  /// 服务端签发的认证 token（2026-11-14 性能优化）：后续请求用它替代密码，
+  /// 服务端 token 快速通道免 bcrypt（省 ~60ms/请求）
+  #[serde(default)]
+  token: Option<String>,
   #[serde(default)]
   #[allow(dead_code)]
   snapshot_stats: Option<serde_json::Value>,
@@ -396,9 +400,25 @@ impl BwbrowserAuthManager {
     // 映射到 Bwbrowser CloudUser 格式
     let cloud_user = map_bwbrowser_to_cloud_user(&bwbrowser_user);
 
+    // Token 替换（2026-11-14 性能优化）：服务端签发的 token 存为 credentials 的 password，
+    // 后续所有请求免 bcrypt（省 ~60ms/请求）；token 未签发时回落原密码。
+    let stored_password = login_resp
+      .token
+      .clone()
+      .filter(|t| !t.is_empty())
+      .unwrap_or_else(|| password.to_string());
+    log_bwbrowser(
+      "login",
+      if login_resp.token.as_deref().is_some_and(|t| !t.is_empty()) {
+        "✓ 已启用 token 认证（后续请求免密码校验）"
+      } else {
+        "· 服务端未签发 token，回落密码认证"
+      },
+    );
+
     let state = BwbrowserAuthState {
       username: username.to_string(),
-      password: password.to_string(),
+      password: stored_password,
       bwbrowser_user,
       cloud_user: cloud_user.clone(),
       logged_in_at: Utc::now().to_rfc3339(),
@@ -2861,13 +2881,48 @@ pub async fn bwbrowser_get_account_health_states() -> Result<serde_json::Value, 
   let pm = crate::profile::manager::ProfileManager::instance();
   let profiles = pm.list_profiles().unwrap_or_default();
 
-  let list = BWBROWSER_AUTH
-    .list_cloud_accounts(1, 500, None, None, None, None, None, None, None, None)
-    .await?;
+  // 轻量账号名映射（2026-11-14 性能优化）：改调 action=account_names（只拉 id/name/platform，
+  // 几 KB），替代原先内部重复拉取全量 list(1,500)（193KB + 全字段），点开页面显著提速。
+  // 注意：account_names 定义在 bwbrowser_sync.php（BWBROWSER_API_URL），不是 accounts.php
+  let (username, password) = BWBROWSER_AUTH
+    .get_credentials()
+    .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+  let form_data = format!(
+    "action=account_names&username={}&password={}",
+    urlencode(&username),
+    urlencode(&password),
+  );
+  let resp = BWBROWSER_AUTH
+    .http()
+    .post(BWBROWSER_API_URL)
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .body(form_data)
+    .send()
+    .await
+    .map_err(|e| format!("请求失败: {}", e))?;
+  let body = resp
+    .text()
+    .await
+    .map_err(|e| format!("读取响应失败: {}", e))?;
+  let parsed: serde_json::Value = parse_body("account_names", &body)?;
+  if !parsed["success"].as_bool().unwrap_or(false) {
+    return Err(
+      parsed["message"]
+        .as_str()
+        .unwrap_or("获取账号名映射失败")
+        .to_string(),
+    );
+  }
+
   let mut views = Vec::new();
-  if let Some(accounts) = list.accounts {
+  if let Some(accounts) = parsed["accounts"].as_array() {
     for a in accounts {
-      let profile_name = account_profile_name(&a.account_name, a.id);
+      let account_id = a["id"].as_i64().unwrap_or(0);
+      let account_name = a["account_name"].as_str().unwrap_or("");
+      if account_id <= 0 {
+        continue;
+      }
+      let profile_name = account_profile_name(account_name, account_id);
       let record = profiles
         .iter()
         .find(|p| p.name.to_lowercase() == profile_name.to_lowercase())
@@ -2881,8 +2936,8 @@ pub async fn bwbrowser_get_account_health_states() -> Result<serde_json::Value, 
         None => ("unknown".to_string(), "未检测".to_string(), 0),
       };
       views.push(serde_json::json!({
-        "account_id": a.id,
-        "platform": a.platform,
+        "account_id": account_id,
+        "platform": a["platform"].as_str().unwrap_or(""),
         "status": status,
         "message": message,
         "checked_at": checked_at,

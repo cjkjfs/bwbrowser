@@ -1,7 +1,7 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useBwbrowserAuth } from "./use-bwbrowser-auth";
 
 // ==================== 类型定义（与 Simprint API 对齐）====================
@@ -225,6 +225,10 @@ export function useBwbrowserAccounts(
   const [users, setUsers] = useState<CloudUser[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
 
+  // in-flight 去重（2026-11-14 性能）：同参数请求进行中不再重复发起，防双 effect/连点请求风暴
+  const inflightFetchRef = useRef<string | null>(null);
+  const inflightSummaryRef = useRef<number | null>(null);
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const fetchPage = useCallback(
@@ -239,6 +243,11 @@ export function useBwbrowserAccounts(
       cid = companyId ?? null,
     ) => {
       if (!isLoggedIn) return;
+
+      // 同参数请求进行中 → 跳过（2026-11-14 防请求风暴）
+      const sig = `${page}|${pSize}|${platform}|${kw}|${ownerId}|${sortBy}|${sortOrder}|${cid}`;
+      if (inflightFetchRef.current === sig) return;
+      inflightFetchRef.current = sig;
 
       setIsLoading(true);
       setError(null);
@@ -261,24 +270,6 @@ export function useBwbrowserAccounts(
         if (!result.success) {
           throw new Error(result.message || "获取账号列表失败");
         }
-
-        console.log("[BwbrowserAccounts] list_accounts 返回:", {
-          can_view_password: result.can_view_password,
-          can_view_2fa: result.can_view_2fa,
-          can_view_sms: result.can_view_sms,
-          is_manager: result.is_manager,
-          is_super_admin: result.is_super_admin,
-          accounts_count: result.accounts?.length ?? 0,
-          first_account: result.accounts?.[0]
-            ? {
-                id: result.accounts[0].id,
-                phone_id: result.accounts[0].phone_id,
-                owner_id: result.accounts[0].owner_id,
-                safe_link: result.accounts[0].safe_link,
-                bind_phone: result.accounts[0].bind_phone,
-              }
-            : null,
-        });
 
         setAccounts(result.accounts || []);
         setTotal(result.total || 0);
@@ -304,6 +295,7 @@ export function useBwbrowserAccounts(
         setError(msg);
         console.error("[BwbrowserAccounts] 获取账号列表失败:", e);
       } finally {
+        if (inflightFetchRef.current === sig) inflightFetchRef.current = null;
         setIsLoading(false);
       }
     },
@@ -322,6 +314,11 @@ export function useBwbrowserAccounts(
     async (ownerId: number | null = ownerFilter) => {
       if (!isLoggedIn) return;
 
+      // 同参数请求进行中 → 跳过（2026-11-14 防请求风暴）
+      const sig = ownerId ?? -1;
+      if (inflightSummaryRef.current === sig) return;
+      inflightSummaryRef.current = sig;
+
       setSummaryLoading(true);
       try {
         const result = await invoke<AccountSummary>(
@@ -337,6 +334,8 @@ export function useBwbrowserAccounts(
       } catch (e) {
         console.error("[BwbrowserAccounts] 获取汇总失败:", e);
       } finally {
+        if (inflightSummaryRef.current === sig)
+          inflightSummaryRef.current = null;
         setSummaryLoading(false);
       }
     },
@@ -462,9 +461,16 @@ export function useBwbrowserAccounts(
     fetchPage,
   ]);
 
-  // 过滤条件变化时自动刷新（带防抖）
+  // 过滤条件变化时自动刷新（带防抖）；挂载后首跳跳过：登录 effect 已拉取，
+  // 否则挂载瞬间两个 effect 各请求一次 → 请求翻倍（2026-11-14 性能）
+  const skipFilterRefreshRef = useRef(true);
   useEffect(() => {
     if (!isLoggedIn) return;
+
+    if (skipFilterRefreshRef.current) {
+      skipFilterRefreshRef.current = false;
+      return;
+    }
 
     const timer = setTimeout(() => {
       void fetchPage(1, pageSize, platformFilter, keyword, ownerFilter);

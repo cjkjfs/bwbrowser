@@ -1795,10 +1795,12 @@ fn cdp_port_from_ws_url(ws_url: &str) -> Option<u16> {
 ///
 /// Reads the page the launch flow currently drives first; when that page
 /// carries no YouTube ytcfg (login wall, user navigated elsewhere) it looks
-/// for any YouTube-domain tab, and as a last resort opens a temporary tab on
-/// `www.youtube.com`, reads the flag, and closes the tab. Returns `None` when
-/// nothing readable exists (browser not up, CDP gated) — the caller then
-/// keeps its original verdict unchanged.
+/// for any YouTube-domain tab. If nothing readable exists (browser not up,
+/// CDP gated, no YouTube tab carries the flag) it returns `None` — the caller
+/// keeps its original HTTP-probe verdict unchanged. Deliberately does NOT
+/// open a throwaway tab on www.youtube.com anymore: the launch-time gate ran
+/// this on every cloud login and the extra navigation tab was disruptive
+/// (2.7.2 的健康检查完全不碰浏览器页面，回归这一行为)。
 pub async fn youtube_logged_in_via_cdp(profile: &crate::profile::BrowserProfile) -> Option<bool> {
   // 1) The page the launch flow drives (studio.youtube.com after navigation).
   if let Ok(cdp) = crate::cdp_target::resolve(profile).await {
@@ -1807,8 +1809,11 @@ pub async fn youtube_logged_in_via_cdp(profile: &crate::profile::BrowserProfile)
         return Some(v);
       }
     }
-    // 2) Local browsers only: enumerate tabs for a YouTube-domain page; if
-    //    none has the flag, open a throwaway tab on the main site.
+    // 2) Local browsers only: enumerate tabs for a YouTube-domain page.
+    //    同时收集「Google 登录页」证据：会话失效时启动导航会被重定向到
+    //    accounts.google.com/v3/signin——这是页面亲证的未登录铁证（HTTP
+    //    probe 只看 cookie 特征，判不出会话已死，曾把失效 cookie 标记为
+    //    「确认登录」回传云端）。
     if let crate::cdp_target::CdpTarget::Local { ws_url } = &cdp {
       let port = cdp_port_from_ws_url(ws_url)?;
       let client = reqwest::Client::builder()
@@ -1824,6 +1829,7 @@ pub async fn youtube_logged_in_via_cdp(profile: &crate::profile::BrowserProfile)
         .json()
         .await
         .ok()?;
+      let mut signin_page_seen = false;
       if let Some(arr) = targets.as_array() {
         for t in arr {
           if t.get("type").and_then(serde_json::Value::as_str) != Some("page") {
@@ -1833,6 +1839,11 @@ pub async fn youtube_logged_in_via_cdp(profile: &crate::profile::BrowserProfile)
             .get("url")
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default();
+          if url.contains("accounts.google.com/v3/signin")
+            || url.contains("accounts.google.com/ServiceLogin")
+          {
+            signin_page_seen = true;
+          }
           if !url.contains("youtube.com") || url.contains("accounts.google.com") {
             continue;
           }
@@ -1852,44 +1863,14 @@ pub async fn youtube_logged_in_via_cdp(profile: &crate::profile::BrowserProfile)
           }
         }
       }
-      // 2b) No YouTube page carries the flag: open a throwaway tab on the
-      // main site, let it render, read the flag, then close the tab.
-      let new_tab: serde_json::Value = client
-        .put(format!(
-          "http://127.0.0.1:{port}/json/new?https://www.youtube.com/"
-        ))
-        .send()
-        .await
-        .ok()?
-        .json()
-        .await
-        .ok()?;
-      let tid = new_tab
-        .get("id")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string);
-      let mut verdict = None;
-      if let Some(ws) = new_tab
-        .get("webSocketDebuggerUrl")
-        .and_then(serde_json::Value::as_str)
-      {
-        // Give the page time to load and for the server-rendered ytcfg to
-        // be present in the DOM.
-        tokio::time::sleep(Duration::from_millis(3500)).await;
-        let cdp_t = crate::cdp_target::CdpTarget::Local {
-          ws_url: ws.to_string(),
-        };
-        verdict = read_page_html_via_cdp(&cdp_t)
-          .await
-          .and_then(|h| parse_logged_in_from_html(&h));
+      if signin_page_seen {
+        // 页面停在 Google 登录流程页：会话亲证未登录（ gate 会据此推翻
+        // HTTP probe 的 Valid，不再把失效会话标记为「确认登录」回传）。
+        return Some(false);
       }
-      if let Some(tid) = tid {
-        let _ = client
-          .get(format!("http://127.0.0.1:{port}/json/close/{tid}"))
-          .send()
-          .await;
-      }
-      return verdict;
+      // No existing YouTube tab carries the flag and no signin page either:
+      // give up silently and keep the HTTP-probe verdict.
+      return None;
     }
   }
   None
@@ -1899,11 +1880,13 @@ pub async fn youtube_logged_in_via_cdp(profile: &crate::profile::BrowserProfile)
 /// HTTP probe cannot tell Google sessions apart (logged-out visitors' HTML
 /// also matches `session_indicators`, and the CookieMismatch branch is
 /// deliberately lenient), so a `Valid` verdict is double-checked against the
-/// running page's `LOGGED_IN` flag:
-/// - page says logged in → verdict stands,
-/// - page says logged out → flipped to Expired (no upload, no dead-session
-///   injection),
-/// - CDP unreadable → original verdict unchanged (same behavior as before).
+/// running pages:
+/// - a page reports `LOGGED_IN=true` → verdict stands,
+/// - a page reports `LOGGED_IN=false`, or a tab sits on the Google signin
+///   flow (`accounts.google.com/v3/signin|ServiceLogin` — where a dead
+///   session's navigation lands) → flipped to Expired (no upload, no
+///   dead-session injection),
+/// - CDP unreadable / nothing conclusive → original verdict unchanged.
 pub async fn gate_youtube_probe_with_cdp(
   profile: &crate::profile::BrowserProfile,
   platform: &str,

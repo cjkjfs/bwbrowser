@@ -21,14 +21,14 @@
       // inline 兜底（严格 CSP 站点可能拦截 inline script）
       try {
         const s2 = document.createElement("script");
-        s2.src = chrome.runtime.getURL("hook.js") + "?r=" + Date.now();
+        s2.src = `${chrome.runtime.getURL("hook.js")}?r=${Date.now()}`;
         (document.head || document.documentElement).appendChild(s2);
-      } catch (e) {
+      } catch (_e) {
         /* ignore */
       }
     };
     (document.head || document.documentElement).appendChild(s);
-  } catch (e) {
+  } catch (_e) {
     /* ignore */
   }
 
@@ -201,8 +201,8 @@
     }
     const tx = window.innerWidth - 34; // 主程序右下角下载托盘
     const ty = window.innerHeight - 34;
-    dot.style.left = sx - 13 + "px";
-    dot.style.top = sy - 13 + "px";
+    dot.style.left = `${sx - 13}px`;
+    dot.style.top = `${sy - 13}px`;
     requestAnimationFrame(() => {
       dot.style.transform = `translate(${tx - sx}px, ${ty - sy}px) scale(.5)`;
       dot.style.opacity = "0";
@@ -246,7 +246,7 @@
       try {
         const r = await chrome.runtime.sendMessage({ type: "PROBE", url: u });
         probeCache.set(u, r?.ok !== false);
-      } catch (e) {
+      } catch (_e) {
         probeCache.set(u, true); // 探测失败保守保留
       }
     }
@@ -271,13 +271,13 @@
         btn.textContent = old;
       }
     } catch (e) {
-      showTip("发送失败：" + e, false);
+      showTip(`发送失败：${e}`, false);
       btn.disabled = false;
       btn.textContent = old;
     }
   };
 
-  const pollProgress = (taskId, port, btn, fallbackText) => {
+  const pollProgress = (taskId, port, btn, _fallbackText) => {
     if (!taskId) {
       btn.textContent = "✓"; // 入队成功但旧版程序无 taskId，仅提示完成
       return;
@@ -291,7 +291,7 @@
       let r = null;
       try {
         r = await chrome.runtime.sendMessage({ type: "POLL", taskId, port });
-      } catch (e) {
+      } catch (_e) {
         /* ignore */
       }
       if (stopped) return;
@@ -349,18 +349,18 @@
     const gap = 8;
     const dir = rec.dir || "right-top";
     if (dir === "top-left") {
-      rec.btn.style.left = r.left + gap + "px";
-      rec.btn.style.top = r.top + gap + "px";
+      rec.btn.style.left = `${r.left + gap}px`;
+      rec.btn.style.top = `${r.top + gap}px`;
     } else if (dir === "bottom-right") {
-      rec.btn.style.left = r.right - bw - gap + "px";
-      rec.btn.style.top = r.bottom - bh - gap + "px";
+      rec.btn.style.left = `${r.right - bw - gap}px`;
+      rec.btn.style.top = `${r.bottom - bh - gap}px`;
     } else if (dir === "bottom-left") {
-      rec.btn.style.left = r.left + gap + "px";
-      rec.btn.style.top = r.bottom - bh - gap + "px";
+      rec.btn.style.left = `${r.left + gap}px`;
+      rec.btn.style.top = `${r.bottom - bh - gap}px`;
     } else {
       // right-top
-      rec.btn.style.left = r.right - bw - gap + "px";
-      rec.btn.style.top = r.top + gap + "px";
+      rec.btn.style.left = `${r.right - bw - gap}px`;
+      rec.btn.style.top = `${r.top + gap}px`;
     }
     rec.btn.style.display = "";
   };
@@ -376,7 +376,7 @@
     const btn = document.createElement("button");
     btn.textContent = viaPage ? "下载视频" : "下载";
     btn.title = viaPage
-      ? "解析本页面视频（YT·抖音·TikTok 等平台）\n" + url
+      ? `解析本页面视频（YT·抖音·TikTok 等平台）\n${url}`
       : url;
     btn.style.cssText =
       "position:fixed;z-index:2147483646;font:12px/1 system-ui,sans-serif;background:#6366f1;color:#fff;border:none;cursor:pointer;padding:5px 12px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.35);";
@@ -410,7 +410,7 @@
     if (!rec || rec.url === d.url) return;
     rec.url = d.url;
     rec.btn.title = d.viaPage
-      ? "解析本页面视频（YT·抖音·TikTok 等平台）\n" + d.url
+      ? `解析本页面视频（YT·抖音·TikTok 等平台）\n${d.url}`
       : d.url;
   };
 
@@ -444,8 +444,7 @@
     if (!v.paused && !v.ended) s += 5;
     if (v.currentTime > 0) s += 2;
     const r = v.getBoundingClientRect();
-    if (r && r.width && r.height)
-      s += Math.min(10, (r.width * r.height) / 60000);
+    if (r?.width && r.height) s += Math.min(10, (r.width * r.height) / 60000);
     return s;
   };
   const MAIN_SCORE_MIN = 3;
@@ -466,8 +465,14 @@
   //   /note/7361234567890                 图集详情页
   //   /discover?modal_id=7361234567890    弹窗形式（视频 ID 在查询参数，
   //     精选/关注/搜索页的卡片最常见这种）——由 cleanPageUrl 换算成 /video/id
+  // ⚠️ B站 2026 改版加了多语言路径前缀（实测首页/详情页 URL 全带）：
+  //   /zh-Hans/video/BV1HCpS6iEXh   简体中文界面
+  //   /zh-Hant/video/... /en/video/... /ja/video/... 等语言段
+  // 正则必须允许「可选的语言前缀段」，否则 44 张卡片全漏、整页识别不到视频
+  //（实测踩坑：bilibili.com/zh-Hans 首页所有卡片 href 带 /zh-Hans/video/BV，旧正
+  //  则 bilibili\.com\/video\/ 一个都匹配不到 → 卡片分支全空 + location 不匹配 → 0 按钮）。
   const VIDEO_PAGE_URL_RE =
-    /tiktok\.com\/@[^/]+\/video\/\d+|youtube\.com\/(watch|shorts)|youtu\.be\/|bilibili\.com\/video\/|douyin\.com\/(?:@[^/]+\/|user\/[^/]+\/)?(?:video|note)\/\d+|ixigua\.com\/\d+/i;
+    /tiktok\.com\/@[^/]+\/video\/\d+|youtube\.com\/(watch|shorts)|youtu\.be\/|bilibili\.com\/(?:[a-z]{2,3}(?:-[a-zA-Z]{2,4})?\/)?video\/|douyin\.com\/(?:@[^/]+\/|user\/[^/]+\/)?(?:video|note)\/\d+|ixigua\.com\/\d+/i;
   // 抖音弹窗形式卡片（视频 ID 在 modal_id 查询参数里）
   const DOUYIN_MODAL_RE = /douyin\.com\/[^\s]*[?&]modal_id=(\d+)/i;
   const isVideoDetailHref = (href) =>
@@ -485,14 +490,21 @@
     // 放在 split("?") 之前——对弹窗 URL 直接去参数会丢掉视频 ID（与 YT v= 同坑）。
     const mi = href.match(/[?&]modal_id=(\d+)/i);
     if (mi && /douyin\.com/i.test(href))
-      return "https://www.douyin.com/video/" + mi[1];
+      return `https://www.douyin.com/video/${mi[1]}`;
+    // B站多语言路径前缀规范化：/zh-Hans/video/BVxxx → /video/BVxxx。
+    // 经典 /video/BV 是 yt-dlp Bilibili 提取器最稳的形态（语言段是 UI 路径，
+    // yt-dlp 未必全支持，剥掉最保险）。
+    const biliLang = href.match(
+      /^(https?:\/\/[^/]*bilibili\.com)\/[a-z]{2,3}(?:-[a-zA-Z]{2,4})?(\/video\/[^?#]+)/i,
+    );
+    if (biliLang) return biliLang[1] + biliLang[2];
     const qi = href.indexOf("?");
     if (qi < 0) return href;
     const base = href.slice(0, qi);
     const qs = href.slice(qi + 1);
     if (/youtube\.com\/watch|youtu\.be\//i.test(href)) {
       const vm = qs.match(/(?:^|&)v=([^&]+)/);
-      if (vm) return base + "?v=" + vm[1];
+      if (vm) return `${base}?v=${vm[1]}`;
     }
     return base;
   };
@@ -512,12 +524,12 @@
     if (!raw) return "";
     try {
       return new URL(raw, location.href).href; // 补全协议相对 //host/...
-    } catch (e) {
+    } catch (_e) {
       return raw;
     }
   };
   const resolveCardPageUrl = (v) => {
-    const a = v.closest && v.closest("[href]");
+    const a = v.closest?.("[href]");
     if (a && isVideoDetailHref(hrefOf(a))) return cleanPageUrl(hrefOf(a));
     if (isVideoDetailHref(location.href)) return cleanPageUrl(location.href);
     return null;
@@ -527,6 +539,13 @@
     const out = [];
     const seenEl = new Set();
     const platform = isPlatformPage();
+    // 页面 URL 本身是「单视频详情页」（bilibili.com/video/BV、youtube.com/watch、
+    // douyin.com/video、tiktok.com/@去/video 等）→ 该页中心必然是主视频。
+    // 此时主播放器判定用「位置铁证」（面积最大可见 video）而非播放状态打分——
+    // 视频未开播时 scoreVideo 打不满 <3 会漏判（B站详情页最典型：blob/MSE，
+    // 开播前 duration 为 NaN、paused=true、currentTime=0，只剩面积分 → 判不到主播放器
+    // → 无法绑定页面详情 URL → 识别不到视频）。
+    const pageIsSingleVideo = isVideoDetailHref(location.href);
     let mainVideo = null;
     let mainScore = -1;
     document.querySelectorAll("video").forEach((v) => {
@@ -553,10 +572,20 @@
       }
       // 平台页：记下「主播放器」，稍后用页面 URL 兜底（低于阈值不算，防列表页误绑）
       if (platform && !url) {
-        const sc = scoreVideo(v);
-        if (sc >= MAIN_SCORE_MIN && sc > mainScore) {
-          mainScore = sc;
-          mainVideo = v;
+        if (pageIsSingleVideo) {
+          // 位置铁证：取面积最大可见 video（详情页中心播放器）。不依赖播放状态。
+          const r = v.getBoundingClientRect();
+          const sc = r?.width && r.height ? r.width * r.height : 0;
+          if (sc > mainScore) {
+            mainScore = sc;
+            mainVideo = v;
+          }
+        } else {
+          const sc = scoreVideo(v);
+          if (sc >= MAIN_SCORE_MIN && sc > mainScore) {
+            mainScore = sc;
+            mainVideo = v;
+          }
         }
       }
       out.push({ el: v, url: url || null, dir: "right-top", viaPage });
@@ -567,7 +596,11 @@
     if (platform && mainVideo) {
       for (const d of out) {
         if (d.el === mainVideo && !d.url) {
-          const pageUrl = resolveCardPageUrl(mainVideo);
+          // 单视频详情页：页面 URL 即铁证，直接用它（无需认卡片 <a>）。
+          // 多卡页（列表/主页）：认主播放器所属的卡片链接，绝不绑 location.href。
+          const pageUrl = pageIsSingleVideo
+            ? cleanPageUrl(location.href)
+            : resolveCardPageUrl(mainVideo);
           if (pageUrl) {
             d.url = pageUrl;
             d.viaPage = true;
@@ -619,7 +652,7 @@
       document.querySelectorAll("[data-aweme-id]").forEach((el) => {
         const id = el.getAttribute("data-aweme-id") || "";
         if (!/^\d{10,}$/.test(id)) return;
-        const u = "https://www.douyin.com/video/" + id;
+        const u = `https://www.douyin.com/video/${id}`;
         if (seenUrl.has(u)) return;
         const r = el.getBoundingClientRect();
         if (!r || r.width === 0 || r.height === 0) return;
@@ -655,7 +688,7 @@
       const res = await chrome.runtime.sendMessage({ type: "SNAPSHOT" });
       const bg = (res?.videos || []).map((v) => v.url).filter(Boolean);
       for (const u of bg) if (!sniffed.includes(u)) sniffed.push(u);
-    } catch (e) {
+    } catch (_e) {
       /* ignore */
     }
     // TikTok play API 地址（签名短时效，yt-dlp generic 抓 403）不进嗅探列表；
@@ -733,7 +766,7 @@
   }
 
   // 兜底条渲染：无 DOM 播放器可贴的嗅探直链（保证页面所有可下载视频都被识别）
-  const renderExtra = (urls) => {
+  const _renderExtra = (urls) => {
     extraBody.textContent = "";
     extra.classList.remove("show");
     if (!urls.length) return;

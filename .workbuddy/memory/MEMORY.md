@@ -63,3 +63,10 @@
 - **下载链路**：扩展按钮 `POST 127.0.0.1:[10118..10120]/v1/video-download/enqueue`（常驻 mini server，不依赖 api_enabled，免 token 窄端）→ `get_downloader().add_task()`（与前端导航栏视频下载同队列）→ 按钮轮询 `GET .../v1/video-download/task/{id}` 显示百分比。SW 休眠丢事件已用页面内 hook（hook.js 注入 MAIN world + postMessage）修复；该 Chromium 151 对 manifest `world:"MAIN"` 无效，须用 `<script src=getURL>` 注入 + web_accessible_resources。
 - **平台页 URL 下载（2026-11-10）**：主程序下载器=yt-dlp，原生支持 YT/TikTok/抖音/B站 页面 URL。扩展对已知平台页（`PLATFORM_RE` 与 Rust 白名单一致）：
   主播放器（`scoreVideo` 打分）无 http 直链（blob:/MSE）时，按钮改走 `location.href`（viaPage，交 yt-dlp 解析），文案「下载视频」；`engage()` 另有 `extraPageFallback` 兜底，保证平台页必出下载入口。这解决了 YT/TikTok「识别不到视频」。改 content.js 需重开浏览器生效。
+---
+## 附加运营人（2026-11-14 上线，客户端不动）
+
+- **DB**：`tiktok_accounts.co_owner_ids VARCHAR(255) NULL`（逗号分隔用户id）。主归属 owner_id 完全不动。
+- **语义**：账号可设多个附加运营人，被设置者即可见/可操作该账号（主归属+附加运营）。member 可见=`owner_id=我 OR FIND_IN_SET(我,co_owner_ids)`；leader 组=组员主归属 OR 组员是附加运营；manager 筛某人=他的主归属+他是附加运营的；private 对附加运营放行；家族继承母账号集合同步扩展；benchmark 无此字段（tiktok-only）。summary tiktok 聚合=可见口径，owners 人员分布仍算主归属头上。
+- **网页端**：account_detail_admin.php detailModal「👥 附加运营人」checkbox 多选（同公司成员、排除主归属），save_detail 校验同公司 active 用户后落库。
+- **回退**：`tk/*.bak_precowner_20261114_145156`。**踩坑**：MySQL 5.7 REGEXP 是 POSIX 不支持 `(?:)`；纯字面量 WHERE 时 execute 不可再合并 ownerParams（参数多→聚合静默归零）；临时改密码必须**先 SELECT 备份再 UPDATE**（users 有 plain_password 明文列可兜底重建）。
