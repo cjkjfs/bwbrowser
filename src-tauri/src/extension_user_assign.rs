@@ -282,6 +282,21 @@ pub fn spawn_delete_extension_remote(extension_id: String) {
   });
 }
 
+/// 插件包被添加/更新后强制重传云端（force）：删旧 meta/分块 → 传新包 → push 绑定。
+/// 流程对齐用户定稿：「添加/删除扩展 → 同步服务器；网页端/其他机器拉取云端做设置」。
+/// linked 插件不上传（机器本地），失败静默记日志。
+pub fn spawn_resync_extension(extension_id: String) {
+  tauri::async_runtime::spawn(async move {
+    if let Err(e) = ensure_extension_uploaded_opts(&extension_id, true).await {
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "extension_user_assign",
+        &format!("重同步插件 {extension_id} 跳过（linked 或失败，忽略）: {e}"),
+      );
+    }
+    push_company_assignments().await;
+  });
+}
+
 /// 本地绑定 store 序列化（供上传公司 KV）。
 fn export_json() -> Result<String, String> {
   let store = load_store();
@@ -317,11 +332,20 @@ fn company_key_id(extension_id: &str) -> String {
 /// 插件包已上传过（云端有 meta）则跳过；否则把本地插件包分块上传。
 /// meta 最后写：它的存在即是「包已就绪」的标记。
 async fn ensure_extension_uploaded(ext_id: &str) -> Result<(), String> {
+  ensure_extension_uploaded_opts(ext_id, false).await
+}
+
+/// force=true 时无视云端 meta 强制重传（扩展包更新后云端是陈旧包，必须刷新）：
+/// 先读本地包（失败不动云端）→ 删 meta（摘除就绪标记）→ 删旧分块 → 传新分块 →
+/// 写 meta（最后写=就绪）。中途其他机器拉取会因 meta 缺失而失败并记日志，
+/// 绑定保持现状，下次登录/启动补齐。
+async fn ensure_extension_uploaded_opts(ext_id: &str, force: bool) -> Result<(), String> {
   let kid = company_key_id(ext_id);
   let meta_key = format!("extmeta_{kid}");
-  if crate::bwbrowser_cloud::company_setting_get(&meta_key)
-    .await?
-    .is_some()
+  if !force
+    && crate::bwbrowser_cloud::company_setting_get(&meta_key)
+      .await?
+      .is_some()
   {
     return Ok(());
   }
@@ -338,6 +362,25 @@ async fn ensure_extension_uploaded(ext_id: &str) -> Result<(), String> {
     let data = fs::read(&path).map_err(|e| format!("读取插件包失败: {e}"))?;
     (ext, data)
   };
+
+  if force {
+    // 本地包确认可读后才清云端：摘除就绪标记并清掉旧分块，避免其他机器
+    // 在重传期间拉到新旧混合的包
+    if let Err(e) = crate::bwbrowser_cloud::company_setting_delete(&meta_key, false).await {
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "extension_user_assign",
+        &format!("重传前清理旧 meta {ext_id} 失败（忽略）: {e}"),
+      );
+    }
+    if let Err(e) =
+      crate::bwbrowser_cloud::company_setting_delete(&format!("extfile_{kid}_"), true).await
+    {
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "extension_user_assign",
+        &format!("重传前清理旧分块 {ext_id} 失败（忽略）: {e}"),
+      );
+    }
+  }
 
   let meta = CompanyExtMeta {
     ext,
@@ -521,7 +564,8 @@ pub async fn push_company_assignments() {
 }
 
 /// 本地绑定变更后的后台收尾：确保插件包已上传，再上传绑定整包。
-fn spawn_sync_after_change(extension_id: Option<String>) {
+/// 供扩展管理「添加扩展」等外部链路调用（添加即同步云端）。
+pub fn spawn_sync_after_change(extension_id: Option<String>) {
   tokio::spawn(async move {
     if let Some(ext_id) = extension_id {
       if let Err(e) = ensure_extension_uploaded(&ext_id).await {
@@ -1042,6 +1086,77 @@ pub async fn copy_extension_assignments(
   spawn_sync_after_change(Some(to_extension_id));
 
   Ok(serde_json::json!({ "copied": source.len(), "assigned": assigned }))
+}
+
+// ===========================================================================
+// 云端扩展库（「扩展管理只显示云端」）：真源=公司云端 KV（extmeta_*），
+// 本机包只是缓存/分发副本。三件套：列表 / 下载落地 / 删云端。
+// ===========================================================================
+
+/// 云端扩展条目（扩展管理列表数据源）。serde flatten 展开 ext 字段，
+/// 前端拿到的对象与本地 Extension 完全兼容（附加 has_local）。
+#[derive(Debug, serde::Serialize, Clone)]
+pub struct CloudExtensionInfo {
+  #[serde(flatten)]
+  pub ext: crate::extension_manager::Extension,
+  pub size: u64,
+  pub chunks: usize,
+  /// 本机是否已落地（缓存）。false = 仅云端，分配/删除前需先下载到本机
+  pub has_local: bool,
+}
+
+/// 列出本公司云端扩展库（真源）。需要服务端 list_company_extensions action。
+#[tauri::command]
+pub async fn list_cloud_extensions() -> Result<Vec<CloudExtensionInfo>, String> {
+  let metas = crate::bwbrowser_cloud::company_list_extensions().await?;
+  let mut out = Vec::with_capacity(metas.len());
+  for m in metas {
+    let ext_val = match m.get("ext") {
+      Some(v) => v.clone(),
+      None => continue,
+    };
+    let ext: crate::extension_manager::Extension = match serde_json::from_value(ext_val) {
+      Ok(e) => e,
+      Err(e) => {
+        crate::bwbrowser_cloud::log_bwbrowser(
+          "extension_user_assign",
+          &format!("云端扩展 meta 解析失败（跳过）: {e}"),
+        );
+        continue;
+      }
+    };
+    let size = m.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+    let chunks = m.get("chunks").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let has_local = {
+      let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
+      mgr.get_extension(&ext.id).is_ok()
+    };
+    out.push(CloudExtensionInfo {
+      ext,
+      size,
+      chunks,
+      has_local,
+    });
+  }
+  Ok(out)
+}
+
+/// 把云端扩展包下载落地到本机（仅云端扩展在分配/删除前的准备）。
+/// 拉 meta → 拉分块 → sha256 校验 → 落地 upsert（ensure_extension_local 全包）。
+#[tauri::command]
+pub async fn download_cloud_extension(extension_id: String) -> Result<(), String> {
+  ensure_extension_local(&extension_id).await
+}
+
+/// 删除仅云端扩展（本机无包时）：清云端 meta+分块并 push 绑定整包。
+/// 本机有包的删除仍走 delete_extension（内部已同步云端），不要用这个。
+#[tauri::command]
+pub async fn delete_cloud_extension(extension_id: String) -> Result<(), String> {
+  let kid = company_key_id(&extension_id);
+  crate::bwbrowser_cloud::company_setting_delete(&format!("extmeta_{kid}"), false).await?;
+  crate::bwbrowser_cloud::company_setting_delete(&format!("extfile_{kid}_"), true).await?;
+  push_company_assignments().await;
+  Ok(())
 }
 
 #[cfg(test)]

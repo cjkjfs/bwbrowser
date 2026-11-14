@@ -19,6 +19,7 @@ import {
   LuChevronDown,
   LuChevronUp,
   LuCopy,
+  LuDownload,
   LuExternalLink,
   LuFolderOpen,
   LuGlobe,
@@ -208,6 +209,7 @@ export function ExtensionManagementDialog({
     null,
   );
   const [isDeleting, setIsDeleting] = useState(false);
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
 
   // Bulk delete state
   const [bulkExtDeleteOpen, setBulkExtDeleteOpen] = useState(false);
@@ -338,13 +340,13 @@ export function ExtensionManagementDialog({
     setIsLoading(true);
     try {
       const [exts, groups] = await Promise.all([
-        invoke<Extension[]>("list_extensions"),
+        invoke<Extension[]>("list_cloud_extensions"),
         invoke<ExtensionGroup[]>("list_extension_groups"),
       ]);
       setExtensions(exts);
       setExtensionGroups(groups);
     } catch {
-      // User may not have pro subscription
+      // User may not have pro subscription / not logged in
       setExtensions([]);
       setExtensionGroups([]);
     } finally {
@@ -355,6 +357,8 @@ export function ExtensionManagementDialog({
   const loadIcons = useCallback(async (exts: Extension[]) => {
     const icons: Record<string, string> = {};
     for (const ext of exts) {
+      // 最多只加载本机已落地的图标；纯云端项无本地包，跳过避免空转。
+      if (!ext.has_local) continue;
       try {
         const icon = await invoke<string | null>("get_extension_icon", {
           extensionId: ext.id,
@@ -1167,7 +1171,17 @@ export function ExtensionManagementDialog({
     if (!extensionToDelete) return;
     setIsDeleting(true);
     try {
-      await invoke("delete_extension", { extensionId: extensionToDelete.id });
+      // 云端真源改造：本机已落地/链接的扩展走本地删除（删本地并同步云端）；
+      // 纯云端项（本机尚无包）直接删云端目录，避免级联先落地再删。
+      if (extensionToDelete.has_local) {
+        await invoke("delete_extension", {
+          extensionId: extensionToDelete.id,
+        });
+      } else {
+        await invoke("delete_cloud_extension", {
+          extensionId: extensionToDelete.id,
+        });
+      }
       showSuccessToast(t("extensions.deleteSuccess"));
       setExtensionToDelete(null);
       void loadData();
@@ -1193,6 +1207,27 @@ export function ExtensionManagementDialog({
     }
   }, [groupToDelete, loadData, showActionError, t]);
 
+  /** 把纯云端扩展包下载落地到本机（缓存），随后本机即可编辑/分配。 */
+  const handleDownloadExtension = useCallback(
+    async (extensionId: string) => {
+      setDownloadingIds((prev) => new Set(prev).add(extensionId));
+      try {
+        await invoke("download_cloud_extension", { extensionId });
+        showSuccessToast(t("extensions.downloadSuccess"));
+        void loadData();
+      } catch (err) {
+        showActionError(err, t("extensions.downloadFailed"));
+      } finally {
+        setDownloadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(extensionId);
+          return next;
+        });
+      }
+    },
+    [loadData, showActionError, t],
+  );
+
   const selectedExtensions = useMemo(
     () => extensions.filter((ext) => extRowSelection[ext.id]),
     [extensions, extRowSelection],
@@ -1209,7 +1244,9 @@ export function ExtensionManagementDialog({
     try {
       await Promise.allSettled(
         selectedExtensions.map((ext) =>
-          invoke("delete_extension", { extensionId: ext.id }),
+          ext.has_local
+            ? invoke("delete_extension", { extensionId: ext.id })
+            : invoke("delete_cloud_extension", { extensionId: ext.id }),
         ),
       );
       showSuccessToast(t("extensions.deleteSuccess"));
@@ -1413,27 +1450,33 @@ export function ExtensionManagementDialog({
             ) : null}
           </Button>
         ),
-        cell: ({ row }) => (
-          <button
-            type="button"
-            className="block min-w-0 max-w-full rounded-sm text-left text-sm font-medium hover:text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring"
-            onClick={() => {
-              const ext = row.original;
-              setEditingExtension(ext);
-              setEditExtensionName(ext.name);
-              setPendingUpdateSource(null);
-              setEditLinkFolder(Boolean(ext.linked_path));
-            }}
-          >
-            <span className="block truncate">{row.original.name}</span>
-            <span className="block truncate text-xs font-normal text-muted-foreground">
-              {row.original.manifest_name &&
-              row.original.manifest_name !== row.original.name
-                ? row.original.manifest_name
-                : row.original.file_name}
-            </span>
-          </button>
-        ),
+        cell: ({ row }) => {
+          const ext = row.original;
+          // 纯云端项（本机未下载包）不可编辑：无本地来源可重传，下载后才能改。
+          const editable = ext.has_local !== false;
+          return (
+            <button
+              type="button"
+              disabled={!editable}
+              className="block min-w-0 max-w-full rounded-sm text-left text-sm font-medium hover:text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:pointer-events-none"
+              onClick={() => {
+                setEditingExtension(ext);
+                setEditExtensionName(ext.name);
+                setPendingUpdateSource(null);
+                setEditLinkFolder(Boolean(ext.linked_path));
+              }}
+            >
+              <span className="block truncate">{ext.name}</span>
+              <span className="block truncate text-xs font-normal text-muted-foreground">
+                {ext.has_local === false
+                  ? t("extensions.cloudOnlyBadge")
+                  : ext.manifest_name && ext.manifest_name !== ext.name
+                    ? ext.manifest_name
+                    : ext.file_name}
+              </span>
+            </button>
+          );
+        },
       },
       {
         id: "compat",
@@ -1482,24 +1525,52 @@ export function ExtensionManagementDialog({
           const ext = row.original;
           return (
             <div className="flex shrink-0 justify-end gap-0.5">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="size-7 p-0"
-                    onClick={() => {
-                      setEditingExtension(ext);
-                      setEditExtensionName(ext.name);
-                      setPendingUpdateSource(null);
-                      setEditLinkFolder(Boolean(ext.linked_path));
-                    }}
-                  >
-                    <LuPencil className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("extensions.editExtension")}</TooltipContent>
-              </Tooltip>
+              {ext.has_local === false && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="size-7 p-0"
+                      disabled={downloadingIds.has(ext.id)}
+                      onClick={() => {
+                        void handleDownloadExtension(ext.id);
+                      }}
+                    >
+                      <LuDownload
+                        className={`size-3.5 ${
+                          downloadingIds.has(ext.id) ? "animate-pulse" : ""
+                        }`}
+                      />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("extensions.downloadToLocal")}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {ext.has_local !== false && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="size-7 p-0"
+                      onClick={() => {
+                        setEditingExtension(ext);
+                        setEditExtensionName(ext.name);
+                        setPendingUpdateSource(null);
+                        setEditLinkFolder(Boolean(ext.linked_path));
+                      }}
+                    >
+                      <LuPencil className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("extensions.editExtension")}
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1528,6 +1599,8 @@ export function ExtensionManagementDialog({
       renderExtensionIcon,
       renderCompatIcons,
       renderSource,
+      downloadingIds,
+      handleDownloadExtension,
     ],
   );
 

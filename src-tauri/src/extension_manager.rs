@@ -1883,10 +1883,18 @@ pub async fn add_extension(
   file_name: String,
   file_data: Vec<u8>,
 ) -> Result<Extension, String> {
-  let mgr = EXTENSION_MANAGER.lock().unwrap();
-  mgr
-    .add_extension(name, file_name, file_data)
-    .map_err(|e| crate::wrap_backend_error(e, "Failed to add extension"))
+  let ext = {
+    let mgr = EXTENSION_MANAGER.lock().unwrap();
+    mgr
+      .add_extension(name, file_name, file_data)
+      .map_err(|e| crate::wrap_backend_error(e, "Failed to add extension"))?
+  };
+  // 添加即同步云端：上传插件包（分块+meta）并 push 绑定整包——流程：
+  // 「添加扩展 → 同步服务器；网页端/其他机器拉取云端做设置」。
+  // 必须先释放 EXTENSION_MANAGER 锁再触发（上传内部会再拿这把锁，否则死锁）。
+  // linked 插件机器本地不上传，静默忽略。
+  crate::extension_user_assign::spawn_sync_after_change(Some(ext.id.clone()));
+  Ok(ext)
 }
 
 /// Import a folder holding a top-level `manifest.json`. `link` loads it in
@@ -1897,10 +1905,15 @@ pub async fn add_unpacked_extension(
   path: String,
   link: Option<bool>,
 ) -> Result<Extension, String> {
-  let mgr = EXTENSION_MANAGER.lock().unwrap();
-  mgr
-    .add_unpacked_extension(name, Path::new(&path), link.unwrap_or(false))
-    .map_err(|e| crate::wrap_backend_error(e, "Failed to add unpacked extension"))
+  let ext = {
+    let mgr = EXTENSION_MANAGER.lock().unwrap();
+    mgr
+      .add_unpacked_extension(name, Path::new(&path), link.unwrap_or(false))
+      .map_err(|e| crate::wrap_backend_error(e, "Failed to add unpacked extension"))?
+  };
+  // 同上：添加即同步云端（linked 插件静默跳过）
+  crate::extension_user_assign::spawn_sync_after_change(Some(ext.id.clone()));
+  Ok(ext)
 }
 
 #[tauri::command]
@@ -1910,10 +1923,15 @@ pub async fn update_extension(
   file_name: Option<String>,
   file_data: Option<Vec<u8>>,
 ) -> Result<Extension, String> {
-  let mgr = EXTENSION_MANAGER.lock().unwrap();
-  mgr
-    .update_extension(&extension_id, name, file_name, file_data)
-    .map_err(|e| crate::wrap_backend_error(e, "Failed to update extension"))
+  let ext = {
+    let mgr = EXTENSION_MANAGER.lock().unwrap();
+    mgr
+      .update_extension(&extension_id, name, file_name, file_data)
+      .map_err(|e| crate::wrap_backend_error(e, "Failed to update extension"))?
+  };
+  // 更新包后云端是陈旧包：强制重传（删旧 meta/分块 → 传新包 → push）
+  crate::extension_user_assign::spawn_resync_extension(ext.id.clone());
+  Ok(ext)
 }
 
 /// Replace an extension's payload from a local archive or folder.
@@ -1924,10 +1942,15 @@ pub async fn update_extension_from_path(
   path: String,
   link: Option<bool>,
 ) -> Result<Extension, String> {
-  let mgr = EXTENSION_MANAGER.lock().unwrap();
-  mgr
-    .update_extension_from_path(&extension_id, name, Path::new(&path), link.unwrap_or(false))
-    .map_err(|e| crate::wrap_backend_error(e, "Failed to update extension"))
+  let ext = {
+    let mgr = EXTENSION_MANAGER.lock().unwrap();
+    mgr
+      .update_extension_from_path(&extension_id, name, Path::new(&path), link.unwrap_or(false))
+      .map_err(|e| crate::wrap_backend_error(e, "Failed to update extension"))?
+  };
+  // 同上：更新后强制重传云端
+  crate::extension_user_assign::spawn_resync_extension(ext.id.clone());
+  Ok(ext)
 }
 
 #[tauri::command]

@@ -3328,6 +3328,56 @@ pub(crate) async fn company_setting_get(
   }))
 }
 
+/// 列出本公司云端扩展库（真源）：全部已上传的插件包 meta（extmeta_*）。
+/// 扩展管理页以此为准（「只显示云端」）；本机包只是缓存/分发副本。
+/// 需要服务端 list_company_extensions action（bwbrowser_sync.php）。
+pub(crate) async fn company_list_extensions() -> Result<Vec<serde_json::Value>, String> {
+  let (username, password) = BWBROWSER_AUTH
+    .get_credentials()
+    .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+
+  let form_data = format!(
+    "action=list_company_extensions&username={}&password={}",
+    urlencode(&username),
+    urlencode(&password)
+  );
+
+  let resp = BWBROWSER_AUTH
+    .client
+    .post(BWBROWSER_API_URL)
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .body(form_data)
+    .send()
+    .await
+    .map_err(|e| format!("网络请求失败: {}", e))?;
+
+  let status = resp.status();
+  let body = resp
+    .text()
+    .await
+    .map_err(|e| format!("读取响应失败: {}", e))?;
+  let parsed: serde_json::Value = parse_api_response("list_company_extensions", status, &body)?;
+  if !parsed
+    .get("success")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false)
+  {
+    let msg = parsed
+      .get("message")
+      .and_then(|v| v.as_str())
+      .unwrap_or("读取云端扩展库失败")
+      .to_string();
+    return Err(msg);
+  }
+  Ok(
+    parsed
+      .get("extensions")
+      .and_then(|v| v.as_array())
+      .cloned()
+      .unwrap_or_default(),
+  )
+}
+
 /// 删除公司级设置(KV)。`by_prefix` 为 true 时按前缀删除其下所有 key
 /// (插件分块 `extfile_<id>_0..N` 用一次请求清完)。需要服务端
 /// delete_company_setting 补丁(见 .scratch/company_setting_delete_patch.php)。

@@ -87,6 +87,12 @@ export interface Extension {
   /** Absolute folder the extension is loaded from in place. Set means nothing
    * was copied into Bwbrowser, so the extension is machine-local and never syncs. */
   linked_path?: string;
+  /** Cloud-backed fields (list_cloud_extensions). `has_local` marks whether the
+   * current machine has this extension materialized locally; absent means the
+   * item is remote-only and must be downloaded before it can be used/assigned. */
+  has_local?: boolean;
+  size?: number;
+  chunks?: number;
 }
 
 export interface ExtensionGroup {
