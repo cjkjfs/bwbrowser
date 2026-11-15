@@ -526,8 +526,47 @@ impl VideoDownloader {
       inner.tasks.insert(id.clone(), task);
     }
     let _ = app.emit("video-download:task-added", &id);
+
+    // 任务创建即持久化（2026-11-15 修复）：此前 add_task 不写盘，任务只存内存，
+    // 只有完成/失败/取消等终态才落盘——下载期间程序重启或崩溃，未终态的任务全部丢失，
+    // 表现为「下载了好几个，任务列表却没有那么多」。
+    self.save_to_disk().await;
+
+    // 磁盘空间预检：下载目录所在磁盘可用空间不足时，任务不启动下载，
+    // 直接标记为错误并在列表里给出「空间不足」提示（用户清理后点重试即可）。
+    let download_dir = self.inner.lock().await.settings.download_dir.clone();
+    if !Self::disk_space_enough(&download_dir) {
+      {
+        let mut inner = self.inner.lock().await;
+        if let Some(t) = inner.tasks.get_mut(&id) {
+          t.status = DownloadStatus::Error;
+          t.error_msg = Some(
+            "磁盘空间不足，无法开始下载：请先清理下载目录（或 C 盘）释放空间，然后重试该任务"
+              .to_string(),
+          );
+          t.finished_at = Some(now_secs());
+        }
+      }
+      self.save_to_disk().await;
+      let _ = app.emit("video-download:task-updated", &id);
+      return id;
+    }
+
     self.try_start_next(app).await;
     id
+  }
+
+  /// 磁盘剩余空间是否足够下载。返回 false 表示空间不足（<500MB 视为不足）。
+  /// `download_dir` 为空时回落到默认下载目录。
+  fn disk_space_enough(download_dir: &str) -> bool {
+    let dir = if download_dir.trim().is_empty() {
+      default_download_dir()
+    } else {
+      PathBuf::from(download_dir)
+    };
+    let free = crate::data_root::available_space(&dir).unwrap_or(u64::MAX);
+    // 不足 500MB 视为空间不足
+    free >= 500 * 1024 * 1024
   }
 
   pub async fn cancel_task<R: Runtime>(&self, task_id: &str, app: &tauri::AppHandle<R>) {
@@ -988,6 +1027,22 @@ impl VideoDownloader {
         None => return,
       };
 
+      // 磁盘空间预检：空间不足时不启动下载，把该任务置为 Error，提示用户清理空间
+      if !Self::disk_space_enough(&inner.settings.download_dir) {
+        if let Some(task) = inner.tasks.get_mut(&task_id) {
+          task.status = DownloadStatus::Error;
+          task.error_msg = Some(
+            "磁盘空间不足，无法开始下载：请先清理下载目录（或 C 盘）释放空间，然后重试该任务"
+              .to_string(),
+          );
+          task.finished_at = Some(now_secs());
+        }
+        drop(inner);
+        self.save_to_disk().await;
+        app.emit("video-download:task-updated", &task_id).ok();
+        return;
+      }
+
       // 标记为 downloading
       if let Some(task) = inner.tasks.get_mut(&task_id) {
         task.status = DownloadStatus::Downloading;
@@ -1028,8 +1083,11 @@ impl VideoDownloader {
         let force_cookie = if attempt > 0
           && settings.cookie_from_browser
           && !cookie_refreshed
-          && is_youtube
-          && last_error.as_deref().map(is_cookie_error).unwrap_or(false)
+          // YouTube：cookie 类错误（人机验证/登录态）→ 刷新 cookie 重试；
+          // 非 YouTube：401 鉴权错误（网页源需登录态）→ 同样刷新当前
+          // Cookie 源重试一次（不换源，重新实时导出最新登录态）。
+          && (is_youtube && is_cookie_error(last_error.as_deref().unwrap_or(""))
+            || (!is_youtube && is_auth_401_error(last_error.as_deref().unwrap_or(""))))
         {
           cookie_refreshed = true;
           true
@@ -1138,10 +1196,12 @@ impl VideoDownloader {
         Some(mut e) => {
           // 如果自动刷新 cookie 重试过还是失败，加上提示
           if cookie_refreshed {
-            e = format!(
-              "{} (已自动刷新 Cookie 重试仍失败，请确认浏览器已登录 YouTube)",
-              e
-            );
+            let hint = if is_youtube {
+              "请确认浏览器已登录 YouTube".to_string()
+            } else {
+              "网页源需要登录：请在该 Cookie 源账号的浏览器里重新登录视频来源网站后再试".to_string()
+            };
+            e = format!("{} (已自动刷新 Cookie 重试仍失败：{})", e, hint);
           }
           self_arc.set_task_error(&task_id_clone, e).await;
           let task_data = {
@@ -2480,6 +2540,14 @@ fn is_cookie_error(error_msg: &str) -> bool {
     || lower.contains("consent")
     || lower.contains("age verification")
     || lower.contains("unable to extract")
+}
+
+/// 判断是否为 401 鉴权错误：网页源需要登录态（Cookie 源账号在源站的
+/// session 已失效）。与 is_cookie_error 分开，仅用于非 YouTube 源的
+/// 「重试时换下一个 Cookie 源账号」逻辑，不影响 YouTube 既有人机验证策略。
+fn is_auth_401_error(error_msg: &str) -> bool {
+  let lower = error_msg.to_lowercase();
+  lower.contains("http error 401") || lower.contains("401: unauthorized")
 }
 
 /// 音频下载实时回调载荷（供 AI 洗稿展示下载速度/进度/日志）。

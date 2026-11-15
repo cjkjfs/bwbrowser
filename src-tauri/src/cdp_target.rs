@@ -284,6 +284,49 @@ async fn local_cdp_port(profile: &BrowserProfile, patience: Patience) -> Option<
   None
 }
 
+/// The CDP debugging port a locally running browser registered, if it is up.
+///
+/// Prewarm and other background automation that wants to reach the whole
+/// browser (not one page) read this directly instead of resolving a page
+/// socket. Returns `[None]` when the browser is not local.
+pub async fn local_cdp_port_for(profile: &BrowserProfile) -> Option<u16> {
+  local_cdp_port(profile, Patience::Immediate).await
+}
+
+/// The BROWSER-level debugger socket for a locally running browser.
+///
+/// Page automation uses [`resolve`], which hands back a PAGE socket. Popup
+/// prewarm instead has to create and close whole targets, which only the
+/// browser socket answers — `Target.createTarget` on a page socket comes back
+/// as "not found". A browser socket has no concept of prewarm being a page
+/// user, so reading `webSocketDebuggerUrl` off `/json/version` is the only way
+/// to get one exposed by this browser.
+pub async fn local_browser_ws_url(profile: &BrowserProfile) -> Option<String> {
+  let port = local_cdp_port(profile, Patience::Immediate).await?;
+  let listing = format!("http://127.0.0.1:{port}/json/version");
+  let client = reqwest::Client::new();
+  for _ in 0..10 {
+    match client
+      .get(&listing)
+      .timeout(Duration::from_secs(3))
+      .send()
+      .await
+    {
+      Ok(response) if response.status().is_success() => {
+        if let Ok(value) = response.json::<Value>().await {
+          if let Some(ws) = value.get("webSocketDebuggerUrl").and_then(Value::as_str) {
+            return Some(ws.to_string());
+          }
+        }
+      }
+      Ok(_) => {}
+      Err(_) => {}
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+  }
+  None
+}
+
 /// A page-level socket on a locally running browser.
 ///
 /// Returns `None` rather than an error: a miss is how the resolver decides the

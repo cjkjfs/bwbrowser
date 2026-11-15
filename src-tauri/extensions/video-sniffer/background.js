@@ -151,6 +151,16 @@ async function probeUrl(url) {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type === "RESET") {
+    // content script SPA 路由切换时重置：清本 tab 嗅探缓存（pushState 不会
+    // 触发 tabs.onUpdated 的 loading，必须由 content script 显式通知）
+    const tabId = sender.tab?.id ?? msg.tabId;
+    if (tabId !== undefined) {
+      chrome.storage.session.remove(tabKey(tabId));
+    }
+    sendResponse({ ok: true });
+    return false;
+  }
   if (msg?.type === "SNAPSHOT") {
     // content script 无 sender.tab（扩展页调用时才可能），正常页面一定有
     const tabId = sender.tab?.id ?? msg.tabId;

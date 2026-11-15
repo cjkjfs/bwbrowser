@@ -986,6 +986,11 @@ impl BrowserRunner {
         );
       }
 
+      // 扩展 popup 预热：后台静默打开一次各 popup（无 popup 的扩展自动跳过），
+      // 让 Chromium 解析大 JS 写 V8 code cache，解决用户点图标时「等了半天才弹
+      // 出」的问题。失败只记日志，绝不影响启动。
+      crate::extension_prewarm::spawn_extension_prewarm(&updated_profile, &extension_paths);
+
       return Ok(updated_profile);
     }
 
@@ -1179,6 +1184,10 @@ impl BrowserRunner {
       if let Err(e) = events::emit("profile-running-changed", &payload) {
         log::warn!("Warning: Failed to emit profile running changed event: {e}");
       }
+
+      // Chromium 内核分支未收集分组扩展路径（常规本地/爆文库启动几乎不装云端
+      // 扩展），传空列表：预热函数有 popup 空检查，空则不开任务，安全无害。
+      crate::extension_prewarm::spawn_extension_prewarm(&updated_profile, &[]);
 
       return Ok(updated_profile);
     }

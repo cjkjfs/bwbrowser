@@ -374,7 +374,8 @@
     overlaidEls.add(el);
 
     const btn = document.createElement("button");
-    btn.textContent = viaPage ? "下载视频" : "下载";
+    // 文案统一为「下载」：直链/平台页两种行为靠悬停 title 区分，界面保持一致
+    btn.textContent = "下载";
     btn.title = viaPage
       ? `解析本页面视频（YT·抖音·TikTok 等平台）\n${url}`
       : url;
@@ -700,9 +701,16 @@
       (u) => !TIKTOK_PLAY_RE.test(u) && !STATIC_ASSET_RE.test(u),
     );
     // 优先级排序：完整视频文件 > 播放列表(m3u8/mpd，yt-dlp 会合并分段) > 其它
+    // 同优先级时「最新嗅探的优先」：影视站 SPA 切集后新 m3u8 后到，
+    // 旧集地址先入缓存，若按插入序排列按钮会一直绑旧集地址（识别错误的根源之一）
     const rankUrl = (u) =>
       /\.mp4(\?|#|$)/i.test(u) ? 3 : /\.(m3u8|mpd)(\?|#|$)/i.test(u) ? 2 : 1;
-    sniffed.sort((a, b) => rankUrl(b) - rankUrl(a));
+    sniffed.sort((a, b) => {
+      const ra = rankUrl(a);
+      const rb = rankUrl(b);
+      if (ra !== rb) return rb - ra;
+      return (hookedUrls.get(b) || 0) - (hookedUrls.get(a) || 0);
+    });
     // 死链剔除：片源列表里已删的旧地址（404/410）不绑按钮——否则浏览器
     // 播放器挑活的在播、按钮却绑到死链，一点下载就 404。探测失败/防盗链
     // 403 等不确定情况一律保守保留。
@@ -720,6 +728,20 @@
     const noSrc = domList.filter((d) => !d.url && !overlaidEls.has(d.el));
     if (noSrc.length === 1 && sniffed.length) {
       addOverlay(noSrc[0].el, sniffed[0], noSrc[0].dir, false);
+    }
+
+    // 直链按钮地址跟随（2026-11-15 修复）：SPA 切集时 <video> 元素不变，
+    // 按钮此前绑定的旧集地址已不在当前嗅探候选里 → 自动换成当前最优直链。
+    // 仅限「页面恰好一个直链按钮」的单播放器场景（与 noSrc 配对原则一致，
+    // 多视频列表页绝不猜配，避免把按钮 A 的地址改成按钮 B 的）。
+    const directBtns = overlayBtns.filter((r) => !r.viaPage);
+    if (
+      directBtns.length === 1 &&
+      sniffed.length &&
+      !sniffed.includes(directBtns[0].url)
+    ) {
+      directBtns[0].url = sniffed[0];
+      directBtns[0].btn.title = directBtns[0].url;
     }
 
     if (manual && overlayBtns.length === 0) {
@@ -764,6 +786,27 @@
   } else {
     document.addEventListener("DOMContentLoaded", startAuto, { once: true });
   }
+
+  // SPA 路由切换重置（2026-11-15 修复）：影视站切集/换页多为 pushState 前端路由，
+  // 页面不刷新 → content script 不重启 → hookedUrls 跨页面累积旧集地址，
+  // 排序后旧地址还可能排前，按钮就绑到旧集的 m3u8（「新页面识别到的还是旧视频」）。
+  // URL 一变：清空嗅探缓存 + 移除全部旧按钮 + 立即重扫，保证候选只属于当前页面。
+  let lastHref = location.href;
+  setInterval(() => {
+    if (location.href === lastHref) return;
+    lastHref = location.href;
+    hookedUrls.clear();
+    try {
+      chrome.runtime.sendMessage(
+        { type: "RESET" },
+        () => void chrome.runtime.lastError,
+      );
+    } catch (_e) {
+      /* ignore */
+    }
+    dispose();
+    engage(false);
+  }, 800);
 
   // 兜底条渲染：无 DOM 播放器可贴的嗅探直链（保证页面所有可下载视频都被识别）
   const _renderExtra = (urls) => {

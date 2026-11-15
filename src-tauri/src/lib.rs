@@ -80,6 +80,7 @@ mod downloader;
 mod ephemeral_dirs;
 mod extension_fetch;
 mod extension_manager;
+mod extension_prewarm;
 mod extension_user_assign;
 mod extraction;
 mod fingerprint_consistency;
