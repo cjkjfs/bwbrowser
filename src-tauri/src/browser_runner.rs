@@ -2302,6 +2302,10 @@ pub async fn launch_browser_profile_impl(
           crate::login_autofill::watch_profile(&profile_id).await;
         });
       }
+      // YouTube 收益自动抓取：账号浏览器启动后后台静默抓一次收益并入附近。
+      // 全静默，失败只记日志，绝不影响启动。
+      let profile_id = profile.id.to_string();
+      crate::revenue_scrape::spawn_revenue_task(profile_id);
     }
     Err(error) => emit_launch_stage(
       &profile,

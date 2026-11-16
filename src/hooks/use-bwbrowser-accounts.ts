@@ -64,6 +64,20 @@ export interface BwbrowserAccount {
   parent_id?: number;
   /** 多母列表附加行：同一子账号挂到第 2 个及以后母账号时，由服务端以该母账号 id 附加*/
   virtual_parent?: number;
+  /** 该账号的所有母账号名（多母用「、」连接）；非子账号为 undefined */
+  parent_names?: string;
+  /** 母账号详细信息数组（含 id/手机编号/登录账号/平台/归属人），快速定位用 */
+  parent_accounts?: ParentAccountInfo[];
+}
+
+/** 母账号摘要信息（parent_accounts 元素） */
+export interface ParentAccountInfo {
+  id?: number;
+  account_name?: string;
+  device_id?: string;
+  login_account?: string;
+  platform?: string;
+  owner_name?: string;
 }
 
 export interface PlatformStat {

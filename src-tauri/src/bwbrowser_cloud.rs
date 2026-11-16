@@ -2725,9 +2725,33 @@ pub struct BwbrowserAccount {
   /// None = 非虚拟扩展行（正常行 / 首母下的子行）
   #[serde(default)]
   pub virtual_parent: Option<i64>,
+  /// 该账号的所有母账号名（多母用「、」连接，服务端从关系表聚合；非子账号为 null）。
+  /// 列表行/编辑弹窗据此显示「👑 母账号」
+  #[serde(default)]
+  pub parent_names: Option<String>,
+  /// 母账号详细信息数组（id/账号名/手机编号/登录账号/平台/归属人），快速定位用
+  #[serde(default)]
+  pub parent_accounts: Option<Vec<BwbrowserParentAccount>>,
   /// 账号级硬件加速开关：true = 本次启动追加合成/光栅化 GPU 参数（WebGL 仍走虚拟指纹软件渲染）
   #[serde(default, deserialize_with = "deserialize_int_or_bool")]
   pub gpu_acceleration: Option<bool>,
+}
+
+/// 母账号摘要信息（parent_accounts 数组元素）
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BwbrowserParentAccount {
+  #[serde(default)]
+  pub id: Option<i64>,
+  #[serde(default)]
+  pub account_name: Option<String>,
+  #[serde(default)]
+  pub device_id: Option<String>,
+  #[serde(default)]
+  pub login_account: Option<String>,
+  #[serde(default)]
+  pub platform: Option<String>,
+  #[serde(default)]
+  pub owner_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

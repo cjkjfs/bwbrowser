@@ -3296,6 +3296,27 @@ export function BwbrowserCloudAccountsDialog({
       return next;
     });
   }, []);
+
+  // 母账号快速定位：待滚动定位的账号 id。列表数据包含该 id 时滚动到该行并高亮。
+  const [locateTargetId, setLocateTargetId] = useState<number | null>(null);
+  useEffect(() => {
+    if (locateTargetId == null) return;
+    // 母账号还没出现在列表里（等 keyword 家族搜索刷新），等下一轮数据
+    if (!accounts.some((x) => x.id === locateTargetId)) return;
+    const el = document.querySelector<HTMLElement>(
+      `[data-acc-id="${locateTargetId}"]`,
+    );
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      const prevBg = el.style.backgroundColor;
+      el.style.transition = "background-color 0.4s";
+      el.style.backgroundColor = "rgba(250, 204, 21, 0.4)";
+      window.setTimeout(() => {
+        el.style.backgroundColor = prevBg;
+      }, 2500);
+      setLocateTargetId(null);
+    }
+  }, [locateTargetId, accounts]);
   const childAccountsByParent = useMemo(() => {
     const map = new Map<number, BwbrowserAccount[]>();
     for (const a of accounts) {
@@ -3457,9 +3478,10 @@ export function BwbrowserCloudAccountsDialog({
           const lp = launchProgress[account.id];
           const launching = launchingIds.has(account.id);
           return (
-            <div className="flex max-w-[200px] flex-col gap-1">
+            <div className="flex w-full min-w-0 flex-col gap-1">
               <div className="flex items-center gap-2">
-                {childCount > 0 ? (
+                {/* 展开箭头：仅有子账号的账号显示；无子账号不留占位，内容直接左对齐 */}
+                {childCount > 0 && (
                   <button
                     type="button"
                     onClick={() => toggleAccountExpand(account.id)}
@@ -3474,8 +3496,6 @@ export function BwbrowserCloudAccountsDialog({
                       <LuChevronRight className="h-3.5 w-3.5" />
                     )}
                   </button>
-                ) : (
-                  <span className="w-[22px] shrink-0" />
                 )}
                 <button
                   type="button"
@@ -3537,8 +3557,25 @@ export function BwbrowserCloudAccountsDialog({
                 </button>
                 {isChildAccount && (
                   <span
-                    className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[10px] leading-none text-primary"
-                    title={`「${childBelongsTo}」的子账号`}
+                    className="shrink-0 cursor-help rounded bg-primary/10 px-1 py-0.5 text-[10px] leading-none text-primary"
+                    title={
+                      account.parent_accounts?.length
+                        ? `母账号（${account.parent_accounts.length}个）：\n` +
+                          account.parent_accounts
+                            .map(
+                              (p) =>
+                                `👑 ${p.account_name || "#" + p.id}` +
+                                (p.device_id ? `  📱${p.device_id}` : "") +
+                                (p.login_account
+                                  ? `\n   登录: ${p.login_account}`
+                                  : "") +
+                                (p.owner_name ? `  归属: ${p.owner_name}` : ""),
+                            )
+                            .join("\n")
+                        : account.parent_names
+                          ? `母账号：${account.parent_names}`
+                          : `「${childBelongsTo}」的子账号`
+                    }
                   >
                     子
                   </span>
@@ -4056,7 +4093,7 @@ export function BwbrowserCloudAccountsDialog({
           const remark = account.remark ?? "";
           return (
             <div className="flex items-start gap-1.5">
-              <div className="flex min-w-0 max-w-[140px] flex-col gap-0.5">
+              <div className="flex min-w-0 max-w-full flex-col gap-0.5">
                 {tagsArr.length > 0 &&
                   tagsArr.map((tag) => (
                     <span
@@ -4105,7 +4142,7 @@ export function BwbrowserCloudAccountsDialog({
                 variant="ghost"
                 size="sm"
                 className={cn(
-                  "h-6 max-w-[180px] px-2",
+                  "h-6 max-w-full px-2",
                   account.launch_allowed === false &&
                     "opacity-40 cursor-not-allowed",
                 )}
@@ -4665,7 +4702,7 @@ export function BwbrowserCloudAccountsDialog({
           </div>
         )}
         {accounts.length > 0 && (
-          <Table>
+          <Table className="table-fixed">
             <TableHeader className="sticky top-0 bg-background/80 backdrop-blur">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -4714,6 +4751,7 @@ export function BwbrowserCloudAccountsDialog({
                 return [
                   <TableRow
                     key={`${row.id}-${acc.virtual_parent ?? "x"}`}
+                    data-acc-id={acc.id}
                     data-state={row.getIsSelected() && "selected"}
                     className={cn(
                       row.original.status === 1 &&
@@ -4725,7 +4763,7 @@ export function BwbrowserCloudAccountsDialog({
                       <TableCell
                         key={cell.id}
                         style={{ width: cell.column.getSize() }}
-                        className={cn("py-1.5", isChildRow && "pl-8")}
+                        className="py-1.5"
                       >
                         {flexRender(
                           cell.column.columnDef.cell,
@@ -6196,6 +6234,97 @@ export function BwbrowserCloudAccountsDialog({
                     </div>
                   </div>
                 </div>
+                {/* 母账号（只读）：子账号显示其所属的全部母账号完整信息，可一键定位 */}
+                {(editAccount?.parent_accounts?.length
+                  ? editAccount.parent_accounts
+                  : editAccount?.parent_names
+                    ? [{ account_name: editAccount.parent_names }]
+                    : []
+                ).map((p, pi) => (
+                  <div
+                    key={pi}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5 dark:border-amber-500/20 dark:bg-amber-500/10"
+                  >
+                    <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                      👑 母账号
+                      {editAccount?.parent_accounts &&
+                      editAccount.parent_accounts.length > 1
+                        ? ` ${pi + 1}`
+                        : ""}
+                    </span>
+                    <span
+                      className="text-xs font-medium text-amber-700 dark:text-amber-400"
+                      title={p.account_name}
+                    >
+                      {p.account_name || "-"}
+                      {p.id ? (
+                        <span className="ml-1 text-[10px] text-muted-foreground">
+                          #{p.id}
+                        </span>
+                      ) : null}
+                    </span>
+                    {p.device_id ? (
+                      <span className="text-xs text-muted-foreground">
+                        📱{" "}
+                        <button
+                          type="button"
+                          className="font-mono hover:text-foreground"
+                          title="点击复制手机编号"
+                          onClick={() =>
+                            void navigator.clipboard?.writeText(
+                              p.device_id || "",
+                            )
+                          }
+                        >
+                          {p.device_id}
+                        </button>
+                      </span>
+                    ) : null}
+                    {p.login_account ? (
+                      <span className="text-xs text-muted-foreground">
+                        登录:{" "}
+                        <button
+                          type="button"
+                          className="font-mono hover:text-foreground"
+                          title="点击复制登录账号"
+                          onClick={() =>
+                            void navigator.clipboard?.writeText(
+                              p.login_account || "",
+                            )
+                          }
+                        >
+                          {p.login_account}
+                        </button>
+                      </span>
+                    ) : null}
+                    {p.owner_name ? (
+                      <span className="text-xs text-muted-foreground">
+                        归属: {p.owner_name}
+                      </span>
+                    ) : null}
+                    {p.account_name ? (
+                      <button
+                        type="button"
+                        className="ml-auto rounded px-1.5 py-0.5 text-[10px] text-primary transition-colors hover:bg-primary/10"
+                        title={`快速定位母账号：${p.account_name}${p.id ? ` (#${p.id})` : ""}——滚动到该行并高亮`}
+                        onClick={() => {
+                          // 快速定位到母账号行：不在当前列表时先按名搜出家族（服务端家族搜索
+                          // 会把母账号一起返回），列表数据刷新后自动滚动+高亮
+                          setEditDialogOpen(false);
+                          if (
+                            p.id != null &&
+                            !accounts.some((x) => x.id === p.id)
+                          ) {
+                            setKeyword(p.account_name || "");
+                          }
+                          setLocateTargetId(p.id ?? null);
+                        }}
+                      >
+                        🔍 定位
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
                 <div className="space-y-2">
                   <div className="text-xs font-medium">启动网址</div>
                   <button
@@ -6857,9 +6986,8 @@ export function BwbrowserCloudAccountsDialog({
           )}
         </div>
         <div className="flex items-center justify-between gap-2 border-t px-4 py-3 flex-shrink-0">
-          {(isManager || isSuperAdmin) &&
-          editAccount &&
-          !(editAccount.parent_id != null && editAccount.parent_id > 0) ? (
+          {/* 设置子账号：管理员可用；子账号同样显示（子账号也可挂载自己的子账号） */}
+          {(isManager || isSuperAdmin) && editAccount ? (
             <Button
               variant="outline"
               size="sm"

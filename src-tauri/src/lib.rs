@@ -146,6 +146,7 @@ mod mcp_integrations;
 mod mcp_remote;
 mod mcp_server;
 pub mod remote_agent;
+mod revenue_scrape;
 mod revenue_shield;
 mod tag_manager;
 mod team_lock;
