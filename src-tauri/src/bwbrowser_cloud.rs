@@ -7600,6 +7600,39 @@ fn passthrough_backend_error(e: String) -> String {
   }
 }
 
+/// 向 profile 的 `Default/Preferences` 注入「保存密码 + 自动登录」两项，
+/// 启用 Chromium 原生密码管理工具（账号「密码管理工具」开关开启时由启动链路调用）。
+///
+/// 仿 `browser::sync_color_scheme_pref` 的范式：读取已有 JSON -> 改/建字段 -> 写回。
+/// 只改这两个开关，其它 prefs 保持不动；Preferences 文件不存在则先 seed。
+/// 通行密钥（passkey）两项不做处理——它们绑定本机，跨机迁移会丢号，不纳入云端同步。
+fn apply_password_manager_prefs(profile_data: &std::path::Path) -> Result<(), String> {
+  let path = profile_data.join("Default").join("Preferences");
+  if !path.is_file() {
+    if let Some(parent) = path.parent() {
+      std::fs::create_dir_all(parent).map_err(|e| format!("创建 profile 目录失败: {e}"))?;
+    }
+    std::fs::write(&path, b"{}").map_err(|e| format!("seed Preferences 失败: {e}"))?;
+  }
+  let mut prefs: serde_json::Value =
+    serde_json::from_slice(&std::fs::read(&path).map_err(|e| format!("读 Preferences 失败: {e}"))?)
+      .map_err(|e| format!("解析 Preferences 失败: {e}"))?;
+  let obj = prefs
+    .as_object_mut()
+    .ok_or_else(|| "Preferences 不是 JSON 对象".to_string())?;
+  obj.insert(
+    "credentials_enable_service".to_string(),
+    serde_json::Value::Bool(true),
+  );
+  obj.insert(
+    "credentials_enable_autosignin".to_string(),
+    serde_json::Value::Bool(true),
+  );
+  let bytes =
+    serde_json::to_vec_pretty(&prefs).map_err(|e| format!("序列化 Preferences 失败: {e}"))?;
+  std::fs::write(&path, bytes).map_err(|e| format!("写 Preferences 失败: {e}"))
+}
+
 /// 监视账号浏览器进程：退出后向前端发 `account-browser-closed`，用于清除「已启动」状态。
 fn spawn_account_browser_close_watcher(
   app_handle: tauri::AppHandle,
@@ -7653,6 +7686,41 @@ async fn watch_account_browser_close(
         if running {
           seen_running = true;
         } else if seen_running {
+          // 账号「书签同步」开启：浏览器已退出，把本地改过的书签上行到云端。
+          // 下行（启动前）已在同一次启动前执行过，关闭时本地即最新，故上行为主。
+          // 失败只记日志，不影响关闭事件通知。
+          if crate::account_flags::account_flag_enabled(
+            crate::account_flags::AccountFlagKey::BookmarkSync,
+            account_id,
+          )
+          .await
+          {
+            match BwbrowserAuthManager::read_local_bookmarks(&profile.id.to_string()) {
+              Ok(Some(local)) if !local.trim().is_empty() => {
+                match BWBROWSER_AUTH.update_bwbrowser_bookmarks(&local).await {
+                  Ok(()) => log_bwbrowser(
+                    "bookmark_sync",
+                    &format!(
+                      "账号 {account_name} 浏览器退出：书签已上行云端（{} 字节）",
+                      local.len()
+                    ),
+                  ),
+                  Err(e) => log_bwbrowser(
+                    "bookmark_sync",
+                    &format!("账号 {account_name} 书签上行失败（忽略）: {e}"),
+                  ),
+                }
+              }
+              Ok(_) => log_bwbrowser(
+                "bookmark_sync",
+                &format!("账号 {account_name} 浏览器退出：本地无书签，跳过上行"),
+              ),
+              Err(e) => log_bwbrowser(
+                "bookmark_sync",
+                &format!("账号 {account_name} 读取本地书签失败（忽略）: {e}"),
+              ),
+            }
+          }
           let _ = app_handle.emit(
             "account-browser-closed",
             serde_json::json!({
@@ -8541,6 +8609,60 @@ async fn launch_account_impl(
     }
   };
   let launched_profile = {
+    // 启动前按账号级开关做注入（失败静默，绝不影响启动）：
+    //   1. 密码管理工具开启 -> 写入 profile Preferences 启用浏览器原生「保存密码 + 自动登录」
+    //   2. 书签同步开启      -> 启动前从云端拉书签覆盖本地 Bookmarks（下行）
+    // （KV 按云端账号 id 判定，故在此层用 account_id，而不是 browser_runner 的 profile uuid）
+    {
+      use crate::account_flags::{account_flag_enabled, AccountFlagKey};
+      let profile_data = profile.get_profile_data_path(
+        &crate::profile::manager::ProfileManager::instance().get_profiles_dir(),
+      );
+      // 1. 密码管理工具：注入 credentials 两项 prefs
+      let pwd_mgr_on = account_flag_enabled(AccountFlagKey::PasswordManager, account_id).await;
+      if pwd_mgr_on {
+        if let Err(e) = apply_password_manager_prefs(&profile_data) {
+          log_bwbrowser(
+            "launch_account",
+            &format!("  写入密码管理工具 prefs 失败（忽略）: {e}"),
+          );
+        } else {
+          log_bwbrowser(
+            "launch_account",
+            "  密码管理工具开启：已注入保存密码/自动登录 prefs",
+          );
+        }
+      }
+      // 2. 书签同步：开启则启动前从云端拉取覆盖本地（下行；仅当云端确有书签时覆盖）
+      let bm_sync_on = account_flag_enabled(AccountFlagKey::BookmarkSync, account_id).await;
+      if bm_sync_on {
+        match BWBROWSER_AUTH.get_bwbrowser_bookmarks().await {
+          Ok(Some(remote_bookmarks)) if !remote_bookmarks.trim().is_empty() => {
+            match BwbrowserAuthManager::write_local_bookmarks(
+              &profile.id.to_string(),
+              &remote_bookmarks,
+            ) {
+              Ok(()) => log_bwbrowser(
+                "launch_account",
+                &format!(
+                  "  书签同步开启：已从云端下行 {} 字节书签",
+                  remote_bookmarks.len()
+                ),
+              ),
+              Err(e) => log_bwbrowser(
+                "launch_account",
+                &format!("  书签下行写盘失败（忽略）: {e}"),
+              ),
+            }
+          }
+          Ok(_) => log_bwbrowser("launch_account", "  书签同步开启：云端暂无书签，跳过下行"),
+          Err(e) => log_bwbrowser(
+            "launch_account",
+            &format!("  云端拉取书签失败（忽略）: {e}"),
+          ),
+        }
+      }
+    }
     // 首次启动（本地无指纹）时，浏览器内核启动内部要现场生成指纹 + 探测
     // 代理地理位置，会卡在 75% 十几秒。把这两个子阶段的进度回传给前端，
     // 让用户看到"正在生成设备指纹/正在探测代理出口地理位置"而不是干等。

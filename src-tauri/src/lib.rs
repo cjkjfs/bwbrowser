@@ -121,6 +121,7 @@ mod wayfern_persona;
 mod wayfern_terms;
 mod window_decorations;
 // mod theme_detector; // removed: theme detection handled in webview via CSS prefers-color-scheme
+mod account_flags;
 mod agent;
 mod ai_agent;
 mod ai_agent_browser;
@@ -4192,6 +4193,10 @@ pub fn run_with_builder(
       cookie_source_accounts::get_cookie_source_accounts,
       cookie_source_accounts::set_account_cookie_source,
       cookie_source_accounts::set_vps_cookie_source,
+      account_flags::get_password_manager_accounts,
+      account_flags::set_account_password_manager,
+      account_flags::get_bookmark_sync_accounts,
+      account_flags::set_account_bookmark_sync,
       ui_prefs::ui_pref_save,
       ui_prefs::ui_pref_load,
       audio_silence_remover::audio_detect_silence,

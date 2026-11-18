@@ -1858,9 +1858,12 @@ rm "{}"
 
         let (file, parameters) = match ext.as_str() {
           "exe" => {
-            // NSIS installer: /S for silent, /UPDATE tells it this is an update
+            // NSIS installer: /S for silent, /UPDATE tells it this is an
+            // update, /R makes it relaunch the main binary once installation
+            // finishes (the NSIS template only auto-launches in silent/passive
+            // mode when /R is present — AUTOLAUNCHAPP is a WiX/MSI-only flag).
             let file = installer_path.as_os_str().to_os_string();
-            let params = std::ffi::OsString::from("/S /UPDATE");
+            let params = std::ffi::OsString::from("/S /UPDATE /R");
             (file, params)
           }
           "msi" => {

@@ -122,6 +122,80 @@ const OS_OPTIONS = [
   { value: "linux", label: "Linux" },
 ];
 
+/** 指纹声明（时区/语言/界面语言）常用参考组合，点击一键填入三个输入框 */
+const FP_PRESETS = [
+  {
+    label: "中文",
+    timezone: "Asia/Shanghai",
+    language: "zh-CN",
+    interfaceLanguage: "zh-CN",
+    gmt: "+8",
+  },
+  {
+    label: "中国台湾",
+    timezone: "Asia/Taipei",
+    language: "zh-TW",
+    interfaceLanguage: "zh-TW",
+    gmt: "+8",
+  },
+  {
+    label: "中国香港",
+    timezone: "Asia/Hong_Kong",
+    language: "zh-HK",
+    interfaceLanguage: "zh-HK",
+    gmt: "+8",
+  },
+  {
+    label: "美国",
+    timezone: "America/New_York",
+    language: "en-US",
+    interfaceLanguage: "en-US",
+    gmt: "-5",
+  },
+  {
+    label: "英国",
+    timezone: "Europe/London",
+    language: "en-GB",
+    interfaceLanguage: "en-GB",
+    gmt: "+0",
+  },
+  {
+    label: "日本",
+    timezone: "Asia/Tokyo",
+    language: "ja-JP",
+    interfaceLanguage: "ja-JP",
+    gmt: "+9",
+  },
+  {
+    label: "德国",
+    timezone: "Europe/Berlin",
+    language: "de-DE",
+    interfaceLanguage: "de-DE",
+    gmt: "+1",
+  },
+  {
+    label: "新加坡",
+    timezone: "Asia/Singapore",
+    language: "en-SG",
+    interfaceLanguage: "en-SG",
+    gmt: "+8",
+  },
+  {
+    label: "菲律宾",
+    timezone: "Asia/Manila",
+    language: "en-PH",
+    interfaceLanguage: "en-PH",
+    gmt: "+8",
+  },
+  {
+    label: "马来西亚",
+    timezone: "Asia/Kuala_Lumpur",
+    language: "en-MY",
+    interfaceLanguage: "en-MY",
+    gmt: "+8",
+  },
+];
+
 /** 读取环境当前声称的操作系统（fingerprint_config 可能是对象或 JSON 字符串） */
 function storedOs(fc: unknown): string {
   let v: unknown = fc;
@@ -371,6 +445,26 @@ export function EnvFormDialog({
                   onChange={(e) => setFpInterfaceLanguage(e.target.value)}
                   placeholder="界面语言，如 zh-CN"
                 />
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">
+                  常用参考：
+                </span>
+                {FP_PRESETS.map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    className="rounded-md border border-dashed px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                    onClick={() => {
+                      setFpTimezone(p.timezone);
+                      setFpLanguage(p.language);
+                      setFpInterfaceLanguage(p.interfaceLanguage);
+                    }}
+                    title={`时区 ${p.timezone}（GMT${p.gmt}）· 语言 ${p.language} · 界面 ${p.interfaceLanguage}`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
               </div>
               <p className="text-xs text-muted-foreground">
                 留空 = 跟随代理出口 IP

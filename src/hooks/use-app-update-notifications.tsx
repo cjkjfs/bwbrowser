@@ -110,17 +110,31 @@ export function useAppUpdateNotifications() {
     [t],
   );
 
-  const handleRestart = useCallback(async () => {
+  const handleRestart = useCallback(async (): Promise<{
+    profilesRunning: boolean;
+  }> => {
     try {
       await invoke("restart_application");
+      // Success: the backend exits the process right after issuing the
+      // restart, so this line is effectively unreachable. Returned anyway to
+      // keep the promise type honest.
+      return { profilesRunning: false };
     } catch (error) {
       console.error("Failed to restart app:", error);
-      showToast({
-        type: "error",
-        title: t("appUpdate.toast.restartFailed"),
-        description: translateBackendError(t, error),
-        duration: 6000,
-      });
+      const msg = typeof error === "string" ? error : String(error ?? "");
+      // UPDATE_PROFILES_RUNNING means browser windows are still open; the
+      // update toast switches to a "waiting for browsers to close" state and
+      // retries automatically, so no error toast is needed for it.
+      const profilesRunning = msg.includes("UPDATE_PROFILES_RUNNING");
+      if (!profilesRunning) {
+        showToast({
+          type: "error",
+          title: t("appUpdate.toast.restartFailed"),
+          description: translateBackendError(t, error),
+          duration: 6000,
+        });
+      }
+      return { profilesRunning };
     }
   }, [t]);
 
@@ -219,6 +233,7 @@ export function useAppUpdateNotifications() {
           onRestart={handleRestart}
           onDismiss={dismissAppUpdate}
           updateReady={updateReady}
+          autoRestart={updateReady}
         />
       ),
       {

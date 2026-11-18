@@ -339,6 +339,26 @@ function proxyNodeKey(pn: string): string {
   return `${parts[hostIdx] ?? ""}:${parts[hostIdx + 1] ?? ""}`;
 }
 
+// 账号列表「节点IP」列的展示串：VLESS/Trojan 显示 类型:host:port，HTTP/SOCKS5 显示 host:port
+function proxyNodeDisplay(pn: string | null | undefined): string {
+  const proxy = (pn || "").trim();
+  if (!proxy) return "";
+  if (proxy.startsWith("vless://") || proxy.startsWith("trojan://")) {
+    const scheme = proxy.split("://")[0];
+    try {
+      const u = new URL(proxy);
+      return `${scheme}:${u.hostname}:${u.port}`;
+    } catch {
+      return proxy.slice(0, 20);
+    }
+  }
+  const parts = proxy.split(":");
+  const hostIdx = ["http", "socks5"].includes(parts[0].toLowerCase()) ? 1 : 0;
+  return parts.length >= hostIdx + 2
+    ? `${parts[hostIdx]}:${parts[hostIdx + 1]}`
+    : proxy;
+}
+
 // 批量导入解析：socks5://user:pass@host:port、http(s)://…、host:port:user:pass、host:port
 interface BatchParsedProxy {
   proxy_type: string;
@@ -751,6 +771,57 @@ export function BwbrowserCloudAccountsDialog({
     new Set(),
   );
   const [sectorFilter, setSectorFilter] = useState<string | null>(null);
+  // 筛选栏 tab 显示设置：各组被隐藏的项（赛道/人员/平台），保存到本地 localStorage。
+  // 语义：设置面板里勾选 = 显示 tab，不勾选 = 隐藏该 tab；存"隐藏列表"，新增人员/赛道/平台默认显示。
+  const [filterHidden, setFilterHidden] = useState<{
+    sectors: string[];
+    owners: number[];
+    platforms: string[];
+  }>(() => {
+    try {
+      const raw = localStorage.getItem("bwbrowser_cloud_filter_hidden_v1");
+      if (raw) {
+        const p = JSON.parse(raw) as {
+          sectors?: unknown;
+          owners?: unknown;
+          platforms?: unknown;
+        };
+        return {
+          sectors: Array.isArray(p.sectors) ? (p.sectors as string[]) : [],
+          owners: Array.isArray(p.owners) ? (p.owners as number[]) : [],
+          platforms: Array.isArray(p.platforms)
+            ? (p.platforms as string[])
+            : [],
+        };
+      }
+    } catch {
+      /* 本地数据损坏时忽略，回退默认全显示 */
+    }
+    return { sectors: [], owners: [], platforms: [] };
+  });
+  const updateFilterHidden = useCallback(
+    (
+      patch: Partial<{
+        sectors: string[];
+        owners: number[];
+        platforms: string[];
+      }>,
+    ) => {
+      setFilterHidden((prev) => {
+        const next = { ...prev, ...patch };
+        try {
+          localStorage.setItem(
+            "bwbrowser_cloud_filter_hidden_v1",
+            JSON.stringify(next),
+          );
+        } catch {
+          /* 写入失败不影响功能，仅不持久化 */
+        }
+        return next;
+      });
+    },
+    [],
+  );
   const [autofillEnabled, setAutofillEnabled] = useState(true);
   const [gpuAcceleration, setGpuAcceleration] = useState(true);
   // 爆文库（VPS 登录）视频嗅探开关（云端名单为准，默认关闭）
@@ -1124,6 +1195,10 @@ export function BwbrowserCloudAccountsDialog({
     video_sniffer: false,
     // 作为下载 Cookie 来源（云端清单为准，默认关闭）
     cookie_source: false,
+    // 密码管理工具（云端清单为准，默认关闭）：启用原生保存密码+自动登录，并同步密码到云端
+    password_manager: false,
+    // 书签同步（云端清单为准，默认关闭）：关闭书签上传服务器，启动时从服务器同步到本地
+    bookmark_sync: false,
   });
   // ===== 编辑账号：浏览器扩展勾选（账号维度绑定，保存时按账号对齐） =====
   // checked = 该账号生效（账号限定绑定 或 归属人全局分配）；
@@ -1355,6 +1430,43 @@ export function BwbrowserCloudAccountsDialog({
       setOwnerFilter(ownerFilter === ownerId ? null : ownerId);
     },
     [setOwnerFilter, ownerFilter],
+  );
+
+  // 筛选栏设置：切换某 tab 的显示/隐藏（写入本地）。隐藏当前正选中的项时，重置该组筛选。
+  const toggleFilterHidden = useCallback(
+    (group: "sectors" | "owners" | "platforms", value: string) => {
+      if (group === "owners") {
+        const id = Number(value);
+        const has = filterHidden.owners.includes(id);
+        updateFilterHidden({
+          owners: has
+            ? filterHidden.owners.filter((x) => x !== id)
+            : [...filterHidden.owners, id],
+        });
+        if (!has && ownerFilter === id) setOwnerFilter(null);
+        return;
+      }
+      const list =
+        group === "sectors" ? filterHidden.sectors : filterHidden.platforms;
+      const has = list.includes(value);
+      const next = has ? list.filter((x) => x !== value) : [...list, value];
+      updateFilterHidden({ [group]: next });
+      if (!has) {
+        if (group === "sectors" && sectorFilter === value)
+          setSectorFilter(null);
+        if (group === "platforms" && platformFilter === value)
+          setPlatformFilter("all");
+      }
+    },
+    [
+      filterHidden,
+      updateFilterHidden,
+      ownerFilter,
+      sectorFilter,
+      platformFilter,
+      setOwnerFilter,
+      setPlatformFilter,
+    ],
   );
 
   // 刷新 2FA 验证码
@@ -1630,6 +1742,8 @@ export function BwbrowserCloudAccountsDialog({
         gpu_acceleration: account.gpu_acceleration ?? false,
         video_sniffer: false,
         cookie_source: false,
+        password_manager: false,
+        bookmark_sync: false,
       });
       setEditStartUrls(parseAccountStartUrls(account.start_urls));
       setEditStartUrlInput("");
@@ -1720,6 +1834,26 @@ export function BwbrowserCloudAccountsDialog({
           setEditForm((prev) => ({
             ...prev,
             cookie_source: list.includes(account.id),
+          }));
+        } catch {
+          // 读取失败按默认（关闭）处理
+        }
+        // 密码管理工具（公司 KV 云端清单）
+        try {
+          const pm = await invoke<number[]>("get_password_manager_accounts");
+          setEditForm((prev) => ({
+            ...prev,
+            password_manager: Array.isArray(pm) && pm.includes(account.id),
+          }));
+        } catch {
+          // 读取失败按默认（关闭）处理
+        }
+        // 书签同步（公司 KV 云端清单）
+        try {
+          const bm = await invoke<number[]>("get_bookmark_sync_accounts");
+          setEditForm((prev) => ({
+            ...prev,
+            bookmark_sync: Array.isArray(bm) && bm.includes(account.id),
           }));
         } catch {
           // 读取失败按默认（关闭）处理
@@ -3230,6 +3364,80 @@ export function BwbrowserCloudAccountsDialog({
     return ownerStats.filter((o) => o.sectors.includes(sectorFilter));
   }, [ownerStats, sectorFilter]);
 
+  // 应用「筛选栏设置」：不勾选（被隐藏）的 tab 不渲染。全部 tab（"all"）固定显示。
+  const shownSectors = useMemo(
+    () => allSectors.filter((s) => !filterHidden.sectors.includes(s)),
+    [allSectors, filterHidden.sectors],
+  );
+  const shownOwners = useMemo(
+    () =>
+      visibleOwners.filter((o) => !filterHidden.owners.includes(o.owner_id)),
+    [visibleOwners, filterHidden.owners],
+  );
+  const shownPlatformStats = useMemo(
+    () =>
+      platformStats.filter(
+        (st) =>
+          st.platform === "all" ||
+          !filterHidden.platforms.includes(st.platform),
+      ),
+    [platformStats, filterHidden.platforms],
+  );
+
+  // 筛选栏尾部「设置」按钮：列出该组全部选项，勾选 = 显示 tab，取消 = 隐藏（保存在本机）
+  const filterSettingsBtn = (
+    group: "sectors" | "owners" | "platforms",
+    options: { value: string; label: string }[],
+  ) => (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="ml-auto flex shrink-0 items-center gap-0.5 rounded-full border border-dashed border-border bg-background px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          title="设置筛选栏显示的选项：勾选 = 显示，不勾选 = 隐藏（保存在本机）"
+        >
+          <LuSettings2 className="h-3 w-3" />
+          设置
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-52 p-2">
+        <div className="mb-1.5 text-xs font-medium text-muted-foreground">
+          勾选 = 显示；取消勾选 = 隐藏
+        </div>
+        <div className="flex max-h-60 flex-col gap-0.5 overflow-y-auto">
+          {options.length === 0 && (
+            <div className="py-2 text-xs text-muted-foreground/60">
+              暂无可选项
+            </div>
+          )}
+          {options.map((op) => {
+            const checked =
+              group === "owners"
+                ? !filterHidden.owners.includes(Number(op.value))
+                : group === "sectors"
+                  ? !filterHidden.sectors.includes(op.value)
+                  : !filterHidden.platforms.includes(op.value);
+            return (
+              <label
+                key={op.value}
+                className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-muted"
+                title={op.label}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleFilterHidden(group, op.value)}
+                  className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                />
+                <span className="truncate">{op.label}</span>
+              </label>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+
   // 一键修复：删除本地数据 + 服务器 Cookie（无法登录时使用）
   const handleRepairAccount = useCallback(async (account: BwbrowserAccount) => {
     // WebView2 会吞掉原生 confirm()，必须用 plugin-dialog 的原生对话框
@@ -3355,6 +3563,19 @@ export function BwbrowserCloudAccountsDialog({
     const ids = new Set<number>();
     for (const a of accounts) ids.add(a.id);
     return ids;
+  }, [accounts]);
+
+  // 节点IP列自适应宽度：按当前数据里最长节点展示串估算（font-mono text-xs
+  // 约 7.2px/字符 + 国家徽章 50px + 间距/内边距 24px），下限 96 上限 320。
+  // 表格本身已改为按列宽之和自适应（不铺满容器），该宽度即列的实际宽度，
+  // 数据变化（换代理/筛选/翻页）后列宽自动跟着内容伸缩，不再有列内空白。
+  const proxyColumnSize = useMemo(() => {
+    let maxLen = 0;
+    for (const a of accounts) {
+      const d = proxyNodeDisplay(a.proxy_node);
+      if (d.length > maxLen) maxLen = d.length;
+    }
+    return Math.min(320, Math.max(96, Math.round(maxLen * 7.2) + 74));
   }, [accounts]);
 
   // 表格列定义
@@ -3564,7 +3785,7 @@ export function BwbrowserCloudAccountsDialog({
                           account.parent_accounts
                             .map(
                               (p) =>
-                                `👑 ${p.account_name || "#" + p.id}` +
+                                `👑 ${p.account_name || `#${p.id}`}` +
                                 (p.device_id ? `  📱${p.device_id}` : "") +
                                 (p.login_account
                                   ? `\n   登录: ${p.login_account}`
@@ -3897,33 +4118,7 @@ export function BwbrowserCloudAccountsDialog({
         cell: ({ row }) => {
           const account = row.original;
           const proxy = account.proxy_node;
-          const display = proxy
-            ? (() => {
-                // VLESS/Trojan: 显示类型+host
-                if (
-                  proxy.startsWith("vless://") ||
-                  proxy.startsWith("trojan://")
-                ) {
-                  const scheme = proxy.split("://")[0];
-                  try {
-                    const u = new URL(proxy);
-                    return `${scheme}:${u.hostname}:${u.port}`;
-                  } catch {
-                    return proxy.slice(0, 20);
-                  }
-                }
-                // HTTP/SOCKS5: type:host:port 或旧格式 host:port
-                const parts = proxy.split(":");
-                const hostIdx = ["http", "socks5"].includes(
-                  parts[0].toLowerCase(),
-                )
-                  ? 1
-                  : 0;
-                return parts.length >= hostIdx + 2
-                  ? `${parts[hostIdx]}:${parts[hostIdx + 1]}`
-                  : proxy;
-              })()
-            : null;
+          const display = proxyNodeDisplay(proxy);
           return (
             <button
               type="button"
@@ -3937,7 +4132,7 @@ export function BwbrowserCloudAccountsDialog({
                 </span>
               )}
               {display ? (
-                <span className="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[220px] block">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline block">
                   {display}
                 </span>
               ) : (
@@ -3948,7 +4143,7 @@ export function BwbrowserCloudAccountsDialog({
             </button>
           );
         },
-        size: 260,
+        size: proxyColumnSize,
       },
       {
         accessorKey: "timezone",
@@ -4208,6 +4403,7 @@ export function BwbrowserCloudAccountsDialog({
     ];
     return cols;
   }, [
+    proxyColumnSize,
     handleLaunchAccount,
     launchingIds,
     launchProgress,
@@ -4439,7 +4635,7 @@ export function BwbrowserCloudAccountsDialog({
           >
             全部赛道
           </button>
-          {allSectors.map((s) => (
+          {shownSectors.map((s) => (
             <button
               type="button"
               key={s}
@@ -4459,6 +4655,10 @@ export function BwbrowserCloudAccountsDialog({
               暂无赛道
             </span>
           )}
+          {filterSettingsBtn(
+            "sectors",
+            allSectors.map((s) => ({ value: s, label: s })),
+          )}
         </div>
       )}
 
@@ -4477,7 +4677,7 @@ export function BwbrowserCloudAccountsDialog({
           >
             全部人员
           </button>
-          {visibleOwners.map((owner) => (
+          {shownOwners.map((owner) => (
             <button
               type="button"
               key={owner.owner_id}
@@ -4498,12 +4698,19 @@ export function BwbrowserCloudAccountsDialog({
               加载中...
             </span>
           )}
+          {filterSettingsBtn(
+            "owners",
+            ownerStats.map((o) => ({
+              value: String(o.owner_id),
+              label: o.owner_name,
+            })),
+          )}
         </div>
       )}
 
       {/* ========== 平台过滤栏 ========== */}
       <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border bg-muted/30 px-4 py-1.5">
-        {platformStats.map((stat) => (
+        {shownPlatformStats.map((stat) => (
           <button
             type="button"
             key={stat.platform}
@@ -4533,6 +4740,15 @@ export function BwbrowserCloudAccountsDialog({
             </span>
           </button>
         ))}
+        {filterSettingsBtn(
+          "platforms",
+          platformStats
+            .filter((st) => st.platform !== "all")
+            .map((st) => ({
+              value: st.platform,
+              label: getPlatformLabel(st.platform),
+            })),
+        )}
       </div>
 
       {/* ========== 搜索栏 ========== */}
@@ -4702,7 +4918,7 @@ export function BwbrowserCloudAccountsDialog({
           </div>
         )}
         {accounts.length > 0 && (
-          <Table className="table-fixed">
+          <Table className="table-fixed" style={{ width: "auto" }}>
             <TableHeader className="sticky top-0 bg-background/80 backdrop-blur">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -6524,6 +6740,64 @@ export function BwbrowserCloudAccountsDialog({
                       </TooltipContent>
                     </Tooltip>
                   </button>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2"
+                    onClick={() =>
+                      setEditForm((p) => ({
+                        ...p,
+                        password_manager: !p.password_manager,
+                      }))
+                    }
+                  >
+                    <Checkbox
+                      checked={editForm.password_manager}
+                      onCheckedChange={(v) =>
+                        setEditForm((p) => ({
+                          ...p,
+                          password_manager: v === true,
+                        }))
+                      }
+                    />
+                    <span className="text-xs">密码管理工具</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        开启后启用该账号浏览器的保存密码与自动登录，并把输入的账号密码同步到云端（跨设备）
+                      </TooltipContent>
+                    </Tooltip>
+                  </button>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2"
+                    onClick={() =>
+                      setEditForm((p) => ({
+                        ...p,
+                        bookmark_sync: !p.bookmark_sync,
+                      }))
+                    }
+                  >
+                    <Checkbox
+                      checked={editForm.bookmark_sync}
+                      onCheckedChange={(v) =>
+                        setEditForm((p) => ({
+                          ...p,
+                          bookmark_sync: v === true,
+                        }))
+                      }
+                    />
+                    <span className="text-xs">书签同步</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        开启后关闭书签上传服务器，启动时从服务器同步到本地（保存在云端书签）
+                      </TooltipContent>
+                    </Tooltip>
+                  </button>
                 </div>
                 {/* 浏览器扩展（按账号勾选，保存时与主保存一起提交） */}
                 <div className="space-y-1.5">
@@ -7093,6 +7367,28 @@ export function BwbrowserCloudAccountsDialog({
                   } catch (e) {
                     showErrorToast(
                       `Cookie 来源开关保存失败: ${e instanceof Error ? e.message : String(e)}`,
+                    );
+                  }
+                  // 密码管理工具开关（公司 KV 云端同步）；失败只提示，不回滚主保存
+                  try {
+                    await invoke("set_account_password_manager", {
+                      accountId: editAccount.id,
+                      enabled: editForm.password_manager,
+                    });
+                  } catch (e) {
+                    showErrorToast(
+                      `密码管理工具开关保存失败: ${e instanceof Error ? e.message : String(e)}`,
+                    );
+                  }
+                  // 书签同步开关（公司 KV 云端同步）；失败只提示，不回滚主保存
+                  try {
+                    await invoke("set_account_bookmark_sync", {
+                      accountId: editAccount.id,
+                      enabled: editForm.bookmark_sync,
+                    });
+                  } catch (e) {
+                    showErrorToast(
+                      `书签同步开关保存失败: ${e instanceof Error ? e.message : String(e)}`,
                     );
                   }
                   showSuccessToast("保存成功");
