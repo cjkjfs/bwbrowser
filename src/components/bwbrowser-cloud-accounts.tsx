@@ -34,6 +34,8 @@ import {
   LuMonitor,
   LuNetwork,
   LuPencil,
+  LuPin,
+  LuPinOff,
   LuPlay,
   LuPlus,
   LuRefreshCw,
@@ -949,6 +951,8 @@ export function BwbrowserCloudAccountsDialog({
     keyword,
     serverSort,
     setServerSort,
+    togglePin,
+    isPinned,
     isManager,
     isSuperAdmin,
     canViewPassword,
@@ -3776,6 +3780,31 @@ export function BwbrowserCloudAccountsDialog({
                 >
                   {displayName || "-"}
                 </button>
+                {/* 置顶开关：置顶后该行固定在列表最前，不受平台/人员筛选与分页影响（本地持久化） */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    togglePin(account.id);
+                  }}
+                  className={cn(
+                    "shrink-0 rounded p-0.5 transition-colors",
+                    isPinned(account.id)
+                      ? "text-amber-500 hover:text-amber-600"
+                      : "text-muted-foreground/25 hover:bg-muted hover:text-amber-500",
+                  )}
+                  title={
+                    isPinned(account.id)
+                      ? "取消置顶"
+                      : "置顶（固定在列表最前，不受筛选影响）"
+                  }
+                >
+                  {isPinned(account.id) ? (
+                    <LuPin className="h-3 w-3" />
+                  ) : (
+                    <LuPinOff className="h-3 w-3" />
+                  )}
+                </button>
                 {isChildAccount && (
                   <span
                     className="shrink-0 cursor-help rounded bg-primary/10 px-1 py-0.5 text-[10px] leading-none text-primary"
@@ -4288,12 +4317,18 @@ export function BwbrowserCloudAccountsDialog({
           const remark = account.remark ?? "";
           return (
             <div className="flex items-start gap-1.5">
-              <div className="flex min-w-0 max-w-full flex-col gap-0.5">
+              {/* 备注标签文字整体可点击，直接打开编辑弹窗（同节点IP列的点击编辑交互） */}
+              <button
+                type="button"
+                onClick={() => void handleOpenEdit(row.original)}
+                className="flex min-w-0 max-w-full flex-col gap-0.5 text-left"
+                title="点击编辑标签/备注"
+              >
                 {tagsArr.length > 0 &&
                   tagsArr.map((tag) => (
                     <span
                       key={tag}
-                      className="truncate text-[11px] text-purple-600 dark:text-purple-400 leading-tight"
+                      className="truncate text-[11px] text-purple-600 dark:text-purple-400 leading-tight hover:underline"
                       title={tag}
                     >
                       {tag}
@@ -4301,20 +4336,17 @@ export function BwbrowserCloudAccountsDialog({
                   ))}
                 {remark && (
                   <span
-                    className="truncate text-[11px] text-amber-600 dark:text-amber-500 leading-tight"
+                    className="truncate text-[11px] text-amber-600 dark:text-amber-500 leading-tight hover:underline"
                     title={remark}
                   >
                     {remark}
                   </span>
                 )}
-              </div>
-              <button
-                type="button"
-                onClick={() => handleOpenEdit(row.original)}
-                className="text-muted-foreground hover:text-foreground transition-colors"
-                title="编辑"
-              >
-                <LuPencil className="h-3 w-3" />
+                {tagsArr.length === 0 && !remark && (
+                  <span className="text-xs text-muted-foreground hover:text-foreground">
+                    未设置
+                  </span>
+                )}
               </button>
             </div>
           );
@@ -4434,6 +4466,8 @@ export function BwbrowserCloudAccountsDialog({
     childAccountsByParent,
     expandedAccountIds,
     toggleAccountExpand,
+    togglePin,
+    isPinned,
   ]);
 
   const table = useReactTable({
@@ -4952,8 +4986,9 @@ export function BwbrowserCloudAccountsDialog({
                 // 「单独显示子账号」开关开启后平铺展示（不再折叠）；
                 // 母账号不在当前结果集（被人员/平台筛选掉、或分页跨页切开）
                 // 时也平铺显示——否则子账号会凭空消失（总数有、列表空）；
-                // 搜索时不过滤（keyword 命中家族任一成员会返回整个家族，直接平铺展示，方便搜到子账号）
-                if (isChildRow) {
+                // 搜索时不过滤（keyword 命中家族任一成员会返回整个家族，直接平铺展示，方便搜到子账号）；
+                // 置顶行始终显示（置顶本身就是为了无视筛选把它钉在顶部）
+                if (isChildRow && !isPinned(acc.id)) {
                   if (
                     !keyword.trim() &&
                     !showChildrenFlat &&
@@ -4970,9 +5005,12 @@ export function BwbrowserCloudAccountsDialog({
                     data-acc-id={acc.id}
                     data-state={row.getIsSelected() && "selected"}
                     className={cn(
+                      "group",
                       row.original.status === 1 &&
                         "text-emerald-600 dark:text-emerald-400",
                       isChildRow && "bg-muted/30",
+                      // 置顶行淡金底色提示 + 左侧金色竖条
+                      isPinned(acc.id) && "bg-amber-500/5",
                     )}
                   >
                     {row.getVisibleCells().map((cell) => (

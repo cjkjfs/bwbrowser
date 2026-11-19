@@ -233,7 +233,7 @@ fn windows_has_app_bound_key(dir: &Path) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn windows_local_state_key(dir: &Path) -> Result<Option<[u8; 32]>, String> {
+pub(crate) fn windows_local_state_key(dir: &Path) -> Result<Option<[u8; 32]>, String> {
   use base64::Engine;
 
   let Some(os_crypt) = read_local_state_os_crypt(dir) else {

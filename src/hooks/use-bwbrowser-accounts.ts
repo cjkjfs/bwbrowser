@@ -1,7 +1,7 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBwbrowserAuth } from "./use-bwbrowser-auth";
 
 // ==================== 类型定义（与 Simprint API 对齐）====================
@@ -68,6 +68,9 @@ export interface BwbrowserAccount {
   parent_names?: string;
   /** 母账号详细信息数组（含 id/手机编号/登录账号/平台/归属人），快速定位用 */
   parent_accounts?: ParentAccountInfo[];
+
+  /** 置顶标记：由本 hook 内部注入，仅用于展示层识别置顶行（勿持久化/上行） */
+  __pinned?: boolean;
 }
 
 /** 母账号摘要信息（parent_accounts 元素） */
@@ -175,6 +178,11 @@ interface UseBwbrowserAccountsReturn {
     accountId: number,
     patch: Partial<BwbrowserAccount>,
   ) => void;
+  // 置顶：本地持久化（localStorage，按公司隔离）；置顶账号绕过平台/人员/
+  // 关键词筛选与分页，始终注入结果首部（不受服务端筛选限制）
+  pinnedIds: number[];
+  togglePin: (accountId: number) => void;
+  isPinned: (accountId: number) => boolean;
 }
 
 /**
@@ -184,6 +192,22 @@ const platformFilterKey = (companyId: number | null | undefined) =>
   `bwbrowser_platform_filter:${companyId ?? "default"}`;
 const ownerFilterKey = (companyId: number | null | undefined) =>
   `bwbrowser_owner_filter:${companyId ?? "default"}`;
+const pinnedKey = (companyId: number | null | undefined) =>
+  `bwbrowser_pinned_accounts:${companyId ?? "default"}`;
+
+/** 从 localStorage 读置顶 id 列表（JSON 数组，按置顶先后排序） */
+const readPinnedIds = (companyId: number | null | undefined): number[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(pinnedKey(companyId));
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr)
+      ? arr.filter((n) => Number.isFinite(n)).map(Number)
+      : [];
+  } catch {
+    return [];
+  }
+};
 
 export function useBwbrowserAccounts(
   companyId?: number | null,
@@ -230,6 +254,80 @@ export function useBwbrowserAccounts(
     by: string;
     order: "asc" | "desc";
   } | null>(null);
+
+  // ========== 置顶（本地持久化 + 绕过服务端筛选） ==========
+  // pinnedIds 存 localStorage（按公司隔离）；pinnedAccounts 是各置顶账号的
+  // 详情数据（get_account_detail 逐个拉取，天然绕过列表接口的平台/人员/
+  // 关键词筛选与分页）。展示时注入结果首部，当前页已有的置顶账号去重。
+  const [pinnedIds, setPinnedIdsState] = useState<number[]>(() =>
+    readPinnedIds(companyId),
+  );
+  const [pinnedAccounts, setPinnedAccounts] = useState<BwbrowserAccount[]>([]);
+  const pinnedFetchSeqRef = useRef(0);
+
+  const togglePin = useCallback(
+    (accountId: number) => {
+      setPinnedIdsState((prev) => {
+        const next = prev.includes(accountId)
+          ? prev.filter((x) => x !== accountId)
+          : [...prev, accountId];
+        try {
+          localStorage.setItem(pinnedKey(companyId), JSON.stringify(next));
+        } catch {
+          /* ignore */
+        }
+        return next;
+      });
+      // 取消置顶时立即从展示列表移除（详情 effect 到达前不残留）
+      setPinnedAccounts((prev) => prev.filter((p) => p.id !== accountId));
+    },
+    [companyId],
+  );
+
+  const isPinned = useCallback(
+    (accountId: number) => pinnedIds.includes(accountId),
+    [pinnedIds],
+  );
+
+  // 切换公司时重读该公司的置顶列表（与平台/归属人筛选同模式）
+  useEffect(() => {
+    setPinnedIdsState(readPinnedIds(companyId));
+    setPinnedAccounts([]);
+  }, [companyId]);
+
+  // 置顶账号详情拉取：pinnedIds 或登录态变化时逐个取详情（并发），失败静默
+  // 跳过（如权限变化后不可见的账号），id 保留、下次变化时重试
+  useEffect(() => {
+    if (!isLoggedIn || pinnedIds.length === 0) {
+      setPinnedAccounts([]);
+      return;
+    }
+    const seq = ++pinnedFetchSeqRef.current;
+    void (async () => {
+      const results = await Promise.allSettled(
+        pinnedIds.map((id) =>
+          invoke<BwbrowserAccount>("bwbrowser_get_account_detail", {
+            accountId: id,
+          }),
+        ),
+      );
+      if (pinnedFetchSeqRef.current !== seq) return; // 已过期，丢弃
+      const list: BwbrowserAccount[] = [];
+      for (let i = 0; i < pinnedIds.length; i++) {
+        const r = results[i];
+        if (r.status === "fulfilled") {
+          list.push({ ...r.value, __pinned: true });
+        } else {
+          console.warn(
+            "[BwbrowserAccounts] 置顶账号详情获取失败:",
+            pinnedIds[i],
+            r.reason,
+          );
+        }
+      }
+      setPinnedAccounts(list);
+    })();
+  }, [pinnedIds, isLoggedIn]);
 
   // 汇总数据
   const [summary, setSummary] = useState<AccountSummary | null>(null);
@@ -289,6 +387,17 @@ export function useBwbrowserAccounts(
         setTotal(result.total || 0);
         setCurrentPage(page);
         setPageSizeState(pSize);
+        // 置顶账号数据保鲜：当前页里含置顶账号时，以列表最新数据覆盖详情缓存
+        setPinnedAccounts((prev) => {
+          if (prev.length === 0) return prev;
+          const fresh = new Map(
+            (result.accounts || []).map((a) => [a.id, a] as const),
+          );
+          return prev.map((p) => {
+            const f = fresh.get(p.id);
+            return f ? { ...f, __pinned: true } : p;
+          });
+        });
         if (typeof result.can_view_password === "boolean") {
           setCanViewPassword(result.can_view_password);
         }
@@ -494,8 +603,21 @@ export function useBwbrowserAccounts(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [platformFilter, keyword, ownerFilter, pageSize, isLoggedIn, fetchPage]);
 
+  // 展示数据 = 置顶行（按置顶顺序，详情已到的）+ 当前页去重行。
+  // 置顶行不受平台/人员/关键词筛选与分页影响；组件所有派生逻辑
+  // （子账号树、列宽估算、全选等）直接消费该合并结果。
+  const displayAccounts = useMemo(() => {
+    if (pinnedIds.length === 0) return accounts;
+    const detailById = new Map(pinnedAccounts.map((p) => [p.id, p] as const));
+    const pinnedRows = pinnedIds
+      .map((id) => detailById.get(id))
+      .filter((a): a is BwbrowserAccount => Boolean(a));
+    const pinnedSet = new Set(pinnedIds);
+    return [...pinnedRows, ...accounts.filter((a) => !pinnedSet.has(a.id))];
+  }, [accounts, pinnedAccounts, pinnedIds]);
+
   return {
-    accounts,
+    accounts: displayAccounts,
     /** 局部更新单个账号的字段（乐观更新用；服务端保存失败时由调用方回滚） */
     patchAccountLocal: (
       accountId: number,
@@ -503,6 +625,9 @@ export function useBwbrowserAccounts(
     ) => {
       setAccounts((prev) =>
         prev.map((a) => (a.id === accountId ? { ...a, ...patch } : a)),
+      );
+      setPinnedAccounts((prev) =>
+        prev.map((p) => (p.id === accountId ? { ...p, ...patch } : p)),
       );
     },
     total,
@@ -532,5 +657,8 @@ export function useBwbrowserAccounts(
     keyword,
     serverSort,
     setServerSort,
+    pinnedIds,
+    togglePin,
+    isPinned,
   };
 }

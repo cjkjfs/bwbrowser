@@ -78,3 +78,12 @@
 - **语义**：账号可设多个附加运营人，被设置者即可见/可操作该账号（主归属+附加运营）。member 可见=`owner_id=我 OR FIND_IN_SET(我,co_owner_ids)`；leader 组=组员主归属 OR 组员是附加运营；manager 筛某人=他的主归属+他是附加运营的；private 对附加运营放行；家族继承母账号集合同步扩展；benchmark 无此字段（tiktok-only）。summary tiktok 聚合=可见口径，owners 人员分布仍算主归属头上。
 - **网页端**：account_detail_admin.php detailModal「👥 附加运营人」checkbox 多选（同公司成员、排除主归属），save_detail 校验同公司 active 用户后落库。
 - **回退**：`tk/*.bak_precowner_20261114_145156`。**踩坑**：MySQL 5.7 REGEXP 是 POSIX 不支持 `(?:)`；纯字面量 WHERE 时 execute 不可再合并 ownerParams（参数多→聚合静默归零）；临时改密码必须**先 SELECT 备份再 UPDATE**（users 有 plain_password 明文列可兜底重建）。
+
+---
+## 密码管理器云端同步（2026-11-19 实现，客户端待重编译）
+
+- **机制**：Chromium 原生密码管理器（`Login Data` logins 表）↔ 云端，语义同书签同步。开关复用「密码管理工具」KV（password_manager_accounts），无需前端改动。
+- **密钥**：Wayfern 内核=便携 `<user-data-dir>/os_crypt_key`（Windows 32B AES-256-GCM v10，实测可解密）；标准 Chromium 兜底=Local State encrypted_key（DPAPI，仅 Windows）。
+- **客户端**：`src-tauri/src/password_sync.rs`（export/import/count）；上行挂 watch_account_browser_close（退出导出上传，空不上传）、下行挂 launch_account（本地 0 条才注入，本地有以本地为准）；按 origin_url+username_value 去重；新 profile 第一次启动 Login Data 未生成，第二次启动才注入。
+- **服务端**：users.php get/update_bwbrowser_passwords；表 `bwbrowser_passwords`（UNIQUE user_id+account_id，按账号分存）+ `_history`（10 份）+ 骤减保护。备份 users.php.bak_prepwd_20261119。roundtrip 已实测通过。
+- **踩坑**：PHP `if(!function_exists)` 条件函数定义是运行时求值，必须放在调用它的 handler 之前，否则 500。

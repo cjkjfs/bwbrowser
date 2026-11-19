@@ -95,6 +95,7 @@ mod ip_utils;
 mod launch_gate;
 mod launch_gate_prefs;
 mod log_redaction;
+mod password_sync;
 mod platform_browser;
 mod profile;
 mod profile_import;

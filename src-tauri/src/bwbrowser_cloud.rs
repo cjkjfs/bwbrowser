@@ -7721,6 +7721,45 @@ async fn watch_account_browser_close(
               ),
             }
           }
+          // 账号「密码管理工具」开启：浏览器已退出，把本地密码管理器数据
+          // 上行云端（下行在 launch_account 里做；云端按账号分存，带骤减
+          // 保护和历史快照，空数据不上传防止误覆盖）。
+          if crate::account_flags::account_flag_enabled(
+            crate::account_flags::AccountFlagKey::PasswordManager,
+            account_id,
+          )
+          .await
+          {
+            let profile_data = profile.get_profile_data_path(&pm.get_profiles_dir());
+            match crate::password_sync::export_passwords(&profile_data) {
+              Ok(Some(json)) => {
+                match BWBROWSER_AUTH
+                  .update_bwbrowser_passwords(account_id, &json)
+                  .await
+                {
+                  Ok(()) => log_bwbrowser(
+                    "password_sync",
+                    &format!(
+                      "账号 {account_name} 浏览器退出：密码管理器数据已上行云端（{} 字节）",
+                      json.len()
+                    ),
+                  ),
+                  Err(e) => log_bwbrowser(
+                    "password_sync",
+                    &format!("账号 {account_name} 密码上行失败（忽略）: {e}"),
+                  ),
+                }
+              }
+              Ok(None) => log_bwbrowser(
+                "password_sync",
+                &format!("账号 {account_name} 浏览器退出：本地无保存密码，跳过上行"),
+              ),
+              Err(e) => log_bwbrowser(
+                "password_sync",
+                &format!("账号 {account_name} 读取本地密码失败（忽略）: {e}"),
+              ),
+            }
+          }
           let _ = app_handle.emit(
             "account-browser-closed",
             serde_json::json!({
@@ -8659,6 +8698,47 @@ async fn launch_account_impl(
           Err(e) => log_bwbrowser(
             "launch_account",
             &format!("  云端拉取书签失败（忽略）: {e}"),
+          ),
+        }
+      }
+      // 3. 密码管理器云端同步（下行）：密码管理工具开启且本地无保存密码时，
+      //    注入云端数据。上行在 watch_account_browser_close 里做——本地有
+      //    保存密码时以本地为准，退出后上行覆盖云端。
+      if pwd_mgr_on {
+        match BWBROWSER_AUTH.get_bwbrowser_passwords(account_id).await {
+          Ok(Some(cloud_json)) if !cloud_json.trim().is_empty() && cloud_json != "null" => {
+            let local_count = crate::password_sync::count_local_logins(&profile_data);
+            if local_count > 0 {
+              log_bwbrowser(
+                "launch_account",
+                &format!(
+                  "  密码管理工具开启：本地已有 {} 条保存密码，跳过下行（以本地为准）",
+                  local_count
+                ),
+              );
+            } else {
+              match crate::password_sync::import_passwords(&profile_data, &cloud_json) {
+                Ok((imported, skipped)) => log_bwbrowser(
+                  "launch_account",
+                  &format!(
+                    "  密码管理工具开启：✓ 云端密码管理器数据已注入 {} 条（本地已存在跳过 {} 条）",
+                    imported, skipped
+                  ),
+                ),
+                Err(e) => log_bwbrowser(
+                  "launch_account",
+                  &format!("  云端密码注入失败（忽略）: {e}"),
+                ),
+              }
+            }
+          }
+          Ok(_) => log_bwbrowser(
+            "launch_account",
+            "  密码管理工具开启：云端暂无密码数据，跳过下行",
+          ),
+          Err(e) => log_bwbrowser(
+            "launch_account",
+            &format!("  云端拉取密码失败（忽略）: {e}"),
           ),
         }
       }
@@ -11211,6 +11291,68 @@ impl BwbrowserAuthManager {
     let body = resp.text().await.map_err(|e| e.to_string())?;
     log_bwbrowser(
       "update_bwbrowser_bookmarks",
+      &format!("← HTTP {}, {} bytes", status, body.len()),
+    );
+
+    let result: serde_json::Value =
+      serde_json::from_str(&body).map_err(|e| format!("解析响应失败: {}", e))?;
+    if !result["success"].as_bool().unwrap_or(false) {
+      let msg = result["message"].as_str().unwrap_or("保存失败");
+      return Err(msg.to_string());
+    }
+    Ok(())
+  }
+
+  /// 获取当前用户某个浏览器账号的密码管理器云端同步数据（明文 JSON）
+  pub async fn get_bwbrowser_passwords(&self, account_id: i64) -> Result<Option<String>, String> {
+    let body = self
+      .call_users_api(
+        "get_bwbrowser_passwords",
+        &[("account_id", &account_id.to_string())],
+      )
+      .await?;
+    let result: serde_json::Value = parse_body("get_bwbrowser_passwords", &body)?;
+    let passwords = result["passwords"].as_str().map(|s| s.to_string());
+    Ok(passwords)
+  }
+
+  /// 保存当前用户某个浏览器账号的密码管理器云端同步数据
+  pub async fn update_bwbrowser_passwords(
+    &self,
+    account_id: i64,
+    passwords: &str,
+  ) -> Result<(), String> {
+    let (username, password) = self
+      .get_credentials()
+      .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+
+    let form_data = format!(
+      "action=update_bwbrowser_passwords&username={}&password={}&account_id={}&passwords={}",
+      urlencode(&username),
+      urlencode(&password),
+      account_id,
+      urlencode(passwords),
+    );
+
+    let resp = self
+      .client
+      .post(BWBROWSER_USERS_API_URL)
+      .header("Content-Type", "application/x-www-form-urlencoded")
+      .body(form_data)
+      .send()
+      .await
+      .map_err(|e| {
+        log_bwbrowser_error(
+          "update_bwbrowser_passwords",
+          &format!("网络请求失败: {}", e),
+        );
+        format!("网络请求失败: {}", e)
+      })?;
+
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    log_bwbrowser(
+      "update_bwbrowser_passwords",
       &format!("← HTTP {}, {} bytes", status, body.len()),
     );
 
