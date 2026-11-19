@@ -27,6 +27,8 @@ export interface DownloadTask {
   started_at: number | null;
   finished_at: number | null;
   thumbnail: string | null;
+  /** 本次下载 Cookie 的实际来源（如「账号 3926（本机 profile「xx」）」） */
+  cookie_source: string | null;
 }
 
 export interface DownloadSettings {
@@ -36,8 +38,6 @@ export interface DownloadSettings {
   auto_paste_download: boolean;
   cookie_from_browser: boolean;
   cookie_from_system_browser: boolean;
-  /** 云端解析的账号 cookie 源：归属自己的云端账号 id；null = VPS 登录 */
-  cookie_account_id?: number | null;
   proxy_id: string | null;
 }
 
@@ -410,6 +410,7 @@ export function useVideoDownload() {
           taskId: string;
           statusText: string;
           status: string;
+          cookieSource?: string;
         };
         if (cancelled) return;
         setTasks((prev) =>
@@ -419,6 +420,9 @@ export function useVideoDownload() {
                   ...t,
                   status_text: payload.statusText,
                   status: payload.status as DownloadStatus,
+                  ...(payload.cookieSource !== undefined
+                    ? { cookie_source: payload.cookieSource }
+                    : {}),
                 }
               : t,
           ),

@@ -49,6 +49,9 @@ pub struct DownloadTask {
   pub started_at: Option<i64>,
   pub finished_at: Option<i64>,
   pub thumbnail: Option<String>, // 视频缩略图 URL
+  /// 本次下载 Cookie 的实际来源（任务列表展示，如「账号 3926（本机 profile「xx」）」）
+  #[serde(default)]
+  pub cookie_source: Option<String>,
 }
 
 impl DownloadTask {
@@ -70,6 +73,7 @@ impl DownloadTask {
       started_at: None,
       finished_at: None,
       thumbnail: None,
+      cookie_source: None,
     }
   }
 }
@@ -86,9 +90,6 @@ pub struct DownloadSettings {
   #[serde(default = "default_true")]
   pub cookie_from_system_browser: bool,
   pub proxy_id: Option<String>, // None = 直连
-  /// 云端解析的账号 cookie 源（模式A）：归属自己的云端账号 id；None = VPS 登录
-  #[serde(default)]
-  pub cookie_account_id: Option<i64>,
 }
 
 fn default_true() -> bool {
@@ -113,7 +114,6 @@ impl Default for DownloadSettings {
       max_height: 0,
       auto_paste_download: false,
       cookie_from_browser: true,
-      cookie_account_id: None,
       cookie_from_system_browser: true,
       proxy_id: None,
     }
@@ -175,15 +175,57 @@ fn urlencode(s: &str) -> String {
   encoded
 }
 
-/// 实际生效的下载代理。proxy_id 为 None 或 "follow" = 跟随模式：选了
-/// Cookie 源账号就用该账号在后台配置的登录节点（tiktok_accounts.proxy_node，
-/// 账号登录与 Cookie 提取同源），未选账号或节点不可用则直连；显式选了
-/// "direct" 或某个本地代理则照旧。
-async fn effective_proxy_url(settings: &DownloadSettings) -> Option<String> {
+/// Windows 前台窗口所属进程 pid（用于判断用户此刻正在哪个浏览器窗口里操作）。
+/// 非 Windows 平台返回 None（前台优先策略自动退化为列表顺序）。
+#[cfg(target_os = "windows")]
+fn foreground_window_pid() -> Option<u32> {
+  use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+  unsafe {
+    let hwnd = GetForegroundWindow();
+    if hwnd.0.is_null() {
+      return None;
+    }
+    let mut pid: u32 = 0;
+    GetWindowThreadProcessId(hwnd, Some(&mut pid as *mut u32));
+    if pid == 0 {
+      None
+    } else {
+      Some(pid)
+    }
+  }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn foreground_window_pid() -> Option<u32> {
+  None
+}
+
+/// 实际生效的下载代理。proxy_id 为 None 或 "follow" = 跟随模式：优先跟随
+/// `cookie_provider`（候选循环里实际导出成功 Cookie 的账号，保证下载 IP 与
+/// Cookie 会话同源，避免 YouTube 人机验证），无实际提供者时回退云端 Cookie
+/// 来源清单的第一个账号（cookie_source_accounts，账号管理勾选）的后台登录
+/// 节点（tiktok_accounts.proxy_node），都不可用则直连；显式选了 "direct" 或
+/// 某个本地代理则照旧。
+async fn effective_proxy_url(
+  settings: &DownloadSettings,
+  cookie_provider: Option<i64>,
+) -> Option<String> {
   match settings.proxy_id.as_deref() {
     None | Some("follow") => {
-      if let Some(aid) = settings.cookie_account_id {
-        log::info!("[video_download] 跟随 Cookie 源账号 id={aid}, 提取其后台登录节点作为下载代理");
+      // 跟随实际提供 Cookie 的账号优先（>0 为有效账号 id；None/0 = VPS 老链路）
+      let aid = match cookie_provider.filter(|id| *id > 0) {
+        Some(id) => Some(id),
+        None => crate::cookie_source_accounts::first_cookie_account().await,
+      };
+      if let Some(aid) = aid {
+        log::info!(
+          "[video_download] 跟随 Cookie 源账号 id={aid}{}，提取其后台登录节点作为下载代理",
+          if cookie_provider.filter(|id| *id > 0).is_some() {
+            "（实际导出成功 Cookie 的账号）"
+          } else {
+            "（云端清单第一个账号兜底）"
+          }
+        );
         let url = cookie_account_proxy_url(aid).await;
         match &url {
           Some(u) => log::info!("[video_download] 跟随账号 {aid} → 走代理 {u}"),
@@ -922,6 +964,14 @@ impl VideoDownloader {
     }
   }
 
+  /// 设置 Cookie 来源描述（任务列表展示，随任务持久化，完成后仍可查看）
+  async fn set_task_cookie_source(&self, task_id: &str, text: String) {
+    let mut inner = self.inner.lock().await;
+    if let Some(task) = inner.tasks.get_mut(task_id) {
+      task.cookie_source = Some(text);
+    }
+  }
+
   /// 更新任务进度
   async fn update_task_progress(
     &self,
@@ -1526,7 +1576,12 @@ async fn run_single_download<R: Runtime>(
     dl.set_task_status_text(task_id, "解析分享链接...".to_string())
       .await;
     // 云端优先：解析逻辑在服务端，平台改版不用发客户端；失败回退本地解析
-    let resolved = match resolve_share_url_via_cloud(url, settings.cookie_account_id).await {
+    let resolved = match resolve_share_url_via_cloud(
+      url,
+      crate::cookie_source_accounts::first_cookie_account().await,
+    )
+    .await
+    {
       Ok((direct, cloud_title)) => {
         log::info!("[video_download] 云端解析成功（title={cloud_title:?}）");
         Ok((direct, cloud_title))
@@ -1604,8 +1659,17 @@ async fn run_single_download<R: Runtime>(
     }
   }));
 
-  // 代理：服务端按用户指派的优先，未指派用本地选择
-  let effective_proxy = effective_proxy_url(settings).await;
+  // 代理：显式选择时立即解析；跟随模式推迟到 Cookie 提取之后 —— 跟随
+  // 「实际导出成功 Cookie 的账号」，保证下载 IP 与 Cookie 会话同源，
+  // 避免 YouTube 因 IP 与会话不匹配触发人机验证（旧实现跟随手动指定的
+  // 账号，可能与实际提供 Cookie 的账号脱节）。
+  let is_follow_mode =
+    settings.proxy_id.is_none() || settings.proxy_id.as_deref() == Some("follow");
+  let effective_proxy = if is_follow_mode {
+    None
+  } else {
+    effective_proxy_url(settings, None).await
+  };
   if let Some(proxy_url) = effective_proxy.clone() {
     args.push("--proxy".to_string());
     args.push(proxy_url);
@@ -1615,18 +1679,11 @@ async fn run_single_download<R: Runtime>(
   let proxy_info = match effective_proxy {
     Some(url) => format!("代理: {}\n", url),
     None => {
-      let follow_note =
-        if settings.proxy_id.is_none() || settings.proxy_id.as_deref() == Some("follow") {
-          match settings.cookie_account_id {
-            Some(aid) => format!(
-              "（跟随 Cookie 源账号 id={aid}，但该账号节点不可用/节点转代理失败 → 已回落直连）\n"
-            ),
-            None => "（跟随模式但未选账号 → 直连）\n".to_string(),
-          }
-        } else {
-          String::new()
-        };
-      format!("代理: 直连（不使用代理）{}\n", follow_note)
+      if is_follow_mode {
+        "代理: 跟随模式（将在 Cookie 提取后按实际提供 Cookie 的账号解析）\n".to_string()
+      } else {
+        "代理: 直连（不使用代理）\n".to_string()
+      }
     }
   };
   let log_content = format!(
@@ -1716,6 +1773,8 @@ async fn run_single_download<R: Runtime>(
 
   // cookie - 从浏览器导出
   let mut cookie_error: Option<String> = None;
+  // 实际导出成功 Cookie 的账号（None = VPS 老链路），供代理跟随使用
+  let mut cookie_provider: Option<i64> = None;
   let is_tiktok = url.contains("tiktok.com");
   // TikTok 有专用 API 提取器，不需要 cookie
   // 抖音的访客 cookie 与请求签名都由插件自行注册，跳过浏览器 cookie 导出：
@@ -1735,7 +1794,9 @@ async fn run_single_download<R: Runtime>(
     match export_vps_cookies_to_file(force_refresh_cookie, dl, app, Some(url), Some(&log_path))
       .await
     {
-      Ok(cookie_file) => {
+      Ok(outcome) => {
+        cookie_provider = outcome.provider;
+        let cookie_file = outcome.path;
         // 检查 cookie 文件是否包含对应平台的 cookie
         let cookie_content = std::fs::read_to_string(&cookie_file).unwrap_or_default();
         let lower_url = url.to_lowercase();
@@ -1769,6 +1830,17 @@ async fn run_single_download<R: Runtime>(
           );
           args.push("--cookies".to_string());
           args.push(cookie_file.to_string_lossy().to_string());
+          // 来源描述挂到任务上：下载列表/任务详情可见「Cookie 来自哪个账号/窗口」
+          let cookie_source_text = if needs_youtube && !has_youtube_login {
+            format!(
+              "Cookie 来自 {}（未登录 YouTube，仅游客 Cookie）",
+              outcome.source_desc
+            )
+          } else {
+            format!("Cookie 来自 {}", outcome.source_desc)
+          };
+          dl.set_task_cookie_source(task_id, cookie_source_text.clone())
+            .await;
           let cookie_status_text = if needs_youtube && !has_youtube_login {
             // 游客 cookie 仍传给 yt-dlp（聊胜于无），但明确提示可能被风控
             log::warn!(
@@ -1785,13 +1857,18 @@ async fn run_single_download<R: Runtime>(
             &serde_json::json!({
               "taskId": task_id,
               "statusText": cookie_status_text,
-              "status": "downloading"
+              "status": "downloading",
+              "cookieSource": cookie_source_text
             }),
           );
         } else {
           log::info!(
             "[video_download] Cookie 文件无对应平台 cookie，跳过 --cookies，让 yt-dlp 自行获取访客 cookie"
           );
+          let no_platform_text =
+            format!("Cookie 来自 {}（无平台 Cookie，访客）", outcome.source_desc);
+          dl.set_task_cookie_source(task_id, no_platform_text.clone())
+            .await;
           dl.set_task_status_text(task_id, "无平台 Cookie，yt-dlp 自动获取...".to_string())
             .await;
           let _ = app.emit(
@@ -1799,7 +1876,8 @@ async fn run_single_download<R: Runtime>(
             &serde_json::json!({
               "taskId": task_id,
               "statusText": "无平台 Cookie，yt-dlp 自动获取...",
-              "status": "downloading"
+              "status": "downloading",
+              "cookieSource": no_platform_text
             }),
           );
         }
@@ -1807,6 +1885,8 @@ async fn run_single_download<R: Runtime>(
       Err(e) => {
         log::warn!("[video_download] Cookie 导出失败: {}", e);
         cookie_error = Some(e);
+        dl.set_task_cookie_source(task_id, "Cookie 提取失败".to_string())
+          .await;
         dl.set_task_status_text(task_id, "Cookie 提取失败，继续下载...".to_string())
           .await;
         let _ = app.emit(
@@ -1814,9 +1894,42 @@ async fn run_single_download<R: Runtime>(
           &serde_json::json!({
             "taskId": task_id,
             "statusText": "Cookie 提取失败，继续下载...",
-            "status": "downloading"
+            "status": "downloading",
+            "cookieSource": "Cookie 提取失败"
           }),
         );
+      }
+    }
+  }
+
+  // 跟随模式：Cookie 提取完成后按「实际提供 Cookie 的账号」解析下载代理
+  //（Cookie 提取被跳过/失败时 provider=None，自动回退云端清单第一个账号）
+  if is_follow_mode {
+    let follow_proxy = effective_proxy_url(settings, cookie_provider).await;
+    match follow_proxy {
+      Some(proxy_url) => {
+        args.push("--proxy".to_string());
+        let line = format!("代理（跟随实际 Cookie 源账号）: {}\n", proxy_url);
+        let _ = std::fs::OpenOptions::new()
+          .create(true)
+          .append(true)
+          .open(&log_path)
+          .and_then(|mut f| {
+            use std::io::Write;
+            f.write_all(line.as_bytes())
+          });
+        args.push(proxy_url);
+      }
+      None => {
+        let line = "代理（跟随模式）: Cookie 提供账号节点不可用/转代理失败 → 直连\n".to_string();
+        let _ = std::fs::OpenOptions::new()
+          .create(true)
+          .append(true)
+          .open(&log_path)
+          .and_then(|mut f| {
+            use std::io::Write;
+            f.write_all(line.as_bytes())
+          });
       }
     }
   }
@@ -2623,8 +2736,16 @@ pub async fn download_audio_for_asr<R: Runtime>(
     common.push(ffmpeg_path.to_string_lossy().to_string());
   }
 
-  // 代理：沿用「视频下载」页的代理设置（服务端指派优先）
-  let proxy = effective_proxy_url(&settings).await;
+  // 代理：沿用「视频下载」页的代理设置（服务端指派优先）；
+  // 跟随模式推迟到 Cookie 提取之后，跟随「实际导出成功 Cookie 的账号」
+  let is_follow_mode =
+    settings.proxy_id.is_none() || settings.proxy_id.as_deref() == Some("follow");
+  let mut cookie_provider: Option<i64> = None;
+  let proxy = if is_follow_mode {
+    None
+  } else {
+    effective_proxy_url(&settings, None).await
+  };
   if let Some(ref proxy_url) = proxy {
     common.push("--proxy".to_string());
     common.push(proxy_url.clone());
@@ -2655,13 +2776,22 @@ pub async fn download_audio_for_asr<R: Runtime>(
   // Cookie：沿用「视频下载」的浏览器 Cookie 提取逻辑（抖音/YouTube 等需要）
   if settings.cookie_from_browser && !is_tiktok {
     match export_vps_cookies_to_file(true, dl, app, Some(url), None).await {
-      Ok(cookie_file) => {
+      Ok(outcome) => {
+        cookie_provider = outcome.provider;
         common.push("--cookies".to_string());
-        common.push(cookie_file.to_string_lossy().to_string());
+        common.push(outcome.path.to_string_lossy().to_string());
       }
       Err(e) => {
         log::warn!("[ai_rewrite] 浏览器 Cookie 提取失败，继续尝试下载: {}", e);
       }
+    }
+  }
+
+  // 跟随模式：Cookie 提取完成后按「实际提供 Cookie 的账号」解析下载代理
+  if is_follow_mode {
+    if let Some(proxy_url) = effective_proxy_url(&settings, cookie_provider).await {
+      common.push("--proxy".to_string());
+      common.push(proxy_url);
     }
   }
 
@@ -2803,14 +2933,19 @@ pub async fn fetch_native_subtitles<R: Runtime>(
       .to_string_lossy()
       .to_string(),
   ];
-  // 代理：跟随 Cookie 源账号或显式本地代理（effective_proxy_url 已打详细日志）
-  let _proxy_for_log = effective_proxy_url(&settings).await;
-  let _ = &_proxy_for_log;
-  if let Some(proxy_url) = _proxy_for_log {
+  // 代理：显式本地代理立即解析；跟随模式推迟到 Cookie 提取后（跟随实际提供 Cookie 的账号）
+  let is_follow_mode =
+    settings.proxy_id.is_none() || settings.proxy_id.as_deref() == Some("follow");
+  let mut cookie_provider: Option<i64> = None;
+  let resolved_proxy = if is_follow_mode {
+    None
+  } else {
+    effective_proxy_url(&settings, None).await
+  };
+  if let Some(proxy_url) = resolved_proxy {
     args.push("--proxy".to_string());
     args.push(proxy_url);
-    log::info!("[ai_rewrite] 原生字幕拉取使用代理: (见上方 effective_proxy_url 日志)");
-  } else {
+  } else if !is_follow_mode {
     log::info!("[ai_rewrite] 原生字幕拉取为直连");
   }
   let lower = url.to_lowercase();
@@ -2825,11 +2960,19 @@ pub async fn fetch_native_subtitles<R: Runtime>(
   let is_tiktok = lower.contains("tiktok.com");
   if settings.cookie_from_browser && !is_tiktok {
     match export_vps_cookies_to_file(true, dl, app, Some(url), None).await {
-      Ok(cookie_file) => {
+      Ok(outcome) => {
+        cookie_provider = outcome.provider;
         args.push("--cookies".to_string());
-        args.push(cookie_file.to_string_lossy().to_string());
+        args.push(outcome.path.to_string_lossy().to_string());
       }
       Err(e) => log::warn!("[ai_rewrite] 字幕拉取的浏览器 Cookie 提取失败，继续尝试: {e}"),
+    }
+  }
+  // 跟随模式：Cookie 提取完成后按「实际提供 Cookie 的账号」解析下载代理
+  if is_follow_mode {
+    if let Some(proxy_url) = effective_proxy_url(&settings, cookie_provider).await {
+      args.push("--proxy".to_string());
+      args.push(proxy_url);
     }
   }
   args.push(url.to_string());
@@ -3407,13 +3550,22 @@ async fn try_export_profile_fresh(
   }
 }
 
+/// Cookie 导出结果：文件路径 + 实际提供账号（供代理跟随）+ 任务列表展示的来源描述
+struct CookieExportOutcome {
+  path: PathBuf,
+  provider: Option<i64>,
+  source_desc: String,
+}
+
 async fn export_vps_cookies_to_file<R: Runtime>(
   force_refresh: bool,
   dl: &VideoDownloader,
   app: &tauri::AppHandle<R>,
   download_url: Option<&str>,
   task_log_path: Option<&std::path::Path>,
-) -> Result<PathBuf, String> {
+) -> Result<CookieExportOutcome, String> {
+  // 返回值：cookie 文件路径 + 实际导出成功 Cookie 的账号 id + 来源描述。
+  // 账号 id 供代理跟随使用（None = 走了 VPS 登录老链路，无可跟随的本地账号）。
   // 任务日志辅助：Cookie 来源链路的关键节点直接写进 download_<task>.log，
   // 方便用户排查「这次 Cookie 是从哪个账号/profile 提取的」。
   // （log::info! 在发布包里被 tauri_plugin_log Off 吞掉，任务日志是唯一可见落点）
@@ -3476,15 +3628,115 @@ async fn export_vps_cookies_to_file<R: Runtime>(
   };
   let cookie_path = tools_dir().join(format!("cookies_{}.txt", platform_tag));
 
+  // 「当前浏览器优先」：哪个浏览器窗口正在运行，就优先用哪个窗口内存里的
+  // Cookie（CDP 实时导出）。用户在某个账号窗口里看视频点嗅探下载时，Cookie
+  // 与浏览会话天然同源，最大限度避免 YouTube 人机验证。要求导出结果含目标
+  // 平台 cookie（YouTube 还须有登录会话），不满足则视为该窗口未登录目标
+  // 平台，继续走下面的候选账号链。
+  let platform_check = |txt: &str| -> bool {
+    let lower = txt.to_lowercase();
+    let has_domain = match platform_tag {
+      "douyin" => lower.contains("douyin.com"),
+      "tiktok" => lower.contains("tiktok.com"),
+      "bilibili" => lower.contains("bilibili.com"),
+      _ => lower.contains("youtube.com") || lower.contains("google.com"),
+    };
+    // YouTube 游客 cookie 必触发人机验证，必须有登录会话（SID 系）才值得用
+    if platform_tag == "youtube" {
+      has_domain && (lower.contains("psid") || lower.contains("sapisid"))
+    } else {
+      has_domain
+    }
+  };
+  // 运行中的浏览器窗口：**前台窗口（用户点下载那一刻所在的窗口）排最前**，
+  // 其余保持列表顺序。Windows 用 GetForegroundWindow 比对浏览器进程 pid；
+  // 拿不到前台 pid（非 Windows/窗口失焦）时退化为原列表顺序。
+  let mut running: Vec<&crate::profile::types::BrowserProfile> = profiles
+    .iter()
+    .filter(|p| crate::profile::trash::is_running_locally(p))
+    .collect();
+  let fg_pid = foreground_window_pid();
+  if let Some(fg) = fg_pid {
+    running.sort_by_key(|p| {
+      let is_fg = p.process_id == Some(fg)
+        || crate::chromium_manager::ChromiumManager::instance()
+          .find_by_profile(&p.get_profile_data_path(&profiles_dir).to_string_lossy())
+          .map(|i| i.process_id)
+          .is_some_and(|pid| pid == fg);
+      if is_fg {
+        0
+      } else {
+        1
+      }
+    });
+  }
+  log::info!(
+    "[video_download] 运行中浏览器窗口: {:?}（前台 pid={fg_pid:?}，前台窗口优先取 Cookie）",
+    running.iter().map(|p| p.name.as_str()).collect::<Vec<_>>()
+  );
+  for rp in running {
+    match crate::cookie_sync::export_cookies_via_cdp(rp).await {
+      Ok(cookie_json) => {
+        let cookies: Vec<serde_json::Value> = match serde_json::from_str(&cookie_json) {
+          Ok(v) => v,
+          Err(e) => {
+            log::warn!(
+              "[video_download] 运行中窗口「{}」CDP cookie 解析失败: {}，试下一个",
+              rp.name,
+              e
+            );
+            continue;
+          }
+        };
+        let txt = cookies_to_netscape(&cookies);
+        if !platform_check(&txt) {
+          log::info!(
+            "[video_download] 当前运行窗口「{}」无目标平台登录 Cookie，跳过（走候选账号链）",
+            rp.name
+          );
+          log_task(&format!(
+            "当前运行窗口「{}」无目标平台登录 Cookie，走候选账号链",
+            rp.name
+          ));
+          continue;
+        }
+        std::fs::write(&cookie_path, &txt).map_err(|e| format!("写入 cookie 文件失败: {e}"))?;
+        dl.set_last_cookie_time(now_secs()).await;
+        log::info!(
+          "[video_download] Cookie 来自当前运行中的浏览器窗口「{}」（CDP 实时导出，本浏览器优先）",
+          rp.name
+        );
+        log_task(&format!(
+          "✓ Cookie 来自当前运行中的浏览器窗口「{}」（CDP 实时导出，本浏览器优先）",
+          rp.name
+        ));
+        // profile 名以「_账号id」结尾时（与候选账号匹配同一约定），
+        // 提供该 id 让代理跟随此账号的后台登录节点，IP 与会话同源
+        let aid = rp
+          .name
+          .rsplit_once('_')
+          .and_then(|(_, sfx)| sfx.parse::<i64>().ok())
+          .filter(|id| *id > 0);
+        return Ok(CookieExportOutcome {
+          path: cookie_path,
+          provider: aid,
+          source_desc: format!("运行窗口「{}」", rp.name),
+        });
+      }
+      Err(e) => {
+        log::info!(
+          "[video_download] 运行中窗口「{}」CDP 导出失败: {}，试下一个运行窗口",
+          rp.name,
+          e
+        );
+      }
+    }
+  }
+
   // 依次尝试各 Cookie 来源账号（优先级降序，先开优先）：每个账号先实时导出
   // 本地 profile 的 Cookie（浏览器开着就能拿到最新登录态），本地不可用再回退
   // 服务端快照；都失败再试下一个账号，最终回退 VPS 登录老链路。
-  let cookie_account_id = {
-    let inner = dl.inner.lock().await;
-    inner.settings.cookie_account_id
-  };
-  let candidate_accounts =
-    crate::cookie_source_accounts::download_candidate_accounts(cookie_account_id).await;
+  let candidate_accounts = crate::cookie_source_accounts::download_candidate_accounts().await;
   if candidate_accounts.is_empty() {
     log_task("未设置任何 Cookie 来源账号，直接从 VPS 登录浏览器提取");
   } else {
@@ -3559,7 +3811,11 @@ async fn export_vps_cookies_to_file<R: Runtime>(
             "✓ Cookie 来自账号 {aid} 的本地 profile「{}」（实时导出成功）",
             acc.name
           ));
-          return Ok(cookie_path);
+          return Ok(CookieExportOutcome {
+            path: cookie_path,
+            provider: Some(*aid),
+            source_desc: format!("账号 {aid}（本机 profile「{}」）", acc.name),
+          });
         }
         Err(local_err) => {
           log::warn!(
@@ -3585,7 +3841,11 @@ async fn export_vps_cookies_to_file<R: Runtime>(
         dl.set_last_cookie_time(now_secs()).await;
         log::info!("[video_download] Cookie 来自指定账号 {aid}（{platform_tag}）");
         log_task(&format!("✓ Cookie 来自账号 {aid} 的服务端快照"));
-        return Ok(cookie_path);
+        return Ok(CookieExportOutcome {
+          path: cookie_path,
+          provider: Some(*aid),
+          source_desc: format!("账号 {aid}（服务端快照）"),
+        });
       }
       Ok(false) => {
         log::info!(
@@ -3641,7 +3901,11 @@ async fn export_vps_cookies_to_file<R: Runtime>(
             log_task(&format!(
               "复用 1 小时内的缓存 cookie 文件（cookies_{platform_tag}.txt，未重新提取）"
             ));
-            return Ok(cookie_path);
+            return Ok(CookieExportOutcome {
+              path: cookie_path,
+              provider: None,
+              source_desc: "VPS 登录（1 小时内缓存）".to_string(),
+            });
           }
         }
       }
@@ -3677,7 +3941,11 @@ async fn export_vps_cookies_to_file<R: Runtime>(
             log_task(&format!(
               "✓ Cookie 来自「VPS登录」浏览器 profile（yt-dlp 直读，{count} 条）"
             ));
-            return Ok(cookie_path);
+            return Ok(CookieExportOutcome {
+              path: cookie_path,
+              provider: None,
+              source_desc: "VPS 登录浏览器".to_string(),
+            });
           }
           Ok(_) => {
             log::warn!("[video_download] yt-dlp 提取到 0 条 cookie，尝试 CDP 方式");
@@ -3723,7 +3991,11 @@ async fn export_vps_cookies_to_file<R: Runtime>(
         "✓ Cookie 来自「VPS登录」浏览器内存（CDP 实时导出，{} 条）",
         cookies.len()
       ));
-      Ok(cookie_path)
+      Ok(CookieExportOutcome {
+        path: cookie_path,
+        provider: None,
+        source_desc: "VPS 登录浏览器（内存）".to_string(),
+      })
     }
     Err(cdp_err) => {
       // CDP 不可用就直接走后面的回退，不在下载前空等浏览器起来
@@ -3751,7 +4023,11 @@ async fn export_vps_cookies_to_file<R: Runtime>(
         "✓ Cookie 来自「VPS登录」本地 Cookie 数据库（SQLite 回退，{} 条）",
         all_cookies.len()
       ));
-      Ok(cookie_path)
+      Ok(CookieExportOutcome {
+        path: cookie_path,
+        provider: None,
+        source_desc: "VPS 登录数据库".to_string(),
+      })
     }
   }
 }
@@ -5527,7 +5803,7 @@ pub async fn video_download_refresh_cookie<R: Runtime>(
   }
 
   let dl = get_downloader().clone();
-  let _cookie_path = export_vps_cookies_to_file(true, &dl, &app, None, None).await?;
+  let _cookie_outcome = export_vps_cookies_to_file(true, &dl, &app, None, None).await?;
   let last_time = dl.get_last_cookie_time().await;
   let _ = app.emit("video-download:cookie-refreshed", &last_time);
   Ok(last_time)

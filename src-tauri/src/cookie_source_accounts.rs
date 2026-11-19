@@ -8,10 +8,10 @@
 //! 判定点（下载链路）先 `pull_remote` 一次再读取，保证开关即时生效；
 //! 写操作推送失败回滚本地并报错，让本地永远跟云端一致。
 //!
-//! 与 `DownloadSettings.cookie_account_id`（下载设置里的旧单选）的关系：
-//! 这里是有序的「多账号清单」，语义更贴合「设多个账号、按顺序兜底下载很稳」；
-//! 下载链路读取时取「本模块清单 ∩ 兼容旧字段」为准。清单为空则退回旧的
-//! `cookie_account_id`；两者都无则走 VPS 登录导出兜底。
+//! 下载 Cookie 提取完整优先级：前台运行中的浏览器窗口（video_downloader）→
+//! 本清单（云端勾选顺序）→ VPS 登录老链路。旧「下载设置单选 cookie_account_id」
+//! 已移除：代理跟随/云端解析兜底改用 `first_cookie_account()`（清单第一个账号），
+//! 嗅探识别按钮绑定改由 `sync_sniffer_binding_from_cookie_sources()` 跟随本清单。
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -57,17 +57,24 @@ fn persist(settings: &CookieSourceSettings) -> Result<(), String> {
 }
 
 /// 供下载链路使用：返回应当依次尝试的账号 id（优先级降序，先开优先）。
-/// = 云端 Cookie 来源清单 + 兼容旧字段 `cookie_account_id`（若不在清单则追加到末尾），
-/// 并去重。调用前会先 pull 一次云端，保证各机器看到的是最新清单。
-pub async fn download_candidate_accounts(legacy: Option<i64>) -> Vec<i64> {
+/// 调用前会先 pull 一次云端，保证各机器看到的是最新清单。
+pub async fn download_candidate_accounts() -> Vec<i64> {
   pull_remote().await;
-  let mut v = load().accounts;
-  if let Some(aid) = legacy {
-    if !v.contains(&aid) {
-      v.push(aid);
-    }
-  }
-  v
+  load().accounts
+}
+
+/// 云端清单快照（先 pull 再返回本地镜像的账号列表，含 VPS 标记 0）。
+pub async fn cookie_source_accounts_snapshot() -> Vec<i64> {
+  download_candidate_accounts().await
+}
+
+/// 云端清单第一个真实账号 id（跳过 VPS 标记 0），无则 None。
+/// 供「旧单选 cookie_account_id」移除后的云端解析/代理跟随兜底使用。
+pub async fn first_cookie_account() -> Option<i64> {
+  cookie_source_accounts_snapshot()
+    .await
+    .into_iter()
+    .find(|id| *id > 0)
 }
 
 /// 从公司云端拉开关，远端更新则整包替换本地镜像。失败静默降级（用本地镜像）。
@@ -156,6 +163,8 @@ pub async fn set_account_cookie_source(account_id: i64, enabled: bool) -> Result
       if enabled { "开启" } else { "关闭" }
     ),
   );
+  // 识别按钮绑定跟随清单（账号管理勾谁，谁的浏览器有识别按钮）
+  crate::extension_user_assign::sync_sniffer_binding_from_cookie_sources().await;
   Ok(())
 }
 
@@ -201,5 +210,7 @@ pub async fn set_vps_cookie_source(enabled: bool) -> Result<(), String> {
       if enabled { "开启" } else { "关闭" }
     ),
   );
+  // 识别按钮绑定跟随清单（VPS 标记勾选 = VPS 登录浏览器有识别按钮）
+  crate::extension_user_assign::sync_sniffer_binding_from_cookie_sources().await;
   Ok(())
 }

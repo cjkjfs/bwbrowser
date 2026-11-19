@@ -13,6 +13,7 @@ import {
   LuDownload,
   LuFileText,
   LuFolderOpen,
+  LuKey,
   LuLink,
   LuLoader,
   LuPause,
@@ -22,7 +23,6 @@ import {
   LuSettings,
   LuSparkles,
   LuTrash2,
-  LuVideo,
   LuX,
 } from "react-icons/lu";
 import { toast } from "sonner";
@@ -60,9 +60,6 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { useBwbrowserAccounts } from "@/hooks/use-bwbrowser-accounts";
-import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
-import { useBwbrowserCompany } from "@/hooks/use-bwbrowser-company";
 import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import {
   type DownloadTask,
@@ -126,22 +123,18 @@ export function VideoDownloadPage({
   onNavigateAiRewrite,
 }: VideoDownloadPageProps) {
   const { canAiRewrite } = useBwbrowserPermissions();
-  // 云端账号列表：与云端账号页同源（同公司选择、同权限过滤）
-  const { isLoggedIn: bwLoggedIn } = useBwbrowserAuth();
-  const { isSuperAdmin: bwSuperAdmin } = useBwbrowserPermissions();
-  const { selectedCompanyId: bwSelectedCompanyId } = useBwbrowserCompany(
-    bwSuperAdmin,
-    bwLoggedIn,
-  );
-  const { accounts: bwAccounts } = useBwbrowserAccounts(bwSelectedCompanyId);
   const [proxySelectOpen, setProxySelectOpen] = useState(false);
-  const [cookieAccQuery, setCookieAccQuery] = useState("");
+  // 云端 Cookie 来源清单快照（账号管理勾选，自动生效，无需在此选择）
+  const [cookieSourceAccounts, setCookieSourceAccounts] = useState<
+    number[] | null
+  >(null);
 
-  const [dialogAccounts, setDialogAccounts] = useState<typeof bwAccounts>([]);
-  const [cookieSourceDialogOpen, setCookieSourceDialogOpen] = useState(false);
-  const [cookieSourcePicked, setCookieSourcePicked] = useState<number | null>(
-    null,
-  );
+  useEffect(() => {
+    void invoke<{ accounts?: number[] }>("get_cookie_source_accounts")
+      .then((r) => setCookieSourceAccounts(r.accounts ?? []))
+      .catch(() => setCookieSourceAccounts(null));
+  }, []);
+
   const {
     tasks,
     settings,
@@ -919,249 +912,14 @@ export function VideoDownloadPage({
     [cancelTask],
   );
 
-  const selectedCookieAccount = useMemo(
-    () =>
-      settings.cookie_account_id
-        ? (dialogAccounts.find((a) => a.id === settings.cookie_account_id) ??
-          bwAccounts.find((a) => a.id === settings.cookie_account_id))
-        : undefined,
-    [dialogAccounts, bwAccounts, settings.cookie_account_id],
-  );
-  const cookieAccMatches = useMemo(() => {
-    const q = cookieAccQuery.trim().toLowerCase();
-    const hit = (v?: string | null) => (v || "").toLowerCase().includes(q);
-    const list = q
-      ? dialogAccounts.filter(
-          (a) =>
-            hit(a.phone_id) ||
-            hit(a.account_name) ||
-            hit(a.login_account) ||
-            hit(a.platform) ||
-            hit(a.owner_name) ||
-            hit(a.tags) ||
-            hit(a.remark),
-        )
-      : dialogAccounts;
-    return list;
-  }, [dialogAccounts, cookieAccQuery]);
-
-  // 打开选择弹窗：全量拉取账号（管理员可见本公司全部平台账号，不受分页 20 条限制）
-  const openCookieSourceDialog = useCallback(async () => {
-    setCookieSourcePicked(settings.cookie_account_id ?? null);
-    setCookieSourceDialogOpen(true);
-    try {
-      // 服务端 pageSize 上限 200：翻页拉全（与云端账号页总数一致）
-      const all: typeof bwAccounts = [];
-      for (let pg = 1; ; pg++) {
-        const result = await invoke<{
-          accounts: typeof bwAccounts;
-          total?: number;
-        }>("bwbrowser_list_accounts", {
-          page: pg,
-          pageSize: 200,
-          platform: null,
-          keyword: null,
-          ownerId: null,
-          companyId: bwSelectedCompanyId ?? null,
-          sortBy: null,
-          sortOrder: null,
-        });
-        const rows = result.accounts ?? [];
-        // 翻页之间服务端排序可能漂移，跨页重复的账号按 id 去重（重复会触发 React key 告警）
-        for (const row of rows) {
-          if (!all.some((a) => a.id === row.id)) all.push(row);
-        }
-        if (
-          rows.length < 200 ||
-          (result.total != null && all.length >= result.total)
-        ) {
-          break;
-        }
-      }
-      setDialogAccounts(all);
-    } catch {
-      setDialogAccounts(bwAccounts); // 拉取失败退回 hook 已加载的
-    }
-  }, [settings.cookie_account_id, bwAccounts, bwSelectedCompanyId]);
-
-  // 确定选择：选中账号时优先本机提取 Cookie（本机有该账号浏览器环境 →
-  // 导出并回传服务端，云端解析拿到最新登录态），本机没有则服务端已存 Cookie 兜底
-  // 收紧「视频嗅探下载」扩展的绑定（跟随 Cookie 来源，严格互斥）：
-  // - 选了账号 A → accountIds=[A] + vpsLogin=false：仅账号 A 的浏览器有识别，
-  //   其它账号和 VPS 登录都没有；
-  // - 没选账号（VPS 登录默认）→ accountIds=[] + vpsLogin=true：仅 VPS 登录
-  //   浏览器有识别，所有账号都没有。
-  // 匹配依据（extension_user_assign::assignment_applies）：账号上下文要求
-  // account_ids 包含该账号；VPS 上下文要求 vps_login=true。空数组不含任何
-  // 账号 → 账号全不生效、VPS 生效，正好表达「仅 VPS」。
-  // 复用 assign_extension_to_user（更新绑定 + 重算 profile 分组 + 公司 KV
-  // 同步）；已开着的浏览器需重启才按新绑定加载/卸载。
-  const setSnifferBinding = useCallback(async (accountIds: number[] | null) => {
-    try {
-      const exts =
-        await invoke<Array<{ id: string; file_name: string }>>(
-          "list_extensions",
-        );
-      const sniffer = exts.find((e) => e.file_name === "video-sniffer");
-      if (!sniffer) return;
-      const assigns = await invoke<
-        Array<{
-          extension_id: string;
-          user_id: number;
-          account_ids: number[] | null;
-          vps_login: boolean | null;
-        }>
-      >("list_extension_user_assignments");
-      const mine = assigns.filter((a) => a.extension_id === sniffer.id);
-      // 账号限定的绑定只按「账号 id」匹配（assignment_applies 对
-      // (Some(list), Some(aid)) 不看 user_id），user_id 仅是条目载体——
-      // 沿用现有条目的 user 即可，挂谁都不影响「勾了哪些账号哪些账号
-      // 就有嗅探」。user_id 字段只是扩展管理「分配给用户」通用机制要求。
-      if (accountIds && accountIds.length > 0) {
-        const carrier = mine[0]?.user_id;
-        if (carrier == null) return; // 从未绑定过嗅探扩展则不动
-        const toUnassign = mine
-          .map((a) => a.user_id)
-          .filter((uid) => uid !== carrier);
-        await invoke("assign_extension_to_users_bulk", {
-          extensionId: sniffer.id,
-          toAssign: [
-            {
-              user_id: carrier,
-              account_ids: accountIds,
-              vps_login: false,
-            },
-          ],
-          toUnassign,
-        });
-      } else {
-        // VPS 分支挂「当前登录用户」（VPS/爆文库启动按 BWBROWSER_AUTH
-        // 的登录用户匹配绑定），与 Rust 侧 apply_owner_assignments 一致
-        let loginUserId: number | null = null;
-        try {
-          const auth = await invoke<{
-            user: { id: number };
-          } | null>("bwbrowser_get_user");
-          loginUserId = auth?.user.id ?? null;
-        } catch {
-          /* 未登录时 fallback 旧条目 */
-        }
-        const vpsUser =
-          loginUserId ??
-          mine.find((a) => a.vps_login === true)?.user_id ??
-          mine[0]?.user_id;
-        if (vpsUser == null) return;
-        const toUnassign = mine
-          .map((a) => a.user_id)
-          .filter((uid) => uid !== vpsUser);
-        await invoke("assign_extension_to_users_bulk", {
-          extensionId: sniffer.id,
-          toAssign: [
-            {
-              user_id: vpsUser,
-              account_ids: null,
-              vps_login: true,
-            },
-          ],
-          toUnassign,
-        });
-      }
-    } catch (e) {
-      // 联动失败不阻断 Cookie 来源设置（如未登录/服务端异常），只提示
-      console.warn("[video_download] 嗅探扩展绑定联动失败:", e);
-    }
-  }, []);
-
-  const confirmCookieSource = useCallback(async () => {
-    const picked = cookieSourcePicked;
-    if (picked != null) {
-      const acc =
-        dialogAccounts.find((a) => a.id === picked) ??
-        bwAccounts.find((a) => a.id === picked);
-      if (acc) {
-        try {
-          const r = await invoke<{
-            pushed: boolean;
-            reason?: string;
-          }>("bwbrowser_push_local_account_cookie", {
-            accountId: picked,
-            accountName: acc.account_name,
-            platform: acc.platform ?? null,
-          });
-          if (r.pushed) {
-            toast.success("已用本机登录态更新服务端 Cookie");
-          } else if (r.reason === "no_local_profile") {
-            toast.info("本机无该账号浏览器环境，使用服务端已存 Cookie");
-          } else if (r.reason === "no_local_cookie") {
-            toast.info("本机该账号无 Cookie，使用服务端已存 Cookie");
-          }
-        } catch (e) {
-          toast.error(`本机 Cookie 上传失败：${e}，使用服务端已存 Cookie`);
-        }
-        // 识别跟随 Cookie 来源（收紧）：仅该账号显示识别按钮
-        await setSnifferBinding([acc.id]);
-      }
-    } else {
-      // 没选账号（VPS 登录导出默认）：仅 VPS 登录浏览器显示识别按钮
-      await setSnifferBinding(null);
-    }
-    updateSettings({
-      ...settings,
-      cookie_account_id: picked,
-    });
-    setCookieSourceDialogOpen(false);
-  }, [
-    cookieSourcePicked,
-    dialogAccounts,
-    bwAccounts,
-    settings,
-    updateSettings,
-    setSnifferBinding,
-  ]);
-
-  // 视频识别跟随 Cookie 来源账号：选了哪个账号，就在那个账号的浏览器环境里
-  // 启动视频识别（打开该账号的平台页，配合「视频嗅探下载」扩展浮球识别）。
-  // 首次确定账号时自动同时保存该账号为 Cookie 来源，两个动作一次完成。
-  const [launchingSniffer, setLaunchingSniffer] = useState(false);
-
-  const launchSnifferForAccount = useCallback(
-    async (accountId: number | null) => {
-      if (accountId == null) return;
-      const acc =
-        dialogAccounts.find((a) => a.id === accountId) ??
-        bwAccounts.find((a) => a.id === accountId);
-      if (!acc) {
-        toast.error("未找到该账号信息");
-        return;
-      }
-      setLaunchingSniffer(true);
-      try {
-        // 先把这个账号存为 Cookie 来源（识别与下载用同一个账号）
-        if (settings.cookie_account_id !== accountId) {
-          updateSettings({ ...settings, cookie_account_id: accountId });
-        }
-        // 识别收紧到该账号：其它账号与 VPS 登录都不再显示识别按钮
-        await setSnifferBinding([acc.id]);
-        await invoke("bwbrowser_launch_account", {
-          accountId: acc.id,
-          accountName: acc.account_name || String(acc.id),
-          envUuid: acc.env_uuid ?? null,
-          proxyNode: acc.proxy_node ?? null,
-          platform: acc.platform ?? null,
-        });
-        toast.success(
-          `已用「${acc.account_name}」环境打开${acc.platform || "平台"}，页面里点扩展浮球即可识别视频`,
-        );
-        setCookieSourceDialogOpen(false);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        toast.error(`启动识别环境失败：${msg}`);
-      } finally {
-        setLaunchingSniffer(false);
-      }
-    },
-    [dialogAccounts, bwAccounts, settings, updateSettings, setSnifferBinding],
-  );
+  const cookieSourceSummary = useMemo(() => {
+    if (cookieSourceAccounts == null) return "云端 Cookie 来源清单读取中...";
+    const real = cookieSourceAccounts.filter((id) => id > 0);
+    const hasVps = cookieSourceAccounts.includes(0);
+    if (real.length === 0)
+      return "云端清单为空：下载时从 VPS 登录浏览器提取 Cookie";
+    return `云端清单 ${real.length} 个账号${hasVps ? " + VPS 登录" : ""}，下载时按清单顺序自动提取`;
+  }, [cookieSourceAccounts]);
 
   // 切换粘贴自动下载
   const toggleAutoPaste = useCallback(() => {
@@ -1658,19 +1416,18 @@ export function VideoDownloadPage({
                 </Command>
               </PopoverContent>
             </Popover>
-            {(settings.proxy_id === null || settings.proxy_id === "follow") &&
-              (settings.cookie_account_id ? (
-                <p className="text-xs text-muted-foreground">
-                  {selectedCookieAccount?.proxy_node
-                    ? "跟随模式：视频下载将使用该账号在后台配置的登录节点"
-                    : "跟随模式：该账号未配置节点，将直连下载"}
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  跟随模式：未选 Cookie 源账号，当前直连。在下方「Cookie
-                  来源」选择账号后自动跟随其节点
-                </p>
-              ))}
+            {settings.proxy_id === null && (
+              <p className="text-xs text-muted-foreground">
+                跟随模式：自动跟随实际提供 Cookie 的账号（前台运行窗口 →
+                云端清单第一个账号）的后台登录节点，都不可用时直连
+              </p>
+            )}
+            {settings.proxy_id === "follow" && (
+              <p className="text-xs text-muted-foreground">
+                跟随模式：自动跟随实际提供 Cookie 的账号（前台运行窗口 →
+                云端清单第一个账号）的后台登录节点，都不可用时直连
+              </p>
+            )}
             {settings.proxy_id === "direct" && (
               <p className="text-xs text-muted-foreground">
                 视频下载将直连（不使用代理）
@@ -1685,31 +1442,27 @@ export function VideoDownloadPage({
               )}
           </div>
 
-          {/* Cookie 来源（唯一 Cookie 设置入口；不选账号 = 从 VPS 登录导出） */}
+          {/* Cookie 来源（全自动，无需选择：账号管理勾选云端清单即可） */}
           <div className="space-y-2">
             <div className="flex items-center justify-between py-2">
               <div className="space-y-0.5">
-                <Label>Cookie 来源（云端解析 + 下载）</Label>
+                <Label>Cookie 来源（自动）</Label>
                 <p className="text-xs text-muted-foreground">
-                  {selectedCookieAccount
-                    ? `账号：${selectedCookieAccount.phone_id || "无编号"} · ${selectedCookieAccount.account_name}（${selectedCookieAccount.login_account || "-"}）`
-                    : "不选账号：从 VPS 登录导出（默认）"}
+                  {cookieSourceSummary}
                 </p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => void openCookieSourceDialog()}
-              >
-                设置
-              </Button>
             </div>
             <div className="flex items-center justify-between pl-1 py-1 border-t">
-              <div className="text-xs text-muted-foreground">
-                {lastCookieTime > 0
-                  ? `上次获取: ${formatCookieTime(lastCookieTime)}`
-                  : "尚未获取 Cookie"}
+              <div className="text-xs text-muted-foreground space-y-1">
+                <div>
+                  优先级：正在运行的浏览器窗口（前台优先）→ 云端 Cookie
+                  来源清单（在账号管理勾选）→ VPS 登录兜底
+                </div>
+                <div>
+                  {lastCookieTime > 0
+                    ? `上次获取: ${formatCookieTime(lastCookieTime)}`
+                    : "尚未获取 Cookie"}
+                </div>
               </div>
               <Button
                 variant="outline"
@@ -1946,177 +1699,10 @@ export function VideoDownloadPage({
     </Tabs>
   );
 
-  const cookieSourceDialog = (
-    <Dialog
-      open={cookieSourceDialogOpen}
-      onOpenChange={(open) => {
-        setCookieSourceDialogOpen(open);
-        if (open) setCookieSourcePicked(settings.cookie_account_id ?? null);
-      }}
-    >
-      <DialogContent className="w-[760px] max-w-[95vw] p-0 overflow-hidden">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="text-sm font-semibold">
-            Cookie 来源（云端解析 + 下载）
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={() => setCookieSourceDialogOpen(false)}
-          >
-            <LuX className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-2 border-b px-4 py-2">
-          <Input
-            value={cookieAccQuery}
-            onChange={(e) => setCookieAccQuery(e.target.value)}
-            placeholder="快速搜索：手机编号/账号名称/登录账号/平台/归属人/标签备注"
-            className="h-8 text-xs"
-          />
-          <span className="shrink-0 text-xs text-muted-foreground">
-            共 {cookieAccMatches.length} 个
-          </span>
-        </div>
-
-        <div className="max-h-[440px] overflow-y-auto">
-          <button
-            type="button"
-            className={`flex w-full items-center gap-3 border-b px-4 py-2 text-left transition-colors hover:bg-accent/50 ${
-              cookieSourcePicked === null ? "bg-primary/10" : ""
-            }`}
-            onClick={() => setCookieSourcePicked(null)}
-          >
-            <div className="w-4">
-              {cookieSourcePicked === null && (
-                <div className="size-3 rounded-full bg-primary" />
-              )}
-            </div>
-            <div className="text-xs font-medium text-foreground">
-              不使用账号（VPS 登录导出，默认）
-            </div>
-          </button>
-
-          <table className="w-full table-fixed">
-            <thead className="sticky top-0 bg-muted/50 backdrop-blur-sm">
-              <tr className="border-b">
-                <th className="w-8 px-3 py-2" />
-                <th className="w-[11%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
-                  手机编号
-                </th>
-                <th className="w-[19%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
-                  账号名称
-                </th>
-                <th className="w-[17%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
-                  登录账号
-                </th>
-                <th className="w-[9%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
-                  平台
-                </th>
-                <th className="w-[13%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
-                  归属人
-                </th>
-                <th className="w-[22%] px-2 py-2 text-left text-xs font-medium text-muted-foreground">
-                  标签备注
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {cookieAccMatches.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={7}
-                    className="p-6 text-center text-xs text-muted-foreground"
-                  >
-                    无匹配账号（需已同步平台登录 Cookie）
-                  </td>
-                </tr>
-              ) : (
-                cookieAccMatches.map((a) => (
-                  <tr
-                    key={a.id}
-                    onClick={() => setCookieSourcePicked(a.id)}
-                    className={`cursor-pointer border-b transition-colors ${
-                      cookieSourcePicked === a.id
-                        ? "bg-primary/10"
-                        : "hover:bg-muted/30"
-                    }`}
-                  >
-                    <td className="px-3 py-2">
-                      <div className="size-3">
-                        {cookieSourcePicked === a.id && (
-                          <div className="size-3 rounded-full bg-primary" />
-                        )}
-                      </div>
-                    </td>
-                    <td className="truncate px-2 py-2 text-xs">
-                      {a.phone_id || "—"}
-                    </td>
-                    <td className="truncate px-2 py-2 text-xs font-medium">
-                      {a.account_name}
-                    </td>
-                    <td className="truncate px-2 py-2 text-xs text-muted-foreground">
-                      {a.login_account || "—"}
-                    </td>
-                    <td className="px-2 py-2 text-xs">{a.platform || "—"}</td>
-                    <td className="truncate px-2 py-2 text-xs">
-                      {a.owner_name || "—"}
-                    </td>
-                    <td className="truncate px-2 py-2 text-xs text-muted-foreground">
-                      {a.tags || a.remark || "—"}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-          {cookieSourcePicked != null && (
-            <Button
-              variant="secondary"
-              size="sm"
-              className="mr-auto h-8 gap-1.5 text-xs"
-              disabled={launchingSniffer}
-              title="用该账号的登录环境打开其平台页，配合视频嗅探扩展识别视频"
-              onClick={() => void launchSnifferForAccount(cookieSourcePicked)}
-            >
-              {launchingSniffer ? (
-                <LuLoader className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <LuVideo className="h-3.5 w-3.5" />
-              )}
-              在该账号环境识别视频
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => setCookieSourceDialogOpen(false)}
-          >
-            取消
-          </Button>
-          <Button
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => void confirmCookieSource()}
-          >
-            确定
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-
   if (embedded) {
     return (
       <div className="flex h-full min-h-0 w-full flex-col gap-0 overflow-hidden p-6">
         {content}
-        {cookieSourceDialog}
       </div>
     );
   }
@@ -2134,7 +1720,6 @@ export function VideoDownloadPage({
         </DialogHeader>
 
         {content}
-        {cookieSourceDialog}
       </DialogContent>
     </Dialog>
   );
@@ -2336,6 +1921,15 @@ function TaskRow({
                 title={task.url}
               >
                 {task.url}
+              </p>
+            )}
+            {task.cookie_source && (
+              <p
+                className="text-xs text-muted-foreground mt-0.5 truncate"
+                title={task.cookie_source}
+              >
+                <LuKey className="w-3 h-3 inline mr-1 -mt-px" />
+                {task.cookie_source}
               </p>
             )}
             {task.error_msg && (

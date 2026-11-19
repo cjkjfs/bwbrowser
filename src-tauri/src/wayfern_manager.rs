@@ -2853,13 +2853,13 @@ impl WayfernManager {
       args.push("--force-device-scale-factor=1".to_string());
     }
 
-    // GPU switches are only safe on a host-device launch. A profile with an
-    // identity reports the WebGL renderer and parameters Wayfern injects, and
-    // the rasterization path is part of what a fingerprint check reads back,
-    // so the cloud accounts keep exactly the arguments they had. A host-device
-    // launch reports the real machine GPU anyway, and the blocklist is the one
-    // thing that can silently drop a capable VM GPU to SwiftShader software
-    // rendering.
+    // GPU switches on a host-device launch follow the global setting; a
+    // profile with an identity keeps the kernel-injected software backend by
+    // default (the rasterization path is part of what a fingerprint check
+    // reads back). Exception: a cloud-account profile whose per-account
+    // hardware acceleration toggle is ON overrides the kernel's warp seed
+    // with the real D3D11 backend — the user trades fingerprint uniformity
+    // for GPU performance explicitly (see the identity branch below).
     //
     // The user toggle (Settings → Advanced → Hardware acceleration) only gates
     // this host-device launch: an identity launch is never touched regardless
@@ -2887,14 +2887,19 @@ impl WayfernManager {
         args.push("--disable-gpu".to_string());
       }
     } else if gpu_acceleration {
-      // Cloud-account hardware acceleration (per-account toggle): the profile
-      // keeps its virtual fingerprint, so the ANGLE/WebGL backend stays
-      // exactly what the kernel injects (software) — the spoofed renderer
-      // must stay consistent. Only the compositing/rasterization switches are
-      // appended, which speed up scrolling and video compositing without
-      // touching anything a WebGL fingerprint probe reads back.
+      // Cloud-account identity launch with the per-account hardware
+      // acceleration toggle ON: the user has explicitly chosen real GPU
+      // rendering over fingerprint uniformity. Override the kernel's injected
+      // `--use-angle=d3d11-warp` seed with the real D3D11 ANGLE backend (same
+      // override mechanism as the host-device branch above — our switch wins
+      // because it lands later on the command line). The spoofed renderer
+      // string may then read back the real GPU in WebGL probes; the cloud
+      // identity itself is untouched. --ignore-gpu-blocklist keeps the
+      // blocklist from silently dropping the real GPU back to SwiftShader.
+      args.push("--ignore-gpu-blocklist".to_string());
       args.push("--enable-gpu-rasterization".to_string());
       args.push("--enable-zero-copy".to_string());
+      args.push("--use-angle=d3d11".to_string());
     }
 
     #[cfg(target_os = "linux")]
