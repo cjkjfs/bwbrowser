@@ -1257,12 +1257,36 @@ impl AppAutoUpdater {
           let mut success = false;
           let mut last_error = String::new();
 
-          // NSIS installer flags (used by Tauri)
-          let nsis_args = vec![
-            vec!["/S"],                                             // Standard NSIS silent flag
-            vec!["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"], // Inno Setup flags
-            vec!["/quiet"],                                         // Generic quiet flag
-            vec!["/silent"],                                        // Alternative silent flag
+          // NSIS installer flags (used by Tauri)。首组追加 /D= 固定装到
+          // 运行中 exe 所在目录（NSIS 优先级最高、必须最后且不加引号），
+          // 否则静默更新按注册表旧记录/默认目录安装，手动移动过安装位置
+          // 后会装错地方。Inno Setup 组用 /DIR= 达到同样目的。
+          let dir_arg = nsis_install_dir_flag(std::env::current_exe().ok().as_deref());
+          let dir_inno_arg = dir_arg
+            .as_ref()
+            .map(|arg| format!("/DIR=\"{}\"", arg.trim_start_matches("/D=")));
+          let nsis_args: Vec<Vec<String>> = vec![
+            {
+              let mut args = vec!["/S".to_string()]; // Standard NSIS silent flag
+              if let Some(arg) = &dir_arg {
+                args.push(arg.clone());
+              }
+              args
+            },
+            {
+              // Inno Setup flags
+              let mut args = vec![
+                "/VERYSILENT".to_string(),
+                "/SUPPRESSMSGBOXES".to_string(),
+                "/NORESTART".to_string(),
+              ];
+              if let Some(arg) = dir_inno_arg {
+                args.push(arg);
+              }
+              args
+            },
+            vec!["/quiet".to_string()],  // Generic quiet flag
+            vec!["/silent".to_string()], // Alternative silent flag
           ];
 
           for args in nsis_args {
@@ -1863,7 +1887,15 @@ rm "{}"
             // finishes (the NSIS template only auto-launches in silent/passive
             // mode when /R is present — AUTOLAUNCHAPP is a WiX/MSI-only flag).
             let file = installer_path.as_os_str().to_os_string();
-            let params = std::ffi::OsString::from("/S /UPDATE /R");
+            // /D= 固定装到运行中 exe 所在目录（模板里优先级最高），否则
+            // 静默更新按注册表旧记录/默认目录安装，手动移动过安装位置后
+            // 会装错地方。/D= 必须是最后一个参数且不加引号。
+            let mut params_str = String::from("/S /UPDATE /R");
+            if let Some(dir_arg) = nsis_install_dir_flag(std::env::current_exe().ok().as_deref()) {
+              params_str.push(' ');
+              params_str.push_str(&dir_arg);
+            }
+            let params = std::ffi::OsString::from(params_str);
             (file, params)
           }
           "msi" => {
@@ -2024,6 +2056,26 @@ rm "{}"
 
 // Tauri commands
 
+/// NSIS 静默更新的安装目录参数（`/D=<运行中 exe 所在目录>`）。
+///
+/// 更新器调 NSIS 时若不传 `/D=`，模板会按注册表旧记录（无记录则按
+/// currentUser 默认 `%LOCALAPPDATA%\{产品名}`）决定安装目录。用户手动
+/// 移动/迁移过安装目录（注册表仍指向旧位置，甚至指向数据目录）时，
+/// 更新就会装错地方，产生第二份安装。Tauri NSIS 模板中 `/D=` 优先级
+/// 最高（覆盖注册表与默认值），显式指定即可始终原地更新。
+///
+/// NSIS 规定 `/D=` 必须是最后一个参数且**不加引号**（路径含空格也不加）。
+/// exe 路径解析失败或含引号等异常字符时返回 None，保持旧行为。
+#[cfg(any(target_os = "windows", test))]
+fn nsis_install_dir_flag(exe_path: Option<&std::path::Path>) -> Option<String> {
+  let dir = exe_path?.parent()?;
+  let dir_str = dir.to_string_lossy();
+  if dir_str.is_empty() || dir_str.contains('"') {
+    return None;
+  }
+  Some(format!("/D={dir_str}"))
+}
+
 #[tauri::command]
 pub async fn check_for_app_updates() -> Result<Option<AppUpdateInfo>, String> {
   #[cfg(feature = "e2e")]
@@ -2160,6 +2212,20 @@ pub async fn check_for_app_updates_manual() -> Result<Option<AppUpdateInfo>, Str
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn test_nsis_install_dir_flag() {
+    // /D= 指向运行中 exe 的父目录：原地更新到真实安装位置
+    let flag = nsis_install_dir_flag(Some(std::path::Path::new(r"D:\BwBrowser\bwbrowser.exe")))
+      .expect("normal exe path should yield a flag");
+    assert_eq!(flag, r"/D=D:\BwBrowser");
+
+    // exe 路径解析失败时降级为 None（保持旧行为，不传 /D=）
+    assert!(nsis_install_dir_flag(None).is_none());
+
+    // 根级 exe：父目录为空串时也降级（NSIS /D= 空目录无意义）
+    assert!(nsis_install_dir_flag(Some(std::path::Path::new("bwbrowser.exe"))).is_none());
+  }
 
   #[test]
   fn test_is_nightly_build() {
