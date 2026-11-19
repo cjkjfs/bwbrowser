@@ -119,6 +119,36 @@ async fn revenue_task(profile_id: &str) -> Result<(), String> {
   };
   rev_log(&name, "CDP浏览器级socket已就绪");
 
+  // 2.5 登录确认门：未确认登录前不启动收益抓取。
+  //     启动初期云端 cookie 恢复 / 手动登录是异步进行的（云端注入约 15 秒内
+  //     完成，手动登录更久）；未登录就跑流程只会白开探针 tab、白打 VPS 请求，
+  //     还有风控风险（2026-11-19 3873 实测：注入被拦、本地 7 分未登录态，
+  //     收益流程照样跑完 precheck + 探针）。
+  //     轮询页面亲证 LOGGED_IN：确认登录立即继续；超时仍未确认则整单跳过。
+  //     亲证 None（CDP 读不到/无 YouTube tab）与 Some(false) 同等对待——
+  //     「确认登录」才抓，宁可不抓。
+  const LOGIN_WAIT_TIMEOUT: Duration = Duration::from_secs(180);
+  const LOGIN_WAIT_INTERVAL: Duration = Duration::from_secs(5);
+  let deadline = tokio::time::Instant::now() + LOGIN_WAIT_TIMEOUT;
+  loop {
+    match crate::cookie_health::youtube_logged_in_via_cdp(&profile).await {
+      Some(true) => {
+        rev_log(&name, "登录确认: 页面亲证 LOGGED_IN=true，继续收益抓取");
+        break;
+      }
+      _ => {
+        if tokio::time::Instant::now() >= deadline {
+          rev_log(
+            &name,
+            "跳过: 等待登录确认超时（180秒内页面亲证未确认登录），不启动收益抓取",
+          );
+          return Ok(());
+        }
+      }
+    }
+    tokio::time::sleep(LOGIN_WAIT_INTERVAL).await;
+  }
+
   // 3. 本地鉴权凭据（token 或密码）——预检需要，提前获取。
   let Some((username, password)) = crate::bwbrowser_cloud::BWBROWSER_AUTH.get_credentials() else {
     rev_log(&name, "跳过: 客户端未登录云端（无鉴权凭据），无法调VPS接口");

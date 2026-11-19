@@ -9954,7 +9954,10 @@ async fn prefetch_cloud_cookies(
     .map(|s| !s.is_empty() && s != "[]")
     .unwrap_or(false);
 
-  // 云端会话健康探测：Expired 则不注入（与原注入路径同一判定）
+  // 云端会话健康探测：Expired 则不注入（与原注入路径同一判定）。
+  // 与下方注入路径同理：这里验证的对象是云端 cookie，浏览器页面
+  // （本地会话，尚无云端 cookie）的亲证结果不代表云端 cookie 的
+  // 有效性，不做 gate_youtube_probe_with_cdp 页面亲证，只走纯 HTTP。
   let mut cloud_probe_expired = false;
   if has_cloud {
     if let Ok(val) =
@@ -9963,12 +9966,7 @@ async fn prefetch_cloud_cookies(
       if let Some(arr) = val.as_array() {
         match tokio::time::timeout(
           std::time::Duration::from_secs(10),
-          crate::cookie_health::gate_youtube_probe_with_cdp(
-            profile,
-            &cloud_platform,
-            crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref())
-              .await,
-          ),
+          crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref()),
         )
         .await
         {
@@ -10276,46 +10274,17 @@ async fn inject_cloud_cookies_after_launch(
     .map(|s| !s.is_empty() && s != "[]")
     .unwrap_or(false);
 
-  let mut should_inject = if is_fresh_profile && has_cloud {
-    log_bwbrowser("inject_cookies", "首次创建 profile，注入云端 Cookie");
-    true
-  } else if !has_cloud {
-    log_bwbrowser("inject_cookies", "无云端 Cookie，保留本地");
-    false
-  } else {
-    // 都有 cookie，比较分数
-    let cloud_total = cloud_score.as_ref().map(|s| s.total).unwrap_or(0);
-    let diff = cloud_total - local_score.as_ref().map(|s| s.total).unwrap_or(0);
-    if diff > 20 {
-      log_bwbrowser(
-        "inject_cookies",
-        &format!(
-          "云端 Cookie 分数比本地高 {} 分 ({} vs {})，注入云端",
-          diff,
-          cloud_total,
-          local_score.as_ref().map(|s| s.total).unwrap_or(0)
-        ),
-      );
-      true
-    } else {
-      log_bwbrowser(
-        "inject_cookies",
-        &format!(
-          "本地 Cookie 分数足够 (本地={} 云端={} 差={}≤20)，保留本地",
-          local_score.as_ref().map(|s| s.total).unwrap_or(0),
-          cloud_total,
-          diff
-        ),
-      );
-      false
-    }
-  };
-
-  // 本地已确认登录：绝不注入。防止云端旧 cookie 合并进本地，造成
-  // sessionid/sid_guard 等会话族错配导致掉登录（merge 注入的缺陷）。
-  // 登录判定以健康检查为准（评分只看 cookie 存在性，部分平台名单缺失会误判）。
-  // fresh profile 本地没有可探测的会话，直接跳过。
-  if should_inject && !is_fresh_profile {
+  // 本地会话活性判定（先于比分，仅本地/云端都有 cookie 时有意义）：
+  // 验证对象是「本地会话」，页面亲证与被验证对象一致，此处保留 gate 有意义。
+  // - 本地活着 → 绝不注入云端（防止云端旧 cookie 合并进本地造成 sessionid
+  //   等会话族错配掉登录；评分只看 cookie 存在性，不能作为登录依据）
+  // - 本地已死（cookie 还在但登录态失效，页面停登录页）→ 改用云端恢复，
+  //   不再按分数「保留本地」把死会话留在浏览器里等用户手动登录
+  //   （2026-11-19 3873 实测：本地死会话 421 分挡住云端活会话 423 分，
+  //   差 2≤20 保留本地，用户被迫手动一键修复删数据）
+  // fresh profile 本地没有可探测的会话，直接跳过（走下方 fresh 分支）。
+  let mut local_health: Option<crate::cookie_health::HealthStatus> = None;
+  if has_cloud && !is_fresh_profile {
     if let Some(arr) = local_val.as_array() {
       if !arr.is_empty() {
         match tokio::time::timeout(
@@ -10329,21 +10298,12 @@ async fn inject_cloud_cookies_after_launch(
         )
         .await
         {
-          Ok(Some((crate::cookie_health::HealthStatus::Valid, msg))) => {
-            should_inject = false;
-            log_bwbrowser(
-              "inject_cookies",
-              &format!(
-                "本地 Cookie 健康检查有效（{}），跳过注入（保留本地自洽会话）",
-                msg
-              ),
-            );
-          }
           Ok(Some((verdict, msg))) => {
             log_bwbrowser(
               "inject_cookies",
               &format!("本地 Cookie 健康检查: {:?} — {}", verdict, msg),
             );
+            local_health = Some(verdict);
           }
           Ok(None) | Err(_) => {
             log_bwbrowser(
@@ -10356,23 +10316,87 @@ async fn inject_cloud_cookies_after_launch(
     }
   }
 
+  let mut should_inject = if is_fresh_profile && has_cloud {
+    log_bwbrowser("inject_cookies", "首次创建 profile，注入云端 Cookie");
+    true
+  } else if !has_cloud {
+    log_bwbrowser("inject_cookies", "无云端 Cookie，保留本地");
+    false
+  } else {
+    match local_health {
+      // 本地会话确认有效：保留本地自洽会话，不注入
+      Some(crate::cookie_health::HealthStatus::Valid) => {
+        log_bwbrowser(
+          "inject_cookies",
+          "本地会话健康检查有效，保留本地（不注入云端）",
+        );
+        false
+      }
+      // 本地会话确认失效：改用云端 Cookie 恢复登录
+      Some(_) => {
+        log_bwbrowser("inject_cookies", "本地会话已失效，改用云端 Cookie 恢复登录");
+        true
+      }
+      // 无法判定（无规则/超时/CDP 不可读）：按评分逻辑
+      None => {
+        let cloud_total = cloud_score.as_ref().map(|s| s.total).unwrap_or(0);
+        let diff = cloud_total - local_score.as_ref().map(|s| s.total).unwrap_or(0);
+        if diff > 20 {
+          log_bwbrowser(
+            "inject_cookies",
+            &format!(
+              "云端 Cookie 分数比本地高 {} 分 ({} vs {})，注入云端",
+              diff,
+              cloud_total,
+              local_score.as_ref().map(|s| s.total).unwrap_or(0)
+            ),
+          );
+          true
+        } else {
+          log_bwbrowser(
+            "inject_cookies",
+            &format!(
+              "本地 Cookie 分数足够 (本地={} 云端={} 差={}≤20)，保留本地",
+              local_score.as_ref().map(|s| s.total).unwrap_or(0),
+              cloud_total,
+              diff
+            ),
+          );
+          false
+        }
+      }
+    }
+  };
+
   // HTTP 交叉验证（注入前）：对云端 cookie 做一次真实请求探测。
   // 评分只看 cookie 存在性，会话可能早已过期 —— 若探测到已失效，拒绝把
   // 失效会话注入浏览器（避免写坏本地状态），改为保留本地。
   // 预取阶段已探测过的（fresh+预取路径）直接用其结论，不重复发起 HTTP。
-  if should_inject && !cloud_probe_expired_prefetch {
+  //
+  // 注意：这里刻意不做 gate_youtube_probe_with_cdp 的 CDP 页面亲证。
+  // 页面此刻跑在本地（尚未注入云端 cookie 的）会话上：fresh profile 必然
+  // 停在 Google 登录页、本地会话已死时同样如此 —— 页面亲证读到的
+  // LOGGED_IN=false 代表的是「本地没有登录」，而不是「云端 cookie 失效」。
+  // 若在此处亲证，fresh / 掉登录场景下云端活 cookie 永远被拦（注入死锁，
+  // 2026-11-19 实测：3873 一键修复删本地后启动，云端 cookie 评分 429 且
+  // HTTP 探测 Valid，仍被亲证推翻跳过注入，无法恢复登录，全天 52 次）。
+  // 页面亲证只保留在「保留本地」与「回传云端」两个方向（页面状态与被
+  // 验证对象一致）。
+  if should_inject && cloud_probe_expired_prefetch {
+    // 预取阶段已探测到云端会话失效：直接采用其结论，不注入也不重复 HTTP
+    log_bwbrowser(
+      "inject_cookies",
+      "⚠ 预取阶段云端 Cookie 探测已失效，跳过注入，会话需重新登录",
+    );
+    should_inject = false;
+  } else if should_inject {
     if let Some(ref cloud_text) = cloud_cookie_text {
       let cloud_val = serde_json::from_str::<serde_json::Value>(cloud_text)
         .unwrap_or(serde_json::Value::Array(vec![]));
       if let Some(arr) = cloud_val.as_array() {
         match tokio::time::timeout(
           std::time::Duration::from_secs(10),
-          crate::cookie_health::gate_youtube_probe_with_cdp(
-            profile,
-            &cloud_platform,
-            crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref())
-              .await,
-          ),
+          crate::cookie_health::probe_cdp_cookies(&cloud_platform, arr, account_proxy.as_ref()),
         )
         .await
         {
@@ -10433,6 +10457,54 @@ async fn inject_cloud_cookies_after_launch(
             if let Some(url) = launch_url {
               if let Err(ne) = crate::cookie_sync::navigate_to_url(profile, url).await {
                 log_bwbrowser_error("inject_cookies", &format!("注入后收尾导航失败: {}", ne));
+              }
+            }
+            // 注入成功 ≠ 页面登录：云端会话可能早已失效（短期 SIDTS cookie
+            // 过期 / IP 漂移），注入后页面仍会被重定向回 Google 登录页。此时
+            // 若保持上面的 Valid 标记，autofill watcher 会误判 "login
+            // confirmed" 提前退出，用户手动登录时没人帮填表（2026-11-19 3873
+            // 实测：注入 32 个 cookie 成功、本地评分 366 确定登录=true，页面
+            // 仍停在登录页，watcher 却退了）。
+            // YouTube 平台在注入+导航完成后亲证页面：确认 LOGGED_IN=true 才
+            // 保留 Valid；明确读到登录页则改标 Expired，让 autofill 继续值守。
+            // 亲证不可读（CDP 受限/页面未就绪）时不折腾，维持 Valid。
+            {
+              let key_lc = cloud_platform.trim().to_lowercase();
+              if key_lc == "youtube" || key_lc == "yt" {
+                let mut saw_confirmed = false;
+                let mut saw_logged_out = false;
+                for _ in 0..4 {
+                  tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                  match crate::cookie_health::youtube_logged_in_via_cdp(profile).await {
+                    Some(true) => {
+                      saw_confirmed = true;
+                      break;
+                    }
+                    Some(false) => saw_logged_out = true,
+                    None => {}
+                  }
+                }
+                if saw_confirmed {
+                  log_bwbrowser(
+                    "inject_cookies",
+                    "注入后页面亲证 LOGGED_IN=true，登录恢复确认",
+                  );
+                } else if saw_logged_out {
+                  log_bwbrowser(
+                    "inject_cookies",
+                    "⚠ 注入后页面亲证仍停在登录页（云端会话可能已失效），改标 Expired 让自动填表继续值守",
+                  );
+                  crate::cookie_health::set_profile_health(
+                    &profile.id.to_string(),
+                    crate::cookie_health::HealthStatus::Expired,
+                    "cloud cookie restored but page still logged out",
+                  );
+                } else {
+                  log_bwbrowser(
+                    "inject_cookies",
+                    "注入后页面亲证不可读（CDP受限/页面未就绪），维持 Valid 标记",
+                  );
+                }
               }
             }
           }

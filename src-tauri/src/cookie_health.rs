@@ -1657,7 +1657,16 @@ pub async fn extract_youtube_channel_via_cdp(profile_id: &str) -> Option<Youtube
       .get("url")
       .and_then(serde_json::Value::as_str)
       .unwrap_or_default();
-    if !url.contains("youtube.com") || url.contains("accounts.google.com") {
+    let lower = url.to_lowercase();
+    // 只认 YouTube 主站页面。Studio / 账号设置 / 帮助页等后台页面的 og:title
+    // 是「YouTube Studio」之类的页面标题而非频道名，会把 account_name 污染
+    // （曾经把开着 Studio 频道自定义页的账号名解析成页面标题）。
+    let is_youtube_main_site = lower.contains("youtube.com")
+      && !lower.contains("accounts.google.com")
+      && !lower.contains("studio.youtube.com")
+      && !lower.contains("myaccount.google.com")
+      && !lower.contains("support.google.com");
+    if !is_youtube_main_site {
       continue;
     }
     let Some(ws_url) = target
@@ -1680,14 +1689,39 @@ pub async fn extract_youtube_channel_via_cdp(profile_id: &str) -> Option<Youtube
       );
       continue;
     };
+    // og:title 只有频道页（/@handle、/channel/UC…、/c/、/user/）上才是频道名；
+    // 主页是「YouTube」、视频页是视频标题、搜索页是搜索词。非频道页一律不填
+    // name/handle —— 频道 id 回传服务器后，服务端/下次启动会用公开频道页自动
+    // 补全正确的名称，绝不拿其他页面的标题冒充账号名。
+    let is_channel_page = lower.contains("youtube.com/@")
+      || (lower.contains("/channel/") && !lower.contains("studio."))
+      || lower.contains("youtube.com/c/")
+      || lower.contains("youtube.com/user/");
     let info = YoutubeChannelInfo {
       id,
-      name: parse_youtube_channel_name(&html),
-      handle: parse_youtube_channel_handle(&html),
+      name: if is_channel_page {
+        parse_youtube_channel_name(&html)
+      } else {
+        None
+      },
+      handle: if is_channel_page {
+        parse_youtube_channel_handle(&html)
+      } else {
+        None
+      },
     };
     crate::bwbrowser_cloud::log_bwbrowser(
       "launch_account",
-      &format!("  ✓ CDP 兜底命中: 从运行中页面解析到频道 ID {}", info.id),
+      &format!(
+        "  ✓ CDP 兜底命中: 从运行中页面解析到频道 ID {}（页面{}频道页，name/handle {}）",
+        info.id,
+        if is_channel_page { "是" } else { "不是" },
+        if is_channel_page {
+          "一并解析"
+        } else {
+          "留空待服务端补全"
+        }
+      ),
     );
     return Some(info);
   }

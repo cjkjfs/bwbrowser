@@ -55,6 +55,14 @@
 - Magpie Trae 登录修复：`D:\bian\vps\_work\magpie_trae_login_fix.md`
 
 ---
+## Wayfern CDP 自动化授权（2026-11-19 用户澄清，重要架构事实）
+
+- **Wayfern 内核的 CDP 自动化授权服务 = 用户自己 VPS 的 `tk/api_auth_wayfern_start.php`**，不是内核上游 Donut 官方服务。
+- CDP `-32000` 三种文案判读：`requires a paid plan`（免费套餐限制，永久）；`authorization service is temporarily unavailable`（=VPS 授权接口没给出正确授权，如登录方式/签名不对——**不是网络抖动**）；速率限制另有文案。
+- 判读 -32000 授权类错误时先查 VPS 授权接口状态，别往「内核上游服务抖动」方向猜。授权类错误同样有 DOM 域兜底（Runtime.evaluate 被拒 → DOM 域填充/读页面），功能不中断。
+- 2026-11-19 曾因登录方式不对导致授权服务报暂时不可用，用户已自行修复 api_auth_wayfern_start.php 登录方式。
+
+---
 ## 视频嗅探下载扩展（内置 MV3，2026-11-09~10）
 
 - **加载目录**：Chrome `--load-extension` 加载的是 `target/debug/extensions/video-sniffer/`（构建时从 `src-tauri/extensions/` 拷贝的独立副本，**非链接**）。改源码必须手动 `cp` 同步 target，且 content script 改动需**重开爆文库浏览器**才生效。
