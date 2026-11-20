@@ -98,27 +98,19 @@ test("bundles the upstream license in Tauri and portable releases", async () => 
   }
 });
 
-test("binds Windows extraction paths that PowerShell can actually read", () => {
-  const { args, env } = windowsExtractionInvocation(
-    "C:\\Users\\runner\\AppData\\Local\\Temp\\bwbrowser xray\\Xray-windows-64.zip",
-    "C:\\Users\\runner\\AppData\\Local\\Temp\\bwbrowser xray",
-  );
+test("extracts the Windows archive with the system bsdtar, not PowerShell", () => {
+  const archive =
+    "C:\\Users\\runner\\AppData\\Local\\Temp\\bwbrowser xray\\Xray-windows-64.zip";
+  const destination = "C:\\Users\\runner\\AppData\\Local\\Temp\\bwbrowser xray";
+  const { command, args } = windowsExtractionInvocation(archive, destination);
 
-  // `powershell -Command "<script>" a b` folds the trailing values into the
-  // command text instead of populating $args, which left -LiteralPath null.
-  const script = args.at(-1);
-  assert.equal(args.at(-2), "-Command");
-  assert.doesNotMatch(script, /\$args/);
-  assert.match(script, /-LiteralPath \$env:BWBROWSER_XRAY_ARCHIVE\b/);
-  assert.match(script, /-DestinationPath \$env:BWBROWSER_XRAY_DESTINATION\b/);
-  assert.equal(
-    env.BWBROWSER_XRAY_ARCHIVE,
-    "C:\\Users\\runner\\AppData\\Local\\Temp\\bwbrowser xray\\Xray-windows-64.zip",
-  );
-  assert.equal(
-    env.BWBROWSER_XRAY_DESTINATION,
-    "C:\\Users\\runner\\AppData\\Local\\Temp\\bwbrowser xray",
-  );
+  // The runners' PSModulePath made Windows PowerShell load pwsh7's Archive
+  // module, whose 3-argument ExtractToDirectory overload does not exist on
+  // .NET Framework. System32's tar.exe reads zips natively; resolving it by
+  // absolute path keeps a Git for Windows GNU tar (zip-incapable) from
+  // shadowing it on PATH.
+  assert.match(command, /tar(\.exe)?$/i);
+  assert.deepEqual(args, ["-xf", archive, "-C", destination]);
 });
 
 test("rejects an unsupported target before downloading", async () => {

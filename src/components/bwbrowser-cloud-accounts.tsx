@@ -5247,7 +5247,11 @@ export function BwbrowserCloudAccountsDialog({
       open={ownerDialogOpen}
       onOpenChange={(open) => !open && setOwnerDialogOpen(false)}
     >
-      <DialogContent className="flex max-h-[70vh] w-[420px] max-w-[95vw] flex-col overflow-hidden p-0">
+      {/* 自定义标题栏自带关闭按钮：hideClose 隐藏 DialogContent 内置的右上角 X，避免出现两个 */}
+      <DialogContent
+        hideClose
+        className="flex max-h-[70vh] w-[420px] max-w-[95vw] flex-col overflow-hidden p-0"
+      >
         <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-2">
             <LuUserCheck className="h-4 w-4 text-primary" />
@@ -5358,7 +5362,11 @@ export function BwbrowserCloudAccountsDialog({
       open={phoneIdDialogOpen}
       onOpenChange={(open) => !open && setPhoneIdDialogOpen(false)}
     >
-      <DialogContent className="flex max-h-[70vh] w-[520px] max-w-[95vw] flex-col overflow-hidden p-0">
+      {/* 自定义标题栏自带关闭按钮：hideClose 隐藏 DialogContent 内置的右上角 X，避免出现两个 */}
+      <DialogContent
+        hideClose
+        className="flex max-h-[70vh] w-[520px] max-w-[95vw] flex-col overflow-hidden p-0"
+      >
         <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-2">
             <LuMonitor className="h-4 w-4 text-primary" />
@@ -5466,7 +5474,11 @@ export function BwbrowserCloudAccountsDialog({
       open={proxyDialogOpen}
       onOpenChange={(open) => !open && setProxyDialogOpen(false)}
     >
-      <DialogContent className="flex max-h-[92vh] w-[880px] max-w-[95vw] flex-col overflow-hidden p-0">
+      {/* 自定义标题栏自带关闭按钮：hideClose 隐藏 DialogContent 内置的右上角 X，避免出现两个 */}
+      <DialogContent
+        hideClose
+        className="flex max-h-[92vh] w-[880px] max-w-[95vw] flex-col overflow-hidden p-0"
+      >
         {/* 标题栏 */}
         <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-2">

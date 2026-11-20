@@ -26,6 +26,10 @@ const POLL_INTERVAL: Duration = Duration::from_millis(1500);
 /// while a stale PID kept the process check green.
 const MAX_CONSECUTIVE_FAILURES: u32 = 15;
 
+/// 总看护时长上限（秒）。超时自动停止，防止账号已登录但健康检查没确认、
+/// 或用户一直停在非登录页时 watcher 无限轮询刷屏（2026-11-20 用户要求）。
+const MAX_WATCH_DURATION_SECS: u64 = 120;
+
 /// One watcher per profile. `update_profile_login_credentials` also spawns a
 /// watcher when credentials are saved while the browser is already running;
 /// the set collapses that with the one the launch already started.
@@ -89,6 +93,13 @@ pub async fn watch_profile(profile_id: &str) {
   // fresh launch before the launch-time check has re-run.
   let started_at = crate::proxy_manager::now_secs();
   let mut consecutive_failures: u32 = 0;
+  // 空闲计时器：最后一次实际填充的时间。超时按「空闲」算而不是按总时长
+  // 算——2FA 验证码每 30 秒换窗口、需要 watcher 持续重输新码，一刀切的
+  // 总时长会掐断它；真正刷屏的是停在非登录页/已登录却没人填充的空闲轮询。
+  let mut last_activity_at = started_at;
+  // 「CDP 端口就绪」只在首次拿到端口时打一条：轮询期间端口不会变，逐轮
+  // 打印只会刷屏。
+  let mut ready_logged = false;
   // Fields already filled once on a page (`"{documentURL}|email"` /
   // `"{documentURL}|password"`). A filled field is left alone on every later
   // probe — Google often re-renders the same page and we must not retype over
@@ -107,6 +118,13 @@ pub async fn watch_profile(profile_id: &str) {
       .unwrap_or(true);
     if !autofill_on {
       break "autofill disabled";
+    }
+
+    // 空闲超时上限：连续 120 秒没有任何实际填充（且登录未被健康检查确认）
+    // 才自动停止，防止无限轮询刷屏。有填充动作就续期，2FA 重输不受影响。
+    if crate::proxy_manager::now_secs().saturating_sub(last_activity_at) >= MAX_WATCH_DURATION_SECS
+    {
+      break "watch timeout（连续 120 秒无填充，自动停止）";
     }
 
     let profile = match ProfileManager::instance()
@@ -167,10 +185,13 @@ pub async fn watch_profile(profile_id: &str) {
       tokio::time::sleep(POLL_INTERVAL).await;
       continue;
     };
-    crate::bwbrowser_cloud::log_bwbrowser(
-      "autofill",
-      &format!("CDP 端口就绪: {port}，开始探测页面"),
-    );
+    if !ready_logged {
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "autofill",
+        &format!("CDP 端口就绪: {port}，开始探测页面"),
+      );
+      ready_logged = true;
+    }
 
     // 每个轮询周期解析一次自动填表方案：内部带 TTL 缓存，服务端改选择器最多 5 分钟生效。
     let plans = crate::bwbrowser_cloud::autofill_plans().await;
@@ -194,7 +215,12 @@ pub async fn watch_profile(profile_id: &str) {
     )
     .await
     {
-      ProbeResult::Filled | ProbeResult::Nothing => consecutive_failures = 0,
+      ProbeResult::Filled => {
+        consecutive_failures = 0;
+        // 有实际填充就续期空闲计时器（2FA 换码重输也走这里）。
+        last_activity_at = crate::proxy_manager::now_secs();
+      }
+      ProbeResult::Nothing => consecutive_failures = 0,
       ProbeResult::Failed => {
         consecutive_failures += 1;
         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {

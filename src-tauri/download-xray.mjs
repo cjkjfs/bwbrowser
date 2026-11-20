@@ -76,30 +76,26 @@ export function xrayDownloadUrl(assetName) {
   return `https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${assetName}`;
 }
 
-// `powershell -Command "<script>" a b` appends the trailing values to the
-// command text rather than binding them to $args, so the script ran with a
-// null -LiteralPath. Handing the paths over as environment variables binds
-// them for real and sidesteps quoting of Windows paths and spaces.
+// Windows PowerShell's Expand-Archive broke on the GitHub runners: their
+// PSModulePath puts the pwsh7 module directory first, so 5.1 loaded pwsh7's
+// Microsoft.PowerShell.Archive module, whose 3-argument ExtractToDirectory
+// overload does not exist on .NET Framework. System32's tar.exe (bsdtar,
+// bundled since Windows 10 1803) reads zip archives natively and never
+// touches PowerShell. Resolve it absolutely so a Git for Windows GNU tar on
+// PATH (which rejects zip) cannot shadow it.
 export function windowsExtractionInvocation(archive, destinationDir) {
+  const systemRoot = process.env.SystemRoot || "C:\\Windows";
+  const systemTar = join(systemRoot, "System32", "tar.exe");
   return {
-    args: [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      "Expand-Archive -LiteralPath $env:BWBROWSER_XRAY_ARCHIVE -DestinationPath $env:BWBROWSER_XRAY_DESTINATION -Force",
-    ],
-    env: {
-      ...process.env,
-      BWBROWSER_XRAY_ARCHIVE: archive,
-      BWBROWSER_XRAY_DESTINATION: destinationDir,
-    },
+    command: existsSync(systemTar) ? systemTar : "tar",
+    args: ["-xf", archive, "-C", destinationDir],
   };
 }
 
 function extractArchive(archive, destinationDir, windowsTarget) {
   if (windowsTarget) {
-    const { args, env } = windowsExtractionInvocation(archive, destinationDir);
-    const result = spawnSync("powershell", args, { stdio: "inherit", env });
+    const { command, args } = windowsExtractionInvocation(archive, destinationDir);
+    const result = spawnSync(command, args, { stdio: "inherit" });
     if (result.status !== 0) {
       throw new Error("Failed to extract the Xray-core archive");
     }
