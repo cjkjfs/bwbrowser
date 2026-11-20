@@ -1,6 +1,6 @@
 use crate::profile::manager::ProfileManager;
 use crate::profile::BrowserProfile;
-use crate::profile_import::os_crypt::{Decrypted, SourceKeyring};
+use crate::profile_import::os_crypt::{CryptoKey, Decrypted, SourceKeyring};
 use crate::profile_import::report::ProfileImportReport;
 use crate::profile_import::{keyring::recover_source_keys, layout::host_cookie_path};
 use rusqlite::{params, Connection, OpenFlags};
@@ -16,54 +16,48 @@ use tauri::AppHandle;
 /// so no encryption path is needed here — Chromium reads plaintext when
 /// `encrypted_value` is empty, regardless of what other cookies store.
 pub mod chrome_decrypt {
-  use aes::cipher::{block_padding::Pkcs7, BlockModeDecrypt, KeyIvInit};
-  use ring::pbkdf2;
+  use crate::profile_import::os_crypt::CryptoKey;
   use sha2::{Digest, Sha256};
-  use std::num::NonZeroU32;
   use std::path::Path;
 
-  type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
-
   /// PBKDF2 iteration count for deriving the AES key from the password stored
-  /// in `os_crypt_key`. Must match Chromium's `OSCryptImpl` on each platform:
-  /// macOS uses 1003 iterations, Linux uses 1. Getting this wrong produces a
-  /// different AES key → silent decryption failure → empty cookie values.
-  /// See `components/os_crypt/sync/os_crypt_{mac.mm,linux.cc}` in Chromium.
+  /// in `os_crypt_key` (macOS/Linux upstream Chromium only). Must match
+  /// Chromium's `OSCryptImpl` on each platform: macOS uses 1003 iterations,
+  /// Linux uses 1. See `components/os_crypt/sync/os_crypt_{mac.mm,linux.cc}`.
   #[cfg(target_os = "macos")]
-  const PBKDF2_ITERATIONS: u32 = 1003;
+  #[allow(dead_code)]
+  pub(crate) const PBKDF2_ITERATIONS: u32 = 1003;
   #[cfg(not(target_os = "macos"))]
-  const PBKDF2_ITERATIONS: u32 = 1;
+  #[allow(dead_code)]
+  pub(crate) const PBKDF2_ITERATIONS: u32 = 1;
 
-  const KEY_LEN: usize = 16; // AES-128
-  const SALT: &[u8] = b"saltysalt";
-  const IV: [u8; 16] = [b' '; 16]; // 16 spaces
   const HOST_HASH_LEN: usize = 32; // SHA-256 output length
 
-  fn derive_key(password: &[u8]) -> [u8; KEY_LEN] {
-    let mut key = [0u8; KEY_LEN];
-    // Using ring::pbkdf2 instead of the `pbkdf2` crate to avoid digest
-    // version conflicts between sha1 0.11 (digest 0.11) and pbkdf2 0.12
-    // (digest 0.10). ring's implementation is self-contained.
-    pbkdf2::derive(
-      pbkdf2::PBKDF2_HMAC_SHA1,
-      NonZeroU32::new(PBKDF2_ITERATIONS).expect("iterations must be non-zero"),
-      SALT,
-      password,
-      &mut key,
-    );
-    key
-  }
-
-  pub fn get_encryption_key(profile_data_path: &Path) -> Option<[u8; KEY_LEN]> {
+  /// Read the kernel's os_crypt key. On Windows the Wayfern kernel stores the
+  /// raw 32-byte AES-256-GCM key in the file (same convention as the password
+  /// manager — `password_sync::portable_key`); the old PBKDF2+AES-128-CBC
+  /// derivation here produced a different key, decryption silently failed and
+  /// every exported cookie value came back empty (2026-11-20 close-upload
+  /// valid=0 root cause). macOS/Linux keep the upstream PBKDF2 derivation.
+  pub fn get_encryption_key(profile_data_path: &Path) -> Option<CryptoKey> {
     let key_file = profile_data_path.join("os_crypt_key");
-    // Read as raw bytes and do NOT trim — Chromium's `ReadFileToString`
-    // passes the exact file contents to `Pbkdf2(file_contents)`. Any
-    // normalisation we do here would produce a different derived key.
+    // Read as raw bytes and do NOT trim — the kernel adopts the exact file
+    // contents as key material; any normalisation would change the key.
     let contents = std::fs::read(&key_file).ok()?;
     if contents.is_empty() {
       return None;
     }
-    Some(derive_key(&contents))
+    #[cfg(target_os = "windows")]
+    {
+      let bytes: [u8; 32] = contents.try_into().ok()?;
+      Some(CryptoKey::Aes256Gcm(bytes))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+      Some(CryptoKey::Aes128Cbc(
+        crate::profile_import::os_crypt::derive_key(&contents, PBKDF2_ITERATIONS),
+      ))
+    }
   }
 
   /// Decrypt a Chrome encrypted cookie value.
@@ -74,7 +68,7 @@ pub mod chrome_decrypt {
   /// when present. Passing `host_key` is required to do that verification —
   /// without it we'd return 32 bytes of hash noise plus the actual value,
   /// which is not valid UTF-8 and gets thrown away.
-  pub fn decrypt(encrypted: &[u8], host_key: &str, key: &[u8; KEY_LEN]) -> Option<String> {
+  pub fn decrypt(encrypted: &[u8], host_key: &str, key: &CryptoKey) -> Option<String> {
     if encrypted.len() < 3 {
       return None;
     }
@@ -83,14 +77,7 @@ pub mod chrome_decrypt {
       return None;
     }
     let ciphertext = &encrypted[3..];
-    if ciphertext.is_empty() {
-      return Some(String::new());
-    }
-
-    let mut buf = ciphertext.to_vec();
-    let decrypted = Aes128CbcDec::new(key.into(), &IV.into())
-      .decrypt_padded::<Pkcs7>(&mut buf)
-      .ok()?;
+    let decrypted = key.decrypt(ciphertext)?;
 
     // Strip the SHA-256(host_key) integrity prefix if present. Older cookies
     // (pre-M100) didn't have this prefix, so we fall back to the raw bytes
@@ -102,7 +89,7 @@ pub mod chrome_decrypt {
       }
     }
 
-    String::from_utf8(decrypted.to_vec()).ok()
+    String::from_utf8(decrypted).ok()
   }
 }
 
@@ -283,7 +270,7 @@ impl CookieManager {
   /// Windows epoch offset: seconds between 1601-01-01 and 1970-01-01
   const WINDOWS_EPOCH_DIFF: i64 = 11644473600;
 
-  fn get_chrome_encryption_key(profile: &BrowserProfile, profiles_dir: &Path) -> Option<[u8; 16]> {
+  fn get_chrome_encryption_key(profile: &BrowserProfile, profiles_dir: &Path) -> Option<CryptoKey> {
     let profile_data_path = Self::kernel_data_path(profile, profiles_dir);
     chrome_decrypt::get_encryption_key(&profile_data_path)
   }
@@ -426,7 +413,7 @@ impl CookieManager {
   /// Handles encrypted cookies by decrypting encrypted_value using the profile's encryption key.
   fn read_chrome_cookies(
     db_path: &Path,
-    encryption_key: Option<&[u8; 16]>,
+    encryption_key: Option<&CryptoKey>,
   ) -> Result<Vec<UnifiedCookie>, String> {
     // Use immutable=1 URI so we can read even while the browser is running
     // and holding an exclusive lock on the database. The trade-off is a
@@ -476,7 +463,7 @@ impl CookieManager {
   /// 便于直连/快照两种打开方式共用 + 统一清理临时文件）。
   fn read_chrome_cookies_from_conn(
     conn: &Connection,
-    encryption_key: Option<&[u8; 16]>,
+    encryption_key: Option<&CryptoKey>,
   ) -> Result<Vec<UnifiedCookie>, String> {
     let mut stmt = conn
       .prepare(

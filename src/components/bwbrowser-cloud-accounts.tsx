@@ -5009,8 +5009,9 @@ export function BwbrowserCloudAccountsDialog({
                       row.original.status === 1 &&
                         "text-emerald-600 dark:text-emerald-400",
                       isChildRow && "bg-muted/30",
-                      // 置顶行淡金底色提示 + 左侧金色竖条
-                      isPinned(acc.id) && "bg-amber-500/5",
+                      // 置顶行：明显金色底色 + 左侧金色竖条（2026-11-20 用户要求加深对比）
+                      isPinned(acc.id) &&
+                        "border-l-4 border-amber-500 bg-amber-400/25 dark:bg-amber-400/15",
                     )}
                   >
                     {row.getVisibleCells().map((cell) => (

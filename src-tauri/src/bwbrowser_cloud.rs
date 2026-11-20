@@ -7760,6 +7760,61 @@ async fn watch_account_browser_close(
               ),
             }
           }
+          // 账号 Cookie 自动回传：浏览器退出时本地即最新登录态快照。
+          // 与书签/密码同模式；sync_cookies_to_cloud 内部带可用性闸门
+          // （本地 usable 才传）与云端防覆盖保护（云端已登录且更好不覆盖），
+          // platform 传空串由云端响应自动纠正（未知平台用 JSON domains 兜底）。
+          // 失败只记日志，不影响关闭事件通知。
+          {
+            match crate::cookie_manager::CookieManager::export_cookies(
+              &profile.id.to_string(),
+              "json",
+            ) {
+              Ok(cookie_json)
+                if !cookie_json.trim().is_empty()
+                  && cookie_json.trim() != "[]"
+                  && cookie_json.trim() != "{}"
+                  && cookie_json.trim() != "null" =>
+              {
+                match sync_cookies_to_cloud(&app_handle, account_id, &cookie_json, "", true).await {
+                  Ok((uploaded, local_total, cloud_total)) => {
+                    if uploaded {
+                      log_bwbrowser(
+                        "cookie_sync",
+                        &format!(
+                          "账号 {account_name} 浏览器退出：Cookie 已回传云端（本地 {} 分，云端 {}）",
+                          local_total,
+                          cloud_total
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| "无".to_string()),
+                        ),
+                      );
+                    } else {
+                      log_bwbrowser(
+                        "cookie_sync",
+                        &format!(
+                          "账号 {account_name} 浏览器退出：Cookie 未达回传标准，跳过（本地 {} 分）",
+                          local_total,
+                        ),
+                      );
+                    }
+                  }
+                  Err(e) => log_bwbrowser(
+                    "cookie_sync",
+                    &format!("账号 {account_name} Cookie 上行失败（忽略）: {e}"),
+                  ),
+                }
+              }
+              Ok(_) => log_bwbrowser(
+                "cookie_sync",
+                &format!("账号 {account_name} 浏览器退出：本地无 Cookie，跳过回传"),
+              ),
+              Err(e) => log_bwbrowser(
+                "cookie_sync",
+                &format!("账号 {account_name} 读取本地 Cookie 失败（忽略）: {e}"),
+              ),
+            }
+          }
           let _ = app_handle.emit(
             "account-browser-closed",
             serde_json::json!({
@@ -9085,10 +9140,11 @@ async fn launch_account_impl(
   );
 
   // 6.5 YouTube 账号启动后从本机会话 cookie 解析频道信息并回传服务器：
-  //     频道 ID 存 channel_id，名称→account_name，标识名(@handle)→pure_username。
-  //     只在取到且与服务器当前值不同才保存；名称变化会同步重命名本地 profile
-  //     （profile 按「账号名_账号id」派生名匹配，不改名下次启动会新建空环境丢登录态）。
-  //     后台重试几轮（等 cookie 注入/落盘），失败只记日志，不影响本次启动。
+  //     频道 ID 存 channel_id，标识名(@handle)→pure_username。
+  //     【2026-11-20 用户要求】不再回写账号名称（account_name）——解析结果经常是错的
+  //     （未登录态/代理页抓到默认名覆盖云端正确名称），名称只允许编辑账号手动维护。
+  //     只在取到且与服务器当前值不同才保存；后台重试几轮（等 cookie 注入/落盘），
+  //     失败只记日志，不影响本次启动。
   let is_youtube_account = server_platform
     .as_deref()
     .is_some_and(|p| p.eq_ignore_ascii_case("youtube"));
@@ -9103,9 +9159,7 @@ async fn launch_account_impl(
       server_channel_id.clone()
     };
     let channel_account_id = account_id;
-    let mut channel_server_account_name = server_account_name.clone();
     let mut channel_server_pure_username = server_pure_username.clone();
-    let rename_app_handle = app_handle.clone();
     tokio::spawn(async move {
       for attempt in 1..=4u32 {
         tokio::time::sleep(std::time::Duration::from_secs(15 * attempt as u64)).await;
@@ -9140,16 +9194,12 @@ async fn launch_account_impl(
         } else {
           None
         };
-        let send_name = info.name.clone().and_then(|n| {
-          let n = n.trim().to_string();
-          (!n.is_empty() && n != channel_server_account_name.trim()).then_some(n)
-        });
         let send_handle = info.handle.clone().and_then(|h| {
           let h = h.trim().to_string();
           let current = channel_server_pure_username.as_deref().unwrap_or("").trim();
           (!h.is_empty() && h != current).then_some(h)
         });
-        if send_id.is_none() && send_name.is_none() && send_handle.is_none() {
+        if send_id.is_none() && send_handle.is_none() {
           log_bwbrowser("launch_account", "  YouTube 频道信息与服务器一致，跳过保存");
           return;
         }
@@ -9159,7 +9209,7 @@ async fn launch_account_impl(
         );
         match bwbrowser_update_account_info(
           channel_account_id,
-          send_name.clone(),
+          None,
           None,
           None,
           None,
@@ -9183,42 +9233,19 @@ async fn launch_account_impl(
             log_bwbrowser(
               "launch_account",
               &format!(
-                "  ✓ YouTube 频道信息已保存: id={:?}, 名称→account_name={:?}, 标识名→pure_username={:?}",
-                send_id, send_name, send_handle
+                "  ✓ YouTube 频道信息已保存: id={:?}, 标识名→pure_username={:?}（账号名称不回写）",
+                send_id, send_handle
               ),
             );
-            if let Some(new_name) = &send_name {
-              let new_profile_name = account_profile_name(new_name, channel_account_id);
-              match crate::profile::manager::ProfileManager::instance().rename_profile(
-                &rename_app_handle,
-                &channel_profile_id,
-                &new_profile_name,
-              ) {
-                Ok(_) => log_bwbrowser(
-                  "launch_account",
-                  &format!("  ✓ 本地 profile 已同步重命名为 {new_profile_name}（保留浏览器环境）"),
-                ),
-                Err(e) => log_bwbrowser_error(
-                  "launch_account",
-                  &format!(
-                    "  ⚠ 本地 profile 重命名为 {new_profile_name} 失败（下次启动可能新建环境）: {}",
-                    e
-                  ),
-                ),
-              }
-            }
             // 本地基准值同步为已保存的值，下一轮只补还没拿到的字段；
-            // 只保存了频道 ID 时继续轮次（用已知 ID 免 cookie 抓公开频道页补名称/标识名）。
-            if let Some(n) = &send_name {
-              channel_server_account_name = n.clone();
-            }
+            // 只保存了频道 ID 时继续轮次（用已知 ID 免 cookie 抓公开频道页补标识名）。
             if let Some(h) = &send_handle {
               channel_server_pure_username = Some(h.clone());
             }
             if let Some(id) = &send_id {
               channel_known_id = Some(id.clone());
             }
-            if send_name.is_some() && send_handle.is_some() {
+            if send_handle.is_some() {
               return;
             }
           }
@@ -9598,6 +9625,55 @@ fn platform_config_cache(
     std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>>,
   > = std::sync::OnceLock::new();
   CACHE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// 平台 cookie 域名兜底：platform_config 缓存里该平台条目的 `domains` 数组。
+/// 仅同步读现有缓存（TTL 由 autofill/login_check 等轮询路径驱动填充，本函数
+/// 不触发网络）。自定义平台在服务端添加时会写入裸域名兜底（tk/platform_lib.php），
+/// 硬编码白名单未命中的平台由此获得 cookie 过滤域名。
+pub fn platform_domains_from_config(platform: &str) -> Vec<String> {
+  let cached = platform_config_cache().lock().ok().and_then(|g| g.clone());
+  let Some((_, doc)) = cached else {
+    return Vec::new();
+  };
+  let platform_lower = platform.to_lowercase();
+  // 兼容两种下发格式：
+  // - dict  { "douge": {...} }
+  // - array [ { "id": "douge", ... }, ... ]（api_get_platform_config 实际下发的是数组，
+  //   此前只按 dict 查找，自定义平台永远查不到 domains，域名匹配恒为 0）
+  let entry = doc
+    .get(platform)
+    .or_else(|| {
+      doc.as_object().and_then(|m| {
+        m.iter()
+          .find(|(k, _)| k.to_lowercase() == platform_lower)
+          .map(|(_, v)| v)
+      })
+    })
+    .or_else(|| {
+      doc.as_array().and_then(|arr| {
+        arr.iter().find(|item| {
+          ["id", "platform", "name"]
+            .iter()
+            .filter_map(|field| item.get(field).and_then(|v| v.as_str()))
+            .any(|val| val.to_lowercase() == platform_lower)
+        })
+      })
+    });
+  let Some(entry) = entry else {
+    return Vec::new();
+  };
+  entry
+    .get("domains")
+    .and_then(serde_json::Value::as_array)
+    .map(|arr| {
+      arr
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_string)
+        .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// 拉取完整的 `data.platforms`（TTL 内走缓存，失败时回退到过期缓存以兜底）。
@@ -10950,6 +11026,39 @@ async fn sync_cookies_to_cloud(
     "cookie_sync",
     "  ✓ 健康检查已确认登录，按健康检查结果回传云端",
   );
+
+  // 闸1：本地至少是可用会话（validCount>=2 且有域名匹配），防止把未登录的
+  // 空会话/落地页访客 cookie 覆盖到云端（浏览器退出自动回传场景的关键防线）。
+  // 已知平台登录后的会话远超此阈值；注入确认回传场景刚确认过登录必然达标。
+  if !local_score.usable {
+    log_bwbrowser(
+      "cookie_sync",
+      &format!(
+        "  本地 Cookie 未达可用标准（valid={} domainMatched={}），跳过回传",
+        local_score.valid_count, local_score.domain_matched,
+      ),
+    );
+    return Ok((
+      false,
+      local_score.total,
+      cloud_score.as_ref().map(|s| s.total),
+    ));
+  }
+
+  // 闸2：云端已有「确定登录」且评分更高的会话时不覆盖，防止关闭回传把
+  // 云端完好的登录态冲掉（本地 usable 但不确定登录的平台尤其依赖此保护）。
+  if let Some(cs) = &cloud_score {
+    if cs.definite_logged_in && cs.total > local_score.total {
+      log_bwbrowser(
+        "cookie_sync",
+        &format!(
+          "  云端已有更优的已登录会话（云端 {} > 本地 {}），跳过覆盖",
+          cs.total, local_score.total,
+        ),
+      );
+      return Ok((false, local_score.total, Some(cs.total)));
+    }
+  }
 
   // 上传到服务器
   let form_data = format!(

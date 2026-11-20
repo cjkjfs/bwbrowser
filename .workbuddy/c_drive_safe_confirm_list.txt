@@ -1,0 +1,36 @@
+ 1.    905.3 MB  2026-11-07  FREE     C:\Users\Administrator\AppData\Local\Temp\rea-ghidra-6044ac1dd2ec75126aa34e98f3bd4c5b\tmp\Administrator-ghidra\ghidra10013885057566135741.cache
+ 2.    500.7 MB  2026-11-06  FREE     C:\Users\Administrator\AppData\Roaming\LarkShell\update\update_downloading\f190d7e430151a1c09e1b9d61e8412bb-817dc4888a40de5d7d30258b372270c7-2th.exe
+ 3.    438.5 MB  2026-11-13  FREE     C:\Users\Administrator\AppData\Local\@genieworkbuddy-desktop-updater\installer.exe
+ 4.    370.7 MB  2026-11-09  FREE     C:\Users\Administrator\AppData\Local\@docs-desktopapp-updater\pending\TencentDocs3.13.1.x64.30002.exe
+ 5.    370.4 MB  2026-10-19  FREE     C:\Users\Administrator\AppData\Local\tdappdesktop-updater\pending\TencentDocs3.12.11.x64.30002.exe
+ 6.    370.4 MB  2026-10-19  FREE     C:\Users\Administrator\AppData\Local\@docs-desktopapp-updater\installer.exe
+ 7.    359.0 MB  2026-11-07  FREE     C:\Users\Administrator\AppData\Local\Temp\rea-ghidra-6044ac1dd2ec75126aa34e98f3bd4c5b\target-3a954d485429.dll
+ 8.    355.9 MB  2026-09-03  FREE     C:\Users\Administrator\AppData\Local\hubstudio-client-updater\installer.exe
+ 9.    301.1 MB  2026-08-11  FREE     C:\Users\Administrator\AppData\Local\tdappdesktop-updater\installer.exe
+10.    275.9 MB  2026-10-08  FREE     C:\Users\Administrator\AppData\Local\@deepseek-aidsh-desktop-updater\installer.exe
+11.    256.0 MB  2026-09-12  FREE     C:\Users\Administrator\AppData\LocalLow\NVIDIA\DXCache\cb0da939d1c712fb.nvph
+12.    252.0 MB  2026-11-06  FREE     C:\Users\Administrator\AppData\Roaming\TDAppDesktop\users\144115213435878611\Cache\Cache_Data\data_3
+13.    221.1 MB  2026-10-20  FREE     C:\Users\Administrator\AppData\Local\qoder-cn-updater\installer.exe
+14.    215.1 MB  2026-10-15  FREE     C:\Users\Administrator\AppData\Local\Temp\qoder-node24-bin\node.exe
+15.    214.0 MB  2026-11-19  IN-USE   C:\Users\Administrator\AppData\Local\Microsoft\Windows\Explorer\thumbcache_2560.db
+16.    200.0 MB  2026-11-19  FREE     C:\Windows\System32\WDI\LogFiles\BootPerfDiagLogger.etl
+17.    192.5 MB  2026-11-10  FREE     C:\Users\Administrator\AppData\Local\Temp\5z3ytt5o\Microsoft.VisualStudio.IntelliCode.529688E2E376374234BC\Microsoft.VisualStudio.IntelliCode.vsix
+18.    173.7 MB  2026-08-08  FREE     C:\Users\Administrator\AppData\Roaming\Code\CachedExtensionVSIXs\alibaba-cloud.tongyi-lingma-2.6.7
+19.    169.2 MB  2026-11-10  FREE     C:\Users\Administrator\AppData\Local\Temp\5z3ytt5o\VisualStudio.GitHub.Copilot.E7FF21E8EFFF4321E18B\VisualStudio.GitHub.Copilot.vsix
+20.    168.6 MB  2025-10-08  FREE     C:\Windows\SystemTemp\scoped_dir25752_1082639003\ProvenanceData\2025.10.7.5\vti-b-p32-visual.quant.ort
+21.    168.6 MB  2025-10-08  FREE     C:\Users\Administrator\AppData\Local\Microsoft\Edge\User Data\ProvenanceData\2025.10.7.5\vti-b-p32-visual.quant.ort
+22.    155.5 MB  2025-10-08  FREE     C:\Users\Administrator\AppData\Local\Microsoft\Edge\User Data\component_crx_cache\f081de18a604e95a175eaf4dd91b35b7f17ad4de24ee2f20eeb034c979bbcccb
+23.    155.5 MB  2025-10-08  FREE     C:\Windows\SystemTemp\scoped_dir25752_1082639003\component_crx_cache\f081de18a604e95a175eaf4dd91b35b7f17ad4de24ee2f20eeb034c979bbcccb
+24.    148.6 MB  2026-10-19  FREE     C:\Users\Administrator\AppData\Local\Doubao\User Data\sdk_storage\log\saman_2026.1019.0.log
+25.    133.8 MB  2026-10-18  FREE     C:\Users\Administrator\AppData\Local\Doubao\User Data\sdk_storage\log\saman_2026.1018.0.log
+26.    131.6 MB  2026-11-17  FREE     C:\Users\Administrator\AppData\Local\hongguo-downloader-updater\pending\hongguo-downloader-7.5-win-x64-setup.exe
+27.    131.6 MB  2026-11-17  FREE     C:\Users\Administrator\AppData\Local\hongguo-downloader-updater\installer.exe
+28.    130.9 MB  2026-11-10  FREE     C:\Users\Administrator\AppData\Local\pikpak-updater\installer.exe
+29.    127.7 MB  2026-10-20  FREE     C:\Users\Administrator\AppData\Local\Doubao\User Data\sdk_storage\log\saman_2026.1020.0.log
+30.    121.9 MB  2026-10-20  FREE     C:\Users\Administrator\AppData\Local\xhhmedia-updater\installer.exe
+31.    118.8 MB  2026-10-21  FREE     C:\Users\Administrator\AppData\Local\Doubao\User Data\sdk_storage\log\saman_2026.1021.0.log
+32.    118.6 MB  2026-10-02  FREE     C:\Users\Administrator\AppData\Local\alipaykeytool-updater\installer.exe
+33.    117.4 MB  2026-10-20  FREE     C:\Users\Administrator\AppData\Local\kimi-code-app-updater\installer.exe
+34.    115.0 MB  2026-10-27  FREE     C:\Users\Administrator\AppData\Local\billd-desk-updater\installer.exe
+35.    112.0 MB  2026-11-06  FREE     C:\Users\Administrator\AppData\Roaming\TDAppDesktop\Cache\Cache_Data\data_3
+36.    104.3 MB  2026-10-18  FREE     C:\Users\Administrator\AppData\Local\Doubao\User Data\sdk_storage\log\saman_2026.1018.1.log

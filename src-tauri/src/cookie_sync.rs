@@ -21,10 +21,15 @@ const CMD_BASE_PER_COOKIE: u64 = 100;
 
 /// Returns the cookie domains associated with a platform.
 /// Cookies not matching these domains are filtered out during injection.
-pub fn platform_domains(platform: &str) -> Vec<&'static str> {
+///
+/// 优先走内置硬编码白名单（老平台，离线可用）；未命中时回退到云端
+/// platform_config 缓存里该平台条目的 `domains` 数组（自定义平台由
+/// 服务端添加时写入裸域名兜底，见 tk/platform_lib.php）。两者都空时
+/// 返回空列表，上层 filter_cookies_by_platform 会放行全部 cookie。
+pub fn platform_domains(platform: &str) -> Vec<String> {
   let lower = platform.to_lowercase();
   let p = lower.trim();
-  match p {
+  let static_list: Vec<&str> = match p {
     "tiktok" | "tk" | "tiktok us" => {
       vec!["tiktok.com", "tiktokcdn.com", "tiktokv.com", "musical.ly"]
     }
@@ -138,11 +143,15 @@ pub fn platform_domains(platform: &str) -> Vec<&'static str> {
       "xingtu.cn",
     ],
     _ => vec![],
+  };
+  if !static_list.is_empty() {
+    return static_list.into_iter().map(str::to_string).collect();
   }
+  crate::bwbrowser_cloud::platform_domains_from_config(p)
 }
 
 /// Check if a cookie domain matches any of the platform domains.
-fn cookie_domain_matches(cookie_domain: &str, platform_domains: &[&str]) -> bool {
+fn cookie_domain_matches(cookie_domain: &str, platform_domains: &[String]) -> bool {
   let cd = cookie_domain.to_lowercase();
   let cd = cd.trim_start_matches('.');
   for pd in platform_domains {
@@ -2022,9 +2031,18 @@ mod tests {
 
   #[test]
   fn domain_match_strips_leading_dot() {
-    assert!(cookie_domain_matches(".tiktok.com", &["tiktok.com"]));
-    assert!(cookie_domain_matches("sub.tiktok.com", &["tiktok.com"]));
-    assert!(!cookie_domain_matches("example.com", &["tiktok.com"]));
+    assert!(cookie_domain_matches(
+      ".tiktok.com",
+      &["tiktok.com".to_string()]
+    ));
+    assert!(cookie_domain_matches(
+      "sub.tiktok.com",
+      &["tiktok.com".to_string()]
+    ));
+    assert!(!cookie_domain_matches(
+      "example.com",
+      &["tiktok.com".to_string()]
+    ));
   }
 
   #[test]

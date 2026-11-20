@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C 盘大文件只读体检报告</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --border:#e5e7eb; --text:#1f2329; --muted:#646a73;
+    --sys:#dc2626; --runtime:#ea580c; --caution:#d97706; --personal:#2563eb; --safe:#16a34a; --syspage:#7c3aed; --unknown:#6b7280;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 24px 64px}
+  h1{font-size:26px;margin:0 0 8px}
+  h2{font-size:18px;margin:0 0 14px;padding-left:10px;border-left:4px solid #4f46e5}
+  .meta{color:var(--muted);font-size:13px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin:18px 0}
+  .notice{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:10px;padding:14px 18px;margin:18px 0;font-weight:600}
+  .notice.ok{background:#f0fdf4;border-color:#bbf7d0;color:#166534}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0}
+  .stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px}
+  .stat .n{font-size:26px;font-weight:700;line-height:1.2}
+  .stat .l{color:var(--muted);font-size:12px;margin-top:6px}
+  .stat.warn .n{color:#dc2626}
+  .bar{height:10px;background:#eef0f3;border-radius:6px;overflow:hidden;margin-top:8px}
+  .bar > i{display:block;height:100%;background:linear-gradient(90deg,#f59e0b,#dc2626)}
+  .legend{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .lg{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:#fafbfc}
+  .dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto;margin-top:6px}
+  .lg b{display:block;font-size:13px}
+  .lg span{color:var(--muted);font-size:12px}
+  .rows > div{display:flex;align-items:center;gap:12px;padding:7px 0;border-bottom:1px dashed #eef0f3}
+  .rows > div:last-child{border:0}
+  .rows .name{width:190px;flex:0 0 auto;font-size:13px}
+  .rows .track{flex:1;height:9px;background:#f0f1f3;border-radius:5px;overflow:hidden}
+  .rows .track i{display:block;height:100%;border-radius:5px}
+  .rows .val{width:150px;text-align:right;color:var(--muted);font-size:12px;flex:0 0 auto}
+  ul{margin:8px 0 0;padding-left:20px} li{margin:6px 0}
+  code{background:#f1f3f5;padding:1px 6px;border-radius:4px;font-size:12px;word-break:break-all}
+  .grp{margin:14px 0;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+  .grp h3{margin:0;padding:10px 14px;background:#f0fdf4;font-size:14px;color:#166534;border-bottom:1px solid #bbf7d0}
+  .grp ul{padding:12px 14px 12px 32px;margin:0}
+  .grp li{font-size:12.5px;word-break:break-all;color:#374151}
+  .grp li b{color:#111827}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  button{border:1px solid var(--border);background:#fff;color:var(--text);border-radius:6px;padding:6px 12px;font-size:12.5px;cursor:pointer}
+  button.on{background:#4f46e5;color:#fff;border-color:#4f46e5}
+  input[type=search]{flex:1;min-width:220px;border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;outline:none}
+  table{width:100%;border-collapse:collapse;background:#fff;font-size:12.5px}
+  th,td{border-bottom:1px solid #eef0f3;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#f8f9fb;color:var(--muted);font-weight:600;position:sticky;top:0;z-index:1}
+  td.size{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+  td.date{white-space:nowrap;color:var(--muted)}
+  td.path{word-break:break-all;font-family:Consolas,"Courier New",monospace;font-size:12px}
+  .tag{display:inline-block;padding:1px 8px;border-radius:10px;color:#fff;font-size:11px;white-space:nowrap}
+  .scroll{max-height:620px;overflow:auto;border:1px solid var(--border);border-radius:8px}
+  .foot{color:var(--muted);font-size:12.5px;margin-top:26px;border-top:1px solid var(--border);padding-top:16px}
+  .red{color:#dc2626;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>C 盘大文件只读体检报告</h1>
+  <div class="meta" id="meta"></div>
+
+  <div class="notice">⚠️ 本次为<strong>只读扫描</strong>：没有删除、移动、重命名任何文件。在你逐项确认之前，我不会对这些文件做任何操作。</div>
+
+  <div class="grid" id="stats"></div>
+
+  <div class="card">
+    <h2>磁盘现状</h2>
+    <div id="disk"></div>
+  </div>
+
+  <div class="card">
+    <h2>风险分级说明</h2>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <div class="card">
+    <h2>172 个大文件按风险分级</h2>
+    <div class="rows" id="summary"></div>
+    <div class="meta" style="margin-top:12px">注：按单个文件的逻辑大小累加；硬链接文件可能重复计数，仅用于判断空间大头，不等于实际可释放量。</div>
+  </div>
+
+  <div class="card">
+    <h2>✅ 低风险候选：可再生缓存 / 临时文件 / 更新包残留</h2>
+    <p style="margin:0 0 6px;color:var(--muted)">这些是程序可自行重建的文件，清理后一般不影响程序运行。<strong>合计约 8.2 GB</strong>（仅统计 ≥100MB 的单文件；目录里还有大量小文件，实际可释放更多）。</p>
+    <div id="safeGroups"></div>
+    <div class="notice ok" style="margin-top:14px">建议优先级：先清「软件更新包残留」和「临时文件 / 日志」，收益最大、风险最低。删前请关闭对应软件，避免文件被占用。</div>
+  </div>
+
+  <div class="card">
+    <h2>⛔ 绝对不要动（删了会影响程序 / 系统 / 你的数据）</h2>
+    <ul>
+      <li><span class="red">C:\hiberfil.sys（13.0 GB）</span>：休眠文件，<strong>不能手动删除</strong>。若想释放这 13 GB，需以管理员执行 <code>powercfg /h off</code> 关闭休眠（会同时失去休眠与快速启动）——这属于系统设置变更，需你明确决定，我不会擅自执行。</li>
+      <li><span class="red">C:\Windows\Installer\*.msp / *.msi（约 2.2 GB）</span>、<code>C:\Program Files</code>、<code>Program Files (x86)</code>、<code>ProgramData\Package Cache</code>、<code>C:\Windows\WinSxS / System32 / assembly / DriverStore</code>：程序安装与修复缓存、系统组件，删了会导致软件无法更新/卸载或系统异常。</li>
+      <li><span class="red">虚拟机磁盘</span>：<code>Claude-3p\vm_bundles\...\*.vhdx / *.zst</code>（约 9.4 GB）、<code>C:\Program Files\WSL\system.vhd</code>。这是虚拟机的整个系统盘，删掉数据不可恢复。</li>
+      <li><span class="red">程序运行时与依赖库</span>：chrome.dll / msedge.dll / codex.exe / claude.exe / rustc 工具链 / CUDA cuBLAS·cuDNN / onnxruntime.lib / torch / libcef.dll / ffmpeg 等（约 22.8 GB）。全是正在用的程序本体。</li>
+      <li><span class="red">你的 bwbrowser 项目相关</span>：<code>C:\Users\Administrator\AppData\Local\BwBrowser\</code> 下的 <code>binaries\</code>（浏览器内核）、<code>profiles\</code>（账号/指纹数据）、<code>video-tools\</code>（ffmpeg 工具），以及 <code>bwbrowser_debug.log</code>（今天仍在写入的运行日志，正在被占用）。这些<strong>一律不动</strong>。项目源码本身在 D 盘，不受 C 盘清理影响。</li>
+      <li><span class="red">工作区备份</span>：<code>.workbuddy\workspace\sessions\...\modify_backup</code>（2.15 GB）是会话修改备份，属于你的工作数据，不是垃圾。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>🔵 需你确认的个人数据 / 未知用途</h2>
+    <ul>
+      <li><code>Desktop\downloadvideo\</code> 4.24 GB（下载的视频，含未完成的 .part）、<code>Downloads\</code> 3.25 GB（各类安装包）、<code>WorkBuddy\</code> 下的 jdk17.zip / cmdtools.zip、AI 模型缓存 .onnx / .npz —— <strong>这些不是垃圾</strong>，删不删完全由你决定。</li>
+      <li><code>C:\SCANNER\ptm6500</code> 1.26 GB：用途未知，需你确认后再说。</li>
+      <li>浏览器 profile 的 <code>Service Worker\CacheStorage</code>（2.33 GB）、微信 <code>xwechat\log</code>（0.62 GB）：属于缓存/日志，但可能正被运行中的程序占用，建议关掉对应程序后再考虑。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>目录级补充发现（单文件 &lt;100MB，未进上表）</h2>
+    <ul>
+      <li>可清理：<code>JianyingPro\User Data\Log\...\ParfaitLog</code> 1.19 GB、<code>Doubao\User Data\sdk_storage\log</code> 0.67 GB、<code>Code\CachedExtensionVSIXs</code> 0.59 GB、<code>Temp\rea-ghidra-...\</code> 0.88 GB。</li>
+      <li>不可动：<code>.workbuddy\workspace\sessions\...\modify_backup</code> 2.15 GB；<code>BwBrowser\profiles\...\CacheStorage</code> 1.54 + 0.79 GB（指纹浏览器 profile 缓存，删除可能影响账号状态）。</li>
+    </ul>
+    <div id="dirTable" class="scroll" style="margin-top:14px"></div>
+  </div>
+
+  <div class="card">
+    <h2>全部大文件清单（≥100 MB，共 172 个）</h2>
+    <div class="toolbar" id="filters"></div>
+    <div class="toolbar"><input type="search" id="q" placeholder="搜索路径关键词，例如 updater / Temp / downloadvideo"></div>
+    <div class="scroll"><table id="tbl"><thead><tr><th style="width:100px">大小</th><th style="width:100px">修改日期</th><th style="width:120px">分级</th><th>完整路径</th></tr></thead><tbody id="tbody"></tbody></table></div>
+    <div class="meta" id="cnt" style="margin-top:10px"></div>
+  </div>
+
+  <div class="foot">
+    <strong>下一步流程（严格按此执行）：</strong> 你从清单里明确勾选/指出要清理的具体文件或类别 → 我先加粗警告并逐条列出受影响路径 → 备份 → 走回收站（不直接删除）→ 每批最多 10 个、每批校验 → 任何一步失败立即停止。<br>
+    本报告由只读扫描生成，数据文件：<code>.workbuddy\c_drive_scan_20261119.json</code>。扫描时间、文件数与耗时见页首。
+  </div>
+</div>
+
+<script>
+const DATA = __DATA__;
+const CLS = {
+  syspage:{label:'系统页面/休眠文件',desc:'不能手动删；可用系统设置关闭休眠释放',color:'#7c3aed'},
+  sys:{label:'系统 / 程序安装本体',desc:'绝对不动，删了会导致程序无法修复/卸载或系统异常',color:'#dc2626'},
+  runtime:{label:'程序运行时 / 依赖库',desc:'绝对不动，删了直接影响正在用的程序',color:'#ea580c'},
+  caution:{label:'需确认（可能正在使用）',desc:'含项目数据、运行中的日志、浏览器 profile 缓存',color:'#d97706'},
+  personal:{label:'你的个人数据',desc:'不是垃圾，删前必须由你确认',color:'#2563eb'},
+  safe:{label:'低风险候选',desc:'缓存/临时/日志/更新包残留，程序可再生',color:'#16a34a'},
+  unknown:{label:'未知用途',desc:'需要你确认',color:'#6b7280'}
+};
+const order = ['syspage','sys','runtime','caution','personal','safe','unknown'];
+const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const gb = mb => (mb/1024).toFixed(2)+' GB';
+const files = DATA.bigFiles;
+const totalMB = files.reduce((a,f)=>a+f.MB,0);
+
+document.getElementById('meta').textContent =
+  '扫描时间：'+DATA.scannedAt+'　|　遍历文件 '+DATA.summary.files.toLocaleString()+' 个 / 目录 '+DATA.summary.dirs.toLocaleString()+' 个　|　耗时 '+DATA.summary.seconds+' 秒　|　口径：单个文件 ≥100 MB';
+
+const used = (DATA.drive.totalGB-DATA.drive.freeGB);
+document.getElementById('stats').innerHTML = [
+  ['总容量', DATA.drive.totalGB+' GB',''],
+  ['可用空间', DATA.drive.freeGB+' GB', '仅剩 '+(DATA.drive.freeGB/DATA.drive.totalGB*100).toFixed(1)+'%','warn'],
+  ['大文件', files.length+' 个','≥100 MB',''],
+  ['大文件合计', gb(totalMB),'占全盘 '+(totalMB/1024/DATA.drive.totalGB*100).toFixed(1)+'%','']
+].map(x=>`<div class="stat ${x[3]||''}"><div class="n">${x[1]}</div><div class="l">${x[0]} · ${x[2]}</div></div>`).join('');
+
+document.getElementById('disk').innerHTML =
+  `<div style="display:flex;justify-content:space-between;font-size:13px"><span>已用 ${used.toFixed(1)} GB</span><span>可用 ${DATA.drive.freeGB} GB</span></div>
+   <div class="bar"><i style="width:${(used/DATA.drive.totalGB*100).toFixed(1)}%"></i></div>
+   <div class="meta" style="margin-top:10px">可用空间已低于 5%，建议尽快释放；但释放动作必须在不影响程序的前提下逐项确认。</div>`;
+
+document.getElementById('legend').innerHTML = order.map(k=>{
+  const c=CLS[k], n=files.filter(f=>f.cls===k).length, s=files.filter(f=>f.cls===k).reduce((a,f)=>a+f.MB,0);
+  return `<div class="lg"><span class="dot" style="background:${c.color}"></span><div><b>${c.label}　<span style="font-weight:400;color:#646a73">${n} 个 / ${gb(s)}</span></b><span>${c.desc}</span></div></div>`;
+}).join('');
+
+document.getElementById('summary').innerHTML = order.map(k=>{
+  const c=CLS[k], g=files.filter(f=>f.cls===k), s=g.reduce((a,f)=>a+f.MB,0);
+  return `<div><div class="name">${c.label}</div><div class="track"><i style="width:${(s/totalMB*100).toFixed(1)}%;background:${c.color}"></i></div><div class="val">${g.length} 个 · ${gb(s)}</div></div>`;
+}).join('');
+
+function safeGroup(p){
+  const l=p.toLowerCase();
+  if(l.includes('\\appdata\\local\\temp\\')) return '临时文件 Temp';
+  if(l.includes('-updater\\')||l.includes('update_downloading')||l.includes('updatestaging')||l.includes('edgeupdate\\download')||l.includes('installer.exe')) return '软件更新包残留';
+  if(l.endsWith('.log')||l.includes('sdk_storage\\log')||l.includes('user data\\log')||l.endsWith('.etl')) return '应用 / 系统日志';
+  if(l.includes('cache')||l.includes('dxcache')||l.includes('thumbcache')||l.includes('provenancedata')||l.includes('vsix')) return '缓存 / 缩略图 / 扩展缓存';
+  return '其它可再生文件';
+}
+const groups={};
+files.filter(f=>f.cls==='safe').forEach(f=>{const g=safeGroup(f.Path);(groups[g]=groups[g]||[]).push(f)});
+document.getElementById('safeGroups').innerHTML = Object.keys(groups).sort((a,b)=>
+  groups[b].reduce((x,f)=>x+f.MB,0)-groups[a].reduce((x,f)=>x+f.MB,0)
+).map(g=>{
+  const arr=groups[g].sort((a,b)=>b.MB-a.MB), s=arr.reduce((x,f)=>x+f.MB,0);
+  return `<div class="grp"><h3>${g}　—　${arr.length} 个文件 / ${gb(s)}</h3><ul>${arr.map(f=>`<li><b>${f.MB.toFixed(1)} MB</b>　${esc(f.Path)}</li>`).join('')}</ul></div>`;
+}).join('');
+
+document.getElementById('dirTable').innerHTML =
+  '<table><thead><tr><th style="width:90px">占用</th><th style="width:120px">分级</th><th>目录</th></tr></thead><tbody>'+
+  DATA.dirTotals.slice(0,30).map(d=>`<tr><td class="size">${d.GB.toFixed(2)} GB</td><td><span class="tag" style="background:${(CLS[d.cls]||CLS.unknown).color}">${(CLS[d.cls]||CLS.unknown).label}</span></td><td class="path">${esc(d.Path)}</td></tr>`).join('')+
+  '</tbody></table>';
+
+let active='all', query='';
+document.getElementById('filters').innerHTML =
+  [['all','全部'],['safe','✅ 低风险候选'],['personal','🔵 个人数据'],['caution','⚠️ 需确认'],['runtime','🟠 程序运行时'],['sys','⛔ 系统本体'],['syspage','🟣 页面/休眠']]
+  .map(([k,l],i)=>`<button data-k="${k}" class="${i===0?'on':''}">${l}</button>`).join('');
+document.getElementById('filters').addEventListener('click',e=>{
+  if(e.target.tagName!=='BUTTON')return;
+  active=e.target.dataset.k;
+  document.querySelectorAll('#filters button').forEach(b=>b.classList.toggle('on',b.dataset.k===active));
+  render();
+});
+document.getElementById('q').addEventListener('input',e=>{query=e.target.value.toLowerCase();render()});
+function render(){
+  const list=files.filter(f=>(active==='all'||f.cls===active)&&(!query||f.Path.toLowerCase().includes(query)));
+  document.getElementById('tbody').innerHTML=list.map(f=>{
+    const c=CLS[f.cls]||CLS.unknown;
+    return `<tr><td class="size">${f.MB.toFixed(1)} MB</td><td class="date">${f.Modified}</td><td><span class="tag" style="background:${c.color}">${c.label}</span></td><td class="path">${esc(f.Path)}</td></tr>`;
+  }).join('');
+  document.getElementById('cnt').textContent='当前显示 '+list.length+' / '+files.length+' 个文件，合计 '+gb(list.reduce((a,f)=>a+f.MB,0));
+}
+render();
+</script>
+</body>
+</html>

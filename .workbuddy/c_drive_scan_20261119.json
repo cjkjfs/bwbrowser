@@ -1,0 +1,1744 @@
+{
+  "scannedAt": "2026-11-19 20:22:17",
+  "drive": {
+    "totalGB": 202.2,
+    "freeGB": 9.2
+  },
+  "summary": {
+    "files": 1253817,
+    "dirs": 204877,
+    "logicalTotalGB": 191.6,
+    "bigCount": 172,
+    "seconds": 52.8
+  },
+  "bigFiles": [
+    {
+      "MB": 13031.2,
+      "Bytes": 13664182272,
+      "Modified": "2026-11-19",
+      "Path": "C:\\hiberfil.sys",
+      "cls": "syspage"
+    },
+    {
+      "MB": 7768,
+      "Bytes": 8145338368,
+      "Modified": "2026-11-15",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Claude-3p\\vm_bundles\\claudevm.bundle\\rootfs.vhdx",
+      "cls": "runtime"
+    },
+    {
+      "MB": 2827.8,
+      "Bytes": 2965159736,
+      "Modified": "2026-11-19",
+      "Path": "C:\\Users\\Administrator\\Desktop\\downloadvideo\\xgplay17_20261119_174619.mp4",
+      "cls": "personal"
+    },
+    {
+      "MB": 1249.2,
+      "Bytes": 1309889215,
+      "Modified": "2026-11-15",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Claude-3p\\vm_bundles\\claudevm.bundle\\rootfs.vhdx.zst",
+      "cls": "runtime"
+    },
+    {
+      "MB": 905.3,
+      "Bytes": 949256192,
+      "Modified": "2026-11-07",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\rea-ghidra-6044ac1dd2ec75126aa34e98f3bd4c5b\\tmp\\Administrator-ghidra\\ghidra10013885057566135741.cache",
+      "cls": "safe"
+    },
+    {
+      "MB": 738.1,
+      "Bytes": 773954325,
+      "Modified": "2026-11-19",
+      "Path": "C:\\Users\\Administrator\\Desktop\\downloadvideo\\Celebrity Breakdown_Mona Kimura vs SAHO： Fame or Real Skill？ It Started in 92 Seconds_XeF6WU0u_Ys.mp4",
+      "cls": "personal"
+    },
+    {
+      "MB": 730.8,
+      "Bytes": 766246912,
+      "Modified": "2026-07-31",
+      "Path": "C:\\Windows\\Installer\\a43ffa6a.msp",
+      "cls": "sys"
+    },
+    {
+      "MB": 725.8,
+      "Bytes": 761023153,
+      "Modified": "2026-11-07",
+      "Path": "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1103.4239.0_x64__2p2nqsd0c76g0\\app\\resources\\app.asar",
+      "cls": "sys"
+    },
+    {
+      "MB": 722.9,
+      "Bytes": 758039040,
+      "Modified": "2026-06-25",
+      "Path": "C:\\Program Files\\WSL\\system.vhd",
+      "cls": "sys"
+    },
+    {
+      "MB": 722.5,
+      "Bytes": 757571584,
+      "Modified": "2026-07-24",
+      "Path": "C:\\Program Files\\Common Files\\Adobe\\Acrobat\\Setup\\{AC76BA86-2052-1033-7760-BC15014EA700}\\AcroRdrDCx64Upd2600121662.msp",
+      "cls": "sys"
+    },
+    {
+      "MB": 663,
+      "Bytes": 695170600,
+      "Modified": "2026-06-28",
+      "Path": "C:\\Windows\\hvdrvceo.exe",
+      "cls": "sys"
+    },
+    {
+      "MB": 637.7,
+      "Bytes": 668673536,
+      "Modified": "2026-08-14",
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\python\\Python311\\site-packages\\nvidia\\cublas\\bin\\cublasLt64_12.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 550.9,
+      "Bytes": 577608190,
+      "Modified": "2024-01-18",
+      "Path": "C:\\Recovery\\WindowsRE\\Winre.wim",
+      "cls": "sys"
+    },
+    {
+      "MB": 522,
+      "Bytes": 547317360,
+      "Modified": "2026-08-14",
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\python\\Python311\\site-packages\\nvidia\\cudnn\\bin\\cudnn_engines_precompiled64_9.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 507.3,
+      "Bytes": 531920992,
+      "Modified": "2026-11-19",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\bwbrowser_debug.log",
+      "cls": "caution"
+    },
+    {
+      "MB": 500.7,
+      "Bytes": 525028240,
+      "Modified": "2026-11-06",
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\LarkShell\\update\\update_downloading\\f190d7e430151a1c09e1b9d61e8412bb-817dc4888a40de5d7d30258b372270c7-2th.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 490.5,
+      "Bytes": 514351630,
+      "Modified": "2026-07-24",
+      "Path": "C:\\Program Files\\Common Files\\Adobe\\Acrobat\\Setup\\{AC76BA86-2052-1033-7760-BC15014EA700}\\Core.cab",
+      "cls": "sys"
+    },
+    {
+      "MB": 484,
+      "Bytes": 507510784,
+      "Modified": "2026-11-15",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Claude-3p\\vm_bundles\\claudevm.bundle\\sessiondata.vhdx",
+      "cls": "runtime"
+    },
+    {
+      "MB": 445.1,
+      "Bytes": 466677248,
+      "Modified": "2026-10-03",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\DonutBrowserDev\\binaries\\wayfern\\152.0.7977.64\\wayfern-152.0.7977.64_windows_x64\\chrome.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 438.5,
+      "Bytes": 459823168,
+      "Modified": "2026-11-13",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\@genieworkbuddy-desktop-updater\\installer.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 411.9,
+      "Bytes": 431958748,
+      "Modified": "2026-11-19",
+      "Path": "C:\\Users\\Administrator\\Desktop\\downloadvideo\\Celebrity Breakdown_Only One Throne： Can SAHO\u0027s Defense Withstand Mona Kimura\u0027s ＂Mona Kick＂？_myRqrmTbODg.f313.webm.part",
+      "cls": "personal"
+    },
+    {
+      "MB": 370.7,
+      "Bytes": 388658464,
+      "Modified": "2026-11-09",
+      "Path": "C:\\ProgramData\\Tencent\\TencentDocs\\UpdateStaging\\3.13.1\\package.exe",
+      "cls": "sys"
+    },
+    {
+      "MB": 370.7,
+      "Bytes": 388658464,
+      "Modified": "2026-11-09",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\@docs-desktopapp-updater\\pending\\TencentDocs3.13.1.x64.30002.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 370.4,
+      "Bytes": 388386104,
+      "Modified": "2026-10-19",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\@docs-desktopapp-updater\\installer.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 370.4,
+      "Bytes": 388386104,
+      "Modified": "2026-10-19",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\tdappdesktop-updater\\pending\\TencentDocs3.12.11.x64.30002.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 365.8,
+      "Bytes": 383569318,
+      "Modified": "2026-10-22",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\ort.pyke.io\\dfbin\\x86_64-pc-windows-msvc\\3a0095001aa415a0cb7a56f847bd85764fccd8f20147abedc18994893a49776d\\onnxruntime.lib",
+      "cls": "runtime"
+    },
+    {
+      "MB": 363.1,
+      "Bytes": 380739584,
+      "Modified": "2026-10-22",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\ort.pyke.io\\dfbin\\x86_64-pc-windows-msvc\\tmp.s8iPjO7eai2M_3a0095001aa415a0cb7a56f847bd85764fccd8f20147abedc18994893a49776d\\onnxruntime.lib",
+      "cls": "runtime"
+    },
+    {
+      "MB": 360.8,
+      "Bytes": 378302360,
+      "Modified": "2026-08-14",
+      "Path": "C:\\Users\\Administrator\\.cache\\audio_detector\\models--MelodyMachine--Deepfake-audio-detection-V2\\blobs\\997d9ce59e63151d5e444a6fa7c863986d0e56d515f67321bd705ac3b01bc38c",
+      "cls": "caution"
+    },
+    {
+      "MB": 359,
+      "Bytes": 376395776,
+      "Modified": "2026-10-18",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\binaries\\wayfern\\151.0.7922.76\\chrome.dll.bak",
+      "cls": "runtime"
+    },
+    {
+      "MB": 359,
+      "Bytes": 376395776,
+      "Modified": "2026-11-07",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\rea-ghidra-6044ac1dd2ec75126aa34e98f3bd4c5b\\target-3a954d485429.dll",
+      "cls": "safe"
+    },
+    {
+      "MB": 359,
+      "Bytes": 376395776,
+      "Modified": "2026-11-07",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\binaries\\wayfern\\151.0.7922.76\\chrome.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 355.9,
+      "Bytes": 373180488,
+      "Modified": "2026-09-03",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\hubstudio-client-updater\\installer.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 355.5,
+      "Bytes": 372813312,
+      "Modified": "2026-10-20",
+      "Path": "C:\\Users\\Administrator\\.chromium-browser-snapshots\\chromium\\win64-1722482\\chrome-win\\interactive_ui_tests.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 351.9,
+      "Bytes": 369018160,
+      "Modified": "2026-11-07",
+      "Path": "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1103.4239.0_x64__2p2nqsd0c76g0\\app\\resources\\codex.exe",
+      "cls": "sys"
+    },
+    {
+      "MB": 351.9,
+      "Bytes": 369018160,
+      "Modified": "2026-11-07",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\OpenAI\\Codex\\bin\\f71a721e0e6193a9\\codex.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 350.5,
+      "Bytes": 367575040,
+      "Modified": "2026-10-15",
+      "Path": "C:\\Windows\\Installer\\205200.msi",
+      "cls": "sys"
+    },
+    {
+      "MB": 345.9,
+      "Bytes": 362688512,
+      "Modified": "2026-07-14",
+      "Path": "C:\\Users\\Administrator\\.marscode\\ai-chat\\binary\\1.7.2\\modules\\ai-agent\\ai-agent.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 343.3,
+      "Bytes": 359948106,
+      "Modified": "2026-10-22",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\ort.pyke.io\\dfbin\\x86_64-pc-windows-msvc\\f99aaef23f12986abb05924c944d8433521263ad756b462df762a5a982c98405\\onnxruntime.lib",
+      "cls": "runtime"
+    },
+    {
+      "MB": 341.6,
+      "Bytes": 358210376,
+      "Modified": "2026-11-13",
+      "Path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\157.0.4341.60\\msedge.dll",
+      "cls": "sys"
+    },
+    {
+      "MB": 341.6,
+      "Bytes": 358210376,
+      "Modified": "2026-11-13",
+      "Path": "C:\\Program Files (x86)\\Microsoft\\EdgeCore\\Optimized\\msedge.dll",
+      "cls": "sys"
+    },
+    {
+      "MB": 341.6,
+      "Bytes": 358210376,
+      "Modified": "2026-11-13",
+      "Path": "C:\\Program Files (x86)\\Microsoft\\EdgeCore\\157.0.4341.60\\msedge.dll",
+      "cls": "sys"
+    },
+    {
+      "MB": 341.6,
+      "Bytes": 358210376,
+      "Modified": "2026-11-13",
+      "Path": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\157.0.4341.60\\msedge.dll",
+      "cls": "sys"
+    },
+    {
+      "MB": 338.1,
+      "Bytes": 354573312,
+      "Modified": "2026-09-19",
+      "Path": "C:\\Users\\Administrator\\Desktop\\codex\\trae\\TraeWork_CN-Setup-x64.exe",
+      "cls": "personal"
+    },
+    {
+      "MB": 327.1,
+      "Bytes": 343028648,
+      "Modified": "2026-11-17",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\Apps\\8.9.0.13361\\VECreator.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 325,
+      "Bytes": 340787200,
+      "Modified": "2026-10-20",
+      "Path": "C:\\Users\\Administrator\\.chromium-browser-snapshots\\chromium\\win64-1722482\\chrome-win\\chrome.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 321.5,
+      "Bytes": 337069360,
+      "Modified": "2026-11-07",
+      "Path": "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1103.4239.0_x64__2p2nqsd0c76g0\\app\\chrome.dll",
+      "cls": "sys"
+    },
+    {
+      "MB": 305.8,
+      "Bytes": 320604648,
+      "Modified": "2026-11-07",
+      "Path": "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1103.4239.0_x64__2p2nqsd0c76g0\\app\\resources\\codex",
+      "cls": "sys"
+    },
+    {
+      "MB": 301.1,
+      "Bytes": 315710928,
+      "Modified": "2026-08-11",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\tdappdesktop-updater\\installer.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 296.4,
+      "Bytes": 310753072,
+      "Modified": "2026-08-28",
+      "Path": "C:\\Users\\Administrator\\.codex\\plugins\\.plugin-appserver\\codex.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 295.2,
+      "Bytes": 309509120,
+      "Modified": "2026-11-10",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\uv\\cache\\archive-v0\\eD8M5AmFTzkgTtCG\\torch\\lib\\torch_cpu.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 288.8,
+      "Bytes": 302858752,
+      "Modified": "2026-11-02",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\ms-playwright\\chromium-1248\\chrome-win64\\chrome.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 284.8,
+      "Bytes": 298624160,
+      "Modified": "2026-11-15",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Claude-3p\\claude-code\\2.1.309\\9078b9c1d466\\claude.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 284.4,
+      "Bytes": 298169136,
+      "Modified": "2026-09-10",
+      "Path": "C:\\Users\\Administrator\\.codex\\packages\\standalone\\releases\\0.154.0-x86_64-pc-windows-msvc\\bin\\codex.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 281.3,
+      "Bytes": 295008256,
+      "Modified": "2026-09-11",
+      "Path": "C:\\Users\\Administrator\\.cloakbrowser\\chromium-146.0.7680.177.5\\chrome.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 279.9,
+      "Bytes": 293469552,
+      "Modified": "2026-11-15",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Claude-3p\\claude-code-vm\\2.1.309\\claude",
+      "cls": "runtime"
+    },
+    {
+      "MB": 275.9,
+      "Bytes": 289313640,
+      "Modified": "2026-10-08",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\@deepseek-aidsh-desktop-updater\\installer.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 275.5,
+      "Bytes": 288834328,
+      "Modified": "2026-09-08",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\env-kit\\Core\\chrome_64_150_202608171014\\chrome.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 271.2,
+      "Bytes": 284361911,
+      "Modified": "2026-06-28",
+      "Path": "C:\\Users\\Administrator\\AppData\\LocalLow\\SogouPY\\models\\gen_f2_v1_g2\\xnet_enc_model.xnet",
+      "cls": "runtime"
+    },
+    {
+      "MB": 271.2,
+      "Bytes": 284361911,
+      "Modified": "2026-06-28",
+      "Path": "C:\\Users\\Administrator\\AppData\\LocalLow\\SogouPY.users\\00000001\\models\\gen_f2_v1_g2\\xnet_enc_model.xnet",
+      "cls": "runtime"
+    },
+    {
+      "MB": 269.4,
+      "Bytes": 282450944,
+      "Modified": "2026-09-11",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Cromite\\data\\profiles\\Cromite 148\\chrome.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 256.6,
+      "Bytes": 269016688,
+      "Modified": "2026-08-14",
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\python\\Python311\\site-packages\\nvidia\\cudnn\\bin\\cudnn_adv64_9.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 256,
+      "Bytes": 268435456,
+      "Modified": "2026-11-19",
+      "Path": "C:\\swapfile.sys",
+      "cls": "syspage"
+    },
+    {
+      "MB": 256,
+      "Bytes": 268435456,
+      "Modified": "2026-09-12",
+      "Path": "C:\\Users\\Administrator\\AppData\\LocalLow\\NVIDIA\\DXCache\\cb0da939d1c712fb.nvph",
+      "cls": "safe"
+    },
+    {
+      "MB": 253.9,
+      "Bytes": 266190848,
+      "Modified": "2026-11-03",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\binaries\\chromium\\1200\\chrome.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 252,
+      "Bytes": 264249344,
+      "Modified": "2026-11-06",
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\TDAppDesktop\\users\\144115213435878611\\Cache\\Cache_Data\\data_3",
+      "cls": "safe"
+    },
+    {
+      "MB": 244.4,
+      "Bytes": 256247968,
+      "Modified": "2026-07-20",
+      "Path": "C:\\Users\\Administrator\\.local\\share\\claude\\versions\\2.1.215",
+      "cls": "caution"
+    },
+    {
+      "MB": 244.4,
+      "Bytes": 256247968,
+      "Modified": "2026-07-20",
+      "Path": "C:\\Users\\Administrator\\.local\\bin\\claude.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 235.5,
+      "Bytes": 246986576,
+      "Modified": "2026-11-01",
+      "Path": "C:\\Program Files\\WindowsApps\\Claude_4.4212.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+      "cls": "sys"
+    },
+    {
+      "MB": 228.2,
+      "Bytes": 239233841,
+      "Modified": "2026-11-19",
+      "Path": "C:\\Users\\Administrator\\.cache\\rea-video\\models\\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17\\model.int8.onnx",
+      "cls": "personal"
+    },
+    {
+      "MB": 227.2,
+      "Bytes": 238198312,
+      "Modified": "2026-11-19",
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\Tencent\\xwechat\\XPlugin\\Plugins\\RadiumWMPF\\26134\\extracted\\runtime\\flue.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 227,
+      "Bytes": 238052912,
+      "Modified": "2026-11-10",
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\Tencent\\xwechat\\XPlugin\\Plugins\\RadiumWMPF\\26073\\extracted\\runtime\\flue.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 224.6,
+      "Bytes": 235544576,
+      "Modified": "2026-11-16",
+      "Path": "C:\\Windows\\Installer\\2dffe44c.msp",
+      "cls": "sys"
+    },
+    {
+      "MB": 224.6,
+      "Bytes": 235544576,
+      "Modified": "2026-11-16",
+      "Path": "C:\\ProgramData\\Adobe\\ARM\\Acrobat_26.002.22031\\AcroRdrDCx64Upd2600322110_incr.msp",
+      "cls": "sys"
+    },
+    {
+      "MB": 221.8,
+      "Bytes": 232594432,
+      "Modified": "2026-11-02",
+      "Path": "C:\\Users\\Administrator\\Downloads\\Qoder-CN-win-x64-user.exe",
+      "cls": "personal"
+    },
+    {
+      "MB": 221.1,
+      "Bytes": 231823056,
+      "Modified": "2026-10-20",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\qoder-cn-updater\\installer.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 217,
+      "Bytes": 227563520,
+      "Modified": "2026-11-19",
+      "Path": "C:\\Users\\Administrator\\.yunx-desktop\\cache\\jcef-bundle\\libcef.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 215.1,
+      "Bytes": 225510408,
+      "Modified": "2026-10-15",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\qoder-node24-bin\\node.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 213.3,
+      "Bytes": 223616083,
+      "Modified": "2026-09-08",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\env-kit\\chrome_64_150_windows_hubstudio.zip",
+      "cls": "runtime"
+    },
+    {
+      "MB": 207.6,
+      "Bytes": 217711528,
+      "Modified": "2026-11-17",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\Apps\\8.9.0.13361\\cef\\libcef.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 206.9,
+      "Bytes": 216950272,
+      "Modified": "2026-11-02",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\ms-playwright\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 205.4,
+      "Bytes": 215429651,
+      "Modified": "2026-11-19",
+      "Path": "C:\\Users\\Administrator\\Desktop\\YunX-Desktop-setup-1.3.4.exe",
+      "cls": "personal"
+    },
+    {
+      "MB": 204,
+      "Bytes": 213909504,
+      "Modified": "2026-11-19",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Microsoft\\Windows\\Explorer\\thumbcache_2560.db",
+      "cls": "safe"
+    },
+    {
+      "MB": 201.2,
+      "Bytes": 211006976,
+      "Modified": "2026-10-24",
+      "Path": "C:\\Users\\Administrator\\.rustup\\toolchains\\nightly-2026-10-16-x86_64-pc-windows-msvc\\bin\\rustc_driver-db94132a6e31b5c4.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 201.2,
+      "Bytes": 211006976,
+      "Modified": "2026-10-16",
+      "Path": "C:\\Users\\Administrator\\.rustup\\toolchains\\nightly-x86_64-pc-windows-msvc\\bin\\rustc_driver-db94132a6e31b5c4.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 200,
+      "Bytes": 209715200,
+      "Modified": "2026-11-19",
+      "Path": "C:\\Windows\\System32\\WDI\\LogFiles\\BootPerfDiagLogger.etl",
+      "cls": "safe"
+    },
+    {
+      "MB": 192.5,
+      "Bytes": 201885876,
+      "Modified": "2026-11-10",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\5z3ytt5o\\Microsoft.VisualStudio.IntelliCode.529688E2E376374234BC\\Microsoft.VisualStudio.IntelliCode.vsix",
+      "cls": "safe"
+    },
+    {
+      "MB": 186.7,
+      "Bytes": 195798864,
+      "Modified": "2026-06-29",
+      "Path": "C:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\Download\\{C50565E9-CCCF-44B4-BA15-5AC5C6569197}\\149.0.4022.80\\MicrosoftEdge_X64_149.0.4022.80.exe",
+      "cls": "sys"
+    },
+    {
+      "MB": 184.7,
+      "Bytes": 193686231,
+      "Modified": "2026-11-01",
+      "Path": "C:\\Program Files\\WindowsApps\\Claude_4.4212.0.0_x64__pzs8sxrjxfjjc\\app\\resources\\ion-dist.asar",
+      "cls": "sys"
+    },
+    {
+      "MB": 183.2,
+      "Bytes": 192108544,
+      "Modified": "2026-08-26",
+      "Path": "C:\\Users\\Administrator\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\rustc_driver-7a414a5d7a84f668.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 182.3,
+      "Bytes": 191117380,
+      "Modified": "2026-11-05",
+      "Path": "C:\\Users\\Administrator\\WorkBuddy\\2026-11-05-21-01-04\\tools\\jdk17.zip",
+      "cls": "personal"
+    },
+    {
+      "MB": 175.8,
+      "Bytes": 184374716,
+      "Modified": "2026-11-19",
+      "Path": "C:\\Users\\Administrator\\Desktop\\downloadvideo\\Celebrity Breakdown_The Most Viral Fighter in Kickboxing Meets the One Woman Who Isn\u0027t Impressed_hymuVBj3oJI.f401.mp4.part",
+      "cls": "personal"
+    },
+    {
+      "MB": 173.7,
+      "Bytes": 182107684,
+      "Modified": "2026-08-08",
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\Code\\CachedExtensionVSIXs\\alibaba-cloud.tongyi-lingma-2.6.7",
+      "cls": "safe"
+    },
+    {
+      "MB": 173.1,
+      "Bytes": 181489664,
+      "Modified": "2026-11-07",
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\com.qodercn.app.stable\\main.sqlite",
+      "cls": "runtime"
+    },
+    {
+      "MB": 173.1,
+      "Bytes": 181477376,
+      "Modified": "2025-01-15",
+      "Path": "C:\\Users\\Administrator\\.trae-cn\\work\\6a757a596bf7779849fd6ea4\\castlabs-extracted\\electron.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 172.5,
+      "Bytes": 180849664,
+      "Modified": "2026-07-30",
+      "Path": "C:\\Users\\Administrator\\.trae-cn\\work\\6a757a596bf7779849fd6ea4\\electron-backup\\electron.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 169.2,
+      "Bytes": 177375173,
+      "Modified": "2026-11-10",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\5z3ytt5o\\VisualStudio.GitHub.Copilot.E7FF21E8EFFF4321E18B\\VisualStudio.GitHub.Copilot.vsix",
+      "cls": "safe"
+    },
+    {
+      "MB": 168.6,
+      "Bytes": 176781560,
+      "Modified": "2025-10-08",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Microsoft\\Edge\\User Data\\ProvenanceData\\2025.10.7.5\\vti-b-p32-visual.quant.ort",
+      "cls": "safe"
+    },
+    {
+      "MB": 168.6,
+      "Bytes": 176781560,
+      "Modified": "2025-10-08",
+      "Path": "C:\\Windows\\SystemTemp\\scoped_dir25752_1082639003\\ProvenanceData\\2025.10.7.5\\vti-b-p32-visual.quant.ort",
+      "cls": "safe"
+    },
+    {
+      "MB": 168.4,
+      "Bytes": 176625048,
+      "Modified": "2026-06-09",
+      "Path": "C:\\Program Files\\Adobe\\Acrobat DC\\Acrobat\\AcroCEF1\\libcef.dll",
+      "cls": "sys"
+    },
+    {
+      "MB": 166.5,
+      "Bytes": 174592000,
+      "Modified": "2026-07-19",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\ms-playwright\\firefox-1532\\firefox\\xul.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 166.4,
+      "Bytes": 174441704,
+      "Modified": "2026-05-21",
+      "Path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_c8bc842500fab35b\\nvdxdlkernels.dll",
+      "cls": "sys"
+    },
+    {
+      "MB": 163.1,
+      "Bytes": 171035648,
+      "Modified": "2026-10-18",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\video-tools\\bin\\ffplay.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 161.2,
+      "Bytes": 168995328,
+      "Modified": "2026-10-18",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\video-tools\\ffmpeg.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 161.2,
+      "Bytes": 168995328,
+      "Modified": "2026-10-18",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\video-tools\\bin\\ffmpeg.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 161,
+      "Bytes": 168781312,
+      "Modified": "2026-10-18",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\video-tools\\bin\\ffprobe.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 161,
+      "Bytes": 168781312,
+      "Modified": "2026-10-18",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\video-tools\\ffprobe.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 157,
+      "Bytes": 164626336,
+      "Modified": "2026-10-20",
+      "Path": "C:\\Users\\Administrator\\Downloads\\CodeBuddy-win32-x64-user-4.12.2.41207131-425ab70e-cn.exe",
+      "cls": "personal"
+    },
+    {
+      "MB": 155.5,
+      "Bytes": 163024286,
+      "Modified": "2025-10-08",
+      "Path": "C:\\Windows\\SystemTemp\\scoped_dir25752_1082639003\\component_crx_cache\\f081de18a604e95a175eaf4dd91b35b7f17ad4de24ee2f20eeb034c979bbcccb",
+      "cls": "safe"
+    },
+    {
+      "MB": 155.5,
+      "Bytes": 163024286,
+      "Modified": "2025-10-08",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Microsoft\\Edge\\User Data\\component_crx_cache\\f081de18a604e95a175eaf4dd91b35b7f17ad4de24ee2f20eeb034c979bbcccb",
+      "cls": "safe"
+    },
+    {
+      "MB": 153.9,
+      "Bytes": 161370112,
+      "Modified": "2026-10-20",
+      "Path": "C:\\Users\\Administrator\\.marscode\\ai-chat\\AppData\\vscode\\ai-agent\\database.db",
+      "cls": "caution"
+    },
+    {
+      "MB": 148.6,
+      "Bytes": 155863149,
+      "Modified": "2026-10-19",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Doubao\\User Data\\sdk_storage\\log\\saman_2026.1019.0.log",
+      "cls": "safe"
+    },
+    {
+      "MB": 147.1,
+      "Bytes": 154232352,
+      "Modified": "2026-05-20",
+      "Path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_c8bc842500fab35b\\libnvdxdlkernels.so",
+      "cls": "sys"
+    },
+    {
+      "MB": 147.1,
+      "Bytes": 154232352,
+      "Modified": "2026-05-20",
+      "Path": "C:\\Windows\\System32\\lxss\\lib\\libnvdxdlkernels.so",
+      "cls": "sys"
+    },
+    {
+      "MB": 146.5,
+      "Bytes": 153583359,
+      "Modified": "2026-11-05",
+      "Path": "C:\\Users\\Administrator\\WorkBuddy\\2026-11-05-21-01-04\\tools\\cmdtools.zip",
+      "cls": "personal"
+    },
+    {
+      "MB": 146.5,
+      "Bytes": 153583359,
+      "Modified": "2026-11-13",
+      "Path": "C:\\Users\\Administrator\\WorkBuddy\\2026-11-13-17-53-23\\apk-build\\tools\\cmdtools.zip",
+      "cls": "personal"
+    },
+    {
+      "MB": 145.5,
+      "Bytes": 152519592,
+      "Modified": "2026-11-17",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\Apps\\8.9.0.13361\\cccreator.dll",
+      "cls": "runtime"
+    },
+    {
+      "MB": 142.3,
+      "Bytes": 149188142,
+      "Modified": "2026-11-17",
+      "Path": "C:\\Users\\Administrator\\.cache\\rea-video\\models\\bandit-v2-multi.onnx",
+      "cls": "personal"
+    },
+    {
+      "MB": 141.5,
+      "Bytes": 148386816,
+      "Modified": "2026-11-13",
+      "Path": "C:\\Users\\Administrator\\WorkBuddy\\2026-11-13-17-53-23\\LibreTV\\node_modules\\@next\\swc-win32-x64-msvc\\next-swc.win32-x64-msvc.node",
+      "cls": "runtime"
+    },
+    {
+      "MB": 140.8,
+      "Bytes": 147661998,
+      "Modified": "2026-09-14",
+      "Path": "C:\\Users\\Administrator\\.cutmatch\\cache\\features\\4e4977f4a922a2e4.npz",
+      "cls": "personal"
+    },
+    {
+      "MB": 140.7,
+      "Bytes": 147517440,
+      "Modified": "2026-09-07",
+      "Path": "C:\\Windows\\Installer\\a9532a2.msp",
+      "cls": "sys"
+    },
+    {
+      "MB": 136.2,
+      "Bytes": 142864141,
+      "Modified": "2026-10-21",
+      "Path": "C:\\Users\\Administrator\\Downloads\\v2rayN-windows-64.zip",
+      "cls": "personal"
+    },
+    {
+      "MB": 133.8,
+      "Bytes": 140351880,
+      "Modified": "2026-10-18",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Doubao\\User Data\\sdk_storage\\log\\saman_2026.1018.0.log",
+      "cls": "safe"
+    },
+    {
+      "MB": 133.4,
+      "Bytes": 139916607,
+      "Modified": "2026-11-05",
+      "Path": "C:\\Users\\Administrator\\.workbuddy\\binaries\\node\\cli-connector-cache\\_cacache\\content-v2\\sha512\\fa\\75\\f9ef1bcf9cc6b9fe24b83119b937bb728f07bb197ac80a17ed81fe55856a5b30d85ce1b97c6561173b55b80bbad13c4f30d9bb8518af8e846c8636639df5",
+      "cls": "runtime"
+    },
+    {
+      "MB": 132,
+      "Bytes": 138363904,
+      "Modified": "2026-11-10",
+      "Path": "C:\\Users\\Administrator\\Downloads\\hongguo-downloader-6.1-win-x64-setup.exe",
+      "cls": "personal"
+    },
+    {
+      "MB": 131.6,
+      "Bytes": 137980561,
+      "Modified": "2026-11-17",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\hongguo-downloader-updater\\installer.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 131.6,
+      "Bytes": 137980561,
+      "Modified": "2026-11-17",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\hongguo-downloader-updater\\pending\\hongguo-downloader-7.5-win-x64-setup.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 130.9,
+      "Bytes": 137244608,
+      "Modified": "2026-11-10",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\pikpak-updater\\installer.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 129.4,
+      "Bytes": 135663104,
+      "Modified": "2026-10-09",
+      "Path": "C:\\Users\\Administrator\\.workbuddy\\binaries\\node\\versions\\22.22.2-6\\node_modules\\rea-agents\\node_modules\\frida\\build\\frida_binding.node",
+      "cls": "runtime"
+    },
+    {
+      "MB": 127.7,
+      "Bytes": 133902495,
+      "Modified": "2026-10-20",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Doubao\\User Data\\sdk_storage\\log\\saman_2026.1020.0.log",
+      "cls": "safe"
+    },
+    {
+      "MB": 126.4,
+      "Bytes": 132519731,
+      "Modified": "2026-11-08",
+      "Path": "C:\\Users\\Administrator\\.gradle\\wrapper\\dists\\gradle-8.5-bin\\5t9huq95ubn472n8rpzujfbqh\\gradle-8.5-bin.zip",
+      "cls": "personal"
+    },
+    {
+      "MB": 125.8,
+      "Bytes": 131956227,
+      "Modified": "2026-10-17",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Doubao\\User Data\\sandbox_runtime\\downloads\\772984f6fd3a8ae0ae7d2422cd7c2bfa",
+      "cls": "personal"
+    },
+    {
+      "MB": 124.1,
+      "Bytes": 130145792,
+      "Modified": "2026-08-05",
+      "Path": "C:\\Users\\Administrator\\.mimocode\\bin\\mimo.exe",
+      "cls": "caution"
+    },
+    {
+      "MB": 123,
+      "Bytes": 129011488,
+      "Modified": "2026-10-22",
+      "Path": "C:\\Users\\Administrator\\WorkBuddy\\2026-11-05-21-01-04\\tools\\jdk_install\\jdk-17.0.21+9\\lib\\modules",
+      "cls": "personal"
+    },
+    {
+      "MB": 122.7,
+      "Bytes": 128636416,
+      "Modified": "2026-11-02",
+      "Path": "C:\\Users\\Administrator\\Downloads\\xhh-latest.exe",
+      "cls": "personal"
+    },
+    {
+      "MB": 121.9,
+      "Bytes": 127864864,
+      "Modified": "2026-10-20",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\xhhmedia-updater\\installer.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 118.8,
+      "Bytes": 124536645,
+      "Modified": "2026-10-21",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Doubao\\User Data\\sdk_storage\\log\\saman_2026.1021.0.log",
+      "cls": "safe"
+    },
+    {
+      "MB": 118.6,
+      "Bytes": 124397805,
+      "Modified": "2026-10-02",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\alipaykeytool-updater\\installer.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 118.4,
+      "Bytes": 124109385,
+      "Modified": "2026-11-08",
+      "Path": "C:\\Users\\Administrator\\.gradle\\wrapper\\dists\\gradle-8.0-bin\\ca5e32bp14vu59qr306oxotwh\\gradle-8.0-bin.zip",
+      "cls": "personal"
+    },
+    {
+      "MB": 118.2,
+      "Bytes": 123902976,
+      "Modified": "2026-11-02",
+      "Path": "C:\\Users\\Administrator\\Downloads\\KimiCode-win-x64.exe",
+      "cls": "personal"
+    },
+    {
+      "MB": 117.4,
+      "Bytes": 123131600,
+      "Modified": "2026-10-20",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\kimi-code-app-updater\\installer.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 116.9,
+      "Bytes": 122585088,
+      "Modified": "2026-10-24",
+      "Path": "C:\\Users\\Administrator\\.rustup\\toolchains\\nightly-2026-10-16-x86_64-pc-windows-msvc\\lib\\rustlib\\x86_64-pc-windows-msvc\\bin\\rust-lld.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 116.9,
+      "Bytes": 122585088,
+      "Modified": "2026-10-16",
+      "Path": "C:\\Users\\Administrator\\.rustup\\toolchains\\nightly-x86_64-pc-windows-msvc\\lib\\rustlib\\x86_64-pc-windows-msvc\\bin\\rust-lld.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 115.5,
+      "Bytes": 121112064,
+      "Modified": "2026-09-19",
+      "Path": "C:\\Users\\Administrator\\Desktop\\常用软件\\soft\\360se+57807+n0f4e8b9791.exe",
+      "cls": "personal"
+    },
+    {
+      "MB": 115,
+      "Bytes": 120542392,
+      "Modified": "2026-10-27",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\billd-desk-updater\\installer.exe",
+      "cls": "safe"
+    },
+    {
+      "MB": 114.8,
+      "Bytes": 120340568,
+      "Modified": "2024-01-12",
+      "Path": "C:\\Users\\Default\\Desktop\\常用软件\\soft\\360se+57807+n0f4e8b9791.exe",
+      "cls": "personal"
+    },
+    {
+      "MB": 114.7,
+      "Bytes": 120295144,
+      "Modified": "2026-05-21",
+      "Path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_c8bc842500fab35b\\nvlddmkm.sys",
+      "cls": "sys"
+    },
+    {
+      "MB": 114,
+      "Bytes": 119587887,
+      "Modified": "2026-09-28",
+      "Path": "C:\\Users\\Administrator\\.cutmatch\\cache\\features\\2fb7d735ca754a7f.npz",
+      "cls": "personal"
+    },
+    {
+      "MB": 113.3,
+      "Bytes": 118775808,
+      "Modified": "2026-06-29",
+      "Path": "C:\\ProgramData\\Package Cache\\{B84940DA-A2B9-4115-89FA-25DCCCED4FFD}v40.11.44881\\dotnet-sdk-internal-10.0.302-servicing.26329.109-win-x64.msi",
+      "cls": "sys"
+    },
+    {
+      "MB": 113.3,
+      "Bytes": 118775808,
+      "Modified": "2026-06-29",
+      "Path": "C:\\Windows\\Installer\\b350b3e8.msi",
+      "cls": "sys"
+    },
+    {
+      "MB": 112,
+      "Bytes": 117448704,
+      "Modified": "2026-11-06",
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\TDAppDesktop\\Cache\\Cache_Data\\data_3",
+      "cls": "safe"
+    },
+    {
+      "MB": 111.4,
+      "Bytes": 116860584,
+      "Modified": "2021-02-01",
+      "Path": "C:\\Windows\\Installer\\$PatchCache$\\Managed\\68AB67CA250233017706CB5110E47A00\\21.1.20135\\libcef.dll",
+      "cls": "sys"
+    },
+    {
+      "MB": 110.6,
+      "Bytes": 115969256,
+      "Modified": "2026-10-03",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\DonutBrowserDev\\binaries\\wayfern\\152.0.7977.64\\wayfern-152.0.7977.64_windows_x64\\wayfern_fonts\\macos\\Apple Color Emoji.ttf",
+      "cls": "runtime"
+    },
+    {
+      "MB": 110.6,
+      "Bytes": 115969256,
+      "Modified": "2026-10-18",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\binaries\\wayfern\\151.0.7922.76\\wayfern_fonts\\macos\\Apple Color Emoji.ttf",
+      "cls": "runtime"
+    },
+    {
+      "MB": 109.9,
+      "Bytes": 115281496,
+      "Modified": "2026-10-25",
+      "Path": "C:\\Users\\Administrator\\.cache\\magpie\\bun\\1.4.4\\magpie-bun.exe",
+      "cls": "caution"
+    },
+    {
+      "MB": 109.8,
+      "Bytes": 115133979,
+      "Modified": "2022-09-08",
+      "Path": "C:\\Windows\\WinSxS\\amd64_microsoft-windows-edgechromium_31bf3856ad364e35_10.0.19041.3636_none_7437336f112dbb3d\\Edge.wim",
+      "cls": "sys"
+    },
+    {
+      "MB": 108.2,
+      "Bytes": 113421312,
+      "Modified": "2026-08-26",
+      "Path": "C:\\Users\\Administrator\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\lib\\rustlib\\x86_64-pc-windows-msvc\\bin\\lld-link.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 108.2,
+      "Bytes": 113421312,
+      "Modified": "2026-08-26",
+      "Path": "C:\\Users\\Administrator\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\lib\\rustlib\\x86_64-pc-windows-msvc\\bin\\rust-lld.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 107,
+      "Bytes": 112190464,
+      "Modified": "2026-11-16",
+      "Path": "C:\\ProgramData\\Adobe\\ARM\\Acrobat_26.002.22031\\AcroRdrDCx64Upd2600322110_incr.msi",
+      "cls": "sys"
+    },
+    {
+      "MB": 105.9,
+      "Bytes": 110999573,
+      "Modified": "2026-08-07",
+      "Path": "C:\\Users\\Administrator\\.trae-cn\\work\\6a757a596bf7779849fd6ea4\\castlabs-electron.zip",
+      "cls": "caution"
+    },
+    {
+      "MB": 105.9,
+      "Bytes": 110999573,
+      "Modified": "2026-08-07",
+      "Path": "C:\\Users\\Administrator\\.trae-cn\\work\\6a757a596bf7779849fd6ea4\\electron-castlabs-v31.7.7+wvcus-win32-x64.zip",
+      "cls": "caution"
+    },
+    {
+      "MB": 104.3,
+      "Bytes": 109336991,
+      "Modified": "2026-10-18",
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Doubao\\User Data\\sdk_storage\\log\\saman_2026.1018.1.log",
+      "cls": "safe"
+    },
+    {
+      "MB": 103.8,
+      "Bytes": 108806144,
+      "Modified": "2026-08-10",
+      "Path": "C:\\Users\\Administrator\\.marscode\\.ckg\\storage\\u_0ba84f31124019c015042fb0c5e29941156caf54415eb6e1c024cdaf3a635e92\\baowenku_5686e60d70f87f_a3yi3o_embedding_vec.db",
+      "cls": "caution"
+    },
+    {
+      "MB": 103.5,
+      "Bytes": 108486656,
+      "Modified": "2026-10-13",
+      "Path": "C:\\Windows\\Installer\\3ce333b.msp",
+      "cls": "sys"
+    },
+    {
+      "MB": 102.8,
+      "Bytes": 107741184,
+      "Modified": "2026-11-19",
+      "Path": "C:\\Windows\\System32\\config\\SOFTWARE",
+      "cls": "sys"
+    },
+    {
+      "MB": 102.4,
+      "Bytes": 107337736,
+      "Modified": "2026-05-20",
+      "Path": "C:\\Windows\\System32\\lxss\\lib\\libnvidia-gpucomp.so",
+      "cls": "sys"
+    },
+    {
+      "MB": 102.4,
+      "Bytes": 107337736,
+      "Modified": "2026-05-20",
+      "Path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_c8bc842500fab35b\\libnvidia-gpucomp.so",
+      "cls": "sys"
+    },
+    {
+      "MB": 102.2,
+      "Bytes": 107172930,
+      "Modified": "2026-09-11",
+      "Path": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\atlmfc\\lib\\x64\\nafxcwd.lib",
+      "cls": "sys"
+    },
+    {
+      "MB": 102.1,
+      "Bytes": 107026944,
+      "Modified": "2026-09-17",
+      "Path": "C:\\Users\\Administrator\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\lib\\rustlib\\x86_64-pc-windows-msvc\\bin\\opt.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 102.1,
+      "Bytes": 107013632,
+      "Modified": "2026-09-17",
+      "Path": "C:\\Users\\Administrator\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\lib\\rustlib\\x86_64-pc-windows-msvc\\bin\\llc.exe",
+      "cls": "runtime"
+    },
+    {
+      "MB": 102,
+      "Bytes": 106951442,
+      "Modified": "2026-11-19",
+      "Path": "C:\\Users\\Administrator\\.workbuddy\\projects\\d-bian-bwbrowser-main\\477749f2-43bc-48ff-975b-d8c8f86503dd.jsonl",
+      "cls": "caution"
+    },
+    {
+      "MB": 101.8,
+      "Bytes": 106732954,
+      "Modified": "2026-09-11",
+      "Path": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\atlmfc\\lib\\x64\\uafxcwd.lib",
+      "cls": "sys"
+    },
+    {
+      "MB": 100.7,
+      "Bytes": 105601136,
+      "Modified": "2026-08-14",
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\python\\Python311\\site-packages\\nvidia\\cudnn\\bin\\cudnn_ops64_9.dll",
+      "cls": "runtime"
+    }
+  ],
+  "dirTotals": [
+    {
+      "GB": 13.01,
+      "Path": "C:\\",
+      "cls": "caution"
+    },
+    {
+      "GB": 9.39,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Claude-3p\\vm_bundles\\claudevm.bundle",
+      "cls": "runtime"
+    },
+    {
+      "GB": 4.24,
+      "Path": "C:\\Users\\Administrator\\Desktop\\downloadvideo",
+      "cls": "personal"
+    },
+    {
+      "GB": 3.25,
+      "Path": "C:\\Users\\Administrator\\Downloads",
+      "cls": "personal"
+    },
+    {
+      "GB": 2.52,
+      "Path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_c8bc842500fab35b",
+      "cls": "sys"
+    },
+    {
+      "GB": 2.2,
+      "Path": "C:\\Windows\\Installer",
+      "cls": "sys"
+    },
+    {
+      "GB": 2.16,
+      "Path": "C:\\Windows\\System32",
+      "cls": "sys"
+    },
+    {
+      "GB": 2.15,
+      "Path": "C:\\Users\\Administrator\\.workbuddy\\workspace\\sessions\\477749f2-43bc-48ff-975b-d8c8f86503dd\\modify_backup",
+      "cls": "personal"
+    },
+    {
+      "GB": 1.59,
+      "Path": "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1103.4239.0_x64__2p2nqsd0c76g0\\app\\resources",
+      "cls": "sys"
+    },
+    {
+      "GB": 1.54,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\profiles\\0d42c873-a4eb-4e68-bbc7-cf7927d3caee\\profile\\Default\\Service Worker\\CacheStorage\\577677ac60a1baefb4e927dfc1e23a37bd827385\\5c4cae60-5f12-4f6a-8eb5-8c07109733d2",
+      "cls": "caution"
+    },
+    {
+      "GB": 1.26,
+      "Path": "C:\\SCANNER\\ptm6500",
+      "cls": "unknown"
+    },
+    {
+      "GB": 1.23,
+      "Path": "C:\\Program Files\\Common Files\\Adobe\\Acrobat\\Setup\\{AC76BA86-2052-1033-7760-BC15014EA700}",
+      "cls": "sys"
+    },
+    {
+      "GB": 1.19,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Log\\mssdk_log\\ParfaitLog\\ready\\3704\\10000",
+      "cls": "safe"
+    },
+    {
+      "GB": 1.07,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\Apps\\8.9.0.13361",
+      "cls": "runtime"
+    },
+    {
+      "GB": 1.07,
+      "Path": "C:\\Windows\\SysWOW64",
+      "cls": "sys"
+    },
+    {
+      "GB": 1.05,
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\python\\Python311\\site-packages\\nvidia\\cudnn\\bin",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.88,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\rea-ghidra-6044ac1dd2ec75126aa34e98f3bd4c5b\\tmp\\Administrator-ghidra",
+      "cls": "safe"
+    },
+    {
+      "GB": 0.79,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\binaries\\wayfern\\151.0.7922.76",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.79,
+      "Path": "C:\\Program Files\\WSL",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.79,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\profiles\\3556c983-49b6-4d98-8ad4-50327bd11deb\\profile\\Default\\Service Worker\\CacheStorage\\577677ac60a1baefb4e927dfc1e23a37bd827385\\505120c5-6dbe-4f03-8c85-5b825c56b2bc",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.76,
+      "Path": "C:\\Users\\Administrator\\.chromium-browser-snapshots\\chromium\\win64-1722482\\chrome-win",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.72,
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\python\\Python311\\site-packages\\nvidia\\cublas\\bin",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.7,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\DonutBrowserDev\\binaries\\wayfern\\152.0.7977.64\\wayfern-152.0.7977.64_windows_x64\\wayfern_fonts\\macos",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.7,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\binaries\\wayfern\\151.0.7922.76\\wayfern_fonts\\macos",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.69,
+      "Path": "C:\\Windows",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.67,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Doubao\\User Data\\sdk_storage\\log",
+      "cls": "safe"
+    },
+    {
+      "GB": 0.62,
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\Tencent\\xwechat\\log",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.59,
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\Code\\CachedExtensionVSIXs",
+      "cls": "safe"
+    },
+    {
+      "GB": 0.57,
+      "Path": "C:\\Users\\Administrator\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\lib\\rustlib\\x86_64-pc-windows-msvc\\bin",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.56,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\DonutBrowserDev\\binaries\\wayfern\\152.0.7977.64\\wayfern-152.0.7977.64_windows_x64\\wayfern_fonts\\win11",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.54,
+      "Path": "C:\\Users\\Administrator\\Downloads\\红果短剧\\十八岁太奶奶驾到，重整家族荣耀第五部-3ba4060e9bd4",
+      "cls": "personal"
+    },
+    {
+      "GB": 0.54,
+      "Path": "C:\\Recovery\\WindowsRE",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.53,
+      "Path": "C:\\Users\\Administrator\\AppData\\LocalLow\\NVIDIA\\DXCache",
+      "cls": "safe"
+    },
+    {
+      "GB": 0.53,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\DonutBrowserDev\\binaries\\wayfern\\152.0.7977.64\\wayfern-152.0.7977.64_windows_x64",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.52,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\binaries\\wayfern\\151.0.7922.76\\wayfern_fonts\\win11",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.51,
+      "Path": "C:\\Program Files (x86)\\Microsoft\\EdgeCore\\Optimized",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.51,
+      "Path": "C:\\Program Files (x86)\\Microsoft\\EdgeCore\\157.0.4341.60",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.51,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Microsoft\\Windows\\Explorer",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.51,
+      "Path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\157.0.4341.60",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.5,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\5z3ytt5o\\Win11SDK_10.0.26100.33CB91E8D8190C6A58CA\\Installers",
+      "cls": "safe"
+    },
+    {
+      "GB": 0.5,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.5,
+      "Path": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\157.0.4341.60",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.49,
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\LarkShell\\update\\update_downloading",
+      "cls": "safe"
+    },
+    {
+      "GB": 0.48,
+      "Path": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\atlmfc\\lib\\x64",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.47,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\BwBrowser\\video-tools\\bin",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.46,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\ort.pyke.io\\dfbin\\x86_64-pc-windows-msvc\\3a0095001aa415a0cb7a56f847bd85764fccd8f20147abedc18994893a49776d",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.45,
+      "Path": "C:\\Windows\\Installer\\$PatchCache$\\Managed\\68AB67CA250233017706CB5110E47A00\\21.1.20135",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.45,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\OpenAI\\Codex\\bin\\f71a721e0e6193a9",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.44,
+      "Path": "C:\\Windows\\Fonts",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.43,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\@genieworkbuddy-desktop-updater",
+      "cls": "safe"
+    },
+    {
+      "GB": 0.42,
+      "Path": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\lib\\x64",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.42,
+      "Path": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\lib\\x64",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.41,
+      "Path": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\atlmfc\\lib\\x86",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.41,
+      "Path": "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1103.4239.0_x64__2p2nqsd0c76g0\\app",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.4,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\env-kit\\Core\\chrome_64_150_202608171014",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.39,
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\Tencent\\xwechat\\XPlugin\\Plugins\\RadiumWMPF\\26134\\extracted\\runtime",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.39,
+      "Path": "C:\\Users\\Administrator\\AppData\\Roaming\\Tencent\\xwechat\\XPlugin\\Plugins\\RadiumWMPF\\26073\\extracted\\runtime",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.39,
+      "Path": "C:\\Users\\Administrator\\.marscode\\ai-chat\\binary\\1.7.2\\modules\\ai-agent",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.38,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\ms-playwright\\chromium-1248\\chrome-win64",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.38,
+      "Path": "C:\\Users\\Administrator\\.codex\\plugins\\.plugin-appserver",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.38,
+      "Path": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\lib\\x86",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.38,
+      "Path": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\lib\\x86",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.38,
+      "Path": "C:\\Windows\\System32\\lxss\\lib",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.37,
+      "Path": "C:\\Users\\Administrator\\Desktop\\常用软件\\soft",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.37,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\ort.pyke.io\\dfbin\\x86_64-pc-windows-msvc\\tmp.s8iPjO7eai2M_3a0095001aa415a0cb7a56f847bd85764fccd8f20147abedc18994893a49776d",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.37,
+      "Path": "C:\\Users\\Administrator\\.cutmatch\\cache\\features",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.37,
+      "Path": "C:\\Users\\Default\\Desktop\\常用软件\\soft",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.36,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\@docs-desktopapp-updater\\pending",
+      "cls": "safe"
+    },
+    {
+      "GB": 0.36,
+      "Path": "C:\\ProgramData\\Tencent\\TencentDocs\\UpdateStaging\\3.13.1",
+      "cls": "sys"
+    },
+    {
+      "GB": 0.36,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\tdappdesktop-updater\\pending",
+      "cls": "safe"
+    },
+    {
+      "GB": 0.36,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\@docs-desktopapp-updater",
+      "cls": "safe"
+    },
+    {
+      "GB": 0.36,
+      "Path": "C:\\Users\\Administrator\\.cloakbrowser\\chromium-146.0.7680.177.5",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.35,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\ort.pyke.io\\dfbin\\x86_64-pc-windows-msvc\\f99aaef23f12986abb05924c944d8433521263ad756b462df762a5a982c98405",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.35,
+      "Path": "C:\\Users\\Administrator\\.cache\\audio_detector\\models--MelodyMachine--Deepfake-audio-detection-V2\\blobs",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.35,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\uv\\cache\\archive-v0\\eD8M5AmFTzkgTtCG\\torch\\lib",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.35,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\rea-ghidra-6044ac1dd2ec75126aa34e98f3bd4c5b",
+      "cls": "safe"
+    },
+    {
+      "GB": 0.35,
+      "Path": "C:\\Users\\Administrator\\AppData\\Local\\hubstudio-client-updater",
+      "cls": "safe"
+    },
+    {
+      "GB": 0.35,
+      "Path": "C:\\Users\\Administrator\\.codex\\packages\\standalone\\releases\\0.154.0-x86_64-pc-windows-msvc\\bin",
+      "cls": "caution"
+    },
+    {
+      "GB": 0.34,
+      "Path": "C:\\Users\\Administrator\\.rustup\\toolchains\\nightly-x86_64-pc-windows-msvc\\bin",
+      "cls": "runtime"
+    },
+    {
+      "GB": 0.34,
+      "Path": "C:\\Users\\Administrator\\.rustup\\toolchains\\nightly-2026-10-16-x86_64-pc-windows-msvc\\bin",
+      "cls": "runtime"
+    }
+  ],
+  "topLevelTotals": [
+    {
+      "GB": 118.12,
+      "Path": "C:\\Users\\Administrator"
+    },
+    {
+      "GB": 12.73,
+      "Path": "C:\\hiberfil.sys"
+    },
+    {
+      "GB": 7.74,
+      "Path": "C:\\Windows\\System32"
+    },
+    {
+      "GB": 6.81,
+      "Path": "C:\\Windows\\WinSxS"
+    },
+    {
+      "GB": 6.23,
+      "Path": "C:\\Program Files\\Microsoft Visual Studio"
+    },
+    {
+      "GB": 5.69,
+      "Path": "C:\\Windows\\assembly"
+    },
+    {
+      "GB": 3.49,
+      "Path": "C:\\Program Files (x86)\\Microsoft Visual Studio"
+    },
+    {
+      "GB": 3.47,
+      "Path": "C:\\Program Files (x86)\\Windows Kits"
+    },
+    {
+      "GB": 3.42,
+      "Path": "C:\\Program Files\\WindowsApps"
+    },
+    {
+      "GB": 3.34,
+      "Path": "C:\\Program Files (x86)\\Microsoft"
+    },
+    {
+      "GB": 2.7,
+      "Path": "C:\\Windows\\Installer"
+    },
+    {
+      "GB": 1.61,
+      "Path": "C:\\Windows\\SystemTemp"
+    },
+    {
+      "GB": 1.43,
+      "Path": "C:\\Program Files\\Common Files"
+    },
+    {
+      "GB": 1.41,
+      "Path": "C:\\ProgramData\\Package Cache"
+    },
+    {
+      "GB": 1.26,
+      "Path": "C:\\Program Files\\Adobe"
+    },
+    {
+      "GB": 1.26,
+      "Path": "C:\\SCANNER\\ptm6500"
+    },
+    {
+      "GB": 1.22,
+      "Path": "C:\\Windows\\SysWOW64"
+    },
+    {
+      "GB": 1.14,
+      "Path": "C:\\Program Files\\WSL"
+    },
+    {
+      "GB": 0.89,
+      "Path": "C:\\Program Files\\dotnet"
+    },
+    {
+      "GB": 0.76,
+      "Path": "C:\\Windows\\Microsoft.NET"
+    },
+    {
+      "GB": 0.65,
+      "Path": "C:\\Windows\\hvdrvceo.exe"
+    },
+    {
+      "GB": 0.54,
+      "Path": "C:\\Recovery\\WindowsRE"
+    },
+    {
+      "GB": 0.46,
+      "Path": "C:\\ProgramData\\Microsoft"
+    },
+    {
+      "GB": 0.45,
+      "Path": "C:\\Users\\Default"
+    },
+    {
+      "GB": 0.44,
+      "Path": "C:\\Windows\\Fonts"
+    },
+    {
+      "GB": 0.36,
+      "Path": "C:\\Program Files\\Git"
+    },
+    {
+      "GB": 0.36,
+      "Path": "C:\\ProgramData\\Tencent"
+    },
+    {
+      "GB": 0.32,
+      "Path": "C:\\ProgramData\\Adobe"
+    },
+    {
+      "GB": 0.31,
+      "Path": "C:\\Program Files\\NVIDIA Corporation"
+    },
+    {
+      "GB": 0.25,
+      "Path": "C:\\ProgramData\\SogouInput"
+    }
+  ]
+}
