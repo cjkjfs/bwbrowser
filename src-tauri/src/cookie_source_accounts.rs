@@ -9,9 +9,10 @@
 //! 写操作推送失败回滚本地并报错，让本地永远跟云端一致。
 //!
 //! 下载 Cookie 提取完整优先级：前台运行中的浏览器窗口（video_downloader）→
-//! 本清单（云端勾选顺序）→ VPS 登录老链路。旧「下载设置单选 cookie_account_id」
-//! 已移除：代理跟随/云端解析兜底改用 `first_cookie_account()`（清单第一个账号），
+//! 本清单（云端勾选顺序）。旧「下载设置单选 cookie_account_id」已移除：
+//! 代理跟随/云端解析兜底改用 `first_cookie_account()`（清单第一个账号），
 //! 嗅探识别按钮绑定改由 `sync_sniffer_binding_from_cookie_sources()` 跟随本清单。
+//! 旧「VPS登录」（标记 0）兜底链路已随爆文库入口重构整体移除。
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -58,17 +59,18 @@ fn persist(settings: &CookieSourceSettings) -> Result<(), String> {
 
 /// 供下载链路使用：返回应当依次尝试的账号 id（优先级降序，先开优先）。
 /// 调用前会先 pull 一次云端，保证各机器看到的是最新清单。
+/// 自动过滤历史遗留的 VPS 标记 0（该兜底链路已移除，云端旧数据可能还残留）。
 pub async fn download_candidate_accounts() -> Vec<i64> {
   pull_remote().await;
-  load().accounts
+  load().accounts.into_iter().filter(|id| *id > 0).collect()
 }
 
-/// 云端清单快照（先 pull 再返回本地镜像的账号列表，含 VPS 标记 0）。
+/// 云端清单快照（先 pull 再返回本地镜像的账号列表）。
 pub async fn cookie_source_accounts_snapshot() -> Vec<i64> {
   download_candidate_accounts().await
 }
 
-/// 云端清单第一个真实账号 id（跳过 VPS 标记 0），无则 None。
+/// 云端清单第一个真实账号 id，无则 None。
 /// 供「旧单选 cookie_account_id」移除后的云端解析/代理跟随兜底使用。
 pub async fn first_cookie_account() -> Option<i64> {
   cookie_source_accounts_snapshot()
@@ -175,42 +177,4 @@ pub async fn get_cookie_source_accounts() -> CookieSourceState {
   CookieSourceState {
     accounts: load().accounts,
   }
-}
-
-/// 「VPS登录」（爆文库）在 Cookie 来源清单里的特殊标记 id。
-/// 真实云端账号 id 从 1 开始，0 不会与任何账号冲突；
-/// 前端用 `accounts.includes(0)` 判断爆文库开关状态。
-pub const VPS_COOKIE_SOURCE_ID: i64 = 0;
-
-/// 爆文库（VPS 登录）「Cookie 来源」开关：
-/// 开启 = 把标记 0 追加进清单末尾（与账号同一套「先开优先」规则，
-/// 想让 VPS 优先就先开 VPS 再开账号）；关闭 = 从清单移除。
-/// 下载链路遍历候选遇到 0 时结束账号循环，直接走「VPS登录」老链路提取。
-#[tauri::command]
-pub async fn set_vps_cookie_source(enabled: bool) -> Result<(), String> {
-  update_remote(|s| {
-    if enabled {
-      if s.accounts.contains(&VPS_COOKIE_SOURCE_ID) {
-        false
-      } else {
-        s.accounts.push(VPS_COOKIE_SOURCE_ID);
-        true
-      }
-    } else {
-      let before = s.accounts.len();
-      s.accounts.retain(|&id| id != VPS_COOKIE_SOURCE_ID);
-      s.accounts.len() != before
-    }
-  })
-  .await?;
-  crate::bwbrowser_cloud::log_bwbrowser(
-    "cookie_source",
-    &format!(
-      "爆文库（VPS登录）下载 Cookie 来源 {}",
-      if enabled { "开启" } else { "关闭" }
-    ),
-  );
-  // 识别按钮绑定跟随清单（VPS 标记勾选 = VPS 登录浏览器有识别按钮）
-  crate::extension_user_assign::sync_sniffer_binding_from_cookie_sources().await;
-  Ok(())
 }

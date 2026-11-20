@@ -655,12 +655,13 @@ fn assigned_ids_from_items(
       ids.insert(a.extension_id.clone());
     }
   }
-  // 视频嗅探开关（云端为准，默认关闭）：账号上下文看账号名单；None = 爆文库
-  // （VPS 登录），看 vps_enabled。未开启就把这一个扩展从集合里摘掉，绑定关系
-  // 保持原样，打开开关后下一次启动自然回到分组。
+  // 视频嗅探开关（云端为准，默认关闭）：云端账号上下文看账号名单；
+  // 本地 profile（无账号上下文）默认可用，与 is_profile_sniffer_allowed 一致。
+  // 旧「爆文库（VPS 登录）」开关已随爆文库入口重构移除。未开启就把这一个
+  // 扩展从集合里摘掉，绑定关系保持原样，打开开关后下一次启动自然回到分组。
   let sniffer_allowed = match account_id {
     Some(aid) => crate::video_sniffer_settings::is_account_enabled(aid),
-    None => crate::video_sniffer_settings::is_vps_enabled(),
+    None => true,
   };
   if !sniffer_allowed {
     if let Some(sniffer) = video_sniffer_extension_id() {
@@ -958,8 +959,8 @@ pub async fn assign_extension_to_users_bulk(
 
 /// 嗅探扩展「识别按钮」可见性跟随云端 Cookie 来源清单（账号管理勾选）：
 /// - 清单里的真实账号（>0）全部有识别按钮（一条 account_ids=[...] 绑定）；
-/// - 清单含 VPS 标记(0) 时 VPS 登录浏览器也有；
-/// - 清单为空 → 仅 VPS 登录（沿用旧默认）。
+/// - 清单为空 → 不绑定任何账号（识别按钮不出现；旧「仅 VPS 登录」默认已随
+///   VPS 登录兜底链路移除，历史 vps_login 绑定在同步时一并摘除）。
 ///
 /// 绑定的 user_id 只是条目载体，匹配只看 account_ids/vps_login（见
 /// assignment_applies）：沿用现有条目的用户，无则用当前登录用户。
@@ -976,9 +977,8 @@ pub async fn sync_sniffer_binding_from_cookie_sources() {
     return;
   };
   let accounts = crate::cookie_source_accounts::cookie_source_accounts_snapshot().await;
-  let real: Vec<i64> = accounts.iter().copied().filter(|id| *id > 0).collect();
+  let real: Vec<i64> = accounts.into_iter().filter(|id| *id > 0).collect();
   let has_real = !real.is_empty();
-  let has_vps = accounts.contains(&crate::cookie_source_accounts::VPS_COOKIE_SOURCE_ID);
   // 载体用户：优先现有条目（挂谁都不影响匹配），其次当前登录用户
   let store = load_store();
   let mine: Vec<&ExtensionUserAssignment> = store
@@ -997,20 +997,6 @@ pub async fn sync_sniffer_binding_from_cookie_sources() {
       user_id: carrier,
       account_ids: Some(real),
       vps_login: Some(false),
-    });
-  }
-  // VPS 登录载体：现有 vps 条目用户 > 登录用户 > carrier
-  let vps_user = mine
-    .iter()
-    .find(|a| a.vps_login == Some(true))
-    .map(|a| a.user_id)
-    .or(login_user)
-    .unwrap_or(carrier);
-  if has_vps || !has_real {
-    to_assign.push(BulkAssignTarget {
-      user_id: vps_user,
-      account_ids: None,
-      vps_login: Some(true),
     });
   }
   if to_assign.is_empty() && to_unassign.is_empty() {

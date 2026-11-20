@@ -2494,6 +2494,11 @@
     "agent": "Агент"
   },
   "pageTitle": {
+    "userManagement": "Управление пользователями",
+    "videoDownload": "Загрузка видео",
+    "audioProcessor": "Обработка аудио",
+    "videoMatcher": "Инструменты видео",
+    "doubaoVideo": "Видео Doubao",
     "proxies": "Сеть",
     "extensions": "Расширения",
     "groups": "Группы",

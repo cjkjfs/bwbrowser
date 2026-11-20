@@ -2478,6 +2478,11 @@
     "agent": "Agent"
   },
   "pageTitle": {
+    "userManagement": "User Management",
+    "videoDownload": "Video Download",
+    "audioProcessor": "Audio Processing",
+    "videoMatcher": "Video Tools",
+    "doubaoVideo": "Doubao Video",
     "proxies": "Network",
     "extensions": "Extensions",
     "groups": "Groups",

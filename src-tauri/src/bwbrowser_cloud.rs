@@ -916,6 +916,97 @@ pub fn bwbrowser_refresh_profile() -> Result<CloudUser, String> {
   BWBROWSER_AUTH.refresh_profile_sync()
 }
 
+// ========== 门禁远程开门（2026-11-20） ==========
+
+/// door.php AJAX 返回的统一 JSON 形状（所有 action 都带 ok/msg）。
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DoorApiResponse {
+  pub ok: bool,
+  #[serde(default)]
+  pub msg: Option<String>,
+  /// widget_info 独有：当前登录用户是否有开门资格（1/0）
+  #[serde(default)]
+  pub can_open: Option<i32>,
+  /// widget_info 独有：无资格时的原因（凭证未配置/未加入权限组）
+  #[serde(default)]
+  pub deny_reason: Option<String>,
+}
+
+impl BwbrowserAuthManager {
+  /// 向 door.php 发一个带 token 认证的 POST 请求并解析 JSON。
+  /// 认证复用 bwbrowser_sync.php 的凭据（password 字段在登录后已是 40 位 hex token，
+  /// door.php 端按 bwbrowser_auth_tokens 表校验，命中即等同该用户已登录）。
+  async fn door_request(&self, action: &str) -> Result<DoorApiResponse, String> {
+    let (username, token) = self
+      .get_credentials()
+      .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+
+    let form = format!(
+      "action={}&auth_username={}&auth_token={}",
+      urlencode(action),
+      urlencode(&username),
+      urlencode(&token)
+    );
+
+    let resp = self
+      .client
+      .post(crate::cloud_domain::DOOR_API_URL)
+      .header("Content-Type", "application/x-www-form-urlencoded")
+      .body(form)
+      .send()
+      .await
+      .map_err(|e| format!("网络请求失败: {e}"))?;
+
+    let status = resp.status();
+    let body = resp
+      .text()
+      .await
+      .map_err(|e| format!("读取响应失败: {e}"))?;
+
+    if !status.is_success() {
+      // 302 → 登录页说明 token 失效被踢回；非 2xx 一律报网络/鉴权错误
+      let preview = if body.len() > 120 {
+        trunc(&body, 120).to_string()
+      } else {
+        body.clone()
+      };
+      return Err(format!("门禁接口异常 (HTTP {status}) {preview}"));
+    }
+
+    parse_api_response::<DoorApiResponse>(action, status, &body)
+  }
+
+  /// 查询当前用户是否有开门资格（供侧边栏按钮显隐）。
+  pub async fn door_info(&self) -> Result<DoorApiResponse, String> {
+    self.door_request("widget_info").await
+  }
+
+  /// 远程开门：资格/时段/星期校验在服务端实时做，这里只透传结果。
+  pub async fn door_open(&self) -> Result<DoorApiResponse, String> {
+    self.door_request("open").await
+  }
+}
+
+/// 查询开门资格（侧边栏按钮显隐依据）。未登录返回 can_open=0 而非错误，前端静默处理。
+#[tauri::command]
+pub async fn bwbrowser_door_info() -> Result<DoorApiResponse, String> {
+  match BWBROWSER_AUTH.get_user() {
+    None => Ok(DoorApiResponse {
+      ok: true,
+      msg: None,
+      can_open: Some(0),
+      deny_reason: Some("未登录".to_string()),
+    }),
+    Some(_) => BWBROWSER_AUTH.door_info().await,
+  }
+}
+
+/// 远程开门（侧边栏按钮点击触发），返回服务端 ok/msg 供 toast 展示。
+#[tauri::command]
+pub async fn bwbrowser_door_open() -> Result<DoorApiResponse, String> {
+  BWBROWSER_AUTH.door_open().await
+}
+
 /// 内置「视频嗅探下载」扩展的资源目录名（打包映射 extensions/video-sniffer）。
 /// 账号级开关按这个名字识别内置嗅探扩展（见 video_sniffer_settings）。
 pub(crate) const VIDEO_SNIFFER_EXT_NAME: &str = "视频嗅探下载";
@@ -986,28 +1077,131 @@ fn ensure_video_sniffer_extension(app_handle: &tauri::AppHandle) {
   }
 }
 
+// ========== 爆文库入口（2026-11-20 重构） ==========
+
+/// get_vps_bind 服务端响应：当前用户（按归属人）绑定的爆文库账号。
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VpsBindInfoResponse {
+  pub success: bool,
+  #[serde(default)]
+  pub bound: Option<bool>,
+  #[serde(default)]
+  pub account: Option<BwbrowserAccount>,
+  #[serde(default)]
+  pub message: Option<String>,
+}
+
+/// set_vps_bind 服务端响应。
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VpsBindSetResponse {
+  pub success: bool,
+  #[serde(default)]
+  pub vps_bind: Option<i32>,
+  #[serde(default)]
+  pub message: Option<String>,
+}
+
+impl BwbrowserAuthManager {
+  /// 查询当前登录用户名下绑定的爆文库账号（服务端按 owner_id 过滤）。
+  pub async fn get_vps_bind(&self) -> Result<VpsBindInfoResponse, String> {
+    let (username, password) = self
+      .get_credentials()
+      .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+
+    let form = format!(
+      "action=get_vps_bind&username={}&password={}",
+      urlencode(&username),
+      urlencode(&password)
+    );
+
+    let resp = self
+      .client
+      .post(SIMPRINT_ACCOUNTS_URL)
+      .header("Content-Type", "application/x-www-form-urlencoded")
+      .body(form)
+      .send()
+      .await
+      .map_err(|e| format!("网络请求失败: {e}"))?;
+
+    let status = resp.status();
+    let body = resp
+      .text()
+      .await
+      .map_err(|e| format!("读取响应失败: {e}"))?;
+    parse_api_response("get_vps_bind", status, &body)
+  }
+
+  /// 设置/取消账号的「绑定爆文库」开关（同归属人互斥由服务端保证）。
+  pub async fn set_vps_bind(
+    &self,
+    account_id: i64,
+    bind: bool,
+  ) -> Result<VpsBindSetResponse, String> {
+    let (username, password) = self
+      .get_credentials()
+      .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
+
+    let form = format!(
+      "action=set_vps_bind&username={}&password={}&account_id={}&bind={}",
+      urlencode(&username),
+      urlencode(&password),
+      account_id,
+      if bind { 1 } else { 0 }
+    );
+
+    let resp = self
+      .client
+      .post(SIMPRINT_ACCOUNTS_URL)
+      .header("Content-Type", "application/x-www-form-urlencoded")
+      .body(form)
+      .send()
+      .await
+      .map_err(|e| format!("网络请求失败: {e}"))?;
+
+    let status = resp.status();
+    let body = resp
+      .text()
+      .await
+      .map_err(|e| format!("读取响应失败: {e}"))?;
+    parse_api_response("set_vps_bind", status, &body)
+  }
+}
+
+/// 查询当前用户绑定的爆文库账号（左上角「爆文库」按钮显隐依据）。
+#[tauri::command]
+pub async fn bwbrowser_vps_bind_info() -> Result<VpsBindInfoResponse, String> {
+  BWBROWSER_AUTH.get_vps_bind().await
+}
+
+/// 设置账号的「绑定爆文库」开关（编辑账号弹窗）。
+#[tauri::command]
+pub async fn bwbrowser_set_vps_bind(
+  account_id: i64,
+  bind: bool,
+) -> Result<VpsBindSetResponse, String> {
+  BWBROWSER_AUTH.set_vps_bind(account_id, bind).await
+}
+
+/// 打开爆文库（左上角按钮）：启动当前用户绑定的账号（完整账号启动链路：
+/// 环境设置 + 用户数据 + 云端启动上报 + 关闭监视 + cookie 回传），浏览器内
+/// 打开 yacm.xin 自动登录页。未绑定时报错（按钮本身也不会显示）。
+///
+/// 旧版逻辑（VPS登录专用 profile、指纹处理、书签/cookie 独立同步等）已整体移除。
 #[tauri::command]
 pub async fn bwbrowser_open_vps_login(
   app_handle: tauri::AppHandle,
   redirect: Option<String>,
 ) -> Result<(), String> {
+  // 1. 查询当前用户绑定的账号
+  let bind = BWBROWSER_AUTH.get_vps_bind().await?;
+  let account = bind.account.ok_or_else(|| {
+    "未绑定爆文库账号：请先在云端账号管理的编辑账号中开启「绑定爆文库」".to_string()
+  })?;
+
+  // 2. 构造 yacm.xin 自动登录 URL（与旧爆文库入口同一鉴权方式）
   let (username, password) = BWBROWSER_AUTH
     .get_credentials()
     .ok_or_else(|| "未登录云端账号".to_string())?;
-
-  // 真实启动进度：按步骤向前端广播百分比，替代前端的模拟动画
-  let emit_app = app_handle.clone();
-  let emit_progress = |pct: u32, label: &str| {
-    let _ = emit_app.emit(
-      "vps-launch-progress",
-      serde_json::json!({
-        "pct": pct,
-        "label": label,
-      }),
-    );
-  };
-  emit_progress(5, "正在准备 VPS 登录...");
-
   let redirect = redirect.unwrap_or_else(|| "baowenku.php".to_string());
   let url = format!(
     "{LOGIN_URL}?auto_login=1&username={}&password={}&redirect={}",
@@ -1016,648 +1210,50 @@ pub async fn bwbrowser_open_vps_login(
     urlencode(&redirect),
   );
 
-  log_bwbrowser("open_vps_login", &format!("opening with Wayfern: {}", url));
-
-  // 查找或创建 VPS 登录专用 profile
-  let profile_name = "VPS登录".to_string();
-  let existing = crate::profile::manager::ProfileManager::instance()
-    .list_profiles()
-    .map_err(|e| format!("获取本地 profile 列表失败: {}", e))?;
-
-  let existing_profile = existing
-    .into_iter()
-    .find(|p| p.name.to_lowercase() == profile_name.to_lowercase());
-
-  // 构建虚拟指纹配置（与其他环境一致）
-  // fingerprint / identity 均留空 → browser_runner 在首次启动时自动生成
-  // 一个虚拟设备并持久化到 profile，之后每次启动复用同一指纹（稳定）。
-  // token 由自家服务器实时签发，不消耗任何配额；151 内核走本地离线生成
-  // （setFingerprint 模式），同 OS 声明（config.os = 本机系统）。
-  let wayfern_config = default_wayfern_config_for_host();
-
-  let mut profile = match existing_profile {
-    Some(mut p) => {
-      log_bwbrowser("open_vps_login", &format!("复用已有 profile: id={}", p.id));
-      // 硬件加速开关决定 VPS 登录的指纹模式：
-      // - 开（真机模式）：不生成虚拟指纹，fingerprint 标记为 "{}"（host-device
-      //   标记）。browser_runner 视为已有设备不再生成，launch_wayfern 按
-      //   host-device 处理并追加 GPU 启用参数 → 真 GPU 硬件加速。代价：WebGL
-      //   显卡信息暴露真机（爆文库访问自家站点，可接受）。
-      // - 关（虚拟指纹模式）：维持原行为——启动时生成虚拟指纹，内核为兑现
-      //   WebGL 指纹注入 --use-angle=d3d11-warp 软件渲染（防指纹优先）。
-      let gpu_acceleration = crate::settings_manager::SettingsManager::instance()
-        .load_settings()
-        .map(|s| s.gpu_acceleration)
-        .unwrap_or(true);
-      // 一次性迁移：按当前模式检查 profile 是否处于目标态。非目标态（真机模式
-      // 遗留 / 残留 identity / 待生成）在浏览器未运行时归位。已生成过真实虚拟
-      // 指纹的 profile 保持原样，避免每次启动换指纹触发站点风控。
-      let needs_reset = p
-        .wayfern_config
-        .as_ref()
-        .map(|c| {
-          if gpu_acceleration {
-            // 真机模式目标态：fingerprint == "{}" 且无 identity
-            c.identity_id.is_some() || !matches!(c.fingerprint.as_deref(), Some("{}"))
-          } else {
-            // 虚拟指纹模式目标态：无 identity 无指纹（启动时自动生成）；
-            // "{}" 是真机模式遗留，归零。
-            c.identity_id.is_some() || c.fingerprint.as_deref().map(|f| f == "{}").unwrap_or(false)
-          }
-        })
-        .unwrap_or(true);
-
-      if needs_reset {
-        if gpu_acceleration {
-          log_bwbrowser(
-            "open_vps_login",
-            "  硬件加速开启：归位真机模式（不生成虚拟指纹，GPU 由真机提供）",
-          );
-        } else {
-          log_bwbrowser(
-            "open_vps_login",
-            "  检测到真机模式遗留，本次启动生成虚拟指纹",
-          );
-        }
-      }
-
-      // 注意：不调用 update_wayfern_config，因为它会自动携带旧的 identity_id
-      let pm = crate::profile::manager::ProfileManager::instance();
-      match pm.check_browser_status(app_handle.clone(), &p).await {
-        Ok(false) => {
-          if needs_reset {
-            let mut new_config = wayfern_config.clone();
-            // 清空身份与载荷；fingerprint 按模式归位
-            new_config.identity_id = None;
-            new_config.identity_baseline = None;
-            new_config.identity_overrides = None;
-            new_config.location = None;
-            new_config.geo_proxy_signature = None;
-            new_config.randomize_fingerprint_on_launch = None;
-            if gpu_acceleration {
-              // 真机模式标记（空对象）：browser_runner 的 needs_device 为
-              // false 不会生成指纹，launch_wayfern 的 is_host_device_launch
-              // 命中 → GPU 启用参数生效。
-              new_config.fingerprint = Some("{}".to_string());
-            } else {
-              // 留空 → browser_runner 在启动时生成虚拟指纹并持久化
-              new_config.fingerprint = None;
-            }
-            p.wayfern_config = Some(new_config.clone());
-            match pm.save_profile(&p) {
-              Ok(_) => {
-                if gpu_acceleration {
-                  log_bwbrowser("open_vps_login", "  ✓ 已切换为真机模式（硬件加速）");
-                } else {
-                  log_bwbrowser("open_vps_login", "  ✓ 已重置为虚拟指纹模式");
-                }
-              }
-              Err(e) => {
-                log_bwbrowser_error("open_vps_login", &format!("  保存配置失败: {}", e));
-              }
-            }
-          }
-        }
-        Ok(true) => {
-          log_bwbrowser("open_vps_login", "  浏览器运行中，跳过配置更新");
-        }
-        Err(e) => {
-          log_bwbrowser_error("open_vps_login", &format!("  检查浏览器状态失败: {}", e));
-        }
-      }
-      p
-    }
-    None => {
-      // 查找已安装的 Wayfern 版本
-      let registry = crate::downloaded_browsers_registry::DownloadedBrowsersRegistry::instance();
-      let mut versions = registry.get_downloaded_versions("wayfern");
-      versions.sort_by(|a, b| crate::api_client::compare_versions(b, a));
-      let version = versions
-        .into_iter()
-        .next()
-        .ok_or_else(|| "Wayfern 内核未安装，请先下载浏览器内核".to_string())?;
-      log_bwbrowser("open_vps_login", &format!("使用 Wayfern 版本: {}", version));
-
-      let pm = crate::profile::manager::ProfileManager::instance();
-      pm.create_profile_with_group(
-        &app_handle,
-        &profile_name,
-        "wayfern",
-        &version,
-        "stable",
-        None, // 无代理
-        None,
-        Some(wayfern_config.clone()),
-        None,
-        false,
-        None,
-        None,
-      )
-      .await
-      .map_err(|e| format!("创建 profile 失败: {}", e))?
-    }
-  };
-  emit_progress(30, "profile 就绪");
-
-  // 确保内置「视频嗅探下载」扩展可用：嗅探已脱离扩展库——注册打包资源
-  // 目录作为注入来源，并清理库里旧版残留记录。失败静默降级——嗅探不可用
-  // 不影响登录启动。
-  ensure_video_sniffer_extension(&app_handle);
-
-  // 先拉一次公司级绑定（管理员机器分配的插件跨机器生效；失败静默降级）
-  crate::extension_user_assign::pull_company_assignments().await;
-  // 视频嗅探开关（云端为准）也在这里拉取：爆文库是否注入嗅探由 vps_enabled 决定
-  crate::video_sniffer_settings::pull_remote().await;
-
-  // 爆文库启动前应用当前登录用户绑定的扩展：扩展管理里绑定给这个用户的
-  // 插件，在爆文库浏览器里自动装/卸（只覆盖空分组或自动分组，手动分组
-  // 不动）。云端账号启动不注入扩展，这里是唯一的插件落点。
-  crate::extension_user_assign::apply_owner_assignments(
-    BWBROWSER_AUTH.get_user_id(),
-    None,
-    &profile.id.to_string(),
-    profile.extension_group_id.as_deref(),
+  log_bwbrowser(
+    "open_vps_login",
+    &format!(
+      "启动绑定账号 id={} name={} 进入爆文库",
+      account.id, account.account_name
+    ),
   );
 
-  emit_progress(40, "同步云端书签...");
-
-  // 本地解析 VPS 登录代理时区（仅本地解析，不回传云端）
-  // 有代理 → 按代理解析时区并在启动后注入浏览器；无代理 → 保持本机真实时区
-  let vps_geo_info = if profile
-    .proxy_id
-    .as_deref()
-    .is_some_and(|p| !p.trim().is_empty())
-  {
-    resolve_geo_from_proxy(profile.proxy_id.as_deref()).await
-  } else {
-    None
-  };
-  if let Some(ref geo) = vps_geo_info {
-    log_bwbrowser(
-      "open_vps_login",
-      &format!(
-        "  ✓ VPS 代理时区（本地解析）: timezone={}, language={}",
-        geo.timezone, geo.language
-      ),
-    );
-  } else {
-    log_bwbrowser(
-      "open_vps_login",
-      "  VPS 登录无代理或无法解析时区，保持本机真实时区",
-    );
-  }
-
-  // ---- 书签同步：启动前下载云端书签到本地 ----
-  // 以本地为准：只有本地没有书签时才从云端下载注入
-  let profile_id_str = profile.id.to_string();
-  let local_bookmarks = BwbrowserAuthManager::read_local_bookmarks(&profile_id_str).unwrap_or(None);
-
-  if local_bookmarks.is_none() {
-    match BWBROWSER_AUTH.get_bwbrowser_bookmarks().await {
-      Ok(Some(cloud_bookmarks)) if !cloud_bookmarks.is_empty() && cloud_bookmarks != "null" => {
-        log_bwbrowser(
-          "vps_bookmark_sync",
-          &format!("本地无书签，从云端下载: {} 字节", cloud_bookmarks.len()),
-        );
-        match BwbrowserAuthManager::write_local_bookmarks(&profile_id_str, &cloud_bookmarks) {
-          Ok(_) => {
-            log_bwbrowser("vps_bookmark_sync", "✓ 云端书签已写入本地");
-          }
-          Err(e) => {
-            log_bwbrowser_error("vps_bookmark_sync", &format!("写入书签失败: {}", e));
-          }
-        }
-      }
-      Ok(_) => {
-        log_bwbrowser("vps_bookmark_sync", "云端无书签，跳过");
-      }
-      Err(e) => {
-        log_bwbrowser_error("vps_bookmark_sync", &format!("拉取云端书签失败: {}", e));
-      }
-    }
-  } else {
-    log_bwbrowser(
-      "vps_bookmark_sync",
-      "本地已有书签，跳过云端注入（以本地为准）",
-    );
-  }
-  emit_progress(60, "书签已就绪");
-  emit_progress(70, "启动浏览器内核...");
-
-  // 删除指纹 fonts 字段（爆文库专用）：内核把 fonts="default" 理解为启用字体
-  // 替换/伪造，实测导致 Segoe UI Emoji 字形不可达，页面所有 emoji 渲染成空心
-  // 方框（📈@32px 仅渲染 9.4px；移除该字段后 41.7px 正常）。爆文库访问自家站，
-  // 不需要字体枚举伪造，emoji 正常显示优先。已生成虚拟指纹的 profile 在启动前
-  // 就地修正；launch 内部新生成的指纹由启动后的兜底处理移除。
-  if let Some(wc) = profile.wayfern_config.as_mut() {
-    if let Some(fp_str) = wc.fingerprint.as_mut() {
-      if let Ok(mut fp) = serde_json::from_str::<serde_json::Value>(fp_str) {
-        let removed = fp
-          .as_object_mut()
-          .map(|obj| obj.remove("fonts").is_some())
-          .unwrap_or(false);
-        if removed {
-          match serde_json::to_string(&fp) {
-            Ok(new_str) => {
-              *fp_str = new_str;
-              let pm = crate::profile::manager::ProfileManager::instance();
-              if let Err(e) = pm.save_profile(&profile) {
-                log_bwbrowser_error(
-                  "open_vps_login",
-                  &format!("  保存指纹（去 fonts）失败: {}", e),
-                );
-              } else {
-                log_bwbrowser(
-                  "open_vps_login",
-                  "  ✓ 已移除指纹 fonts 字段（修复 emoji 方框）",
-                );
-              }
-            }
-            Err(e) => {
-              log_bwbrowser_error("open_vps_login", &format!("  指纹序列化失败: {}", e));
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // 启动 Wayfern 浏览器，直接打开 VPS 登录 URL
-  let options = crate::browser_runner::LaunchOptions {
-    gate: crate::launch_gate::FingerprintGate::Advisory,
-    ..Default::default()
-  };
-  let mut launched_profile = crate::browser_runner::launch_browser_profile_impl(
-    app_handle.clone(),
-    profile.clone(),
-    Some(url),
-    options,
+  // 3. 走完整账号启动链路（含云端上报/进度事件/关闭监视），override_url 指定爆文库启动页
+  let result = tokio::time::timeout(
+    std::time::Duration::from_secs(70),
+    launch_account_impl(
+      app_handle.clone(),
+      account.id,
+      account.account_name.clone(),
+      None,
+      None,
+      None,
+      Some(url),
+    ),
   )
   .await
-  .map_err(passthrough_backend_error)?;
+  .map_err(|_| "账号启动超时：启动流程超过 70 秒未完成，请重试".to_string())
+  .and_then(|r| r);
 
-  log_bwbrowser("open_vps_login", "  ✓ Wayfern 浏览器已启动");
-
-  // 兜底：launch 内部新生成的虚拟指纹仍带 fonts="default"（字体伪造，致 emoji
-  // 变空心方框），这里移除后用现有时区/语言重新 setFingerprint 应用（带 token）。
-  // 存量 profile 已在启动前修正，这里只覆盖"首次生成"场景。
-  let mut fonts_removed = false;
-  if let Some(wc) = launched_profile.wayfern_config.as_mut() {
-    if let Some(fp_str) = wc.fingerprint.as_mut() {
-      if let Ok(mut fp) = serde_json::from_str::<serde_json::Value>(fp_str) {
-        let removed = fp
-          .as_object_mut()
-          .map(|obj| obj.remove("fonts").is_some())
-          .unwrap_or(false);
-        if removed {
-          if let Ok(new_str) = serde_json::to_string(&fp) {
-            *fp_str = new_str;
-            fonts_removed = true;
-          }
-        }
-      }
-    }
-  }
-  if fonts_removed {
-    log_bwbrowser(
-      "open_vps_login",
-      "  新生成指纹含 fonts 字段，移除后重新应用",
+  // 4. 失败上报 + 启动成功挂关闭监视（与 bwbrowser_launch_account 命令保持一致）
+  if let Err(ref e) = result {
+    log_launch_to_server(
+      account.id,
+      &account.account_name,
+      account.platform.as_deref(),
+      "account",
+      None,
+      account.env_uuid.as_deref(),
+      account.proxy_node.as_deref(),
+      "failed",
+      e,
     );
-    let fp_obj = launched_profile
-      .wayfern_config
-      .as_ref()
-      .and_then(|c| c.fingerprint.as_deref())
-      .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
-    if let Some(fp) = fp_obj {
-      let tz = fp
-        .get("timezone")
-        .and_then(|v| v.as_str())
-        .filter(|t| !t.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-          iana_time_zone::get_timezone().unwrap_or_else(|_| "Asia/Shanghai".to_string())
-        });
-      let lang = fp
-        .get("language")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-      match crate::wayfern_manager::WayfernManager::instance()
-        .set_wayfern_timezone(&launched_profile, &tz, Some(lang.as_str()), None, None)
-        .await
-      {
-        Ok(_) => {
-          log_bwbrowser("open_vps_login", "  ✓ 已用无 fonts 指纹重新应用");
-        }
-        Err(e) => {
-          log_bwbrowser_error("open_vps_login", &format!("  重新应用指纹失败: {}", e));
-        }
-      }
-    }
-    let pm = crate::profile::manager::ProfileManager::instance();
-    if let Err(e) = pm.save_profile(&launched_profile) {
-      log_bwbrowser_error("open_vps_login", &format!("  保存新生成指纹失败: {}", e));
-    }
+    return Err(e.clone());
   }
 
-  // 无代理时，把虚拟指纹语言跟随本机系统语言。原因：虚拟指纹离线随机生成时
-  // language 可能抽中 es-GB 等西文值，Chromium 字体 fallback 会优先欧洲西文字体，
-  // Windows 上匹配不到 Segoe UI Emoji，导致爆文库页面所有 emoji 渲染成空心方框。
-  // 本机是中文环境（或其它），应与本机对齐，使字体回退正常、emoji 恢复显示。
-  if vps_geo_info.is_none() {
-    if let Some(host_locale) = sys_locale::get_locale() {
-      let host_lang = host_locale.trim().to_string();
-      if !host_lang.is_empty() {
-        // 读取当前指纹已有的时区（保持一致）；若没有则回退本机真实时区
-        let existing_tz: Option<String> = launched_profile
-          .wayfern_config
-          .as_ref()
-          .and_then(|c| c.fingerprint.as_deref())
-          .filter(|f| !f.is_empty() && *f != "{}")
-          .and_then(|fp_str| serde_json::from_str::<serde_json::Value>(fp_str).ok())
-          .and_then(|fp| {
-            fp.get("timezone")
-              .and_then(|v| v.as_str())
-              .map(str::to_string)
-          })
-          .filter(|tz| !tz.is_empty());
-        let tz_to_apply = existing_tz.unwrap_or_else(|| {
-          iana_time_zone::get_timezone().unwrap_or_else(|_| "Asia/Shanghai".to_string())
-        });
-        log_bwbrowser(
-          "open_vps_login",
-          &format!(
-            "  [VPS-TZ] 无代理：语言跟随本机系统语言 {}（临时区 {}）",
-            host_lang, tz_to_apply
-          ),
-        );
-        let res = crate::wayfern_manager::WayfernManager::instance()
-          .set_wayfern_timezone(
-            &launched_profile,
-            &tz_to_apply,
-            Some(host_lang.as_str()),
-            None,
-            None,
-          )
-          .await;
-        match res {
-          Ok(true) => {
-            log_bwbrowser(
-              "open_vps_login",
-              &format!("  [VPS-TZ] ✓ 无代理语言已设为本机系统语言: {}", host_lang),
-            );
-          }
-          Ok(false) => {
-            log_bwbrowser(
-              "open_vps_login",
-              "  [VPS-TZ] 无代理语言同步：内核不支持，回退到 CDP 注入",
-            );
-            if let Err(e) =
-              crate::cookie_sync::inject_timezone_via_cdp(&launched_profile, &tz_to_apply).await
-            {
-              log_bwbrowser_error(
-                "open_vps_login",
-                &format!("  [VPS-TZ] CDP 语言注入失败: {}", e),
-              );
-            }
-          }
-          Err(e) => {
-            log_bwbrowser_error(
-              "open_vps_login",
-              &format!("  [VPS-TZ] 无代理语言跟随失败: {}", e),
-            );
-          }
-        }
-      }
-    }
+  if result.is_ok() {
+    spawn_account_browser_close_watcher(app_handle, account.id, account.account_name.clone());
   }
-
-  // 注入 VPS 代理时区（Wayfern 内核级设置 + CDP 回退），无代理时保持本机时区
-  if let Some(ref geo) = vps_geo_info {
-    if !geo.timezone.is_empty() {
-      let tz = geo.timezone.clone();
-      let lang = geo.language.clone();
-      log_bwbrowser(
-        "open_vps_login",
-        &format!("  [VPS-TZ] 注入代理时区: {} 语言: {}", tz, lang),
-      );
-      let wayfern_tz_set = match crate::wayfern_manager::WayfernManager::instance()
-        .set_wayfern_timezone(
-          &launched_profile,
-          &tz,
-          Some(lang.as_str()),
-          geo.latitude,
-          geo.longitude,
-        )
-        .await
-      {
-        Ok(true) => {
-          log_bwbrowser(
-            "open_vps_login",
-            &format!("  [VPS-TZ] ✓ Wayfern 内核时区已设置: {}", tz),
-          );
-          true
-        }
-        Ok(false) => {
-          log_bwbrowser(
-            "open_vps_login",
-            "  [VPS-TZ] Wayfern 不支持时区设置，回退到 CDP 注入",
-          );
-          false
-        }
-        Err(e) => {
-          log_bwbrowser_error(
-            "open_vps_login",
-            &format!("  [VPS-TZ] ✗ Wayfern 时区设置失败: {}", e),
-          );
-          false
-        }
-      };
-      if !wayfern_tz_set {
-        match crate::cookie_sync::inject_timezone_via_cdp(&launched_profile, &tz).await {
-          Ok(_) => {
-            log_bwbrowser(
-              "open_vps_login",
-              &format!("  [VPS-TZ] ✓ CDP 时区注入成功: {}", tz),
-            );
-          }
-          Err(e) => {
-            log_bwbrowser_error(
-              "open_vps_login",
-              &format!("  [VPS-TZ] ✗ CDP 时区注入失败: {}", e),
-            );
-          }
-        }
-      }
-    }
-  }
-
-  emit_progress(100, "爆文库已启动");
-
-  // 后台任务：等浏览器关闭后回传书签。爆文库登录态由 auto_login 自动建立，
-  // 不检测/注入/回传 yacm.xin 的 cookie。
-  tokio::spawn(async move {
-    // 重新加载最新的 profile（启动后 process_id 才写入，旧 profile 里没有）
-    let pm = crate::profile::manager::ProfileManager::instance();
-    let profile = match pm.list_profiles() {
-      Ok(list) => match list.into_iter().find(|p| p.id == profile.id) {
-        Some(p) => p,
-        None => {
-          log_bwbrowser_error("vps_bookmark_sync", "找不到 VPS 登录 profile，退出同步");
-          return;
-        }
-      },
-      Err(e) => {
-        log_bwbrowser_error("vps_bookmark_sync", &format!("加载 profile 失败: {}", e));
-        return;
-      }
-    };
-    log_bwbrowser(
-      "vps_bookmark_sync",
-      &format!("已加载最新 profile: process_id={:?}", profile.process_id),
-    );
-
-    // ---- 阶段 1: 本地 cookie 很少（<5个）时从云端注入 ----
-    // 以本地为准：本地 cookie 充足就跳过注入。
-    // 浏览器刚启动 CDP 可能没就绪，重试几次
-    let mut local_cookie_count = 0;
-    for attempt in 1..=10 {
-      match crate::cookie_sync::export_cookies_via_cdp(&profile).await {
-        Ok(ref s) if !s.is_empty() && s != "[]" => {
-          match serde_json::from_str::<Vec<serde_json::Value>>(s) {
-            Ok(arr) => {
-              local_cookie_count = arr.len();
-              break;
-            }
-            Err(_) => {
-              local_cookie_count = 0;
-              break;
-            }
-          }
-        }
-        Ok(_) => {
-          local_cookie_count = 0;
-          break;
-        }
-        Err(_) => {
-          // CDP 还没连上，等 2 秒再试
-          tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-          log_bwbrowser(
-            "vps_cookie_sync",
-            &format!("检查本地 cookie: 第{}次 CDP 未就绪，重试中...", attempt),
-          );
-        }
-      }
-    }
-
-    log_bwbrowser(
-      "vps_cookie_sync",
-      &format!("本地 cookie 数量: {}", local_cookie_count),
-    );
-
-    if local_cookie_count < 5 {
-      log_bwbrowser("vps_cookie_sync", "本地 cookie 很少，尝试从云端拉取");
-      match BWBROWSER_AUTH.get_bwbrowser_cookies().await {
-        Ok(Some(cookie_str)) if !cookie_str.is_empty() && cookie_str != "null" => {
-          log_bwbrowser(
-            "vps_cookie_sync",
-            &format!("拉取云端 cookie: {} 字节，准备注入", cookie_str.len()),
-          );
-          match serde_json::from_str::<Vec<serde_json::Value>>(&cookie_str) {
-            Ok(cookies) => {
-              match crate::cookie_sync::inject_cookies_via_cdp(&profile, &cookies, None).await {
-                Ok(n) => {
-                  log_bwbrowser(
-                    "vps_cookie_sync",
-                    &format!("✓ 云端 cookie 注入成功: {} 个", n),
-                  );
-                }
-                Err(e) => {
-                  log_bwbrowser_error("vps_cookie_sync", &format!("注入 cookie 失败: {}", e));
-                }
-              }
-            }
-            Err(e) => {
-              log_bwbrowser_error("vps_cookie_sync", &format!("解析云端 cookie 失败: {}", e));
-            }
-          }
-        }
-        Ok(_) => {
-          log_bwbrowser("vps_cookie_sync", "云端无 cookie");
-        }
-        Err(e) => {
-          log_bwbrowser_error("vps_cookie_sync", &format!("拉取云端 cookie 失败: {}", e));
-        }
-      }
-    } else {
-      log_bwbrowser(
-        "vps_cookie_sync",
-        "本地 cookie 充足，跳过云端注入（以本地为准）",
-      );
-    }
-
-    // 运行期间持续回传 cookie（内容变化才上传）；不做登录页判定
-    let mut last_uploaded = String::new();
-
-    loop {
-      tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-
-      // 浏览器运行中：cookie 有变化就回传云端（跳过登录页判定）
-      match crate::cookie_sync::export_cookies_via_cdp(&profile).await {
-        Ok(s) if !s.is_empty() && s != "[]" && s != last_uploaded => {
-          log_bwbrowser(
-            "vps_cookie_sync",
-            &format!("CDP 导出 cookie: {} 字节，回传云端", s.len()),
-          );
-          match BWBROWSER_AUTH.update_bwbrowser_cookies(&s).await {
-            Ok(_) => {
-              last_uploaded = s;
-              log_bwbrowser("vps_cookie_sync", "✓ cookie 已同步到云端");
-            }
-            Err(e) => {
-              log_bwbrowser_error("vps_cookie_sync", &format!("上传 cookie 失败: {}", e));
-            }
-          }
-        }
-        Ok(_) => {}
-        Err(_) => {}
-      }
-
-      // 浏览器已关闭：补传书签后停止
-      let pm = crate::profile::manager::ProfileManager::instance();
-      let is_running = pm
-        .check_browser_status(app_handle.clone(), &profile)
-        .await
-        .unwrap_or(false);
-      if !is_running {
-        log_bwbrowser("vps_bookmark_sync", "浏览器已关闭，准备上传书签");
-        match BwbrowserAuthManager::read_local_bookmarks(&profile.id.to_string()) {
-          Ok(Some(bookmarks)) if !bookmarks.is_empty() => {
-            log_bwbrowser(
-              "vps_bookmark_sync",
-              &format!("读取本地书签: {} 字节", bookmarks.len()),
-            );
-            match BWBROWSER_AUTH.update_bwbrowser_bookmarks(&bookmarks).await {
-              Ok(_) => {
-                log_bwbrowser("vps_bookmark_sync", "✓ 书签已同步到云端");
-              }
-              Err(e) => {
-                log_bwbrowser_error("vps_bookmark_sync", &format!("上传书签失败: {}", e));
-              }
-            }
-          }
-          Ok(_) => {
-            log_bwbrowser("vps_bookmark_sync", "本地无书签，跳过上传");
-          }
-          Err(e) => {
-            log_bwbrowser_error("vps_bookmark_sync", &format!("读取本地书签失败: {}", e));
-          }
-        }
-
-        break;
-      }
-    }
-  });
 
   Ok(())
 }
@@ -2628,6 +2224,9 @@ pub struct BwbrowserAccount {
   pub safe_link: Option<String>,
   #[serde(default)]
   pub bind_phone: Option<String>,
+  /// 绑定爆文库（2026-11-20）：每归属人唯一，编辑账号开关维护；1=该账号是归属人的爆文库入口
+  #[serde(default)]
+  pub vps_bind: Option<i32>,
   #[serde(default)]
   pub sms_url: Option<String>,
   #[serde(default)]
@@ -7541,6 +7140,8 @@ pub async fn bwbrowser_launch_account(
   env_uuid: Option<String>,
   proxy_node: Option<String>,
   platform: Option<String>,
+  // 爆文库入口专用（2026-11-20）：前端普通启动不传 → None；绑定账号启动传 yacm.xin auto_login URL
+  override_url: Option<String>,
 ) -> Result<String, String> {
   // 启动成功与否都在 log_launch_to_server 上报（成功在 launch_account_impl 尾部上报，
   // 失败在这里统一上报），这样 logs.php 的"指纹浏览器"页能记录每次启动结果。
@@ -7553,6 +7154,7 @@ pub async fn bwbrowser_launch_account(
       env_uuid.clone(),
       proxy_node.clone(),
       platform.clone(),
+      override_url,
     ),
   )
   .await
@@ -7906,6 +7508,9 @@ async fn launch_account_impl(
   env_uuid: Option<String>,
   proxy_node: Option<String>,
   platform: Option<String>,
+  // 爆文库入口（2026-11-20）：绑定账号启动时直接指定启动页（yacm.xin auto_login），
+  // 覆盖平台网址/账号自选网址逻辑；普通账号启动传 None。
+  override_url: Option<String>,
 ) -> Result<String, String> {
   log_bwbrowser(
     "launch_account",
@@ -8633,12 +8238,19 @@ async fn launch_account_impl(
                                           //    提前获取平台 URL，作为启动 URL 直接传入（比 CDP 导航更可靠）
                                           // 启动网址：账号配置（编辑账号维护，tiktok_accounts.start_urls）优先；
                                           // 未配置 = 旧行为（平台网址作启动页 + 环境全部 start_urls 开标签）。
-  let (include_platform, selected_urls, account_start_configured) =
+                                          // 爆文库入口（2026-11-20）：override_url 存在时直接作启动页（yacm.xin auto_login），
+                                          // 不再叠加平台网址/账号自选网址——左上角「爆文库」按钮只进爆文库。
+  let (include_platform, selected_urls, account_start_configured) = if override_url.is_some() {
+    (false, Vec::new(), true)
+  } else {
     match parse_account_start_urls(server_start_urls.as_deref()) {
       Some((p, urls)) => (p, urls, true),
       None => (true, Vec::new(), false),
-    };
-  let mut launch_url = if include_platform {
+    }
+  };
+  let mut launch_url = if let Some(u) = override_url {
+    Some(u)
+  } else if include_platform {
     if let Some(ref p) = server_platform {
       fetch_platform_url(p).await
     } else {

@@ -2484,6 +2484,11 @@
     "agent": "Agente"
   },
   "pageTitle": {
+    "userManagement": "Gerenciamento de usuários",
+    "videoDownload": "Download de vídeos",
+    "audioProcessor": "Processamento de áudio",
+    "videoMatcher": "Ferramentas de vídeo",
+    "doubaoVideo": "Vídeo do Doubao",
     "proxies": "Rede",
     "extensions": "Extensões",
     "groups": "Grupos",

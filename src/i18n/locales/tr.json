@@ -2474,6 +2474,11 @@
     "agent": "Ajan"
   },
   "pageTitle": {
+    "userManagement": "Kullanıcı yönetimi",
+    "videoDownload": "Video indirme",
+    "audioProcessor": "Ses İşleme",
+    "videoMatcher": "Video Araçları",
+    "doubaoVideo": "Doubao Videosu",
     "proxies": "Ağ",
     "extensions": "Uzantılar",
     "groups": "Gruplar",

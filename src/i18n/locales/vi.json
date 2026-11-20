@@ -2474,6 +2474,11 @@
     "agent": "Tác nhân"
   },
   "pageTitle": {
+    "userManagement": "Quản lý người dùng",
+    "videoDownload": "Tải video",
+    "audioProcessor": "Xử lý âm thanh",
+    "videoMatcher": "Công cụ video",
+    "doubaoVideo": "Video Doubao",
     "proxies": "Mạng",
     "extensions": "Tiện ích",
     "groups": "Nhóm",

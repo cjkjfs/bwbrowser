@@ -663,19 +663,6 @@ export function VideoDownloadPage({
     };
   }, [open, autoDownloadTools, startPending]);
 
-  // 后端在 CDP 不可用时通过此事件触发前端打开 VPS 浏览器
-  useEffect(() => {
-    if (!open) return;
-    const unlisten = listen("video-download:auto-open-vps", () => {
-      invoke("bwbrowser_open_vps_login").catch((e) =>
-        console.error("[video-download] 自动打开 VPS 浏览器失败:", e),
-      );
-    });
-    return () => {
-      unlisten.then((f) => f());
-    };
-  }, [open]);
-
   // 页面打开时检查工具文件是否存在，不存在则自动下载
   useEffect(() => {
     if (!open) {
@@ -915,10 +902,9 @@ export function VideoDownloadPage({
   const cookieSourceSummary = useMemo(() => {
     if (cookieSourceAccounts == null) return "云端 Cookie 来源清单读取中...";
     const real = cookieSourceAccounts.filter((id) => id > 0);
-    const hasVps = cookieSourceAccounts.includes(0);
     if (real.length === 0)
-      return "云端清单为空：下载时从 VPS 登录浏览器提取 Cookie";
-    return `云端清单 ${real.length} 个账号${hasVps ? " + VPS 登录" : ""}，下载时按清单顺序自动提取`;
+      return "云端清单为空：请在云端账号管理 → 编辑账号 → 勾选「作为下载 Cookie 来源」";
+    return `云端清单 ${real.length} 个账号，下载时按清单顺序自动提取 Cookie`;
   }, [cookieSourceAccounts]);
 
   // 切换粘贴自动下载

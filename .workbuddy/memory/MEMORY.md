@@ -87,3 +87,7 @@
 - **客户端**：`src-tauri/src/password_sync.rs`（export/import/count）；上行挂 watch_account_browser_close（退出导出上传，空不上传）、下行挂 launch_account（本地 0 条才注入，本地有以本地为准）；按 origin_url+username_value 去重；新 profile 第一次启动 Login Data 未生成，第二次启动才注入。
 - **服务端**：users.php get/update_bwbrowser_passwords；表 `bwbrowser_passwords`（UNIQUE user_id+account_id，按账号分存）+ `_history`（10 份）+ 骤减保护。备份 users.php.bak_prepwd_20261119。roundtrip 已实测通过。
 - **踩坑**：PHP `if(!function_exists)` 条件函数定义是运行时求值，必须放在调用它的 handler 之前，否则 500。
+
+---
+## 爆文库入口绑定机制（2026-11-20，客户端待重编译）
+- 左上角「爆文库」按钮=启动归属人绑定的账号：tiktok_accounts.vps_bind（每 owner_id 唯一，set_vps_bind 服务端互斥）；get_vps_bind 按 owner_id+company 查。bwbrowser_open_vps_login=查绑定→launch_account_impl(override_url=yacm auto_login URL)，旧 VPS登录 profile 流程已删除。编辑账号弹窗即时保存开关。服务端 bwbrowser_accounts.php（备份 .bak_20261120_vpsbind）。

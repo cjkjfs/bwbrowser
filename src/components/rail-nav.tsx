@@ -2,49 +2,27 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { motion, useReducedMotion } from "motion/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FiWifi } from "react-icons/fi";
 import { GoGear } from "react-icons/go";
 import {
-  LuChevronRight,
   LuClapperboard,
   LuCloud,
-  LuCookie,
+  LuDoorOpen,
   LuDownload,
   LuGlobe,
-  LuInfo,
   LuMonitorSmartphone,
   LuMusic,
-  LuNetwork,
   LuPuzzle,
-  LuSearch,
   LuSparkles,
-  LuTrash2,
   LuUser,
   LuUsers,
   LuVideo,
-  LuWrench,
-  LuX,
 } from "react-icons/lu";
-import { AnimatedSwitch } from "@/components/ui/animated-switch";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
 import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
-import {
-  type BwbrowserProxy,
-  useBwbrowserProxies,
-} from "@/hooks/use-bwbrowser-proxies";
 import { useInputModality } from "@/hooks/use-input-modality";
 import { launchBwbrowserClone } from "@/lib/bwbrowser-physics";
 import { MOTION_SPRING_POSITION } from "@/lib/motion";
@@ -266,8 +244,6 @@ interface RailNavProps {
    * see from where you are standing may as well not be observable at all.
    */
   cookieBotRunning?: boolean;
-  /** Import the local Chrome login data into the currently logged-in account. */
-  onImportChromeLogin?: () => void;
 }
 
 /** Shared-element indicator that slides between the active rail items. */
@@ -401,7 +377,6 @@ export function RailNav({
   currentPage,
   onNavigate,
   cookieBotRunning = false,
-  onImportChromeLogin,
 }: RailNavProps) {
   const { t } = useTranslation();
   const { user } = useBwbrowserAuth();
@@ -494,12 +469,7 @@ export function RailNav({
     playfulMotion,
   } = useLogoEasterEgg({ currentPage, onNavigate });
 
-  // ===== VPS 登录相关 =====
-  const {
-    proxies: vpsCloudProxies,
-    isLoading: vpsCloudProxiesLoading,
-    refresh: refreshVpsCloudProxies,
-  } = useBwbrowserProxies();
+  // ===== 爆文库入口 =====
   // 应用版本号（侧边栏底部显示 v2.4.8 之类）
   const [appVersion, setAppVersion] = useState("");
   useEffect(() => {
@@ -507,309 +477,106 @@ export function RailNav({
       .then((info) => setAppVersion(info.app_version))
       .catch(() => {});
   }, []);
-  const [vpsProxyDialogOpen, setVpsProxyDialogOpen] = useState(false);
-  const [vpsContextMenuOpen, setVpsContextMenuOpen] = useState(false);
-  const [vpsContextMenuPos, setVpsContextMenuPos] = useState({ x: 0, y: 0 });
-  // 硬件加速开关（VPS 登录/爆文库打开时生效），与云端账号管理页入口共用同一设置
-  const [gpuAcceleration, setGpuAcceleration] = useState(true);
-  useEffect(() => {
-    void invoke<{ gpu_acceleration?: boolean }>("get_app_settings")
-      .then((s) => setGpuAcceleration(s.gpu_acceleration ?? true))
-      .catch(() => {});
-  }, []);
-  // 爆文库（VPS 登录）视频嗅探开关（云端名单为准，默认关闭）
-  const [vpsVideoSniffer, setVpsVideoSniffer] = useState(false);
-  // 爆文库（VPS 登录）下载 Cookie 来源开关（云端清单含标记 0 = 开启）
-  const [vpsCookieSource, setVpsCookieSource] = useState(false);
-  useEffect(() => {
-    void invoke<{ accounts?: number[]; vps?: boolean }>(
-      "get_video_sniffer_state",
-    )
-      .then((s) => setVpsVideoSniffer(s.vps === true))
-      .catch(() => {});
-  }, []);
-  useEffect(() => {
-    void invoke<{ accounts?: number[] }>("get_cookie_source_accounts")
-      .then((s) => setVpsCookieSource((s.accounts ?? []).includes(0)))
-      .catch(() => {});
-  }, []);
-  const [cookieSubmenuOpen, setCookieSubmenuOpen] = useState(false);
-  const cookieSubmenuRef = useRef<HTMLDivElement>(null);
-  const [vpsProxySearch, setVpsProxySearch] = useState("");
-  const [vpsSelectedProxyId, setVpsSelectedProxyId] = useState<string | null>(
-    null,
-  );
-  const [vpsSavingProxy, setVpsSavingProxy] = useState(false);
-  // 打开对话框时 profile 已存的代理（node: 前缀原始值），用于列表加载后高亮匹配
-  const [vpsPendingProxyId, setVpsPendingProxyId] = useState<string | null>(
-    null,
-  );
-  const vpsMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const [vpsLaunchProgress, setVpsLaunchProgress] = useState<number | null>(
     null,
   );
 
-  const filteredVpsProxies = useMemo(() => {
-    const q = vpsProxySearch.trim().toLowerCase();
-    if (!q) return vpsCloudProxies;
-    return vpsCloudProxies.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.host.toLowerCase().includes(q) ||
-        p.proxy_type.toLowerCase().includes(q),
-    );
-  }, [vpsCloudProxies, vpsProxySearch]);
-
-  // 把云端代理转成 proxy_node 字符串（与云端账号设置代理同规则）
-  const cloudProxyToNode = useCallback((p: BwbrowserProxy): string | null => {
-    const type = p.proxy_type || "http";
-    if (type === "vless" || type === "trojan" || type === "ss") {
-      const uri = p.vless_uri?.trim();
-      if (!uri) return null;
-      return uri;
-    }
-    if (p.username && p.password) {
-      return `${type}:${p.host}:${p.port}:${p.username}:${p.password}`;
-    }
-    return `${type}:${p.host}:${p.port}`;
+  // ===== 门禁远程开门（2026-11-20） =====
+  // 仅当登录用户有开门资格（can_open=1）时才显示按钮；未登录/无资格/接口异常一律静默隐藏
+  const [doorCanOpen, setDoorCanOpen] = useState(false);
+  const [doorOpening, setDoorOpening] = useState(false);
+  const refreshDoorPerm = useCallback(() => {
+    invoke<{ ok: boolean; can_open?: number }>("bwbrowser_door_info")
+      .then((d) => setDoorCanOpen(d.ok && d.can_open === 1))
+      .catch(() => setDoorCanOpen(false));
   }, []);
-
-  // 打开对话框：记住当前代理，等云端列表加载后按 URI/host:port 匹配高亮
-  const handleOpenVpsProxyDialog = useCallback(async () => {
-    setVpsProxySearch("");
-    setVpsPendingProxyId(null);
-    setVpsSelectedProxyId(null);
-    setVpsProxyDialogOpen(true);
-    void refreshVpsCloudProxies();
-    try {
-      const info = await invoke<{ proxy_id: string | null } | null>(
-        "bwbrowser_get_vps_profile_info",
-      );
-      setVpsPendingProxyId(info?.proxy_id ?? null);
-    } catch {
-      setVpsPendingProxyId(null);
-    }
-  }, [refreshVpsCloudProxies]);
-
-  // 列表加载完成后，把 profile 当前代理匹配到列表项并高亮
   useEffect(() => {
-    if (!vpsPendingProxyId || vpsCloudProxiesLoading) return;
-    const raw = vpsPendingProxyId;
-    let matched: BwbrowserProxy | undefined;
-    if (raw.startsWith("node:")) {
-      const node = raw.slice("node:".length);
-      if (node.startsWith("vless://") || node.startsWith("trojan://")) {
-        matched = vpsCloudProxies.find((p) => p.vless_uri?.trim() === node);
-      } else {
-        const parts = node.split(":");
-        const hostIdx = ["http", "socks5"].includes(parts[0].toLowerCase())
-          ? 1
-          : 0;
-        const host = parts[hostIdx];
-        const port =
-          parts.length >= hostIdx + 2 ? Number(parts[hostIdx + 1]) : 0;
-        matched = vpsCloudProxies.find(
-          (p) => p.host === host && p.port === port,
-        );
-      }
-    } else {
-      matched = vpsCloudProxies.find((p) => p.id === raw);
-    }
-    if (matched) setVpsSelectedProxyId(matched.id);
-    setVpsPendingProxyId(null);
-  }, [vpsCloudProxies, vpsCloudProxiesLoading, vpsPendingProxyId]);
-
-  const handleSaveVpsProxy = useCallback(async () => {
-    setVpsSavingProxy(true);
-    try {
-      let proxyId: string | null = null;
-      if (vpsSelectedProxyId) {
-        const proxy = vpsCloudProxies.find((p) => p.id === vpsSelectedProxyId);
-        if (proxy) {
-          const node = cloudProxyToNode(proxy);
-          if (!node) {
-            showErrorToast("该代理缺少协议 URI，请在代理管理中重新编辑");
-            return;
-          }
-          proxyId = `node:${node}`;
+    void refreshDoorPerm();
+    const unlisten = listen("cloud-auth-changed", () => {
+      // 登录/登出/切换账号后重查资格
+      window.setTimeout(refreshDoorPerm, 500);
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [refreshDoorPerm]);
+  const handleDoorOpen = useCallback(() => {
+    if (doorOpening) return;
+    setDoorOpening(true);
+    invoke<{ ok: boolean; msg?: string }>("bwbrowser_door_open")
+      .then((d) => {
+        if (d.ok) {
+          showSuccessToast(d.msg || "🚪 开门成功");
         } else {
-          proxyId = vpsSelectedProxyId;
+          showErrorToast(d.msg || "开门失败");
         }
-      }
-      await invoke("bwbrowser_set_vps_proxy", { proxyId });
-      showSuccessToast("代理设置成功");
-      setVpsProxyDialogOpen(false);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      showErrorToast(`设置代理失败: ${msg}`);
-    } finally {
-      setVpsSavingProxy(false);
-    }
-  }, [vpsSelectedProxyId, vpsCloudProxies, cloudProxyToNode]);
-
-  const handleDeleteVpsData = useCallback(() => {
-    const ok = window.confirm(
-      "确定删除 VPS 登录的本地数据？下次打开将重新创建。",
-    );
-    if (!ok) return;
-    invoke("bwbrowser_delete_vps_data")
-      .then(() => {
-        showSuccessToast("已删除本地数据");
       })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        showErrorToast(`删除失败: ${msg}`);
-      });
-  }, []);
+      .catch((e) => showErrorToast(String(e)))
+      .finally(() => setDoorOpening(false));
+  }, [doorOpening]);
 
-  const handleDeleteCloudCookies = useCallback(() => {
-    const ok = window.confirm("确定删除云端保存的爆文库 cookie？");
-    if (!ok) return;
-    invoke("bwbrowser_update_bwbrowser_cookies", { cookies: "" })
-      .then(() => {
-        showSuccessToast("云端 cookie 已删除");
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        showErrorToast(`删除失败: ${msg}`);
-      });
-  }, []);
-
-  // 一键修复：删除本地数据 + 服务器 Cookie（与云端账号一键修复相同，无法登录时使用）
-  const handleRepairVps = useCallback(async () => {
-    // WebView2 会吞掉原生 confirm()，必须用 plugin-dialog 的原生对话框
-    const ok = await dialogConfirm(
-      `确定一键修复爆文库吗？\n\n` +
-        `将执行以下操作：\n` +
-        `1. 删除本机的浏览数据（Cookie、缓存、登录状态）\n` +
-        `2. 删除云端保存的爆文库 Cookie\n\n` +
-        `适用于无法登录的情况。修复后请重新打开爆文库，会打开全新的登录页面，需要重新登录一次账号。`,
-      {
-        kind: "warning",
-        title: "一键修复",
-        okLabel: "确定修复",
-        cancelLabel: "取消",
-      },
-    ).catch(() => false);
-    if (!ok) return;
-    try {
-      await invoke("bwbrowser_delete_vps_data", { ignoreMissing: true });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      showErrorToast(`删除本地数据失败: ${msg}`);
-      return;
-    }
-    try {
-      await invoke("bwbrowser_update_bwbrowser_cookies", { cookies: "" });
-      showSuccessToast("修复完成：本地数据与云端 Cookie 已清除");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      showErrorToast(`本地数据已清除，但删除云端 Cookie 失败: ${msg}`);
-    }
-  }, []);
-
-  // 硬件加速开关保存：get 全量取回 → 改单字段 → save 回写，失败回滚 UI。
-  const handleGpuAccelerationToggle = useCallback(async (checked: boolean) => {
-    setGpuAcceleration(checked);
-    try {
-      const current = await invoke<Record<string, unknown>>("get_app_settings");
-      await invoke("save_app_settings", {
-        settings: { ...current, gpu_acceleration: checked },
-      });
-    } catch (err) {
-      setGpuAcceleration((prev) => !prev);
-      const msg = err instanceof Error ? err.message : String(err);
-      showErrorToast(`设置保存失败: ${msg}`);
-    }
-  }, []);
-
-  // 爆文库嗅探开关：云端保存（失败回滚 UI），成功后下次爆文库启动即生效
-  const handleVpsVideoSnifferToggle = useCallback(async (checked: boolean) => {
-    setVpsVideoSniffer(checked);
-    try {
-      await invoke("set_vps_video_sniffer", { enabled: checked });
-    } catch (err) {
-      setVpsVideoSniffer((prev) => !prev);
-      const msg = err instanceof Error ? err.message : String(err);
-      showErrorToast(`视频嗅探开关保存失败: ${msg}`);
-    }
-  }, []);
-
-  // 爆文库 Cookie 来源开关：云端保存（失败回滚 UI），下载候选顺序即时生效
-  const handleVpsCookieSourceToggle = useCallback(async (checked: boolean) => {
-    setVpsCookieSource(checked);
-    try {
-      await invoke("set_vps_cookie_source", { enabled: checked });
-    } catch (err) {
-      setVpsCookieSource((prev) => !prev);
-      const msg = err instanceof Error ? err.message : String(err);
-      showErrorToast(`Cookie 来源开关保存失败: ${msg}`);
-    }
-  }, []);
-
-  const [cookieInfoDialogOpen, setCookieInfoDialogOpen] = useState(false);
-  const [cookieInfo, setCookieInfo] = useState<{
-    count: number;
-    size: number;
-    updatedAt: string;
+  // ===== 爆文库入口（2026-11-20 重构） =====
+  // 查询当前用户（按归属人）绑定的爆文库账号：有绑定 → 左上角显示「爆文库」按钮，
+  // 点击 = 启动绑定账号（完整账号启动链路）并打开 yacm.xin；未绑定 → 按钮不显示。
+  const [vpsBind, setVpsBind] = useState<{
+    accountId: number;
+    accountName: string;
   } | null>(null);
-  const [cookieInfoLoading, setCookieInfoLoading] = useState(false);
-
-  const handleViewCloudCookieInfo = useCallback(() => {
-    setCookieInfoLoading(true);
-    setCookieInfo(null);
-    setCookieInfoDialogOpen(true);
-    invoke<string | null>("bwbrowser_get_bwbrowser_cookies")
-      .then((cookies) => {
-        if (
-          !cookies ||
-          cookies === "null" ||
-          cookies === "[]" ||
-          cookies.trim().length === 0
-        ) {
-          setCookieInfo({ count: 0, size: 0, updatedAt: "—" });
-          return;
-        }
-        try {
-          const arr = JSON.parse(cookies);
-          const count = Array.isArray(arr) ? arr.length : 0;
-          setCookieInfo({
-            count,
-            size: cookies.length,
-            updatedAt: new Date().toLocaleString(),
+  const refreshVpsBind = useCallback(() => {
+    invoke<{
+      success: boolean;
+      bound?: boolean;
+      account?: { id: number; account_name?: string } | null;
+    }>("bwbrowser_vps_bind_info")
+      .then((d) => {
+        if (d.success && d.bound && d.account) {
+          setVpsBind({
+            accountId: d.account.id,
+            accountName: d.account.account_name ?? "",
           });
-        } catch {
-          setCookieInfo({ count: -1, size: cookies.length, updatedAt: "—" });
+        } else {
+          setVpsBind(null);
         }
       })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        showErrorToast(`获取失败: ${msg}`);
-        setCookieInfo({ count: -1, size: 0, updatedAt: "—" });
-      })
-      .finally(() => {
-        setCookieInfoLoading(false);
-      });
+      .catch(() => setVpsBind(null));
   }, []);
-
+  useEffect(() => {
+    void refreshVpsBind();
+    const unlisten = listen("cloud-auth-changed", () => {
+      // 登录/登出/切换账号后重查绑定
+      window.setTimeout(refreshVpsBind, 500);
+    });
+    // 编辑账号里开/关「绑定爆文库」后立即刷新左上角入口显隐
+    const unlistenBind = listen("vps-bind-changed", () => {
+      void refreshVpsBind();
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+      void unlistenBind.then((fn) => fn());
+    };
+  }, [refreshVpsBind]);
   const handleVpsLogoLeftClick = useCallback(
     (e: React.MouseEvent) => {
-      // 左键：打开 VPS 登录（不打开菜单）
       e.preventDefault();
 
       // 触发 logo 彩蛋动画
       handleClick();
 
+      // 未绑定爆文库账号：仅保留彩蛋，不启动（此时「爆文库」文字不显示）
+      if (!vpsBind) return;
+
+      const accountId = vpsBind.accountId;
       let unlistenProgress: (() => void) | undefined;
 
       setVpsLaunchProgress(0);
 
-      // 监听后端真实启动进度，替代模拟动画
+      // 监听后端真实启动进度（绑定账号走 account-launch-progress，按 account_id 过滤）
       import("@tauri-apps/api/event")
         .then(({ listen }) =>
-          listen<{ pct: number; label: string }>(
-            "vps-launch-progress",
+          listen<{ account_id: number; pct: number; label: string }>(
+            "account-launch-progress",
             (event) => {
+              if (event.payload.account_id !== accountId) return;
               const pct = Math.min(100, Math.max(0, event.payload.pct));
               setVpsLaunchProgress(pct);
             },
@@ -819,7 +586,7 @@ export function RailNav({
           unlistenProgress = fn;
         })
         .catch((e) => {
-          console.warn("failed to listen vps launch progress", e);
+          console.warn("failed to listen launch progress", e);
         });
 
       invoke("bwbrowser_open_vps_login")
@@ -839,571 +606,245 @@ export function RailNav({
           unlistenProgress?.();
         });
     },
-    [handleClick],
+    [handleClick, vpsBind],
   );
-
-  const handleVpsLogoContextMenu = useCallback((e: React.MouseEvent) => {
-    // 右键：打开菜单（不触发 VPS 登录）
-    e.preventDefault();
-    e.stopPropagation();
-    setVpsContextMenuPos({ x: e.clientX, y: e.clientY });
-    setVpsContextMenuOpen(true);
-  }, []);
-
-  // 点击外部关闭右键菜单
-  useEffect(() => {
-    if (!vpsContextMenuOpen) return;
-    const close = () => setVpsContextMenuOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("scroll", close, true);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("scroll", close, true);
-    };
-  }, [vpsContextMenuOpen]);
 
   // 侧边栏宽度：w-44 = 176px，加上图标和文字
   const RAIL_WIDTH = "w-48";
 
   return (
-    <>
-      <nav
-        className={cn(
-          "relative flex shrink-0 flex-col gap-1 border-r border-border bg-background py-2",
-          RAIL_WIDTH,
-        )}
-      >
-        {!isHidden ? (
-          <div className="px-3 pb-1">
-            <button
-              ref={vpsMenuTriggerRef}
-              type="button"
-              className="group flex w-full items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
-              onClick={handleVpsLogoLeftClick}
-              onContextMenu={handleVpsLogoContextMenu}
-              title="左键打开爆文库，右键设置代理"
+    <nav
+      className={cn(
+        "relative flex shrink-0 flex-col gap-1 border-r border-border bg-background py-2",
+        RAIL_WIDTH,
+      )}
+    >
+      {!isHidden ? (
+        <div className="px-3 pb-1">
+          <button
+            type="button"
+            className="group flex w-full items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
+            onClick={handleVpsLogoLeftClick}
+            onContextMenu={(e) => e.preventDefault()}
+            title={
+              vpsBind
+                ? `启动爆文库（${vpsBind.accountName || `账号 #${vpsBind.accountId}`}）`
+                : undefined
+            }
+          >
+            <span
+              ref={logoRef as React.RefObject<HTMLSpanElement>}
+              className="grid size-7 shrink-0 place-items-center rounded-md bg-transparent text-foreground select-none"
+              onPointerDown={() => {
+                setIsPressed(true);
+              }}
+              onPointerUp={() => {
+                setIsPressed(false);
+              }}
+              onPointerLeave={() => {
+                setIsPressed(false);
+              }}
             >
               <span
-                ref={logoRef as React.RefObject<HTMLSpanElement>}
-                className="grid size-7 shrink-0 place-items-center rounded-md bg-transparent text-foreground select-none"
-                onPointerDown={() => {
-                  setIsPressed(true);
+                style={{
+                  transform: !playfulMotion
+                    ? "none"
+                    : isPressed
+                      ? `scale(${(1 + growStep * 0.25) * 0.9})`
+                      : `scale(${1 + growStep * 0.25})`,
                 }}
-                onPointerUp={() => {
-                  setIsPressed(false);
-                }}
-                onPointerLeave={() => {
-                  setIsPressed(false);
-                }}
+                className="inline-grid place-items-center transition-transform duration-300 ease-out motion-reduce:transition-none"
               >
                 <span
-                  style={{
-                    transform: !playfulMotion
-                      ? "none"
-                      : isPressed
-                        ? `scale(${(1 + growStep * 0.25) * 0.9})`
-                        : `scale(${1 + growStep * 0.25})`,
-                  }}
-                  className="inline-grid place-items-center transition-transform duration-300 ease-out motion-reduce:transition-none"
+                  key={`${wobbleKey}:${cheerKey}`}
+                  className={cn(
+                    "inline-grid place-items-center",
+                    !isFalling &&
+                      !isPressed &&
+                      ((playfulMotion && wobbleKey > 0) || cheerKey > 0) &&
+                      "animate-[wiggle_0.3s_ease-in-out]",
+                  )}
                 >
-                  <span
-                    key={`${wobbleKey}:${cheerKey}`}
-                    className={cn(
-                      "inline-grid place-items-center",
-                      !isFalling &&
-                        !isPressed &&
-                        ((playfulMotion && wobbleKey > 0) || cheerKey > 0) &&
-                        "animate-[wiggle_0.3s_ease-in-out]",
-                    )}
-                  >
-                    <Logo className="size-5 will-change-transform" />
-                  </span>
+                  <Logo className="size-5 will-change-transform" />
                 </span>
               </span>
+            </span>
+            {vpsBind && (
               <span className="bg-gradient-to-r from-primary via-foreground to-primary bg-clip-text text-[15px] font-bold text-transparent transition-all duration-300 group-hover:drop-shadow-[0_0_6px_var(--primary)]">
-                打开爆文库
+                爆文库
               </span>
-              {vpsLaunchProgress !== null && (
-                <span className="ml-auto flex items-center gap-1.5">
-                  <span className="relative h-1 w-10 overflow-hidden rounded-full bg-muted">
-                    <span
-                      className="absolute left-0 top-0 h-full rounded-full bg-primary transition-all duration-200"
-                      style={{ width: `${vpsLaunchProgress}%` }}
-                    />
-                  </span>
-                  <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
-                    {Math.floor(vpsLaunchProgress)}%
-                  </span>
-                </span>
-              )}
-            </button>
-          </div>
-        ) : (
-          <div className="size-7 shrink-0" />
-        )}
-
-        <div className="my-1 mx-3 h-px shrink-0 bg-border" />
-
-        <div className="flex min-h-0 w-full flex-1 flex-col gap-1 overflow-y-auto px-2 scrollbar-none [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-          {visibleTopItems.map(({ page, Icon, labelKey }, index) => {
-            const active = currentPage === page;
-            return (
-              <Tooltip key={page} delayDuration={300}>
+            )}
+            {doorCanOpen && (
+              <Tooltip delayDuration={300}>
                 <TooltipTrigger asChild>
                   <motion.button
                     type="button"
-                    initial={playfulMotion ? { opacity: 0, x: -10 } : false}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={
-                      playfulMotion
-                        ? {
-                            delay: index * 0.035,
-                            type: "spring",
-                            stiffness: 400,
-                            damping: 30,
-                          }
-                        : { duration: 0 }
-                    }
-                    onClick={() => {
-                      onNavigate(page);
-                    }}
-                    aria-label={t(labelKey)}
-                    aria-current={active ? "page" : undefined}
+                    aria-label="远程开门"
+                    title="远程开门"
+                    onClick={handleDoorOpen}
+                    disabled={doorOpening}
+                    whileTap={playfulMotion ? { scale: 0.85 } : undefined}
                     className={cn(
-                      "group relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2.5 transition-all duration-200",
-                      active
-                        ? "bg-gradient-to-r from-blue-500/25 via-blue-500/10 to-transparent text-foreground"
-                        : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                      "ml-auto flex size-7 shrink-0 items-center justify-center rounded-full transition-all duration-200",
+                      doorOpening
+                        ? "bg-emerald-500/20 text-emerald-600"
+                        : "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 hover:shadow-[0_0_10px_rgba(34,197,94,0.35)]",
                     )}
                   >
-                    {active && <ActiveIndicator />}
-                    <Icon
+                    <LuDoorOpen
                       className={cn(
-                        "size-[18px] shrink-0 transition-transform duration-200 group-hover:scale-110 group-active:scale-95",
-                        active &&
-                          "text-primary drop-shadow-[0_0_5px_var(--primary)]",
-                        page === "aiRewrite" &&
-                          aiRewriteActive > 0 &&
-                          "animate-spin",
+                        "size-4 transition-transform duration-200",
+                        doorOpening && "animate-pulse",
                       )}
                     />
-                    <span
-                      key={active ? "on" : "off"}
-                      className={cn(
-                        "truncate text-[15px] font-semibold tracking-wide",
-                        active &&
-                          "animate-rail-text-pop bg-gradient-to-r from-primary to-foreground bg-clip-text text-transparent",
-                      )}
-                    >
-                      {page === "aiRewrite" && aiRewriteActive > 0
-                        ? `${RAIL_LABELS_ZH[page]}(${aiRewriteActive})`
-                        : RAIL_LABELS_ZH[page]}
-                    </span>
-                    {page === "cookieBot" && cookieBotRunning && (
-                      <span
-                        aria-hidden="true"
-                        className="ml-auto size-2 shrink-0 rounded-full bg-success shadow-[0_0_6px_var(--success)]"
-                      />
-                    )}
                   </motion.button>
                 </TooltipTrigger>
-                <TooltipContent side="right">
-                  {page === "cookieBot" && cookieBotRunning
-                    ? t("rail.cookieBotRunning")
-                    : t(labelKey)}
-                </TooltipContent>
+                <TooltipContent side="bottom">远程开门</TooltipContent>
               </Tooltip>
-            );
-          })}
-        </div>
-
-        {/* 底部区域：设置 */}
-        <div className="flex flex-col gap-1 px-2">
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigate("settings");
-                }}
-                aria-label={t("rail.settings")}
-                aria-current={currentPage === "settings" ? "page" : undefined}
-                className={cn(
-                  "group relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2.5 transition-all duration-200",
-                  currentPage === "settings"
-                    ? "bg-gradient-to-r from-blue-500/25 via-blue-500/10 to-transparent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                )}
-              >
-                {currentPage === "settings" && <ActiveIndicator />}
-                <GoGear
-                  className={cn(
-                    "size-[18px] shrink-0 transition-transform duration-200 group-hover:scale-110 group-active:scale-95",
-                    currentPage === "settings" &&
-                      "text-primary drop-shadow-[0_0_5px_var(--primary)]",
-                  )}
-                />
-                <span
-                  key={currentPage === "settings" ? "on" : "off"}
-                  className={cn(
-                    "truncate text-[15px] font-semibold tracking-wide",
-                    currentPage === "settings" &&
-                      "animate-rail-text-pop bg-gradient-to-r from-primary to-foreground bg-clip-text text-transparent",
-                  )}
-                >
-                  系统设置
-                </span>
-                {appVersion && (
-                  <span
-                    className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground/70"
-                    title={`BW Browser v${appVersion}`}
-                  >
-                    v{appVersion}
-                  </span>
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("rail.settings")}</TooltipContent>
-          </Tooltip>
-        </div>
-      </nav>
-
-      {/* VPS 右键菜单 - Portal 到 body，避免父级 transform 影响 fixed 定位 */}
-      {vpsContextMenuOpen &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            role="menu"
-            className="fixed z-[10000] w-44 rounded-md border border-border bg-popover p-1 shadow-lg"
-            style={{ left: vpsContextMenuPos.x, top: vpsContextMenuPos.y }}
-            onContextMenu={(e) => e.preventDefault()}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-              onClick={() => {
-                setVpsContextMenuOpen(false);
-                onImportChromeLogin?.();
-              }}
-            >
-              <LuDownload className="h-3.5 w-3.5 text-muted-foreground" />
-              导入登录数据
-            </button>
-            <div className="my-1 h-px bg-border" />
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-              onClick={() => {
-                setVpsContextMenuOpen(false);
-                handleOpenVpsProxyDialog();
-              }}
-            >
-              <LuNetwork className="h-3.5 w-3.5 text-muted-foreground" />
-              设置代理
-            </button>
-            <div className="my-1 h-px bg-border" />
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-              onClick={() => void handleGpuAccelerationToggle(!gpuAcceleration)}
-              title="爆文库打开时是否启用 GPU 加速（VM 卡顿/白屏可关闭）"
-            >
-              <AnimatedSwitch
-                checked={gpuAcceleration}
-                onCheckedChange={() => {}}
-                className="pointer-events-none"
-              />
-              <span>硬件加速</span>
-            </button>
-            <div className="my-1 h-px bg-border" />
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-              onClick={() => void handleVpsVideoSnifferToggle(!vpsVideoSniffer)}
-              title="爆文库打开时是否加载视频嗅探扩展（右下角下载按钮）"
-            >
-              <AnimatedSwitch
-                checked={vpsVideoSniffer}
-                onCheckedChange={() => {}}
-                className="pointer-events-none"
-              />
-              <span>视频嗅探</span>
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-              onClick={() => void handleVpsCookieSourceToggle(!vpsCookieSource)}
-              title="把爆文库（VPS登录）加入视频下载的 Cookie 来源候选（按开启先后排优先级，可与账号多开兜底）"
-            >
-              <AnimatedSwitch
-                checked={vpsCookieSource}
-                onCheckedChange={() => {}}
-                className="pointer-events-none"
-              />
-              <span>Cookie 来源</span>
-            </button>
-            <div className="my-1 h-px bg-border" />
-            <div
-              role="group"
-              className="relative"
-              ref={cookieSubmenuRef}
-              onMouseEnter={() => setCookieSubmenuOpen(true)}
-              onMouseLeave={() => setCookieSubmenuOpen(false)}
-            >
-              <button
-                type="button"
-                className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-              >
-                <span className="flex items-center gap-2">
-                  <LuCookie className="h-3.5 w-3.5 text-muted-foreground" />
-                  cookie 相关
-                </span>
-                <LuChevronRight className="h-3 w-3 text-muted-foreground" />
-              </button>
-              {cookieSubmenuOpen && (
-                <div
-                  role="menu"
-                  className="absolute left-full top-0 ml-1 w-48 rounded-md border border-border bg-popover p-1 shadow-lg"
-                >
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-                    onClick={() => {
-                      setVpsContextMenuOpen(false);
-                      setCookieSubmenuOpen(false);
-                      handleViewCloudCookieInfo();
-                    }}
-                  >
-                    <LuInfo className="h-3.5 w-3.5 text-muted-foreground" />
-                    查看云端 cookie 信息
-                  </button>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-                    onClick={() => {
-                      setVpsContextMenuOpen(false);
-                      setCookieSubmenuOpen(false);
-                      handleDeleteCloudCookies();
-                    }}
-                  >
-                    <LuCloud className="h-3.5 w-3.5 text-muted-foreground" />
-                    删除云端 cookie
-                  </button>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-                    onClick={() => {
-                      setVpsContextMenuOpen(false);
-                      setCookieSubmenuOpen(false);
-                      handleDeleteVpsData();
-                    }}
-                  >
-                    <LuTrash2 className="h-3.5 w-3.5" />
-                    删除本地 cookie 和数据
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="my-1 h-px bg-border" />
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-              onClick={() => {
-                setVpsContextMenuOpen(false);
-                void handleRepairVps();
-              }}
-            >
-              <LuWrench className="h-3.5 w-3.5" />
-              一键修复
-            </button>
-          </div>,
-          document.body,
-        )}
-
-      {/* 云端 cookie 信息对话框 */}
-      <Dialog
-        open={cookieInfoDialogOpen}
-        onOpenChange={setCookieInfoDialogOpen}
-      >
-        <DialogContent className="w-[420px] max-w-[90vw]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <LuCookie className="h-4 w-4 text-primary" />
-              云端 cookie 信息
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-2">
-            {cookieInfoLoading ? (
-              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-                <span className="animate-pulse">加载中...</span>
-              </div>
-            ) : cookieInfo ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
-                  <span className="text-sm text-muted-foreground">
-                    cookie 条数
-                  </span>
-                  <span className="text-sm font-medium">
-                    {cookieInfo.count < 0
-                      ? "解析失败"
-                      : cookieInfo.count === 0
-                        ? "无"
-                        : `${cookieInfo.count} 条`}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
-                  <span className="text-sm text-muted-foreground">
-                    数据大小
-                  </span>
-                  <span className="text-sm font-medium">
-                    {cookieInfo.size < 1024
-                      ? `${cookieInfo.size} B`
-                      : `${(cookieInfo.size / 1024).toFixed(1)} KB`}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
-                  <span className="text-sm text-muted-foreground">
-                    查询时间
-                  </span>
-                  <span className="text-sm font-medium">
-                    {cookieInfo.updatedAt}
-                  </span>
-                </div>
-                {cookieInfo.count === 0 && (
-                  <p className="text-xs text-muted-foreground pt-2">
-                    云端暂无保存的 cookie。打开爆文库后会自动同步。
-                  </p>
-                )}
-              </div>
-            ) : null}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* VPS 代理设置对话框 */}
-      <Dialog open={vpsProxyDialogOpen} onOpenChange={setVpsProxyDialogOpen}>
-        <DialogContent className="w-[600px] max-w-[90vw] p-0 overflow-hidden">
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <div className="flex items-center gap-2">
-              <LuNetwork className="h-4 w-4 text-primary" />
-              <span className="text-sm font-semibold">VPS 登录代理设置</span>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={() => setVpsProxyDialogOpen(false)}
-            >
-              <LuX className="h-4 w-4" />
-            </Button>
-          </div>
-
-          <div className="flex items-center gap-2 border-b px-4 py-2">
-            <div className="relative flex-1">
-              <LuSearch className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={vpsProxySearch}
-                onChange={(e) => setVpsProxySearch(e.target.value)}
-                placeholder="搜索代理名称、IP、类型..."
-                className="h-8 pl-7 text-xs"
-              />
-            </div>
-            <span className="shrink-0 text-xs text-muted-foreground">
-              共 {filteredVpsProxies.length} 个
-            </span>
-          </div>
-
-          <div className="max-h-[360px] overflow-y-auto">
-            {/* 无代理选项 */}
-            <button
-              type="button"
-              className={`flex w-full items-center gap-3 border-b px-4 py-2 text-left transition-colors hover:bg-accent/50 ${
-                vpsSelectedProxyId === null ? "bg-primary/10" : ""
-              }`}
-              onClick={() => setVpsSelectedProxyId(null)}
-            >
-              <div className="w-4">
-                {vpsSelectedProxyId === null && (
-                  <div className="size-3 rounded-full bg-primary" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-foreground">
-                  不使用代理（直连）
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  使用本机网络直接访问
-                </div>
-              </div>
-            </button>
-
-            {vpsCloudProxiesLoading ? (
-              <div className="p-8 text-center text-sm text-muted-foreground">
-                正在加载云端代理列表...
-              </div>
-            ) : filteredVpsProxies.length === 0 ? (
-              <div className="p-8 text-center text-sm text-muted-foreground">
-                暂无可用代理，请先在代理中心添加
-              </div>
-            ) : (
-              filteredVpsProxies.map((p: BwbrowserProxy) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`flex w-full items-center gap-3 border-b px-4 py-2 text-left transition-colors hover:bg-accent/50 ${
-                    vpsSelectedProxyId === p.id ? "bg-primary/10" : ""
-                  }`}
-                  onClick={() => setVpsSelectedProxyId(p.id)}
-                >
-                  <div className="w-4">
-                    {vpsSelectedProxyId === p.id && (
-                      <div className="size-3 rounded-full bg-primary" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1">
-                      {p.country && (
-                        <span className="inline-flex shrink-0 rounded bg-muted px-1 py-px text-[10px] font-medium text-muted-foreground">
-                          {p.country}
-                        </span>
-                      )}
-                      <span className="truncate text-xs font-medium text-foreground">
-                        {p.name}
-                      </span>
-                    </div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {p.host}:{p.port}
-                    </div>
-                  </div>
-                  <div className="shrink-0 text-[10px] uppercase text-muted-foreground">
-                    {p.proxy_type}
-                  </div>
-                </button>
-              ))
             )}
-          </div>
+            {vpsLaunchProgress !== null && (
+              <span className="ml-auto flex items-center gap-1.5">
+                <span className="relative h-1 w-10 overflow-hidden rounded-full bg-muted">
+                  <span
+                    className="absolute left-0 top-0 h-full rounded-full bg-primary transition-all duration-200"
+                    style={{ width: `${vpsLaunchProgress}%` }}
+                  />
+                </span>
+                <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
+                  {Math.floor(vpsLaunchProgress)}%
+                </span>
+              </span>
+            )}
+          </button>
+        </div>
+      ) : (
+        <div className="size-7 shrink-0" />
+      )}
 
-          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs"
-              onClick={() => setVpsProxyDialogOpen(false)}
+      <div className="my-1 mx-3 h-px shrink-0 bg-border" />
+
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-1 overflow-y-auto px-2 scrollbar-none [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+        {visibleTopItems.map(({ page, Icon, labelKey }, index) => {
+          const active = currentPage === page;
+          return (
+            <Tooltip key={page} delayDuration={300}>
+              <TooltipTrigger asChild>
+                <motion.button
+                  type="button"
+                  initial={playfulMotion ? { opacity: 0, x: -10 } : false}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={
+                    playfulMotion
+                      ? {
+                          delay: index * 0.035,
+                          type: "spring",
+                          stiffness: 400,
+                          damping: 30,
+                        }
+                      : { duration: 0 }
+                  }
+                  onClick={() => {
+                    onNavigate(page);
+                  }}
+                  aria-label={t(labelKey)}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "group relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2.5 transition-all duration-200",
+                    active
+                      ? "bg-gradient-to-r from-blue-500/25 via-blue-500/10 to-transparent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                  )}
+                >
+                  {active && <ActiveIndicator />}
+                  <Icon
+                    className={cn(
+                      "size-[18px] shrink-0 transition-transform duration-200 group-hover:scale-110 group-active:scale-95",
+                      active &&
+                        "text-primary drop-shadow-[0_0_5px_var(--primary)]",
+                      page === "aiRewrite" &&
+                        aiRewriteActive > 0 &&
+                        "animate-spin",
+                    )}
+                  />
+                  <span
+                    key={active ? "on" : "off"}
+                    className={cn(
+                      "truncate text-[15px] font-semibold tracking-wide",
+                      active &&
+                        "animate-rail-text-pop bg-gradient-to-r from-primary to-foreground bg-clip-text text-transparent",
+                    )}
+                  >
+                    {page === "aiRewrite" && aiRewriteActive > 0
+                      ? `${RAIL_LABELS_ZH[page]}(${aiRewriteActive})`
+                      : RAIL_LABELS_ZH[page]}
+                  </span>
+                  {page === "cookieBot" && cookieBotRunning && (
+                    <span
+                      aria-hidden="true"
+                      className="ml-auto size-2 shrink-0 rounded-full bg-success shadow-[0_0_6px_var(--success)]"
+                    />
+                  )}
+                </motion.button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {page === "cookieBot" && cookieBotRunning
+                  ? t("rail.cookieBotRunning")
+                  : t(labelKey)}
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+
+      {/* 底部区域：设置 */}
+      <div className="flex flex-col gap-1 px-2">
+        <Tooltip delayDuration={300}>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => {
+                onNavigate("settings");
+              }}
+              aria-label={t("rail.settings")}
+              aria-current={currentPage === "settings" ? "page" : undefined}
+              className={cn(
+                "group relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2.5 transition-all duration-200",
+                currentPage === "settings"
+                  ? "bg-gradient-to-r from-blue-500/25 via-blue-500/10 to-transparent text-foreground"
+                  : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+              )}
             >
-              取消
-            </Button>
-            <Button
-              size="sm"
-              className="h-8 text-xs"
-              onClick={() => void handleSaveVpsProxy()}
-              disabled={vpsSavingProxy}
-            >
-              {vpsSavingProxy ? "保存中..." : "保存"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </>
+              {currentPage === "settings" && <ActiveIndicator />}
+              <GoGear
+                className={cn(
+                  "size-[18px] shrink-0 transition-transform duration-200 group-hover:scale-110 group-active:scale-95",
+                  currentPage === "settings" &&
+                    "text-primary drop-shadow-[0_0_5px_var(--primary)]",
+                )}
+              />
+              <span
+                key={currentPage === "settings" ? "on" : "off"}
+                className={cn(
+                  "truncate text-[15px] font-semibold tracking-wide",
+                  currentPage === "settings" &&
+                    "animate-rail-text-pop bg-gradient-to-r from-primary to-foreground bg-clip-text text-transparent",
+                )}
+              >
+                系统设置
+              </span>
+              {appVersion && (
+                <span
+                  className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground/70"
+                  title={`BW Browser v${appVersion}`}
+                >
+                  v{appVersion}
+                </span>
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">{t("rail.settings")}</TooltipContent>
+        </Tooltip>
+      </div>
+    </nav>
   );
 }

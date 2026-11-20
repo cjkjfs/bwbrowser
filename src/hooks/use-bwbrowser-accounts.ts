@@ -54,6 +54,8 @@ export interface BwbrowserAccount {
   company_id?: number;
 
   backup_email?: string;
+  /** 绑定爆文库（2026-11-20）：每归属人唯一；1 = 该账号是归属人的左上角「爆文库」入口 */
+  vps_bind?: number;
   // 套餐启动配额：false = 超出套餐配额，启动浏览器按钮置灰
   launch_allowed?: boolean;
   /** 启动网址配置 JSON（{"include_platform":bool,"urls":[...]}），编辑账号维护 */

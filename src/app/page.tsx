@@ -616,19 +616,6 @@ export default function Home() {
     }
   }, []);
 
-  const handleImportChromeLogin = useCallback(async () => {
-    if (profiles.length === 0) {
-      showErrorToast("未加载到指纹环境，请先登录你的 VPS 账号");
-      return;
-    }
-    if (profiles.length === 1) {
-      await doImportChrome(profiles[0].id);
-      return;
-    }
-    // Multiple environments: let the user choose which account to import into.
-    setImportChromePickOpen(true);
-  }, [profiles, doImportChrome]);
-
   const handleRailNavigate = useCallback(
     (page: AppPage) => {
       // Always reset every sub-page-able dialog before opening the next one,
@@ -2444,7 +2431,6 @@ export default function Home() {
                 currentPage={currentPage}
                 onNavigate={handleRailNavigate}
                 cookieBotRunning={Object.keys(cookieBotLiveSessions).length > 0}
-                onImportChromeLogin={handleImportChromeLogin}
               />
               <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
                 {currentPage === "profiles" && !isBwbrowserLogin && (

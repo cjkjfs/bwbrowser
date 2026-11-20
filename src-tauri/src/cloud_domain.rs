@@ -63,6 +63,9 @@ pub const SIMPRINT_ACCOUNTS_URL: &str =
 /// 用户管理 API
 pub const BWBROWSER_USERS_API_URL: &str = concat!("https://", cloud_host!(), "/tk/users.php");
 
+/// 门禁开门 API（魔点远程开门，BW Browser 客户端走 auth_username+auth_token 通道）
+pub const DOOR_API_URL: &str = concat!("https://", cloud_host!(), "/tk/door.php");
+
 /// VPS 自动登录页
 pub const LOGIN_URL: &str = concat!("https://", cloud_host!(), "/tk/login.php");
 

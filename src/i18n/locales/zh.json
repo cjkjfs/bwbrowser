@@ -2484,6 +2484,11 @@
     "agent": "智能体"
   },
   "pageTitle": {
+    "userManagement": "用户管理",
+    "videoDownload": "视频下载",
+    "audioProcessor": "音频处理",
+    "videoMatcher": "视频工具",
+    "doubaoVideo": "豆包视频",
     "proxies": "网络",
     "extensions": "扩展",
     "groups": "分组",

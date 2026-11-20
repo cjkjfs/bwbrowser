@@ -12,7 +12,6 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { FiCheck, FiX } from "react-icons/fi";
 import {
@@ -825,62 +824,11 @@ export function BwbrowserCloudAccountsDialog({
     [],
   );
   const [autofillEnabled, setAutofillEnabled] = useState(true);
-  const [gpuAcceleration, setGpuAcceleration] = useState(true);
-  // 爆文库（VPS 登录）视频嗅探开关（云端名单为准，默认关闭）
-  const [vpsVideoSniffer, setVpsVideoSniffer] = useState(false);
-  // 爆文库（VPS 登录）下载 Cookie 来源开关（云端清单含标记 0 = 开启）
-  const [vpsCookieSource, setVpsCookieSource] = useState(false);
 
   useEffect(() => {
     void invoke<{ autofill_enabled: boolean }>("get_app_settings")
       .then((s) => setAutofillEnabled(s.autofill_enabled))
       .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    void invoke<{ gpu_acceleration?: boolean }>("get_app_settings")
-      .then((s) => setGpuAcceleration(s.gpu_acceleration ?? true))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    void invoke<{ accounts?: number[]; vps?: boolean }>(
-      "get_video_sniffer_state",
-    )
-      .then((s) => setVpsVideoSniffer(s.vps === true))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    void invoke<{ accounts?: number[] }>("get_cookie_source_accounts")
-      .then((s) => setVpsCookieSource((s.accounts ?? []).includes(0)))
-      .catch(() => {});
-  }, []);
-
-  // 爆文库嗅探开关：云端保存（失败回滚 UI），成功后下次爆文库启动即生效
-  const handleVpsVideoSnifferToggle = useCallback(async (checked: boolean) => {
-    setVpsVideoSniffer(checked);
-    try {
-      await invoke("set_vps_video_sniffer", { enabled: checked });
-    } catch (err) {
-      setVpsVideoSniffer((prev) => !prev);
-      showErrorToast(
-        `视频嗅探开关保存失败: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }, []);
-
-  // 爆文库 Cookie 来源开关：云端保存（失败回滚 UI），下载候选顺序即时生效
-  const handleVpsCookieSourceToggle = useCallback(async (checked: boolean) => {
-    setVpsCookieSource(checked);
-    try {
-      await invoke("set_vps_cookie_source", { enabled: checked });
-    } catch (err) {
-      setVpsCookieSource((prev) => !prev);
-      showErrorToast(
-        `Cookie 来源开关保存失败: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
   }, []);
 
   // Persist the 自动输入 switch; revert the UI if the backend refuses.
@@ -893,25 +841,6 @@ export function BwbrowserCloudAccountsDialog({
         });
       } catch (err) {
         setAutofillEnabled((prev) => !prev);
-        showErrorToast(`设置保存失败: ${translateBackendError(t, err)}`);
-      }
-    },
-    [t],
-  );
-
-  // 硬件加速开关（VPS 登录/爆文库打开时生效，改 gpu_acceleration 后保存）。
-  // save_app_settings 是全量保存，先取回完整设置、改单个字段再回写。
-  const handleGpuAccelerationToggle = useCallback(
-    async (checked: boolean) => {
-      setGpuAcceleration(checked);
-      try {
-        const current =
-          await invoke<Record<string, unknown>>("get_app_settings");
-        await invoke("save_app_settings", {
-          settings: { ...current, gpu_acceleration: checked },
-        });
-      } catch (err) {
-        setGpuAcceleration((prev) => !prev);
         showErrorToast(`设置保存失败: ${translateBackendError(t, err)}`);
       }
     },
@@ -953,6 +882,7 @@ export function BwbrowserCloudAccountsDialog({
     setServerSort,
     togglePin,
     isPinned,
+    patchAccountLocal,
     isManager,
     isSuperAdmin,
     canViewPassword,
@@ -1139,16 +1069,6 @@ export function BwbrowserCloudAccountsDialog({
   const [isBatchImporting, setIsBatchImporting] = useState(false);
   const PROXY_PAGE_SIZE = 10;
 
-  // VPS 登录代理设置
-  const [vpsProxyDialogOpen, setVpsProxyDialogOpen] = useState(false);
-  const [vpsContextMenuOpen, setVpsContextMenuOpen] = useState(false);
-  const [vpsContextMenuPos, setVpsContextMenuPos] = useState({ x: 0, y: 0 });
-  const [vpsProxySearch, setVpsProxySearch] = useState("");
-  const [vpsSelectedProxyId, setVpsSelectedProxyId] = useState<string | null>(
-    null,
-  );
-  const [vpsSavingProxy, setVpsSavingProxy] = useState(false);
-
   // 环境编辑弹窗
   const [envDialogOpen, setEnvDialogOpen] = useState(false);
   const [envDialogAccount, setEnvDialogAccount] =
@@ -1178,6 +1098,40 @@ export function BwbrowserCloudAccountsDialog({
   const [editDetail, setEditDetail] = useState<BwbrowserAccount | null>(null);
   const [editLoading, setEditLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
+  // 绑定爆文库开关（2026-11-20）：每归属人唯一，开启自动顶掉旧绑定；即时保存
+  const [editVpsBind, setEditVpsBind] = useState(false);
+  const [editVpsBindSaving, setEditVpsBindSaving] = useState(false);
+  const handleVpsBindToggle = useCallback(
+    async (checked: boolean) => {
+      if (!editAccount || editVpsBindSaving) return;
+      setEditVpsBind(checked);
+      setEditVpsBindSaving(true);
+      try {
+        await invoke("bwbrowser_set_vps_bind", {
+          accountId: editAccount.id,
+          bind: checked,
+        });
+        patchAccountLocal(editAccount.id, { vps_bind: checked ? 1 : 0 });
+        // 通知侧边栏立即刷新左上角「爆文库」入口显隐（开启即出现/取消即消失）
+        void import("@tauri-apps/api/event").then(({ emit }) =>
+          emit("vps-bind-changed", checked),
+        );
+        showSuccessToast(
+          checked
+            ? "已绑定爆文库（该归属人原绑定已自动取消）"
+            : "已取消绑定爆文库",
+        );
+      } catch (err) {
+        setEditVpsBind((prev) => !prev);
+        showErrorToast(
+          `绑定爆文库保存失败: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      } finally {
+        setEditVpsBindSaving(false);
+      }
+    },
+    [editAccount, editVpsBindSaving, patchAccountLocal],
+  );
   const [editForm, setEditForm] = useState({
     account_name: "",
     login_account: "",
@@ -1330,7 +1284,8 @@ export function BwbrowserCloudAccountsDialog({
     Record<number, { code: string; loading: boolean; time: number }>
   >({});
 
-  const { storedProxies } = useProxyEvents();
+  // 订阅代理事件（hook 内部维持云端代理缓存与监听；VPS 菜单移除后不再取 storedProxies）
+  useProxyEvents();
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -1751,6 +1706,8 @@ export function BwbrowserCloudAccountsDialog({
       });
       setEditStartUrls(parseAccountStartUrls(account.start_urls));
       setEditStartUrlInput("");
+      // 绑定爆文库开关初始态：列表行数据（详情到达后以 detail 为准刷新）
+      setEditVpsBind(account.vps_bind === 1);
 
       // 获取权限
       try {
@@ -1816,6 +1773,8 @@ export function BwbrowserCloudAccountsDialog({
           gpu_acceleration: detail.gpu_acceleration ?? prev.gpu_acceleration,
         }));
         setEditStartUrls(parseAccountStartUrls(detail.start_urls));
+        // 绑定爆文库：以详情数据为准
+        setEditVpsBind(detail.vps_bind === 1);
         // 账号级嗅探开关：云端名单里记的是「开启了嗅探的账号」，默认关闭
         try {
           const state = await invoke<{ accounts?: number[]; vps?: boolean }>(
@@ -2896,81 +2855,6 @@ export function BwbrowserCloudAccountsDialog({
         p.proxy_settings.proxy_type.toLowerCase().includes(q),
     );
   }, [cloudProxyOptions, proxySearchQuery]);
-
-  // VPS 代理：搜索过滤
-  const vpsFilteredProxies = useMemo(() => {
-    const q = vpsProxySearch.trim().toLowerCase();
-    if (!q) return storedProxies;
-    return storedProxies.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.proxy_settings.host.includes(q) ||
-        p.proxy_settings.proxy_type.toLowerCase().includes(q),
-    );
-  }, [storedProxies, vpsProxySearch]);
-
-  const handleOpenVpsProxyDialog = useCallback(async () => {
-    try {
-      const info = await invoke<{ proxy_id: string | null } | null>(
-        "bwbrowser_get_vps_profile_info",
-      );
-      setVpsSelectedProxyId(info?.proxy_id ?? null);
-    } catch {
-      setVpsSelectedProxyId(null);
-    }
-    setVpsProxySearch("");
-    setVpsProxyDialogOpen(true);
-  }, []);
-
-  const handleSaveVpsProxy = useCallback(async () => {
-    setVpsSavingProxy(true);
-    try {
-      await invoke("bwbrowser_set_vps_proxy", {
-        proxyId: vpsSelectedProxyId,
-      });
-      showSuccessToast("代理设置成功");
-      setVpsProxyDialogOpen(false);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      showErrorToast(`设置代理失败: ${msg}`);
-    } finally {
-      setVpsSavingProxy(false);
-    }
-  }, [vpsSelectedProxyId]);
-
-  const handleDeleteVpsData = useCallback(() => {
-    const ok = window.confirm(
-      "确定删除 VPS 登录的本地数据？下次打开将重新创建。",
-    );
-    if (!ok) return;
-    invoke("bwbrowser_delete_vps_data")
-      .then(() => {
-        showSuccessToast("已删除本地数据");
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        showErrorToast(`删除失败: ${msg}`);
-      });
-  }, []);
-
-  const handleVpsLogoContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setVpsContextMenuPos({ x: e.clientX, y: e.clientY });
-    setVpsContextMenuOpen(true);
-  }, []);
-
-  // 点击外部关闭 VPS 右键菜单
-  useEffect(() => {
-    if (!vpsContextMenuOpen) return;
-    const close = () => setVpsContextMenuOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("scroll", close, true);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("scroll", close, true);
-    };
-  }, [vpsContextMenuOpen]);
 
   const proxyTotalPages = Math.max(
     1,
@@ -4553,8 +4437,8 @@ export function BwbrowserCloudAccountsDialog({
                   unlistenToast?.();
                 });
             }}
-            onContextMenu={handleVpsLogoContextMenu}
-            title="左键打开爆文库，右键设置代理"
+            onContextMenu={(e) => e.preventDefault()}
+            title="打开爆文库"
           >
             <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
               <LuUsers className="h-4 w-4" />
@@ -5160,85 +5044,6 @@ export function BwbrowserCloudAccountsDialog({
           </Button>
         </div>
       </div>
-
-      {/* VPS 右键菜单 - Portal 到 body，避免父级 transform 影响 fixed 定位 */}
-      {vpsContextMenuOpen &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            role="menu"
-            className="fixed z-[10000] w-44 rounded-md border border-border bg-popover p-1 shadow-lg"
-            style={{ left: vpsContextMenuPos.x, top: vpsContextMenuPos.y }}
-            onContextMenu={(e) => e.preventDefault()}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-              onClick={() => {
-                setVpsContextMenuOpen(false);
-                handleOpenVpsProxyDialog();
-              }}
-            >
-              <LuNetwork className="h-3.5 w-3.5 text-muted-foreground" />
-              设置代理
-            </button>
-            <div className="my-1 h-px bg-border" />
-            <button
-              type="button"
-              className="pointer-events-auto flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-              onClick={() => void handleGpuAccelerationToggle(!gpuAcceleration)}
-              title="VPS 登录/爆文库打开时是否启用 GPU 加速"
-            >
-              <AnimatedSwitch
-                checked={gpuAcceleration}
-                onCheckedChange={() => {}}
-                className="pointer-events-none"
-              />
-              <span>硬件加速</span>
-            </button>
-            <div className="my-1 h-px bg-border" />
-            <button
-              type="button"
-              className="pointer-events-auto flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-              onClick={() => void handleVpsVideoSnifferToggle(!vpsVideoSniffer)}
-              title="爆文库打开时是否加载视频嗅探扩展（右下角下载按钮）"
-            >
-              <AnimatedSwitch
-                checked={vpsVideoSniffer}
-                onCheckedChange={() => {}}
-                className="pointer-events-none"
-              />
-              <span>视频嗅探</span>
-            </button>
-            <button
-              type="button"
-              className="pointer-events-auto flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-              onClick={() => void handleVpsCookieSourceToggle(!vpsCookieSource)}
-              title="把爆文库（VPS登录）加入视频下载的 Cookie 来源候选（按开启先后排优先级，可与账号多开兜底）"
-            >
-              <AnimatedSwitch
-                checked={vpsCookieSource}
-                onCheckedChange={() => {}}
-                className="pointer-events-none"
-              />
-              <span>Cookie 来源</span>
-            </button>
-            <div className="my-1 h-px bg-border" />
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
-              onClick={() => {
-                setVpsContextMenuOpen(false);
-                handleDeleteVpsData();
-              }}
-            >
-              <LuTrash2 className="h-3.5 w-3.5" />
-              删除本地数据
-            </button>
-          </div>,
-          document.body,
-        )}
     </>
   );
 
@@ -6143,132 +5948,6 @@ export function BwbrowserCloudAccountsDialog({
     />
   );
 
-  const vpsProxyDialog = (
-    <Dialog open={vpsProxyDialogOpen} onOpenChange={setVpsProxyDialogOpen}>
-      <DialogContent className="w-[600px] max-w-[90vw] p-0 overflow-hidden">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="flex items-center gap-2">
-            <LuNetwork className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold">VPS 登录代理设置</span>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={() => setVpsProxyDialogOpen(false)}
-          >
-            <LuX className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-2 border-b px-4 py-2">
-          <div className="relative flex-1">
-            <LuSearch className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={vpsProxySearch}
-              onChange={(e) => setVpsProxySearch(e.target.value)}
-              placeholder="搜索代理名称、IP、类型..."
-              className="h-8 pl-7 text-xs"
-            />
-          </div>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            共 {vpsFilteredProxies.length} 个
-          </span>
-        </div>
-
-        <div className="max-h-[360px] overflow-y-auto">
-          <button
-            type="button"
-            className={`flex w-full items-center gap-3 border-b px-4 py-2 text-left transition-colors hover:bg-accent/50 ${
-              vpsSelectedProxyId === null ? "bg-primary/10" : ""
-            }`}
-            onClick={() => setVpsSelectedProxyId(null)}
-          >
-            <div className="w-4">
-              {vpsSelectedProxyId === null && (
-                <div className="size-3 rounded-full bg-primary" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-foreground">
-                不使用代理（直连）
-              </div>
-              <div className="text-xs text-muted-foreground">
-                使用本机网络直接访问
-              </div>
-            </div>
-          </button>
-
-          {vpsFilteredProxies.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">
-              暂无可用代理，请先在代理中心添加
-            </div>
-          ) : (
-            vpsFilteredProxies.map((p: StoredProxy) => {
-              const t = p.proxy_settings.proxy_type || "http";
-              const usageKey = /^(vless|trojan|ss)$/i.test(t)
-                ? p.proxy_settings.vless_uri || ""
-                : `${p.proxy_settings.host}:${p.proxy_settings.port}`;
-              const owners = usageOwnerNames(proxyUsage.get(usageKey));
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`flex w-full items-center gap-3 border-b px-4 py-2 text-left transition-colors hover:bg-accent/50 ${
-                    vpsSelectedProxyId === p.id ? "bg-primary/10" : ""
-                  }`}
-                  onClick={() => setVpsSelectedProxyId(p.id)}
-                >
-                  <div className="w-4">
-                    {vpsSelectedProxyId === p.id && (
-                      <div className="size-3 rounded-full bg-primary" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="truncate text-xs font-medium text-foreground">
-                      {p.name}
-                    </div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {p.proxy_settings.host}:{p.proxy_settings.port}
-                    </div>
-                    <div
-                      className="truncate text-[11px] text-muted-foreground/80"
-                      title={owners}
-                    >
-                      {owners ? `谁在用：${owners}` : "未使用"}
-                    </div>
-                  </div>
-                  <div className="shrink-0 text-[10px] uppercase text-muted-foreground">
-                    {p.proxy_settings.proxy_type}
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => setVpsProxyDialogOpen(false)}
-          >
-            取消
-          </Button>
-          <Button
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => void handleSaveVpsProxy()}
-            disabled={vpsSavingProxy}
-          >
-            {vpsSavingProxy ? "保存中..." : "保存"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-
   const envDialog = (
     <Dialog
       open={envDialogOpen}
@@ -6757,6 +6436,28 @@ export function BwbrowserCloudAccountsDialog({
                       </TooltipTrigger>
                       <TooltipContent>
                         开启后该账号浏览器注入嗅探扩展，页面右下角出现视频下载按钮。默认关闭，云端保存、即时生效
+                      </TooltipContent>
+                    </Tooltip>
+                  </button>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 disabled:opacity-60"
+                    disabled={editVpsBindSaving}
+                    onClick={() => handleVpsBindToggle(!editVpsBind)}
+                  >
+                    <Checkbox
+                      checked={editVpsBind}
+                      onCheckedChange={(v) => handleVpsBindToggle(v === true)}
+                    />
+                    <span className="text-xs">绑定爆文库</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        开启后该归属人登录客户端时左上角出现「爆文库」按钮，点击直接启动本账号并进入
+                        yacm.xin。每个归属人只能绑定 1
+                        个账号，开启会自动取消原绑定；云端保存、即时生效
                       </TooltipContent>
                     </Tooltip>
                   </button>
@@ -8242,7 +7943,6 @@ export function BwbrowserCloudAccountsDialog({
         {batchProxyDialog}
         {editCloudProxyDialog}
         {editCloudProxyDialog}
-        {vpsProxyDialog}
         {envDialog}
         {boundEnvDialog}
         {codeEditDialog}
@@ -8269,7 +7969,6 @@ export function BwbrowserCloudAccountsDialog({
       {phoneIdDialog}
       {createProxyDialog}
       {batchProxyDialog}
-      {vpsProxyDialog}
       {envDialog}
       {boundEnvDialog}
       {codeEditDialog}

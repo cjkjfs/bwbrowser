@@ -2474,6 +2474,11 @@
     "agent": "에이전트"
   },
   "pageTitle": {
+    "userManagement": "사용자 관리",
+    "videoDownload": "동영상 다운로드",
+    "audioProcessor": "오디오 처리",
+    "videoMatcher": "동영상 도구",
+    "doubaoVideo": "Doubao 동영상",
     "proxies": "네트워크",
     "extensions": "확장 프로그램",
     "groups": "그룹",

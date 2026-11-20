@@ -250,6 +250,7 @@ pub(crate) async fn launch_like_cloud_account(
     None,
     account.proxy_node.clone(),
     Some("doubao".to_string()),
+    None,
   )
   .await?;
   bind_existing_profile(account).ok_or_else(|| "浏览器已启动但未找到对应环境".to_string())
