@@ -2,6 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -500,8 +501,19 @@ export function RailNav({
       void unlisten.then((fn) => fn());
     };
   }, [refreshDoorPerm]);
-  const handleDoorOpen = useCallback(() => {
+  const handleDoorOpen = useCallback(async () => {
     if (doorOpening) return;
+    // 点开门先弹确认，防误触；WebView2 会吞掉原生 confirm()，必须用 plugin-dialog 的原生对话框
+    const ok = await confirm(
+      "确定要远程开门吗？\n\n点击「确认开门」后门将立即打开。",
+      {
+        title: "远程开门",
+        kind: "info",
+        okLabel: "确认开门",
+        cancelLabel: "取消",
+      },
+    );
+    if (!ok) return;
     setDoorOpening(true);
     invoke<{ ok: boolean; msg?: string }>("bwbrowser_door_open")
       .then((d) => {
@@ -681,7 +693,11 @@ export function RailNav({
                     type="button"
                     aria-label="远程开门"
                     title="远程开门"
-                    onClick={handleDoorOpen}
+                    onClick={(e) => {
+                      // 开门按钮嵌在 logo 按钮内，阻断冒泡避免误触「启动爆文库」
+                      e.stopPropagation();
+                      void handleDoorOpen();
+                    }}
                     disabled={doorOpening}
                     whileTap={playfulMotion ? { scale: 0.85 } : undefined}
                     className={cn(

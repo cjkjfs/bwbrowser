@@ -6,7 +6,7 @@ import {
   confirm as dialogConfirm,
   open as openDialog,
 } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LuCheck,
   LuChevronsUpDown,
@@ -170,6 +170,9 @@ export function VideoDownloadPage({
 
   const [urlInput, setUrlInput] = useState("");
   const [activeTab, setActiveTab] = useState("tasks");
+  // 任务列表分块渲染：历史任务全量落盘，列表可能有几百上千条，打开页面
+  // 瞬间全量渲染会卡死 UI。默认只渲染前 50 条，点「显示更多」每次加 100 条。
+  const [visibleTaskCount, setVisibleTaskCount] = useState(50);
 
   // 打开「下载代理」下拉（点击修改）时：重新同步+刷新一次代理列表，
   // 保证公司云端代理（新增/删除）即时反映在下拉里
@@ -1188,7 +1191,7 @@ export function VideoDownloadPage({
             </div>
           ) : (
             <div className="divide-y">
-              {tasks.map((task, idx) => {
+              {tasks.slice(0, visibleTaskCount).map((task, idx) => {
                 // 第一个等待中的任务显示工具下载进度
                 const showToolProgress =
                   downloadingTools.length > 0 &&
@@ -1199,11 +1202,11 @@ export function VideoDownloadPage({
                   <TaskRow
                     key={task.id}
                     task={task}
-                    onPause={() => pauseTask(task.id)}
-                    onResume={() => resumeTask(task.id)}
-                    onRetry={() => retryTask(task.id)}
-                    onDelete={() => deleteTask(task.id)}
-                    onCancel={() => handleCancel(task)}
+                    onPause={pauseTask}
+                    onResume={resumeTask}
+                    onRetry={retryTask}
+                    onDelete={deleteTask}
+                    onCancel={handleCancel}
                     onOpenFile={openFile}
                     onOpenDir={openDir}
                     toolDownloadInfo={
@@ -1220,6 +1223,17 @@ export function VideoDownloadPage({
                   />
                 );
               })}
+              {tasks.length > visibleTaskCount && (
+                <div className="flex justify-center py-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setVisibleTaskCount((c) => c + 100)}
+                  >
+                    显示更多（还有 {tasks.length - visibleTaskCount} 条）
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </ScrollArea>
@@ -1730,7 +1744,13 @@ function formatCookieTime(timestamp: number): string {
   });
 }
 
-function TaskRow({
+/**
+ * 任务行（memo 化）：进度事件节流后只有被更新的 task 会拿到新对象引用，
+ * 其余行 props 全等直接跳过重渲染——列表很长 + 并发下载时不再整页 DOM diff。
+ * 注意：行回调必须是稳定引用（pauseTask 等 hook 里的 useCallback），task.id 由
+ * 行内自己带上，父级不要包内联箭头函数，否则 memo 失效。
+ */
+const TaskRow = memo(function TaskRow({
   task,
   onPause,
   onResume,
@@ -1746,11 +1766,11 @@ function TaskRow({
   aiRewriteProgress,
 }: {
   task: DownloadTask;
-  onPause: () => void;
-  onResume: () => void;
-  onRetry: () => void;
-  onDelete: () => void;
-  onCancel: () => void;
+  onPause: (taskId: string) => void;
+  onResume: (taskId: string) => void;
+  onRetry: (taskId: string) => void;
+  onDelete: (taskId: string) => void;
+  onCancel: (task: DownloadTask) => void;
   onOpenFile: (path: string) => void;
   onOpenDir: (path: string) => void;
   toolDownloadInfo: {
@@ -1836,7 +1856,7 @@ function TaskRow({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={onPause}
+                  onClick={() => onPause(task.id)}
                   title="暂停"
                 >
                   <LuPause className="w-4 h-4" />
@@ -1846,7 +1866,7 @@ function TaskRow({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={onResume}
+                  onClick={() => onResume(task.id)}
                   title="继续"
                 >
                   <LuPlay className="w-4 h-4" />
@@ -1856,7 +1876,7 @@ function TaskRow({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={onRetry}
+                  onClick={() => onRetry(task.id)}
                   title="重试"
                 >
                   <LuRotateCcw className="w-4 h-4" />
@@ -1868,13 +1888,18 @@ function TaskRow({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={onCancel}
+                  onClick={() => onCancel(task)}
                   title="取消"
                 >
                   <LuX className="w-4 h-4" />
                 </Button>
               )}
-              <Button variant="ghost" size="sm" onClick={onDelete} title="删除">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onDelete(task.id)}
+                title="删除"
+              >
                 <LuTrash2 className="w-4 h-4" />
               </Button>
               <Badge
@@ -2085,4 +2110,4 @@ function TaskRow({
       </div>
     </div>
   );
-}
+});

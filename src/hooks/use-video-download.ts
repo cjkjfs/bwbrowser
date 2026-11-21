@@ -71,6 +71,19 @@ const defaultSettings: DownloadSettings = {
   proxy_id: null,
 };
 
+/** 单条任务的最新进度快照（节流合并用） */
+interface PendingProgressMapEntry {
+  progress: number;
+  speed_text: string;
+  peak_speed_text: string;
+  downloaded: number;
+  total: number;
+  status: DownloadStatus;
+}
+
+/** taskId → 最新进度快照（250ms 内高频进度事件的合并缓冲） */
+type PendingProgressMap = Map<string, PendingProgressMapEntry>;
+
 export function useVideoDownload() {
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [settings, setSettings] = useState<DownloadSettings>(defaultSettings);
@@ -81,6 +94,12 @@ export function useVideoDownload() {
   const [isCheckingTools, setIsCheckingTools] = useState(false);
   const [isRefreshingCookie, setIsRefreshingCookie] = useState(false);
   const unlistenRef = useRef<Array<() => void>>([]);
+  // 进度事件节流：yt-dlp 每条进度行都发一次事件，10 个并发下载时每秒几十条，
+  // 每条都 setTasks 会把整页 UI 拖死。改为先把最新进度攒进 Map，250ms 合并 flush
+  // 一次（只给有更新的 task 换新对象，其余 task 保持原引用，配合 TaskRow 的 memo
+  // 让未变化的行完全跳过重渲染）。
+  const pendingProgressRef = useRef<PendingProgressMap | null>(null);
+  const progressFlushTimerRef = useRef<number | null>(null);
 
   // 加载任务列表
   const loadTasks = useCallback(async () => {
@@ -91,6 +110,18 @@ export function useVideoDownload() {
       console.error("[video_download] 加载任务失败:", e);
     }
   }, []);
+
+  // 事件驱动的 loadTasks 防抖：task-added/updated/deleted 每次都全量拉列表，
+  // 批量粘贴几十条 URL 时会连发几十次 invoke + setTasks，页面刚挂载就叠上
+  // 进度事件流，把主线程拖死。300ms 内的多次触发合并成一次。
+  const loadTasksTimerRef = useRef<number | null>(null);
+  const scheduleLoadTasks = useCallback(() => {
+    if (loadTasksTimerRef.current !== null) return;
+    loadTasksTimerRef.current = window.setTimeout(() => {
+      loadTasksTimerRef.current = null;
+      void loadTasks();
+    }, 300);
+  }, [loadTasks]);
 
   // 加载设置
   const loadSettings = useCallback(async () => {
@@ -429,7 +460,7 @@ export function useVideoDownload() {
         );
       });
 
-      // 进度更新
+      // 进度更新（高频，节流合并见 pendingProgressRef 注释）
       const unlistenProgress = await listen(
         "video-download:progress",
         (event) => {
@@ -443,21 +474,30 @@ export function useVideoDownload() {
             status: string;
           };
           if (cancelled) return;
-          setTasks((prev) =>
-            prev.map((t) =>
-              t.id === payload.taskId
-                ? {
-                    ...t,
-                    progress: payload.progress,
-                    speed_text: payload.speedText,
-                    peak_speed_text: payload.peakSpeedText,
-                    downloaded: payload.downloaded,
-                    total: payload.total,
-                    status: payload.status as DownloadStatus,
-                  }
-                : t,
-            ),
-          );
+          if (pendingProgressRef.current === null) {
+            pendingProgressRef.current = new Map();
+          }
+          pendingProgressRef.current.set(payload.taskId, {
+            progress: payload.progress,
+            speed_text: payload.speedText,
+            peak_speed_text: payload.peakSpeedText,
+            downloaded: payload.downloaded,
+            total: payload.total,
+            status: payload.status as DownloadStatus,
+          });
+          if (progressFlushTimerRef.current !== null) return;
+          progressFlushTimerRef.current = window.setTimeout(() => {
+            progressFlushTimerRef.current = null;
+            const pending = pendingProgressRef.current;
+            pendingProgressRef.current = new Map();
+            if (!pending || pending.size === 0) return;
+            setTasks((prev) =>
+              prev.map((t) => {
+                const p = pending.get(t.id);
+                return p ? { ...t, ...p } : t;
+              }),
+            );
+          }, 250);
         },
       );
 
@@ -488,7 +528,7 @@ export function useVideoDownload() {
       // 任务添加
       const unlistenAdded = await listen("video-download:task-added", () => {
         if (cancelled) return;
-        loadTasks();
+        scheduleLoadTasks();
       });
 
       // Cookie 刷新
@@ -505,7 +545,7 @@ export function useVideoDownload() {
         "video-download:task-deleted",
         () => {
           if (cancelled) return;
-          loadTasks();
+          scheduleLoadTasks();
         },
       );
 
@@ -514,7 +554,7 @@ export function useVideoDownload() {
         "video-download:task-updated",
         () => {
           if (cancelled) return;
-          loadTasks();
+          scheduleLoadTasks();
         },
       );
 
@@ -537,8 +577,17 @@ export function useVideoDownload() {
       cancelled = true;
       unlistenRef.current.forEach((fn) => fn());
       unlistenRef.current = [];
+      if (progressFlushTimerRef.current !== null) {
+        window.clearTimeout(progressFlushTimerRef.current);
+        progressFlushTimerRef.current = null;
+      }
+      if (loadTasksTimerRef.current !== null) {
+        window.clearTimeout(loadTasksTimerRef.current);
+        loadTasksTimerRef.current = null;
+      }
+      pendingProgressRef.current = null;
     };
-  }, [loadTasks]);
+  }, [scheduleLoadTasks]);
 
   // 初始加载
   useEffect(() => {
