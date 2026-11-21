@@ -3887,13 +3887,29 @@ export function BwbrowserCloudAccountsDialog({
               cell: ({ row }: { row: { original: BwbrowserAccount } }) => {
                 const account = row.original;
                 const phone = account.bind_phone;
+                const smsState = smsCodes[account.id];
                 return (
                   <div className="inline-flex items-center gap-1">
                     {phone ? (
                       phone.startsWith("http") ? (
-                        <span className="inline-flex items-center rounded bg-blue-500/10 px-1.5 py-0.5 text-[11px] font-medium text-blue-600">
-                          已绑定
-                        </span>
+                        smsState?.code ? (
+                          // 与 2FA 列同款：取到验证码后显示为可点击复制的大字按钮
+                          <button
+                            type="button"
+                            className="inline-flex items-center rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-xs font-bold text-emerald-600 cursor-pointer hover:bg-emerald-500/20 dark:text-emerald-400"
+                            onClick={() => {
+                              navigator.clipboard.writeText(smsState.code);
+                              showSuccessToast("短信验证码已复制");
+                            }}
+                            title={`点击复制 · ${new Date(smsState.time).toLocaleTimeString("zh-CN")}`}
+                          >
+                            {smsState.code}
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center rounded bg-blue-500/10 px-1.5 py-0.5 text-[11px] font-medium text-blue-600">
+                            已绑定
+                          </span>
+                        )
                       ) : (
                         <button
                           type="button"
