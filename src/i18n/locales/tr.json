@@ -3602,6 +3602,8 @@
   "remoteManagement": {
     "title": "Uzak Yönetim",
     "refresh": "Yenile",
+    "cardView": "Kartlar",
+    "listView": "Liste",
     "online": "Çevrimiçi",
     "offline": "Çevrimdışı",
     "colHostname": "Ana bilgisayar adı",
@@ -3716,5 +3718,9 @@
     "save": "Telefon numaralarını kaydet",
     "success": "Telefon numaraları kaydedildi ({{count}} hesap)",
     "failed": "Numaralar: {{ok}} başarılı, {{failed}} başarısız — {{errors}}"
+  },
+  "confirmDialog": {
+    "infoTitle": "Bildirim",
+    "confirmTitle": "Lütfen onaylayın"
   }
 }

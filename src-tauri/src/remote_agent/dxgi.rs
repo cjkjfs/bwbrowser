@@ -229,10 +229,8 @@ pub fn blend_cursor(bgra: &mut [u8], w: u32, h: u32) {
     }
     let icon = icon_ii;
 
-    // 读 hbmMask / hbmColor 位图
-    let mask_hbmp = icon.hbmMask;
-    let color_hbmp = icon.hbmColor;
-    let bmp_of = |hb: HBITMAP| -> Option<(u32, u32, Vec<u8>, u32)> {
+    // 读 hbmColor（32bpp BGRA）
+    let bmp32_of = |hb: HBITMAP| -> Option<(u32, u32, Vec<u8>)> {
       let mut bm = windows::Win32::Graphics::Gdi::BITMAP::default();
       if windows::Win32::Graphics::Gdi::GetObjectW(
         hb.into(),
@@ -274,20 +272,79 @@ pub fn blend_cursor(bgra: &mut [u8], w: u32, h: u32) {
       if got == 0 {
         return None;
       }
-      Some((bw, bh, buf, 32))
+      Some((bw, bh, buf))
     };
 
-    let mask_info = bmp_of(mask_hbmp);
+    // 读 hbmMask：1bpp AND 掩码位流。
+    // ⚠️ 必须按 1bpp 请求。原实现误用 32bpp 读掩码：每个掩码位被膨胀成 4 字节
+    // 像素数据，而 get_mask_bit 按 1bpp 位流 stride 索引 → 位图完全错乱 →
+    // 彩色光标透明区（alpha=0 且 AND=1）被误判为不透明 → 画成黑色 →
+    // 光标出现方形黑边框。
+    // 先用 biHeight 正值调用一次让系统回填调色板（微软文档标准用法），再改负值 top-down 正式读。
+    let mask1bpp_of = |hb: HBITMAP| -> Option<(u32, u32, Vec<u8>)> {
+      let mut bm = windows::Win32::Graphics::Gdi::BITMAP::default();
+      if windows::Win32::Graphics::Gdi::GetObjectW(
+        hb.into(),
+        size_of::<windows::Win32::Graphics::Gdi::BITMAP>() as i32,
+        Some(&mut bm as *mut _ as *mut _),
+      ) == 0
+      {
+        return None;
+      }
+      let bw = bm.bmWidth as u32;
+      let bh = bm.bmHeight as u32;
+      if bw == 0 || bh == 0 {
+        return None;
+      }
+      let hdc = GetDC(None);
+      let mut bmi = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+          biSize: size_of::<BITMAPINFOHEADER>() as u32,
+          biWidth: bw as i32,
+          biHeight: bh as i32, // 正值：仅回填调色板，不读数据
+          biPlanes: 1,
+          biBitCount: 1,
+          biCompression: BI_RGB.0,
+          ..Default::default()
+        },
+        bmiColors: [Default::default()],
+      };
+      if GetDIBits(hdc, hb, 0, 0, None, &mut bmi, DIB_RGB_COLORS) == 0 {
+        ReleaseDC(None, hdc);
+        return None;
+      }
+      bmi.bmiHeader.biHeight = -(bh as i32); // 改 top-down 正式读取
+      let stride = bw.div_ceil(32) as usize * 4;
+      let mut buf = vec![0u8; stride * bh as usize];
+      let got = GetDIBits(
+        hdc,
+        hb,
+        0,
+        bh,
+        Some(buf.as_mut_ptr() as *mut _),
+        &mut bmi,
+        DIB_RGB_COLORS,
+      );
+      ReleaseDC(None, hdc);
+      if got == 0 {
+        return None;
+      }
+      Some((bw, bh, buf))
+    };
+
+    let mask_hbmp = icon.hbmMask;
+    let color_hbmp = icon.hbmColor;
+    let mask_info = mask1bpp_of(mask_hbmp);
     let color_info = if color_hbmp.0.is_null() {
       None
     } else {
-      bmp_of(color_hbmp)
+      bmp32_of(color_hbmp)
     };
     let _ = DeleteObject(mask_hbmp.into());
     if !color_hbmp.0.is_null() {
       let _ = DeleteObject(color_hbmp.into());
     }
-    let Some((mw, mh, mask_bits, _)) = mask_info else {
+    let Some((mw, mh, mask_bits)) = mask_info else {
       return;
     };
 
@@ -315,7 +372,7 @@ pub fn blend_cursor(bgra: &mut [u8], w: u32, h: u32) {
         }
         let dst_i = ((fy as u32 * w + fx as u32) * 4) as usize;
         match &color_info {
-          Some((cw2, _ch2, color_bits, _)) => {
+          Some((cw2, _ch2, color_bits)) => {
             // 彩色光标：BGRA，优先用 alpha；alpha 全 0 时用 AND 掩码判透明
             let src_i = ((cy as u32 * *cw2 + cx as u32) * 4) as usize;
             let (b, g, r, a) = (

@@ -3635,6 +3635,8 @@
   "remoteManagement": {
     "title": "Gestion à distance",
     "refresh": "Actualiser",
+    "cardView": "Cartes",
+    "listView": "Liste",
     "online": "En ligne",
     "offline": "Hors ligne",
     "colHostname": "Nom d'hôte",
@@ -3749,5 +3751,9 @@
     "save": "Enregistrer les identifiants",
     "success": "Identifiants enregistrés ({{count}} comptes)",
     "failed": "Identifiants : {{ok}} réussis, {{failed}} échoués — {{errors}}"
+  },
+  "confirmDialog": {
+    "infoTitle": "Avis",
+    "confirmTitle": "Veuillez confirmer"
   }
 }

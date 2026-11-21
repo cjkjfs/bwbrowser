@@ -2,7 +2,6 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,6 +9,8 @@ import {
   LuEye,
   LuFolderOpen,
   LuGlobe,
+  LuLayoutGrid,
+  LuList,
   LuLoaderCircle,
   LuMonitorSmartphone,
   LuMousePointerClick,
@@ -23,6 +24,7 @@ import {
 } from "@/components/file-transfer-page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { confirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Select,
   SelectContent,
@@ -283,6 +285,14 @@ export function RemoteManagementPage() {
   const [connectingKey, setConnectingKey] = useState<string | null>(null);
   /** 打开双栏文件传输页的目标；为 null 时显示机器列表 */
   const [fileTarget, setFileTarget] = useState<FileTransferTarget | null>(null);
+  /** 视图模式：卡片 / 列表（记住上次选择） */
+  const [viewMode, setViewMode] = useState<"card" | "list">(() =>
+    localStorage.getItem("remote_mgmt_view_mode") === "list" ? "list" : "card",
+  );
+  const switchViewMode = useCallback((mode: "card" | "list") => {
+    setViewMode(mode);
+    localStorage.setItem("remote_mgmt_view_mode", mode);
+  }, []);
 
   const loadMachines = useCallback(async () => {
     setIsLoading(true);
@@ -304,9 +314,9 @@ export function RemoteManagementPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const handleDeleteMachine = useCallback(
     async (row: MachineRow) => {
-      const ok = await dialogConfirm(
+      const ok = await confirmDialog(
         t("remoteManagement.deleteConfirm", { name: row.hostname }),
-        { kind: "warning" },
+        { kind: "danger" },
       );
       if (!ok) return;
       setDeletingId(row.clientId);
@@ -433,6 +443,35 @@ export function RemoteManagementPage() {
           </Badge>
         </div>
         <div className="flex items-center gap-2">
+          {/* 视图切换：卡片 / 列表 */}
+          <div className="flex items-center rounded-lg border border-border p-0.5">
+            <button
+              type="button"
+              className={cn(
+                "flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-colors",
+                viewMode === "card"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => switchViewMode("card")}
+            >
+              <LuLayoutGrid className="w-3.5 h-3.5" />
+              {t("remoteManagement.cardView")}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-colors",
+                viewMode === "list"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => switchViewMode("list")}
+            >
+              <LuList className="w-3.5 h-3.5" />
+              {t("remoteManagement.listView")}
+            </button>
+          </div>
           {isSuperAdmin && companies.length > 0 && (
             <Select
               value={
@@ -473,45 +512,161 @@ export function RemoteManagementPage() {
         </div>
       </div>
 
-      {/* 机器列表 */}
-      <div className="flex-1 overflow-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12">#</TableHead>
-              <TableHead>{t("remoteManagement.colHostname")}</TableHead>
-              <TableHead>{t("remoteManagement.colOs")}</TableHead>
-              <TableHead>{t("remoteManagement.colAddress")}</TableHead>
-              <TableHead>{t("remoteManagement.colStatus")}</TableHead>
-              <TableHead className="text-right">
-                {t("remoteManagement.colActions")}
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading && rows.length === 0 ? (
+      {/* 机器列表（卡片 / 列表双视图，均带序号） */}
+      <div className="flex-1 overflow-auto px-6 py-4">
+        {isLoading && rows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+            <LuLoaderCircle className="w-6 h-6 animate-spin mb-2" />
+            {t("remoteManagement.loading")}
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="flex items-center justify-center py-16 text-muted-foreground">
+            {t("remoteManagement.empty")}
+          </div>
+        ) : viewMode === "card" ? (
+          <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(300px,1fr))]">
+            {rows.map((row, idx) => (
+              <div
+                key={row.key}
+                className={cn(
+                  "flex flex-col rounded-xl border bg-card p-4 transition-shadow hover:shadow-md",
+                  !row.online && "opacity-60",
+                )}
+              >
+                {/* 头部：序号 + 主机名（硬件详情悬浮）+ 版本 + 在线状态 */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground tabular-nums">
+                      {idx + 1}
+                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="truncate font-medium cursor-help underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {row.hostname || "—"}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent
+                        side="bottom"
+                        sideOffset={8}
+                        className="w-[360px] p-3"
+                      >
+                        <HardwareDetails hardware={row.hardware} />
+                      </TooltipContent>
+                    </Tooltip>
+                    {row.appVersion && (
+                      <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] font-normal text-muted-foreground">
+                        v{row.appVersion.replace(/^v/, "")}
+                      </span>
+                    )}
+                  </div>
+                  <span
+                    className={cn(
+                      "inline-flex shrink-0 items-center gap-1.5 text-xs",
+                      row.online ? "text-success" : "text-muted-foreground",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "size-2 rounded-full",
+                        row.online ? "bg-success" : "bg-muted-foreground",
+                      )}
+                    />
+                    {row.online
+                      ? t("remoteManagement.online")
+                      : t("remoteManagement.offline")}
+                  </span>
+                </div>
+
+                {/* 信息区 */}
+                <div className="mt-2.5 space-y-1 text-xs text-muted-foreground">
+                  {row.account && (
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 text-xs font-normal text-muted-foreground cursor-pointer hover:text-foreground hover:underline disabled:cursor-default disabled:hover:no-underline disabled:hover:text-muted-foreground"
+                      title={t("remoteManagement.viewOnly")}
+                      disabled={!row.online || connectingKey !== null}
+                      onClick={() => void handleConnect(row, "view")}
+                    >
+                      <LuEye className="w-3 h-3 shrink-0" />
+                      <span className="truncate">{row.account}</span>
+                    </button>
+                  )}
+                  {row.os && (
+                    <div className="truncate" title={row.os}>
+                      {row.os}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <LuGlobe className="w-3 h-3 shrink-0" />
+                    {row.address || "—"}
+                  </div>
+                  {row.note && (
+                    <div
+                      className="rounded bg-muted/60 px-2 py-1 break-all"
+                      title={row.note}
+                    >
+                      {row.note}
+                    </div>
+                  )}
+                </div>
+
+                {/* 操作区 */}
+                <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t pt-3">
+                  {ACTIONS.map(({ mode, labelKey, Icon }) => (
+                    <Button
+                      key={mode}
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      disabled={!row.online || connectingKey !== null}
+                      onClick={() => void handleConnect(row, mode)}
+                    >
+                      {connectingKey === `${row.key}:${mode}` ? (
+                        <LuLoaderCircle className="w-3.5 h-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <Icon className="w-3.5 h-3.5 mr-1" />
+                      )}
+                      {t(labelKey)}
+                    </Button>
+                  ))}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="ml-auto h-7 px-2 text-xs text-destructive hover:bg-destructive/10"
+                    disabled={deletingId !== null}
+                    onClick={() => void handleDeleteMachine(row)}
+                  >
+                    {deletingId === row.clientId ? (
+                      <LuLoaderCircle className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <LuTrash2 className="w-3.5 h-3.5" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell
-                  colSpan={6}
-                  className="text-center py-12 text-muted-foreground"
-                >
-                  <LuLoaderCircle className="w-6 h-6 animate-spin mx-auto mb-2" />
-                  {t("remoteManagement.loading")}
-                </TableCell>
+                <TableHead className="w-12">#</TableHead>
+                <TableHead>{t("remoteManagement.colHostname")}</TableHead>
+                <TableHead>{t("remoteManagement.colOs")}</TableHead>
+                <TableHead>{t("remoteManagement.colAddress")}</TableHead>
+                <TableHead>{t("remoteManagement.colStatus")}</TableHead>
+                <TableHead className="text-right">
+                  {t("remoteManagement.colActions")}
+                </TableHead>
               </TableRow>
-            ) : rows.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={6}
-                  className="text-center py-12 text-muted-foreground"
-                >
-                  {t("remoteManagement.empty")}
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((row, idx) => (
+            </TableHeader>
+            <TableBody>
+              {rows.map((row, idx) => (
                 <TableRow key={row.key}>
-                  <TableCell className="text-muted-foreground text-sm">
+                  <TableCell className="text-muted-foreground text-sm tabular-nums">
                     {idx + 1}
                   </TableCell>
                   <TableCell className="font-medium">
@@ -624,10 +779,10 @@ export function RemoteManagementPage() {
                     </div>
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </div>
     </div>
   );

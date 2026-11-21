@@ -55,6 +55,11 @@ interface Props {
   selectedGroupId: string | null;
   onGroupSelect: (groupId: string) => void;
   pageTitle?: string;
+  /** 爆文库 TAB（2026-11-21）：非 null 时标题栏显示 工作台/爆文库 切换 */
+  baowenkuTab?: {
+    active: boolean;
+    onChange: (active: boolean) => void;
+  };
 }
 
 /**
@@ -194,6 +199,7 @@ const HomeHeader = ({
   selectedGroupId,
   onGroupSelect,
   pageTitle,
+  baowenkuTab,
 }: Props) => {
   const { t } = useTranslation();
   const profileDrag = useProfileGroupDrag();
@@ -377,6 +383,36 @@ const HomeHeader = ({
       )}
 
       <UserBadge />
+
+      {/* 爆文库 TAB 切换（2026-11-21）：工作台 / 爆文库，点爆文库整个内容区变网页 */}
+      {baowenkuTab && (
+        <div className="ml-2 flex shrink-0 items-center rounded-md border border-border bg-background p-0.5">
+          <button
+            type="button"
+            className={cn(
+              "flex h-6 items-center rounded px-2.5 text-xs font-medium transition-colors",
+              !baowenkuTab.active
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => baowenkuTab.onChange(false)}
+          >
+            工作台
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "flex h-6 items-center rounded px-2.5 text-xs font-medium transition-colors",
+              baowenkuTab.active
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => baowenkuTab.onChange(true)}
+          >
+            爆文库
+          </button>
+        </div>
+      )}
 
       {pageTitle ? (
         <span className="ml-2 text-xs font-semibold text-card-foreground">

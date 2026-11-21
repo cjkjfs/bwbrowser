@@ -4096,6 +4096,7 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_vps_bind_info,
       bwbrowser_cloud::bwbrowser_set_vps_bind,
       bwbrowser_cloud::bwbrowser_open_vps_login,
+      bwbrowser_cloud::bwbrowser_get_baowenku_url,
       bwbrowser_cloud::bwbrowser_get_vps_profile_info,
       bwbrowser_cloud::bwbrowser_set_vps_proxy,
       bwbrowser_cloud::bwbrowser_delete_vps_data,

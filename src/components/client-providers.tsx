@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { I18nProvider } from "@/components/i18n-provider";
 import { OnboardingProvider } from "@/components/onboarding-provider";
 import { CustomThemeProvider } from "@/components/theme-provider";
+import { ConfirmDialogProvider } from "@/components/ui/confirm-dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WindowDragArea } from "@/components/window-drag-area";
@@ -26,13 +27,15 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
             covers CSS transitions — this covers the JS-driven ones. */}
         <MotionConfig reducedMotion="user">
           <InputModalityProvider>
-            <WindowDragArea />
-            <TooltipProvider>
-              <LaunchActivityProvider>
-                <OnboardingProvider>{children}</OnboardingProvider>
-              </LaunchActivityProvider>
-            </TooltipProvider>
-            <Toaster />
+            <ConfirmDialogProvider>
+              <WindowDragArea />
+              <TooltipProvider>
+                <LaunchActivityProvider>
+                  <OnboardingProvider>{children}</OnboardingProvider>
+                </LaunchActivityProvider>
+              </TooltipProvider>
+              <Toaster />
+            </ConfirmDialogProvider>
           </InputModalityProvider>
         </MotionConfig>
       </CustomThemeProvider>

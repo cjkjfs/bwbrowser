@@ -19,7 +19,6 @@ import { BwbrowserProxyManagementDialog } from "@/components/bwbrowser-proxy-man
 import { CloneProfileDialog } from "@/components/clone-profile-dialog";
 import { CloseConfirmDialog } from "@/components/close-confirm-dialog";
 import { CommandPalette } from "@/components/command-palette";
-import { CommercialTrialModal } from "@/components/commercial-trial-modal";
 import { CookieBotPage, type CookieBotTab } from "@/components/cookie-bot-page";
 import { CookieCopyDialog } from "@/components/cookie-copy-dialog";
 import { CookieManagementDialog } from "@/components/cookie-management-dialog";
@@ -78,7 +77,6 @@ import { WindowResizeWarningDialog } from "@/components/window-resize-warning-di
 import { useAppUpdateNotifications } from "@/hooks/use-app-update-notifications";
 import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import { useCloudAuth } from "@/hooks/use-cloud-auth";
-import { useCommercialTrial } from "@/hooks/use-commercial-trial";
 import { cookieBotScopeFor, useCookieBot } from "@/hooks/use-cookie-bot";
 import { useGroupEvents } from "@/hooks/use-group-events";
 import { useKonamiCode } from "@/hooks/use-konami-code";
@@ -123,6 +121,7 @@ import {
   showSyncProgressToast,
   showToast,
 } from "@/lib/toast-utils";
+import { cn } from "@/lib/utils";
 import type {
   BrowserProfile,
   ConsistencyResult,
@@ -353,12 +352,6 @@ export default function Home() {
     isLoading: termsLoading,
     checkTerms,
   } = useWayfernTerms();
-  const {
-    trialStatus,
-    hasAcknowledged: trialAcknowledged,
-    checkTrialStatus,
-  } = useCommercialTrial();
-
   // Cloud auth for cross-OS unlock
   const {
     user: cloudUser,
@@ -386,13 +379,6 @@ export default function Home() {
     firstRunOnboarding,
     welcomeOpen,
   ]);
-  // Shown once when the commercial trial runs out; modal, so it goes first.
-  const commercialTrialModalOpen =
-    !termsLoading &&
-    termsAccepted === true &&
-    trialStatus?.type === "Expired" &&
-    !trialAcknowledged &&
-    !crossOsUnlocked;
   // Feature tips and the paid-plan welcome wait for a settled app: not the
   // first-run session, terms accepted, nothing modal in the way.
   const tipsFlow = useTips({
@@ -405,8 +391,7 @@ export default function Home() {
       !thankYouOpen &&
       !isOnbordaVisible &&
       !termsLoading &&
-      termsAccepted === true &&
-      !commercialTrialModalOpen,
+      termsAccepted === true,
   });
   const { openTips, closeTips } = tipsFlow;
   // Bulk run/stop is a paid (browser automation) feature, matching the
@@ -616,8 +601,75 @@ export default function Home() {
     }
   }, []);
 
+  // ===== 爆文库全页 TAB（2026-11-21） =====
+  // 标题栏 TAB 切换：工作台 / 爆文库。点爆文库整个内容区变成网页；
+  // iframe 挂载后不卸载（切走仅 CSS 隐藏），网页会话/滚动位置持久。
+  // URL 由后端命令 bwbrowser_get_baowenku_url 构造（自动登录，每次拉取刷新登录态）。
+  const [baowenkuTabActive, setBaowenkuTabActive] = useState(
+    () => localStorage.getItem("baowenku_tab_active") === "1",
+  );
+  const [baowenkuUrl, setBaowenkuUrl] = useState<string | null>(null);
+  const [baowenkuLoading, setBaowenkuLoading] = useState(false);
+  const [baowenkuBound, setBaowenkuBound] = useState(false);
+  const fetchBaowenkuUrl = useCallback(() => {
+    setBaowenkuLoading(true);
+    invoke<string>("bwbrowser_get_baowenku_url")
+      .then((url) => {
+        setBaowenkuUrl(url);
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        showErrorToast(`打开爆文库失败: ${msg}`);
+      })
+      .finally(() => {
+        setBaowenkuLoading(false);
+      });
+  }, []);
+  // 绑定状态：决定标题栏是否显示爆文库 TAB
+  useEffect(() => {
+    let cancelled = false;
+    const refreshBind = () => {
+      invoke<{ success: boolean; bound?: boolean }>("bwbrowser_vps_bind_info")
+        .then((d) => {
+          if (!cancelled) setBaowenkuBound(!!(d.success && d.bound));
+        })
+        .catch(() => {
+          if (!cancelled) setBaowenkuBound(false);
+        });
+    };
+    refreshBind();
+    const unbind = listen("vps-bind-changed", refreshBind);
+    const unauth = listen("cloud-auth-changed", refreshBind);
+    return () => {
+      cancelled = true;
+      void unbind.then((fn) => fn());
+      void unauth.then((fn) => fn());
+    };
+  }, []);
+  // TAB 激活但还没拉过 URL（首次点开 / 启动时恢复了上次的 TAB）→ 拉取
+  useEffect(() => {
+    if (baowenkuTabActive && !baowenkuUrl && !baowenkuLoading) {
+      fetchBaowenkuUrl();
+    }
+  }, [baowenkuTabActive, baowenkuUrl, baowenkuLoading, fetchBaowenkuUrl]);
+  const toggleBaowenkuTab = useCallback(
+    (active: boolean) => {
+      // 已在爆文库页时再点一次「爆文库」TAB = 重新登录刷新（重新拉取
+      // auto_login URL，iframe 换 key 重载）；从工作台首次切过来不动已有页面。
+      if (active && baowenkuTabActive && baowenkuUrl) {
+        fetchBaowenkuUrl();
+      }
+      setBaowenkuTabActive(active);
+      localStorage.setItem("baowenku_tab_active", active ? "1" : "0");
+    },
+    [baowenkuTabActive, baowenkuUrl, fetchBaowenkuUrl],
+  );
+
   const handleRailNavigate = useCallback(
     (page: AppPage) => {
+      // 切换导航页时回到工作台视图（爆文库 TAB 自动收起）
+      setBaowenkuTabActive(false);
+      localStorage.setItem("baowenku_tab_active", "0");
       // Always reset every sub-page-able dialog before opening the next one,
       // so navigating from one rail item to another doesn't stack two
       // sub-pages on top of each other.
@@ -2425,14 +2477,33 @@ export default function Home() {
               selectedGroupId={selectedGroupId}
               onGroupSelect={handleSelectGroup}
               pageTitle={subPageTitle}
+              baowenkuTab={
+                baowenkuBound
+                  ? {
+                      active: baowenkuTabActive,
+                      onChange: toggleBaowenkuTab,
+                    }
+                  : undefined
+              }
             />
             <div className="flex min-h-0 flex-1">
-              <RailNav
-                currentPage={currentPage}
-                onNavigate={handleRailNavigate}
-                cookieBotRunning={Object.keys(cookieBotLiveSessions).length > 0}
-              />
-              <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+              <div
+                className={cn("flex shrink-0", baowenkuTabActive && "hidden")}
+              >
+                <RailNav
+                  currentPage={currentPage}
+                  onNavigate={handleRailNavigate}
+                  cookieBotRunning={
+                    Object.keys(cookieBotLiveSessions).length > 0
+                  }
+                />
+              </div>
+              <main
+                className={cn(
+                  "min-w-0 flex-1 flex-col overflow-hidden",
+                  baowenkuTabActive ? "hidden" : "flex",
+                )}
+              >
                 {currentPage === "profiles" && !isBwbrowserLogin && (
                   <div className="flex min-h-0 flex-1 flex-col px-3 pt-2.5">
                     <SynchronizerPanel
@@ -2794,6 +2865,31 @@ export default function Home() {
                   />
                 )}
               </main>
+
+              {/* 爆文库全页视图：TAB 激活时整个内容区变成网页。
+                  iframe 挂载后不再卸载（切走仅 CSS 隐藏）——网页会话/滚动位置持久。
+                  重新登录：已激活时再点一次 TAB 即重新拉取 auto_login URL。 */}
+              <div
+                className={cn(
+                  "min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
+                  baowenkuTabActive ? "flex" : "hidden",
+                )}
+              >
+                <div className="min-h-0 flex-1">
+                  {baowenkuUrl ? (
+                    <iframe
+                      key={baowenkuUrl}
+                      src={baowenkuUrl}
+                      title="爆文库"
+                      className="h-full w-full border-0"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                      {baowenkuLoading ? "正在打开爆文库..." : ""}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <CreateProfileDialog
@@ -3167,12 +3263,6 @@ export default function Home() {
             <WayfernTermsDialog
               isOpen={!termsLoading && termsAccepted === false}
               onAccepted={checkTerms}
-            />
-
-            {/* Commercial Trial Modal - shown once when trial expires (skip for paid users) */}
-            <CommercialTrialModal
-              isOpen={commercialTrialModalOpen}
-              onClose={checkTrialStatus}
             />
 
             <WindowResizeWarningDialog

@@ -3635,6 +3635,8 @@
   "remoteManagement": {
     "title": "Administración remota",
     "refresh": "Actualizar",
+    "cardView": "Tarjetas",
+    "listView": "Lista",
     "online": "En línea",
     "offline": "Sin conexión",
     "colHostname": "Nombre de host",
@@ -3749,5 +3751,9 @@
     "save": "Guardar ID de teléfono",
     "success": "ID de teléfono guardados ({{count}} cuentas)",
     "failed": "Configurar ID: {{ok}} correctos, {{failed}} fallidos — {{errors}}"
+  },
+  "confirmDialog": {
+    "infoTitle": "Aviso",
+    "confirmTitle": "Confirme"
   }
 }

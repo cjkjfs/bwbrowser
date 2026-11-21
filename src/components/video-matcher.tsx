@@ -4,6 +4,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { alertDialog, confirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 
 interface MatchSegment {
@@ -150,12 +151,17 @@ export function VideoMatchTab() {
   };
 
   const deleteModel = async (modelId: string) => {
-    if (!confirm("确定删除该模型文件？下次使用会重新下载。")) return;
+    if (
+      !(await confirmDialog("确定删除该模型文件？下次使用会重新下载。", {
+        kind: "danger",
+      }))
+    )
+      return;
     try {
       await invoke("video_matcher_delete_model", { modelId });
       await refreshModels();
     } catch (error) {
-      alert(`删除失败: ${error}`);
+      void alertDialog(`删除失败: ${error}`, { kind: "danger" });
     }
   };
 
@@ -201,7 +207,7 @@ export function VideoMatchTab() {
     } catch (error) {
       const msg = String(error);
       if (!msg.includes("取消")) {
-        alert(`下载失败: ${msg}`);
+        void alertDialog(`下载失败: ${msg}`, { kind: "danger" });
       }
       setModelDownloads((prev) => {
         const next = { ...prev };
@@ -236,9 +242,9 @@ export function VideoMatchTab() {
       });
       setCacheCleared(true);
       setTimeout(() => setCacheCleared(false), 2000);
-      alert(`已清除 ${count} 个缓存文件`);
+      void alertDialog(`已清除 ${count} 个缓存文件`, { kind: "info" });
     } catch (error) {
-      alert(`清除缓存失败: ${error}`);
+      void alertDialog(`清除缓存失败: ${error}`, { kind: "danger" });
     }
   };
 
@@ -281,7 +287,7 @@ export function VideoMatchTab() {
       setTargetVideo("");
       setSegments([]);
     } catch (error) {
-      alert(`添加任务失败: ${error}`);
+      void alertDialog(`添加任务失败: ${error}`, { kind: "danger" });
     }
   };
 
@@ -314,7 +320,7 @@ export function VideoMatchTab() {
       await invoke("video_matcher_cancel_task", { taskId });
       await refreshTasks();
     } catch (error) {
-      alert(`取消失败: ${error}`);
+      void alertDialog(`取消失败: ${error}`, { kind: "danger" });
     }
   };
 
@@ -323,7 +329,7 @@ export function VideoMatchTab() {
       await invoke("video_matcher_delete_task", { taskId });
       await refreshTasks();
     } catch (error) {
-      alert(`删除失败: ${error}`);
+      void alertDialog(`删除失败: ${error}`, { kind: "danger" });
     }
   };
 
@@ -332,7 +338,7 @@ export function VideoMatchTab() {
       await invoke("video_matcher_clear_finished_tasks");
       await refreshTasks();
     } catch (error) {
-      alert(`清理失败: ${error}`);
+      void alertDialog(`清理失败: ${error}`, { kind: "danger" });
     }
   };
 
@@ -407,10 +413,12 @@ export function VideoMatchTab() {
         referenceDuration: refDuration,
       });
       setDraftPath(path);
-      alert(`草稿已导出:\n${path}\n\n在剪映首页即可看到该草稿。`);
+      void alertDialog(`草稿已导出:\n${path}\n\n在剪映首页即可看到该草稿。`, {
+        kind: "info",
+      });
     } catch (error) {
       console.error("导出失败:", error);
-      alert(`导出失败: ${error}`);
+      void alertDialog(`导出失败: ${error}`, { kind: "danger" });
     } finally {
       setExporting(false);
     }
@@ -451,10 +459,12 @@ export function VideoMatchTab() {
         referenceDuration: refDuration,
       });
       setDraftPath(path);
-      alert(`草稿已导出:\n${path}\n\n在剪映首页即可看到该草稿。`);
+      void alertDialog(`草稿已导出:\n${path}\n\n在剪映首页即可看到该草稿。`, {
+        kind: "info",
+      });
     } catch (error) {
       console.error("导出失败:", error);
-      alert(`导出失败: ${error}`);
+      void alertDialog(`导出失败: ${error}`, { kind: "danger" });
     } finally {
       setExporting(false);
     }
@@ -493,13 +503,16 @@ export function VideoMatchTab() {
         referenceDuration: refDuration,
       });
       setDraftPath(path);
-      alert(`PR 工程已导出:
+      void alertDialog(
+        `PR 工程已导出:
 ${path}
 
-在 Premiere Pro 中导入该 XML 即可查看片段。`);
+在 Premiere Pro 中导入该 XML 即可查看片段。`,
+        { kind: "info" },
+      );
     } catch (error) {
       console.error("导出失败:", error);
-      alert(`导出失败: ${error}`);
+      void alertDialog(`导出失败: ${error}`, { kind: "danger" });
     } finally {
       setExporting(false);
     }

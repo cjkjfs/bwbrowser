@@ -3606,6 +3606,8 @@
   "remoteManagement": {
     "title": "Remote Management",
     "refresh": "Refresh",
+    "cardView": "Cards",
+    "listView": "List",
     "online": "Online",
     "offline": "Offline",
     "colHostname": "Hostname",
@@ -3720,5 +3722,9 @@
     "save": "Save phone IDs",
     "success": "Phone IDs saved ({{count}} accounts)",
     "failed": "Set phone IDs: {{ok}} succeeded, {{failed}} failed — {{errors}}"
+  },
+  "confirmDialog": {
+    "infoTitle": "Notice",
+    "confirmTitle": "Please confirm"
   }
 }

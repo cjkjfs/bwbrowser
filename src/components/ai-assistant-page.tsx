@@ -2,7 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { confirm, open } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -22,6 +22,7 @@ import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { confirmDialog } from "@/components/ui/confirm-dialog";
 
 import { Textarea } from "@/components/ui/textarea";
 import { translateBackendError } from "@/lib/backend-errors";
@@ -506,9 +507,9 @@ export function AiAssistantPage({
   }, []);
 
   const clear = useCallback(async () => {
-    const ok = await confirm(t("aiAssistant.clearBody"), {
+    const ok = await confirmDialog(t("aiAssistant.clearBody"), {
       title: t("aiAssistant.clearTitle"),
-      kind: "warning",
+      kind: "danger",
     }).catch(() => false);
     if (!ok) return;
     setSessions((prev) =>
@@ -536,9 +537,9 @@ export function AiAssistantPage({
         return;
       }
       if (target.messages.length > 0) {
-        const ok = await confirm(t("aiAssistant.deleteSessionBody"), {
+        const ok = await confirmDialog(t("aiAssistant.deleteSessionBody"), {
           title: t("aiAssistant.deleteSessionTitle"),
-          kind: "warning",
+          kind: "danger",
         }).catch(() => false);
         if (!ok) return;
       }

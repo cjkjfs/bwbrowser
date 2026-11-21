@@ -2,10 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import {
-  confirm as dialogConfirm,
-  open as openDialog,
-} from "@tauri-apps/plugin-dialog";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LuCheck,
@@ -36,6 +33,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import { confirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -1159,8 +1157,8 @@ export function VideoDownloadPage({
               size="sm"
               onClick={() => {
                 void (async () => {
-                  const ok = await dialogConfirm("确定要删除全部任务吗？", {
-                    kind: "warning",
+                  const ok = await confirmDialog("确定要删除全部任务吗？", {
+                    kind: "danger",
                   });
                   if (ok) deleteAll();
                 })();

@@ -1187,6 +1187,7 @@ pub async fn bwbrowser_set_vps_bind(
 /// 打开 yacm.xin 自动登录页。未绑定时报错（按钮本身也不会显示）。
 ///
 /// 旧版逻辑（VPS登录专用 profile、指纹处理、书签/cookie 独立同步等）已整体移除。
+/// 2026-11-21：本接口保持原样不动；内嵌网页版走新命令 bwbrowser_get_baowenku_url。
 #[tauri::command]
 pub async fn bwbrowser_open_vps_login(
   app_handle: tauri::AppHandle,
@@ -1256,6 +1257,29 @@ pub async fn bwbrowser_open_vps_login(
   }
 
   Ok(())
+}
+
+/// 获取爆文库自动登录 URL（供前端在右侧面板以 iframe 内嵌，不启动任何东西）。
+/// 门禁与鉴权 URL 构造和 bwbrowser_open_vps_login 完全一致：必须已绑定爆文库
+/// 账号；URL 用客户端登录凭据走 yacm.xin 自动登录（服务端 PHP 会话）。
+#[tauri::command]
+pub async fn bwbrowser_get_baowenku_url(redirect: Option<String>) -> Result<String, String> {
+  // 门禁：必须绑定爆文库账号
+  let bind = BWBROWSER_AUTH.get_vps_bind().await?;
+  bind.account.ok_or_else(|| {
+    "未绑定爆文库账号：请先在云端账号管理的编辑账号中开启「绑定爆文库」".to_string()
+  })?;
+
+  let (username, password) = BWBROWSER_AUTH
+    .get_credentials()
+    .ok_or_else(|| "未登录云端账号".to_string())?;
+  let redirect = redirect.unwrap_or_else(|| "baowenku.php".to_string());
+  Ok(format!(
+    "{LOGIN_URL}?auto_login=1&username={}&password={}&redirect={}",
+    urlencode(&username),
+    urlencode(&password),
+    urlencode(&redirect),
+  ))
 }
 
 /// 获取 VPS 登录 profile 信息（用于右键菜单显示当前代理等）

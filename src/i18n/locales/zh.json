@@ -3612,6 +3612,8 @@
   "remoteManagement": {
     "title": "远程管理",
     "refresh": "刷新",
+    "cardView": "卡片",
+    "listView": "列表",
     "online": "在线",
     "offline": "离线",
     "colHostname": "主机名",
@@ -3726,5 +3728,9 @@
     "save": "保存手机编号",
     "success": "手机编号已保存（{{count}} 个账号）",
     "failed": "设置手机编号：成功 {{ok}} 个，失败 {{failed}} 个 —— {{errors}}"
+  },
+  "confirmDialog": {
+    "infoTitle": "提示",
+    "confirmTitle": "请确认"
   }
 }

@@ -10,7 +10,7 @@ import type { AppUpdateInfo } from "@/types";
 import { RippleButton } from "./ui/ripple";
 
 /** Seconds between the "update ready" toast appearing and the automatic restart. */
-const AUTO_RESTART_SECONDS = 10;
+const AUTO_RESTART_SECONDS = 5;
 /** How often to retry the restart while browser windows are still open. */
 const BROWSER_RETRY_INTERVAL_MS = 60_000;
 
@@ -21,6 +21,8 @@ interface AppUpdateToastProps {
   updateReady?: boolean;
   /** When the update is ready, restart automatically after a short countdown. */
   autoRestart?: boolean;
+  /** Forced update: countdown cannot be cancelled or dismissed. */
+  forceUpdate?: boolean;
 }
 
 export function AppUpdateToast({
@@ -29,6 +31,7 @@ export function AppUpdateToast({
   onDismiss,
   updateReady = false,
   autoRestart = false,
+  forceUpdate = false,
 }: AppUpdateToastProps) {
   const { t } = useTranslation();
   const [hasPendingInstaller, setHasPendingInstaller] = useState(false);
@@ -145,14 +148,16 @@ export function AppUpdateToast({
             </div>
           </div>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onDismiss}
-            className="size-6 shrink-0 p-0"
-          >
-            <FaTimes className="size-3" />
-          </Button>
+          {!forceUpdate && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onDismiss}
+              className="size-6 shrink-0 p-0"
+            >
+              <FaTimes className="size-3" />
+            </Button>
+          )}
         </div>
 
         <div className="mt-3 flex items-center gap-2">
@@ -170,7 +175,7 @@ export function AppUpdateToast({
                     })
                   : t("appUpdate.toast.restartNow")}
               </RippleButton>
-              {countdown !== null && countdown > 0 && (
+              {!forceUpdate && countdown !== null && countdown > 0 && (
                 <RippleButton
                   variant="outline"
                   onClick={cancelAutoRestart}
@@ -180,7 +185,7 @@ export function AppUpdateToast({
                   {t("appUpdate.toast.cancelAutoRestart")}
                 </RippleButton>
               )}
-              {hasPendingInstaller && (
+              {!forceUpdate && hasPendingInstaller && (
                 <RippleButton
                   variant="outline"
                   onClick={() => void handleManualInstall()}
@@ -205,7 +210,7 @@ export function AppUpdateToast({
               </RippleButton>
             )
           )}
-          {!autoRestartActive && (
+          {!autoRestartActive && !forceUpdate && (
             <RippleButton
               variant="outline"
               onClick={onDismiss}

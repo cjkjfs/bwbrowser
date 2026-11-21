@@ -6,10 +6,7 @@
 
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import {
-  confirm as dialogConfirm,
-  open as openFileDialog,
-} from "@tauri-apps/plugin-dialog";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -35,6 +32,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { confirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -427,7 +425,13 @@ function AccountsTab() {
   }, [syncFromCloud]);
 
   const remove = async (account: DoubaoAccount) => {
-    const ok = await dialogConfirm(`确定删除账号「${account.display_name}」？`);
+    const ok = await confirmDialog(
+      `确定删除账号「${account.display_name}」？`,
+      {
+        kind: "danger",
+        title: "删除账号",
+      },
+    );
     if (!ok) return;
     try {
       await invoke("doubao_delete_account", { id: account.id });
@@ -803,7 +807,10 @@ function TasksTab({
   };
 
   const remove = async (task: DoubaoVideoTask) => {
-    const ok = await dialogConfirm("确定删除该任务？");
+    const ok = await confirmDialog("确定删除该任务？", {
+      kind: "danger",
+      title: "删除任务",
+    });
     if (!ok) return;
     try {
       await invoke("doubao_delete_task", { id: task.id });
@@ -1517,8 +1524,9 @@ function MaterialsTab() {
   };
 
   const remove = async (material: DoubaoMaterial) => {
-    const ok = await dialogConfirm(
+    const ok = await confirmDialog(
       `删除素材「${material.name}」？已创建的任务不受影响。`,
+      { kind: "danger", title: "删除素材" },
     );
     if (!ok) return;
     try {
@@ -1544,8 +1552,9 @@ function MaterialsTab() {
     );
 
   const removeSelected = async () => {
-    const ok = await dialogConfirm(
+    const ok = await confirmDialog(
       `删除选中的 ${selected.length} 张素材？已创建的任务不受影响。`,
+      { kind: "danger", title: "删除素材" },
     );
     if (!ok) return;
     try {

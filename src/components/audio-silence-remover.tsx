@@ -4,6 +4,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { alertDialog } from "@/components/ui/confirm-dialog";
 
 interface SilenceSegment {
   start: number;
@@ -184,7 +185,7 @@ export function AudioSilenceRemover() {
       setSilenceSegments(segments);
     } catch (error) {
       console.error("Failed to detect silence:", error);
-      alert(`检测失败: ${error}`);
+      void alertDialog(`检测失败: ${error}`, { kind: "danger" });
     }
   };
 
@@ -224,7 +225,7 @@ export function AudioSilenceRemover() {
       }
     } catch (error) {
       console.error("Failed to process audio:", error);
-      alert(`处理失败: ${error}`);
+      void alertDialog(`处理失败: ${error}`, { kind: "danger" });
     } finally {
       setProcessing(false);
     }

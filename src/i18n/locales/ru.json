@@ -3668,6 +3668,8 @@
   "remoteManagement": {
     "title": "Удалённое управление",
     "refresh": "Обновить",
+    "cardView": "Карточки",
+    "listView": "Список",
     "online": "В сети",
     "offline": "Не в сети",
     "colHostname": "Имя хоста",
@@ -3782,5 +3784,9 @@
     "save": "Сохранить номера телефонов",
     "success": "Номера сохранены (аккаунтов: {{count}})",
     "failed": "Номера: успешно {{ok}}, ошибок {{failed}} — {{errors}}"
+  },
+  "confirmDialog": {
+    "infoTitle": "Уведомление",
+    "confirmTitle": "Подтвердите"
   }
 }

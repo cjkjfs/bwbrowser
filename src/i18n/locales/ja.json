@@ -3602,6 +3602,8 @@
   "remoteManagement": {
     "title": "リモート管理",
     "refresh": "更新",
+    "cardView": "カード",
+    "listView": "リスト",
     "online": "オンライン",
     "offline": "オフライン",
     "colHostname": "ホスト名",
@@ -3716,5 +3718,9 @@
     "save": "携帯番号を保存",
     "success": "携帯番号を保存しました（{{count}} 件）",
     "failed": "携帯番号の設定：成功 {{ok}} 件、失敗 {{failed}} 件 — {{errors}}"
+  },
+  "confirmDialog": {
+    "infoTitle": "お知らせ",
+    "confirmTitle": "確認してください"
   }
 }

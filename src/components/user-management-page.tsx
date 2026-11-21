@@ -20,6 +20,7 @@ import { AnimatedSwitch } from "@/components/ui/animated-switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { confirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -948,7 +949,12 @@ export function UserManagementPage() {
   };
 
   const handleDelete = async (user: ManagementUser) => {
-    if (!confirm(`确定要删除用户「${user.real_name}」吗？`)) return;
+    if (
+      !(await confirmDialog(`确定要删除用户「${user.real_name}」吗？`, {
+        kind: "danger",
+      }))
+    )
+      return;
     try {
       await deleteUser(user.id, user.real_name);
     } catch (e) {
@@ -966,7 +972,12 @@ export function UserManagementPage() {
   };
 
   const handleDeleteProfile = async (profile: PermissionProfile) => {
-    if (!confirm(`确定要删除权限组「${profile.name}」吗？`)) return;
+    if (
+      !(await confirmDialog(`确定要删除权限组「${profile.name}」吗？`, {
+        kind: "danger",
+      }))
+    )
+      return;
     try {
       await deletePermissionProfile(
         profile.id,

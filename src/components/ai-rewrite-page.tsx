@@ -3,7 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { confirm, open, save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -46,6 +46,7 @@ import { AiAssistantPage } from "@/components/ai-assistant-page";
 import { AiRewriteSettingsDialog } from "@/components/ai-rewrite-settings-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { confirmDialog } from "@/components/ui/confirm-dialog";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
@@ -583,9 +584,9 @@ export function AiRewritePage({
   /** 清空整个任务列表（含本地落盘文件）。 */
   const clearTasks = useCallback(async () => {
     if (tasks.length === 0) return;
-    const ok = await confirm(
+    const ok = await confirmDialog(
       `确定要清空全部 ${tasks.length} 条任务吗？此操作不可撤销。`,
-      { kind: "warning", okLabel: "清空", cancelLabel: "取消" },
+      { kind: "danger", okLabel: "清空", cancelLabel: "取消" },
     ).catch(() => false);
     if (!ok) return;
     setTasks([]);

@@ -11,7 +11,7 @@ import {
 } from "@tanstack/react-table";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { confirm as dialogConfirm, open } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FaChrome } from "react-icons/fa";
@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/animated-tabs";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { confirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -732,11 +733,11 @@ export function ExtensionManagementDialog({
       ),
     ];
     if (boundUsers.length === 0) return;
-    const ok = await dialogConfirm(
+    const ok = await confirmDialog(
       t("extensions.assignUsers.clearAllConfirm", {
         n: boundUsers.length,
       }),
-      { kind: "warning" },
+      { kind: "danger" },
     );
     if (!ok) return;
     setIsClearingBindings(true);

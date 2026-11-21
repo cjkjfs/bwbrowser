@@ -3602,6 +3602,8 @@
   "remoteManagement": {
     "title": "Quản lý từ xa",
     "refresh": "Làm mới",
+    "cardView": "Thẻ",
+    "listView": "Danh sách",
     "online": "Trực tuyến",
     "offline": "Ngoại tuyến",
     "colHostname": "Tên máy chủ",
@@ -3716,5 +3718,9 @@
     "save": "Lưu mã điện thoại",
     "success": "Đã lưu mã điện thoại ({{count}} tài khoản)",
     "failed": "Đặt mã: thành công {{ok}}, thất bại {{failed}} — {{errors}}"
+  },
+  "confirmDialog": {
+    "infoTitle": "Thông báo",
+    "confirmTitle": "Vui lòng xác nhận"
   }
 }

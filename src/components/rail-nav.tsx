@@ -2,7 +2,6 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { confirm } from "@tauri-apps/plugin-dialog";
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,7 +10,6 @@ import { GoGear } from "react-icons/go";
 import {
   LuClapperboard,
   LuCloud,
-  LuDoorOpen,
   LuDownload,
   LuGlobe,
   LuMonitorSmartphone,
@@ -22,10 +20,10 @@ import {
   LuUsers,
   LuVideo,
 } from "react-icons/lu";
+import { confirmDialog } from "@/components/ui/confirm-dialog";
 import { useBwbrowserAuth } from "@/hooks/use-bwbrowser-auth";
 import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import { useInputModality } from "@/hooks/use-input-modality";
-import { launchBwbrowserClone } from "@/lib/bwbrowser-physics";
 import { MOTION_SPRING_POSITION } from "@/lib/motion";
 import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import { cn } from "@/lib/utils";
@@ -55,10 +53,6 @@ export type AppPage =
   | "shortcuts"
   | "trash";
 
-const CLICK_THRESHOLD = 5;
-const CLICK_WINDOW_MS = 2000;
-const LOGO_HIDDEN_KEY = "bwbrowser-logo-hidden";
-
 // 中文菜单项（直接硬编码中文，不依赖 i18n）
 const RAIL_LABELS_ZH: Record<AppPage, string> = {
   profiles: "环境管理",
@@ -83,158 +77,6 @@ const RAIL_LABELS_ZH: Record<AppPage, string> = {
   shortcuts: "快捷键",
   trash: "回收站",
 };
-
-function useLogoEasterEgg({
-  currentPage,
-}: {
-  currentPage: AppPage;
-  onNavigate: (page: AppPage) => void;
-}) {
-  const reduceMotion = useReducedMotion();
-  const inputModality = useInputModality();
-  const playfulMotion = !reduceMotion && inputModality === "pointer";
-  const clickTimestamps = useRef<number[]>([]);
-  const [isPressed, setIsPressed] = useState(false);
-  const [wobbleKey, setWobbleKey] = useState(0);
-  /** Wiggles earned by the cheat code, which arrives by keyboard by nature. */
-  const [cheerKey, setCheerKey] = useState(0);
-  const [isFalling, setIsFalling] = useState(false);
-  /**
-   * Click count toward the bounce trigger while the user is on the profiles
-   * page. Capped at 4: each click here grows the logo by 25%, so step 4 has
-   * doubled the original size. Click 5 fires `triggerFall` and resets.
-   */
-  const [growStep, setGrowStep] = useState(0);
-  const resetTimeoutRef = useRef<number | null>(null);
-  const [isHidden, setIsHidden] = useState(() => {
-    try {
-      return sessionStorage.getItem(LOGO_HIDDEN_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
-  const logoRef = useRef<HTMLButtonElement>(null);
-  const cancelFallRef = useRef<(() => void) | null>(null);
-
-  const triggerFall = useCallback(() => {
-    const el = logoRef.current;
-    if (!el || isFalling) return;
-    setIsFalling(true);
-
-    cancelFallRef.current = launchBwbrowserClone(el, {
-      onExit: () => {
-        try {
-          sessionStorage.setItem(LOGO_HIDDEN_KEY, "1");
-        } catch {
-          // ignore — sessionStorage unavailable in some Tauri WebViews
-        }
-        setIsHidden(true);
-        setIsFalling(false);
-      },
-    });
-  }, [isFalling]);
-
-  useEffect(() => {
-    return () => {
-      cancelFallRef.current?.();
-    };
-  }, []);
-
-  const handleClick = useCallback(() => {
-    if (isFalling || isHidden) return;
-
-    // 如果不在 profiles 页面，不触发彩蛋动画
-    if (currentPage !== "profiles") {
-      return;
-    }
-
-    if (!playfulMotion) return;
-
-    const now = Date.now();
-    clickTimestamps.current = clickTimestamps.current.filter(
-      (t) => now - t < CLICK_WINDOW_MS,
-    );
-    clickTimestamps.current.push(now);
-
-    if (clickTimestamps.current.length >= CLICK_THRESHOLD) {
-      clickTimestamps.current = [];
-      setGrowStep(0);
-      if (resetTimeoutRef.current !== null) {
-        window.clearTimeout(resetTimeoutRef.current);
-        resetTimeoutRef.current = null;
-      }
-      triggerFall();
-    } else {
-      setGrowStep(
-        Math.min(clickTimestamps.current.length, CLICK_THRESHOLD - 1),
-      );
-      setWobbleKey((k) => k + 1);
-      if (resetTimeoutRef.current !== null) {
-        window.clearTimeout(resetTimeoutRef.current);
-      }
-      resetTimeoutRef.current = window.setTimeout(() => {
-        clickTimestamps.current = [];
-        setGrowStep(0);
-        resetTimeoutRef.current = null;
-      }, CLICK_WINDOW_MS);
-    }
-  }, [currentPage, isFalling, isHidden, triggerFall, playfulMotion]);
-
-  // Leaving the profiles page mid-streak cancels growth so we never end up
-  // with an outsized logo when the user returns later.
-  useEffect(() => {
-    if (currentPage !== "profiles" || !playfulMotion) {
-      clickTimestamps.current = [];
-      setGrowStep(0);
-      if (resetTimeoutRef.current !== null) {
-        window.clearTimeout(resetTimeoutRef.current);
-        resetTimeoutRef.current = null;
-      }
-    }
-  }, [currentPage, playfulMotion]);
-
-  // The cheat code (see useKonamiCode) is received with the same wiggle a
-  // click earns, so the bwbrowser visibly takes the credit. It is typed, so the
-  // pointer-only gate on click wiggles cannot apply; only reduced motion does.
-  useEffect(() => {
-    if (reduceMotion) return;
-    const onCheatCode = () => setCheerKey((k) => k + 1);
-    window.addEventListener("bwbrowser-cheat-code", onCheatCode);
-    return () => {
-      window.removeEventListener("bwbrowser-cheat-code", onCheatCode);
-    };
-  }, [reduceMotion]);
-
-  useEffect(() => {
-    if (!reduceMotion) return;
-    cancelFallRef.current?.();
-    cancelFallRef.current = null;
-    setIsFalling(false);
-    setIsPressed(false);
-    if (logoRef.current) logoRef.current.style.visibility = "";
-  }, [reduceMotion]);
-
-  useEffect(() => {
-    return () => {
-      if (resetTimeoutRef.current !== null) {
-        window.clearTimeout(resetTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  return {
-    logoRef,
-    isPressed,
-    setIsPressed,
-    wobbleKey,
-    cheerKey,
-    isFalling,
-    isHidden,
-    growStep,
-    handleClick,
-    playfulMotion,
-  };
-}
 
 interface RailNavProps {
   currentPage: AppPage;
@@ -457,18 +299,10 @@ export function RailNav({
     if (item.page === "account" && !canCloudAccount) return false;
     return true;
   });
-  const {
-    logoRef,
-    isPressed,
-    setIsPressed,
-    wobbleKey,
-    cheerKey,
-    isFalling,
-    isHidden,
-    growStep,
-    handleClick,
-    playfulMotion,
-  } = useLogoEasterEgg({ currentPage, onNavigate });
+  // 导航项入场/微交互动画开关（指针输入 + 未开启系统减弱动效时才播放）。
+  const reduceMotion = useReducedMotion();
+  const inputModality = useInputModality();
+  const playfulMotion = !reduceMotion && inputModality === "pointer";
 
   // ===== 爆文库入口 =====
   // 应用版本号（侧边栏底部显示 v2.4.8 之类）
@@ -478,10 +312,6 @@ export function RailNav({
       .then((info) => setAppVersion(info.app_version))
       .catch(() => {});
   }, []);
-  const [vpsLaunchProgress, setVpsLaunchProgress] = useState<number | null>(
-    null,
-  );
-
   // ===== 门禁远程开门（2026-11-20） =====
   // 仅当登录用户有开门资格（can_open=1）时才显示按钮；未登录/无资格/接口异常一律静默隐藏
   const [doorCanOpen, setDoorCanOpen] = useState(false);
@@ -503,8 +333,8 @@ export function RailNav({
   }, [refreshDoorPerm]);
   const handleDoorOpen = useCallback(async () => {
     if (doorOpening) return;
-    // 点开门先弹确认，防误触；WebView2 会吞掉原生 confirm()，必须用 plugin-dialog 的原生对话框
-    const ok = await confirm(
+    // 点开门先弹确认，防误触；全局确认对话框（与应用 UI 一致的 shadcn 风格）
+    const ok = await confirmDialog(
       "确定要远程开门吗？\n\n点击「确认开门」后门将立即打开。",
       {
         title: "远程开门",
@@ -527,100 +357,6 @@ export function RailNav({
       .finally(() => setDoorOpening(false));
   }, [doorOpening]);
 
-  // ===== 爆文库入口（2026-11-20 重构） =====
-  // 查询当前用户（按归属人）绑定的爆文库账号：有绑定 → 左上角显示「爆文库」按钮，
-  // 点击 = 启动绑定账号（完整账号启动链路）并打开 yacm.xin；未绑定 → 按钮不显示。
-  const [vpsBind, setVpsBind] = useState<{
-    accountId: number;
-    accountName: string;
-  } | null>(null);
-  const refreshVpsBind = useCallback(() => {
-    invoke<{
-      success: boolean;
-      bound?: boolean;
-      account?: { id: number; account_name?: string } | null;
-    }>("bwbrowser_vps_bind_info")
-      .then((d) => {
-        if (d.success && d.bound && d.account) {
-          setVpsBind({
-            accountId: d.account.id,
-            accountName: d.account.account_name ?? "",
-          });
-        } else {
-          setVpsBind(null);
-        }
-      })
-      .catch(() => setVpsBind(null));
-  }, []);
-  useEffect(() => {
-    void refreshVpsBind();
-    const unlisten = listen("cloud-auth-changed", () => {
-      // 登录/登出/切换账号后重查绑定
-      window.setTimeout(refreshVpsBind, 500);
-    });
-    // 编辑账号里开/关「绑定爆文库」后立即刷新左上角入口显隐
-    const unlistenBind = listen("vps-bind-changed", () => {
-      void refreshVpsBind();
-    });
-    return () => {
-      void unlisten.then((fn) => fn());
-      void unlistenBind.then((fn) => fn());
-    };
-  }, [refreshVpsBind]);
-  const handleVpsLogoLeftClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-
-      // 触发 logo 彩蛋动画
-      handleClick();
-
-      // 未绑定爆文库账号：仅保留彩蛋，不启动（此时「爆文库」文字不显示）
-      if (!vpsBind) return;
-
-      const accountId = vpsBind.accountId;
-      let unlistenProgress: (() => void) | undefined;
-
-      setVpsLaunchProgress(0);
-
-      // 监听后端真实启动进度（绑定账号走 account-launch-progress，按 account_id 过滤）
-      import("@tauri-apps/api/event")
-        .then(({ listen }) =>
-          listen<{ account_id: number; pct: number; label: string }>(
-            "account-launch-progress",
-            (event) => {
-              if (event.payload.account_id !== accountId) return;
-              const pct = Math.min(100, Math.max(0, event.payload.pct));
-              setVpsLaunchProgress(pct);
-            },
-          ),
-        )
-        .then((fn) => {
-          unlistenProgress = fn;
-        })
-        .catch((e) => {
-          console.warn("failed to listen launch progress", e);
-        });
-
-      invoke("bwbrowser_open_vps_login")
-        .then(() => {
-          setVpsLaunchProgress(100);
-          setTimeout(() => {
-            setVpsLaunchProgress(null);
-            showSuccessToast("爆文库已启动");
-          }, 500);
-        })
-        .catch((err: unknown) => {
-          setVpsLaunchProgress(null);
-          const msg = err instanceof Error ? err.message : String(err);
-          showErrorToast(`启动失败: ${msg}`);
-        })
-        .finally(() => {
-          unlistenProgress?.();
-        });
-    },
-    [handleClick, vpsBind],
-  );
-
   // 侧边栏宽度：w-44 = 176px，加上图标和文字
   const RAIL_WIDTH = "w-48";
 
@@ -631,110 +367,31 @@ export function RailNav({
         RAIL_WIDTH,
       )}
     >
-      {!isHidden ? (
+      {/* 左上角：远程开门（仅 doorCanOpen 时渲染，无权限则导航项自动上移补位） */}
+      {doorCanOpen && (
         <div className="px-3 pb-1">
           <button
             type="button"
-            className="group flex w-full items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50"
-            onClick={handleVpsLogoLeftClick}
-            onContextMenu={(e) => e.preventDefault()}
-            title={
-              vpsBind
-                ? `启动爆文库（${vpsBind.accountName || `账号 #${vpsBind.accountId}`}）`
-                : undefined
-            }
+            className="group flex w-full items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/50 disabled:opacity-60"
+            onClick={() => void handleDoorOpen()}
+            disabled={doorOpening}
+            aria-label="远程开门"
           >
-            <span
-              ref={logoRef as React.RefObject<HTMLSpanElement>}
-              className="grid size-7 shrink-0 place-items-center rounded-md bg-transparent text-foreground select-none"
-              onPointerDown={() => {
-                setIsPressed(true);
-              }}
-              onPointerUp={() => {
-                setIsPressed(false);
-              }}
-              onPointerLeave={() => {
-                setIsPressed(false);
-              }}
-            >
-              <span
-                style={{
-                  transform: !playfulMotion
-                    ? "none"
-                    : isPressed
-                      ? `scale(${(1 + growStep * 0.25) * 0.9})`
-                      : `scale(${1 + growStep * 0.25})`,
-                }}
-                className="inline-grid place-items-center transition-transform duration-300 ease-out motion-reduce:transition-none"
-              >
-                <span
-                  key={`${wobbleKey}:${cheerKey}`}
-                  className={cn(
-                    "inline-grid place-items-center",
-                    !isFalling &&
-                      !isPressed &&
-                      ((playfulMotion && wobbleKey > 0) || cheerKey > 0) &&
-                      "animate-[wiggle_0.3s_ease-in-out]",
-                  )}
-                >
-                  <Logo className="size-5 will-change-transform" />
-                </span>
-              </span>
+            <span className="grid size-7 shrink-0 place-items-center rounded-md bg-transparent text-foreground select-none">
+              <Logo className="size-5" />
             </span>
-            {vpsBind && (
-              <span className="bg-gradient-to-r from-primary via-foreground to-primary bg-clip-text text-[15px] font-bold text-transparent transition-all duration-300 group-hover:drop-shadow-[0_0_6px_var(--primary)]">
-                爆文库
-              </span>
-            )}
-            {doorCanOpen && (
-              <Tooltip delayDuration={300}>
-                <TooltipTrigger asChild>
-                  <motion.button
-                    type="button"
-                    aria-label="远程开门"
-                    title="远程开门"
-                    onClick={(e) => {
-                      // 开门按钮嵌在 logo 按钮内，阻断冒泡避免误触「启动爆文库」
-                      e.stopPropagation();
-                      void handleDoorOpen();
-                    }}
-                    disabled={doorOpening}
-                    whileTap={playfulMotion ? { scale: 0.85 } : undefined}
-                    className={cn(
-                      "ml-auto flex size-7 shrink-0 items-center justify-center rounded-full transition-all duration-200",
-                      doorOpening
-                        ? "bg-emerald-500/20 text-emerald-600"
-                        : "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 hover:shadow-[0_0_10px_rgba(34,197,94,0.35)]",
-                    )}
-                  >
-                    <LuDoorOpen
-                      className={cn(
-                        "size-4 transition-transform duration-200",
-                        doorOpening && "animate-pulse",
-                      )}
-                    />
-                  </motion.button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">远程开门</TooltipContent>
-              </Tooltip>
-            )}
-            {vpsLaunchProgress !== null && (
-              <span className="ml-auto flex items-center gap-1.5">
-                <span className="relative h-1 w-10 overflow-hidden rounded-full bg-muted">
-                  <span
-                    className="absolute left-0 top-0 h-full rounded-full bg-primary transition-all duration-200"
-                    style={{ width: `${vpsLaunchProgress}%` }}
-                  />
-                </span>
-                <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
-                  {Math.floor(vpsLaunchProgress)}%
-                </span>
-              </span>
-            )}
+            <span
+              className={cn(
+                "text-[15px] font-bold transition-all duration-300",
+                doorOpening
+                  ? "animate-pulse text-emerald-500"
+                  : "text-emerald-600 group-hover:drop-shadow-[0_0_6px_rgba(34,197,94,0.45)]",
+              )}
+            >
+              {doorOpening ? "开门中…" : "远程开门"}
+            </span>
           </button>
         </div>
-      ) : (
-        <div className="size-7 shrink-0" />
       )}
 
       <div className="my-1 mx-3 h-px shrink-0 bg-border" />

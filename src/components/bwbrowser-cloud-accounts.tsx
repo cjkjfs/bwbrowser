@@ -10,7 +10,6 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table";
 import { invoke } from "@tauri-apps/api/core";
-import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FiCheck, FiX } from "react-icons/fi";
@@ -62,6 +61,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import { confirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -117,14 +117,7 @@ import { useBwbrowserPermissions } from "@/hooks/use-bwbrowser-permissions";
 import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { translateBackendError } from "@/lib/backend-errors";
 import { CLOUD_ROOT } from "@/lib/cloud-config";
-import {
-  dismissToast,
-  showErrorToast,
-  showLaunchProgressToast,
-  showLaunchSuccessToast,
-  showSuccessToast,
-  updateLaunchProgressToast,
-} from "@/lib/toast-utils";
+import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import { extractSecretFromUrl, generateTOTP } from "@/lib/totp";
 import { cn } from "@/lib/utils";
 import type { ProxyCheckResult, StoredProxy } from "@/types";
@@ -882,7 +875,6 @@ export function BwbrowserCloudAccountsDialog({
     setServerSort,
     togglePin,
     isPinned,
-    patchAccountLocal,
     isManager,
     isSuperAdmin,
     canViewPassword,
@@ -1098,40 +1090,6 @@ export function BwbrowserCloudAccountsDialog({
   const [editDetail, setEditDetail] = useState<BwbrowserAccount | null>(null);
   const [editLoading, setEditLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
-  // 绑定爆文库开关（2026-11-20）：每归属人唯一，开启自动顶掉旧绑定；即时保存
-  const [editVpsBind, setEditVpsBind] = useState(false);
-  const [editVpsBindSaving, setEditVpsBindSaving] = useState(false);
-  const handleVpsBindToggle = useCallback(
-    async (checked: boolean) => {
-      if (!editAccount || editVpsBindSaving) return;
-      setEditVpsBind(checked);
-      setEditVpsBindSaving(true);
-      try {
-        await invoke("bwbrowser_set_vps_bind", {
-          accountId: editAccount.id,
-          bind: checked,
-        });
-        patchAccountLocal(editAccount.id, { vps_bind: checked ? 1 : 0 });
-        // 通知侧边栏立即刷新左上角「爆文库」入口显隐（开启即出现/取消即消失）
-        void import("@tauri-apps/api/event").then(({ emit }) =>
-          emit("vps-bind-changed", checked),
-        );
-        showSuccessToast(
-          checked
-            ? "已绑定爆文库（该归属人原绑定已自动取消）"
-            : "已取消绑定爆文库",
-        );
-      } catch (err) {
-        setEditVpsBind((prev) => !prev);
-        showErrorToast(
-          `绑定爆文库保存失败: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      } finally {
-        setEditVpsBindSaving(false);
-      }
-    },
-    [editAccount, editVpsBindSaving, patchAccountLocal],
-  );
   const [editForm, setEditForm] = useState({
     account_name: "",
     login_account: "",
@@ -1629,7 +1587,10 @@ export function BwbrowserCloudAccountsDialog({
       const envUuid = account.env_uuid;
       if (!envUuid) return;
       if (
-        !confirm(`确定删除环境「${envUuid}」吗？绑定该环境的账号会被解绑。`)
+        !(await confirmDialog(
+          `确定删除环境「${envUuid}」吗？绑定该环境的账号会被解绑。`,
+          { kind: "danger" },
+        ))
       ) {
         return;
       }
@@ -1706,8 +1667,6 @@ export function BwbrowserCloudAccountsDialog({
       });
       setEditStartUrls(parseAccountStartUrls(account.start_urls));
       setEditStartUrlInput("");
-      // 绑定爆文库开关初始态：列表行数据（详情到达后以 detail 为准刷新）
-      setEditVpsBind(account.vps_bind === 1);
 
       // 获取权限
       try {
@@ -1773,8 +1732,6 @@ export function BwbrowserCloudAccountsDialog({
           gpu_acceleration: detail.gpu_acceleration ?? prev.gpu_acceleration,
         }));
         setEditStartUrls(parseAccountStartUrls(detail.start_urls));
-        // 绑定爆文库：以详情数据为准
-        setEditVpsBind(detail.vps_bind === 1);
         // 账号级嗅探开关：云端名单里记的是「开启了嗅探的账号」，默认关闭
         try {
           const state = await invoke<{ accounts?: number[]; vps?: boolean }>(
@@ -3328,8 +3285,8 @@ export function BwbrowserCloudAccountsDialog({
 
   // 一键修复：删除本地数据 + 服务器 Cookie（无法登录时使用）
   const handleRepairAccount = useCallback(async (account: BwbrowserAccount) => {
-    // WebView2 会吞掉原生 confirm()，必须用 plugin-dialog 的原生对话框
-    const ok = await dialogConfirm(
+    // 全局确认对话框（与应用 UI 一致的 shadcn 风格）
+    const ok = await confirmDialog(
       `确定一键修复账号「${account.account_name || account.id}」吗？\n\n` +
         `将执行以下操作：\n` +
         `1. 删除本机的浏览数据（Cookie、缓存、登录状态）\n` +
@@ -4149,9 +4106,10 @@ export function BwbrowserCloudAccountsDialog({
                 <DropdownMenuItem
                   onClick={async () => {
                     if (
-                      !confirm(
+                      !(await confirmDialog(
                         `确定删除账号「${account.account_name || account.id}」的本地 Cookie 和浏览数据？`,
-                      )
+                        { kind: "danger" },
+                      ))
                     )
                       return;
                     try {
@@ -4174,9 +4132,10 @@ export function BwbrowserCloudAccountsDialog({
                 <DropdownMenuItem
                   onClick={async () => {
                     if (
-                      !confirm(
+                      !(await confirmDialog(
                         `确定删除账号「${account.account_name || account.id}」的服务器 Cookie？`,
-                      )
+                        { kind: "danger" },
+                      ))
                     )
                       return;
                     try {
@@ -4395,6 +4354,32 @@ export function BwbrowserCloudAccountsDialog({
   );
   const selectedCount = selectedAccounts.length;
 
+  // 爆文库右侧内嵌面板（2026-11-21）：点击左上角按钮在弹窗右侧嵌入 yacm 网页，
+  // 不影响原有 bwbrowser_open_vps_login 指纹浏览器启动接口
+  const [baowenkuOpen, setBaowenkuOpen] = useState(false);
+  const [baowenkuUrl, setBaowenkuUrl] = useState<string | null>(null);
+  const [baowenkuLoading, setBaowenkuLoading] = useState(false);
+  const openBaowenkuPanel = useCallback(() => {
+    if (baowenkuOpen) {
+      setBaowenkuOpen(false);
+      return;
+    }
+    setBaowenkuLoading(true);
+    setBaowenkuOpen(true);
+    invoke<string>("bwbrowser_get_baowenku_url")
+      .then((url) => {
+        setBaowenkuUrl(url);
+      })
+      .catch((err: unknown) => {
+        setBaowenkuOpen(false);
+        const msg = err instanceof Error ? err.message : String(err);
+        showErrorToast(`打开失败: ${msg}`);
+      })
+      .finally(() => {
+        setBaowenkuLoading(false);
+      });
+  }, [baowenkuOpen]);
+
   const content = (
     <>
       {/* ========== Header 顶部栏 ========== */}
@@ -4404,54 +4389,8 @@ export function BwbrowserCloudAccountsDialog({
             type="button"
             className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-accent/50"
             onClick={() => {
-              const toastId = "vps-launch-progress-cloud";
-              let unlistenToast: (() => void) | undefined;
-
-              showLaunchProgressToast(toastId, "正在启动爆文库...", 0, "0%");
-
-              // 监听后端真实启动进度，替代模拟动画
-              import("@tauri-apps/api/event")
-                .then(({ listen }) =>
-                  listen<{ pct: number; label: string }>(
-                    "vps-launch-progress",
-                    (event) => {
-                      const pct = Math.min(100, Math.max(0, event.payload.pct));
-                      updateLaunchProgressToast(
-                        toastId,
-                        event.payload.label || "正在启动爆文库...",
-                        pct,
-                        `${Math.floor(pct)}%`,
-                      );
-                    },
-                  ),
-                )
-                .then((fn) => {
-                  unlistenToast = fn;
-                })
-                .catch((e) => {
-                  console.warn("failed to listen vps launch progress", e);
-                });
-
-              invoke("bwbrowser_open_vps_login")
-                .then(() => {
-                  updateLaunchProgressToast(
-                    toastId,
-                    "正在启动爆文库...",
-                    100,
-                    "100%",
-                  );
-                  setTimeout(() => {
-                    showLaunchSuccessToast(toastId, "爆文库已启动");
-                  }, 300);
-                })
-                .catch((err: unknown) => {
-                  dismissToast(toastId);
-                  const msg = err instanceof Error ? err.message : String(err);
-                  showErrorToast(`启动失败: ${msg}`);
-                })
-                .finally(() => {
-                  unlistenToast?.();
-                });
+              // 爆文库右侧内嵌面板：首次打开拉取自动登录 URL，再次点击收起
+              openBaowenkuPanel();
             }}
             onContextMenu={(e) => e.preventDefault()}
             title="打开爆文库"
@@ -5800,9 +5739,9 @@ export function BwbrowserCloudAccountsDialog({
                                 proxy.id.replace(/^bwbrowser_/, ""),
                               );
                               if (!numericId) return;
-                              const ok = await dialogConfirm(
+                              const ok = await confirmDialog(
                                 `确定删除节点「${proxy.name}」吗？\n删除后使用该节点的账号将失去代理。`,
-                                { title: "删除节点", kind: "warning" },
+                                { title: "删除节点", kind: "danger" },
                               ).catch(() => false);
                               if (!ok) return;
                               try {
@@ -6452,28 +6391,6 @@ export function BwbrowserCloudAccountsDialog({
                       </TooltipTrigger>
                       <TooltipContent>
                         开启后该账号浏览器注入嗅探扩展，页面右下角出现视频下载按钮。默认关闭，云端保存、即时生效
-                      </TooltipContent>
-                    </Tooltip>
-                  </button>
-                  <button
-                    type="button"
-                    className="flex items-center gap-2 disabled:opacity-60"
-                    disabled={editVpsBindSaving}
-                    onClick={() => handleVpsBindToggle(!editVpsBind)}
-                  >
-                    <Checkbox
-                      checked={editVpsBind}
-                      onCheckedChange={(v) => handleVpsBindToggle(v === true)}
-                    />
-                    <span className="text-xs">绑定爆文库</span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        开启后该归属人登录客户端时左上角出现「爆文库」按钮，点击直接启动本账号并进入
-                        yacm.xin。每个归属人只能绑定 1
-                        个账号，开启会自动取消原绑定；云端保存、即时生效
                       </TooltipContent>
                     </Tooltip>
                   </button>
@@ -7974,9 +7891,74 @@ export function BwbrowserCloudAccountsDialog({
     <>
       <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
         <DialogContent
-          className={`bwbrowser-cloud-page cloud-font-${cloudFontSize} flex h-[92vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden p-0`}
+          className={`bwbrowser-cloud-page cloud-font-${cloudFontSize} flex h-[92vh] w-[96vw] max-w-[96vw] flex-row gap-0 overflow-hidden p-0`}
         >
-          {content}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">{content}</div>
+          {/* 爆文库右侧内嵌面板 */}
+          {baowenkuOpen && (
+            <div className="flex w-[45%] min-w-[420px] shrink-0 flex-col border-l border-border bg-background">
+              <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
+                <span className="flex items-center gap-1.5 text-sm font-semibold">
+                  <LuUsers className="h-4 w-4" />
+                  爆文库
+                </span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    disabled={baowenkuLoading}
+                    onClick={() => {
+                      // 重新拉取自动登录 URL：iframe 整页重载并刷新登录态
+                      setBaowenkuLoading(true);
+                      invoke<string>("bwbrowser_get_baowenku_url")
+                        .then((url) => {
+                          setBaowenkuUrl(url);
+                        })
+                        .catch((err: unknown) => {
+                          const msg =
+                            err instanceof Error ? err.message : String(err);
+                          showErrorToast(`刷新失败: ${msg}`);
+                        })
+                        .finally(() => {
+                          setBaowenkuLoading(false);
+                        });
+                    }}
+                  >
+                    <LuRefreshCw
+                      className={cn(
+                        "mr-1 h-3 w-3",
+                        baowenkuLoading && "animate-spin",
+                      )}
+                    />
+                    刷新
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setBaowenkuOpen(false)}
+                  >
+                    收起
+                  </Button>
+                </div>
+              </div>
+              <div className="min-h-0 flex-1">
+                {baowenkuUrl ? (
+                  <iframe
+                    key={baowenkuUrl}
+                    src={baowenkuUrl}
+                    title="爆文库"
+                    className="h-full w-full border-0"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                    正在打开爆文库...
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
       {proxyDialog}

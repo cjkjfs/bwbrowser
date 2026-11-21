@@ -3602,6 +3602,8 @@
   "remoteManagement": {
     "title": "원격 관리",
     "refresh": "새로고침",
+    "cardView": "카드",
+    "listView": "목록",
     "online": "온라인",
     "offline": "오프라인",
     "colHostname": "호스트 이름",
@@ -3716,5 +3718,9 @@
     "save": "전화번호 저장",
     "success": "전화번호 저장됨(계정 {{count}}개)",
     "failed": "전화번호 설정: 성공 {{ok}}개, 실패 {{failed}}개 — {{errors}}"
+  },
+  "confirmDialog": {
+    "infoTitle": "알림",
+    "confirmTitle": "확인해 주세요"
   }
 }

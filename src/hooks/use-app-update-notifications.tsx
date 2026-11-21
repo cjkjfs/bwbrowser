@@ -19,6 +19,10 @@ export function useAppUpdateNotifications() {
   const [updateReady, setUpdateReady] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
+  // Mirror of dismissedVersion for the periodic "app-update-available" event
+  // handler, which runs in a listener registered once — reading state there
+  // would capture a stale value. The startup check keeps using the state.
+  const dismissedVersionRef = useRef<string | null>(null);
   const autoDownloadedVersion = useRef<string | null>(null);
 
   // Ensure we're on the client side to prevent hydration mismatches
@@ -143,6 +147,7 @@ export function useAppUpdateNotifications() {
 
     // Remember the dismissed version so we don't show it again
     if (updateInfo) {
+      dismissedVersionRef.current = updateInfo.new_version;
       setDismissedVersion(updateInfo.new_version);
       console.log("Dismissed app update version:", updateInfo.new_version);
     }
@@ -158,6 +163,16 @@ export function useAppUpdateNotifications() {
     const unlistenUpdate = listen<AppUpdateInfo>(
       "app-update-available",
       (event) => {
+        // Honor the user's dismissal: without this check the 3-hour periodic
+        // check would resurrect the toast the user explicitly closed (the
+        // startup invoke path already filters via dismissedVersion state).
+        if (event.payload?.new_version === dismissedVersionRef.current) {
+          console.log(
+            "App update available but dismissed:",
+            event.payload.new_version,
+          );
+          return;
+        }
         console.log("App update available:", event.payload);
         // A fresh backend check re-arms auto-download, so a version whose
         // earlier attempt failed (e.g. a transient checksum-fetch error) is
@@ -222,9 +237,6 @@ export function useAppUpdateNotifications() {
       return;
     }
     if (!updateInfo) return;
-    // Forced updates surface through their own progress prompt and auto-restart
-    // below; showing the manual "restart to apply" toast here would duplicate it.
-    if (updateInfo.force_update) return;
 
     toast.custom(
       () => (
@@ -234,6 +246,7 @@ export function useAppUpdateNotifications() {
           onDismiss={dismissAppUpdate}
           updateReady={updateReady}
           autoRestart={updateReady}
+          forceUpdate={updateInfo.force_update}
         />
       ),
       {
@@ -264,15 +277,9 @@ export function useAppUpdateNotifications() {
     void checkForAppUpdates();
   }, [isClient, checkForAppUpdates]);
 
-  // Forced updates run fully silently: no progress or restart prompts at all —
-  // the download finishes in the background and the app restarts by itself.
-  const forceUpdate = !!updateInfo?.force_update;
-  useEffect(() => {
-    if (!isClient || !updateReady || !forceUpdate) return;
-
-    const timer = setTimeout(() => void handleRestart(), 1000);
-    return () => clearTimeout(timer);
-  }, [isClient, updateReady, forceUpdate, handleRestart]);
+  // Forced updates surface through the update toast with a countdown (the
+  // cancel/dismiss controls are hidden there), and the toast's zero-tick
+  // drives the restart — a separate silent timer here would race with it.
 
   return {
     updateInfo,

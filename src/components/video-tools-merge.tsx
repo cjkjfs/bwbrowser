@@ -11,6 +11,7 @@ import {
   LuX,
 } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
+import { alertDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 
 interface ToolsProgress {
@@ -57,7 +58,7 @@ export function QuickMergeTab() {
       setFiles((prev) => [...prev, ...list]);
       setOutputPath("");
     } catch (error) {
-      alert(`${error}`);
+      void alertDialog(`${error}`, { kind: "danger" });
     }
   };
 
@@ -108,10 +109,10 @@ export function QuickMergeTab() {
         method,
       });
       setOutputPath(path);
-      alert(`合并完成:\n${path}`);
+      void alertDialog(`合并完成:\n${path}`, { kind: "info" });
     } catch (error) {
       console.error("合并失败:", error);
-      alert(`合并失败: ${error}`);
+      void alertDialog(`合并失败: ${error}`, { kind: "danger" });
     } finally {
       setRunning(false);
       setTimeout(() => setProgress(null), 2000);

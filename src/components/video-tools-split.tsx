@@ -15,6 +15,7 @@ import {
   LuX,
 } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
+import { alertDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -195,7 +196,7 @@ export function QuickSplitTab() {
       setSplitDone(`拆分完成，共 ${out.length} 段`);
     } catch (error) {
       console.error("拆分失败:", error);
-      alert(`拆分失败: ${error}`);
+      void alertDialog(`拆分失败: ${error}`, { kind: "danger" });
     } finally {
       setRunning(false);
       setTimeout(() => setProgress(null), 2000);
