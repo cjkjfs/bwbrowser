@@ -54,6 +54,10 @@ export interface BwbrowserAccount {
   company_id?: number;
 
   backup_email?: string;
+  /** 账户余额（PayPal 等，decimal 字符串如 "1118.50"）：自动抓取或编辑账号手动维护 */
+  balance?: string | number | null;
+  /** 最近一次余额自动抓取时间 */
+  balance_scraped_at?: string | null;
   /** 绑定爆文库（2026-11-20）：每归属人唯一；1 = 该账号是归属人的左上角「爆文库」入口 */
   vps_bind?: number;
   // 套餐启动配额：false = 超出套餐配额，启动浏览器按钮置灰

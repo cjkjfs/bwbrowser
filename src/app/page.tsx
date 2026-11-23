@@ -2,7 +2,9 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrent } from "@tauri-apps/plugin-deep-link";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useReducedMotion } from "motion/react";
 import { useOnborda } from "onborda";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -611,11 +613,21 @@ export default function Home() {
   const [baowenkuUrl, setBaowenkuUrl] = useState<string | null>(null);
   const [baowenkuLoading, setBaowenkuLoading] = useState(false);
   const [baowenkuBound, setBaowenkuBound] = useState(false);
+  // 登录态监测辅助（2026-11-23）：URL 设置时间（宽限期判断）、自动重登计数、
+  // 上次重登时间、放弃提示标记（均为 ref，避免 state 重渲染干扰监测循环）。
+  const baowenkuUrlSetAtRef = useRef(0);
+  const baowenkuReloginCountRef = useRef(0);
+  const baowenkuLastReloginRef = useRef(0);
+  const baowenkuGiveUpToastRef = useRef(false);
   const fetchBaowenkuUrl = useCallback(() => {
     setBaowenkuLoading(true);
     invoke<string>("bwbrowser_get_baowenku_url")
       .then((url) => {
-        setBaowenkuUrl(url);
+        // 追加时间戳参数：每次拉取的 URL 都不同 → iframe key 变化强制重载
+        //（auto_login 处理会忽略未知参数）。重登/手动刷新共用此机制。
+        const sep = url.includes("?") ? "&" : "?";
+        baowenkuUrlSetAtRef.current = Date.now();
+        setBaowenkuUrl(`${url}${sep}_=${Date.now()}`);
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -652,18 +664,131 @@ export default function Home() {
       fetchBaowenkuUrl();
     }
   }, [baowenkuTabActive, baowenkuUrl, baowenkuLoading, fetchBaowenkuUrl]);
-  const toggleBaowenkuTab = useCallback(
-    (active: boolean) => {
-      // 已在爆文库页时再点一次「爆文库」TAB = 重新登录刷新（重新拉取
-      // auto_login URL，iframe 换 key 重载）；从工作台首次切过来不动已有页面。
-      if (active && baowenkuTabActive && baowenkuUrl) {
-        fetchBaowenkuUrl();
+  const toggleBaowenkuTab = useCallback((active: boolean) => {
+    // 切回工作台：清空自动重登计数，下次进爆文库重新计
+    if (!active) {
+      baowenkuReloginCountRef.current = 0;
+      baowenkuGiveUpToastRef.current = false;
+    }
+    // 点击已激活的「爆文库」TAB 不再强制刷新（2026-11-23 用户反馈：点击就
+    // 刷新打断浏览）。掉登录重新登录完全由登录态监测自动处理——后台页面
+    // 每 5 秒上报登录态，未登录时自动重拉 auto_login URL 重载 iframe。
+    setBaowenkuTabActive(active);
+    localStorage.setItem("baowenku_tab_active", active ? "1" : "0");
+  }, []);
+
+  // ===== 爆文库内嵌页弹窗桥（2026-11-22） =====
+  // 爆文库 iframe 里的 window.open / target=_blank 请求会被 Tauri webview
+  // 吞掉（无新窗口处理函数），页面端已改为 postMessage 桥；这里接收后用
+  // 应用内子窗口打开视频链接。同一 URL 重复点击聚焦已开窗口；创建失败
+  // 回退系统浏览器（openUrl），保证功能不丢。
+  const openBaowenkuLinkWindow = useCallback(async (rawUrl: string) => {
+    const url = rawUrl.trim();
+    if (!/^https?:\/\//i.test(url)) return;
+    // djb2 稳定 hash：同 URL 复用同一窗口（重复点击 = 聚焦，不重复开）
+    let hash = 5381;
+    for (let i = 0; i < url.length; i++) {
+      hash = (((hash << 5) + hash + url.charCodeAt(i)) >>> 0) % 4294967296;
+    }
+    const label = `video-${hash.toString(36)}`;
+    try {
+      const existing = await WebviewWindow.getByLabel(label);
+      if (existing) {
+        await existing.setFocus();
+        return;
       }
-      setBaowenkuTabActive(active);
-      localStorage.setItem("baowenku_tab_active", active ? "1" : "0");
-    },
-    [baowenkuTabActive, baowenkuUrl, fetchBaowenkuUrl],
-  );
+      const win = new WebviewWindow(label, {
+        url,
+        title: "视频预览",
+        width: 1100,
+        height: 760,
+        minWidth: 480,
+        minHeight: 360,
+        center: true,
+        resizable: true,
+      });
+      win.once("tauri://error", () => {
+        void openUrl(url);
+      });
+    } catch {
+      void openUrl(url);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      try {
+        const data = event.data as
+          | { source?: string; type?: string; url?: unknown }
+          | undefined;
+        if (
+          data?.source !== "baowenku-page" ||
+          data.type !== "open-url" ||
+          typeof data.url !== "string"
+        ) {
+          return;
+        }
+        // 仅接受 yacm.xin 系来源的消息
+        const hostname = new URL(event.origin).hostname;
+        if (hostname !== "yacm.xin" && !hostname.endsWith(".yacm.xin")) return;
+        void openBaowenkuLinkWindow(data.url);
+      } catch {
+        // 忽略畸形消息
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [openBaowenkuLinkWindow]);
+
+  // ===== 爆文库登录态监测 + 自动重登（2026-11-23，用户要求） =====
+  // 爆文库 TAB 激活期间，内嵌的 yacm 后台页面（nav.php）在 iframe 内每 5 秒
+  // postMessage 上报 PHP 会话登录态；收到「未登录」即自动重新拉取 auto_login
+  // URL（内含凭据）重载 iframe 完成自动登录。防护逻辑：
+  //   - 宽限期：URL 刚设置 12 秒内的未登录报告忽略（auto_login 跳转链进行中）；
+  //   - 限流：距上次自动重登 < 8 秒忽略；
+  //   - 上限：连续 3 次自动重登仍未登录 → 停止（凭据可能失效），toast 提示；
+  //     登录成功（logged_in=true）或切回工作台时计数清零。
+  useEffect(() => {
+    if (!baowenkuTabActive) return;
+    const onMessage = (event: MessageEvent) => {
+      try {
+        const data = event.data as
+          | { source?: string; type?: string; logged_in?: unknown }
+          | undefined;
+        if (data?.source !== "baowenku-page" || data.type !== "login-state") {
+          return;
+        }
+        // 仅接受 yacm.xin 系来源的消息
+        const hostname = new URL(event.origin).hostname;
+        if (hostname !== "yacm.xin" && !hostname.endsWith(".yacm.xin")) return;
+        if (data.logged_in === true) {
+          baowenkuReloginCountRef.current = 0;
+          baowenkuGiveUpToastRef.current = false;
+          return;
+        }
+        // 未登录报告：依次过宽限期、限流、重试上限，再触发自动重登
+        const now = Date.now();
+        if (now - baowenkuUrlSetAtRef.current < 12000) return;
+        if (now - baowenkuLastReloginRef.current < 8000) return;
+        if (baowenkuReloginCountRef.current >= 3) {
+          if (!baowenkuGiveUpToastRef.current) {
+            baowenkuGiveUpToastRef.current = true;
+            showErrorToast(
+              "爆文库自动登录未成功（已重试3次），请检查云端账号密码或稍后再试",
+            );
+          }
+          return;
+        }
+        baowenkuReloginCountRef.current += 1;
+        baowenkuLastReloginRef.current = now;
+        fetchBaowenkuUrl();
+      } catch {
+        // 忽略畸形消息
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [baowenkuTabActive, fetchBaowenkuUrl]);
 
   const handleRailNavigate = useCallback(
     (page: AppPage) => {

@@ -176,6 +176,13 @@ pub struct RemoteMachine {
   /// 被控端 BW 版本号（注册时上报，老机器未上报为空）
   pub app_version: String,
   pub hardware: Option<Value>,
+  /// 静态配置（CPU 型号/核数、内存总量、磁盘容量、GPU）变化后的旧完整硬件快照，
+  /// 服务端在心跳/注册覆盖 hardware_info 前对比指纹保留；查看过对比后清除
+  pub hardware_prev: Option<Value>,
+  /// 检测到配置变更的时间（`Y-m-d H:i:s`，未变更过为空）
+  pub hardware_changed_at: String,
+  /// 与 hardware_prev 配套：true 时列表显示「配置变更」提示
+  pub config_changed: bool,
   pub status: String,
   /// 该被控端登录的爆文库账号与姓名（`clients` 里 JOIN users 得来，未登录时为空）
   pub user_username: String,
@@ -205,6 +212,12 @@ fn parse_machine(v: &Value) -> RemoteMachine {
     port: as_i64(v.get("port")).clamp(0, 65535) as u16,
     app_version: as_string(v.get("app_version")),
     hardware: v.get("hardware").filter(|h| h.is_object()).cloned(),
+    hardware_prev: v.get("hardware_prev").filter(|h| h.is_object()).cloned(),
+    hardware_changed_at: as_string(v.get("hardware_changed_at")),
+    config_changed: v
+      .get("config_changed")
+      .and_then(Value::as_bool)
+      .unwrap_or(false),
     status: as_string(v.get("status")),
     user_username: as_string(v.get("user_username")),
     user_real_name: as_string(v.get("user_real_name")),
@@ -244,6 +257,21 @@ pub async fn delete_machine(client_id: i64) -> Result<u64, String> {
   )
   .await?;
   Ok(body.get("deleted").and_then(Value::as_u64).unwrap_or(0))
+}
+
+/// 清除某台机器的「配置变更」提示（服务端清 hardware_prev/changed_at，标记已读）。
+/// 服务端按远程管理权限校验：超管清任意，普通远程管理员限本公司。
+pub async fn clear_config_change(client_id: i64) -> Result<(), String> {
+  let client = http_client()?;
+  let cid = client_id.to_string();
+  authed_call(
+    &client,
+    ApiMethod::Post,
+    "clear_config_change",
+    &[("client_id", cid.as_str())],
+  )
+  .await?;
+  Ok(())
 }
 
 /// 连接目标：局域网优先，失败回退中继

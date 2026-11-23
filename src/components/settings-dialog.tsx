@@ -22,38 +22,22 @@ import {
   LuTrash2,
 } from "react-icons/lu";
 import { DataRootSetting } from "@/components/data-root-setting";
-import { DnsBlocklistDialog } from "@/components/dns-blocklist-dialog";
 import { LoadingButton } from "@/components/loading-button";
 import { useTheme } from "@/components/theme-provider";
 import { AnimatedSwitch } from "@/components/ui/animated-switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  ColorPicker,
-  ColorPickerAlpha,
-  ColorPickerEyeDropper,
-  ColorPickerFormat,
-  ColorPickerHue,
-  ColorPickerOutput,
-  ColorPickerSelection,
-} from "@/components/ui/color-picker";
 import { ConfirmationMark } from "@/components/ui/confirmation-mark";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -67,7 +51,6 @@ import { useLanguage } from "@/hooks/use-language";
 import type { PermissionType } from "@/hooks/use-permissions";
 import { usePermissions } from "@/hooks/use-permissions";
 import { translateBackendError } from "@/lib/backend-errors";
-import { effectivePlanOf } from "@/lib/entitlements";
 import { MOTION_SPRING_POSITION } from "@/lib/motion";
 import {
   applyThemeColors,
@@ -75,7 +58,6 @@ import {
   getThemeByColors,
   getThemeById,
   normalizeThemeColors,
-  THEME_VARIABLES,
   THEMES,
   withThemeTransition,
 } from "@/lib/themes";
@@ -91,7 +73,6 @@ interface AppSettings {
   api_enabled: boolean;
   api_port: number;
   api_token?: string;
-  disable_auto_updates?: boolean;
   keep_decrypted_profiles_in_ram?: boolean;
   fingerprint_gate_disabled?: boolean;
   vpn_extension_warning_disabled?: boolean;
@@ -243,16 +224,7 @@ export function SettingsDialog({
   const [isLoadingPermissions, setIsLoadingPermissions] = useState(false);
   const [requestingPermission, setRequestingPermission] =
     useState<PermissionType | null>(null);
-  const [dnsBlocklistDialogOpen, setDnsBlocklistDialogOpen] = useState(false);
-  const [hasE2ePassword, setHasE2ePassword] = useState(false);
-  const [e2ePassword, setE2ePassword] = useState("");
-  const [e2ePasswordConfirm, setE2ePasswordConfirm] = useState("");
-  const [e2eError, setE2eError] = useState("");
-  const [isSavingE2e, setIsSavingE2e] = useState(false);
-  const [isRemovingE2e, setIsRemovingE2e] = useState(false);
-  const [isVerifyE2eOpen, setIsVerifyE2eOpen] = useState(false);
-  const [verifyE2ePassword, setVerifyE2ePassword] = useState("");
-  const [isVerifyingE2e, setIsVerifyingE2e] = useState(false);
+
   // Theme-restore guards: settings load asynchronously, and the dialog can be
   // unmounted directly by rail navigation (bypassing handleClose). Refs mirror
   // the loaded state so the unmount cleanup can restore the persisted theme.
@@ -290,13 +262,7 @@ export function SettingsDialog({
     currentOS,
   } = usePermissions(isOpen);
   const isMacOS = currentOS === "macos";
-  const isLinux = currentOS === "linux";
   const { user: cloudUser } = useCloudAuth();
-  // Encryption is available to everyone except team members who aren't owners
-  const canUseEncryption =
-    cloudUser == null ||
-    effectivePlanOf(cloudUser) !== "team" ||
-    cloudUser.teamRole === "owner";
   const {
     currentLanguage,
     changeLanguage,
@@ -439,13 +405,6 @@ export function SettingsDialog({
           selectedThemeId: "tokyo-night",
           colors: tokyoNightTheme.colors,
         });
-      }
-      // Check E2E password status
-      try {
-        const hasPassword = await invoke<boolean>("check_has_e2e_password");
-        setHasE2ePassword(hasPassword);
-      } catch {
-        setHasE2ePassword(false);
       }
       // Load system info
       try {
@@ -914,7 +873,6 @@ export function SettingsDialog({
     ...(
       [
         ["api_enabled", "settings.integrations.title"],
-        ["disable_auto_updates", "settings.disableAutoUpdates"],
         [
           "keep_decrypted_profiles_in_ram",
           "settings.keepDecryptedProfilesInRam",
@@ -963,16 +921,12 @@ export function SettingsDialog({
       : []),
     ["kernel", "settings.kernel.title", ["settings.kernel"]],
     ["integrations", "settings.integrations.title", ["settings.integrations"]],
-    ["dns", "dnsBlocklist.title", ["dnsBlocklist"]],
-    ["encryption", "settings.encryption.title", ["settings.encryption"]],
     ["dataRoot", "settings.dataRoot.title", ["settings.dataRoot"]],
     [
       "advanced",
       "settings.advanced.title",
       [
         "settings.advanced",
-        "settings.disableAutoUpdates",
-        "settings.disableAutoUpdatesDescription",
         "settings.keepDecryptedProfilesInRam",
         "settings.keepDecryptedProfilesInRamDescription",
         "settings.trashRetention",
@@ -1158,170 +1112,107 @@ export function SettingsDialog({
                   {t("settings.appearance.title")}
                 </Label>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="theme-select" className="text-sm">
-                    {t("settings.appearance.theme")}
-                  </Label>
-                  <Select
-                    value={settings.theme}
-                    onValueChange={(value) => {
-                      updateSetting("theme", value);
-                      if (value === "custom") {
-                        const tokyoNightTheme = getThemeById("tokyo-night");
-                        if (tokyoNightTheme) {
-                          setCustomThemeState({
-                            selectedThemeId: "tokyo-night",
-                            colors: tokyoNightTheme.colors,
-                          });
-                        }
-                      }
-                    }}
-                  >
-                    <SelectTrigger id="theme-select">
-                      <SelectValue
-                        placeholder={t("settings.appearance.selectTheme")}
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="light">
-                        {t("settings.appearance.light")}
-                      </SelectItem>
-                      <SelectItem value="dark">
-                        {t("settings.appearance.dark")}
-                      </SelectItem>
-                      <SelectItem value="system">
-                        {t("settings.appearance.system")}
-                      </SelectItem>
-                      <SelectItem value="custom">
-                        {t("common.labels.custom")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      ["light", "settings.appearance.light"],
+                      ["dark", "settings.appearance.dark"],
+                      ["system", "settings.appearance.system"],
+                    ] as const
+                  ).map(([value, labelKey]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      data-slot={`appearance-mode-${value}`}
+                      aria-pressed={settings.theme === value}
+                      className={cn(
+                        "flex items-center justify-center rounded-lg border p-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                        settings.theme === value &&
+                          "border-ring ring-2 ring-ring/50",
+                      )}
+                      onClick={() => {
+                        updateSetting("theme", value);
+                      }}
+                    >
+                      {t(labelKey)}
+                    </button>
+                  ))}
                 </div>
 
                 <p className="text-xs text-muted-foreground">
                   {t("settings.appearance.themeDescription")}
                 </p>
 
-                {settings.theme === "custom" && (
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="theme-preset-select"
-                        className="text-sm font-medium"
-                      >
-                        {t("settings.appearance.themePreset")}
-                      </Label>
-                      <Select
-                        value={customThemeState.selectedThemeId ?? "custom"}
-                        onValueChange={(value) => {
-                          if (value === "custom") {
-                            setCustomThemeState((prev) => ({
-                              ...prev,
-                              selectedThemeId: null,
-                            }));
-                          } else {
-                            const theme = getThemeById(value);
-                            if (theme) {
-                              setCustomThemeState({
-                                selectedThemeId: value,
-                                colors: theme.colors,
-                              });
-                            }
-                          }
+                <div className="text-sm font-medium">
+                  {t("settings.appearance.themePreset")}
+                </div>
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-2">
+                  {THEMES.map((theme) => {
+                    const selected =
+                      settings.theme === "custom" &&
+                      (customThemeState.selectedThemeId === theme.id ||
+                        (!!customThemeState.colors["--background"] &&
+                          getThemeByColors(customThemeState.colors)?.id ===
+                            theme.id));
+                    return (
+                      <button
+                        key={theme.id}
+                        type="button"
+                        data-slot={`appearance-theme-${theme.id}`}
+                        aria-pressed={selected}
+                        title={theme.name}
+                        className={cn(
+                          "flex flex-col items-start gap-1.5 rounded-lg border p-2 text-left transition-colors hover:bg-accent/50",
+                          selected && "border-ring ring-2 ring-ring/50",
+                        )}
+                        onClick={() => {
+                          // 点一下立即生效：写状态 + 即时应用色板。
+                          // 模式卡片(light/dark/system)由下方既有 effect 自动应用。
+                          updateSetting("theme", "custom");
+                          setCustomThemeState({
+                            selectedThemeId: theme.id,
+                            colors: theme.colors,
+                          });
+                          clearThemeColors();
+                          applyThemeColors(theme.colors);
                         }}
                       >
-                        <SelectTrigger id="theme-preset-select">
-                          <SelectValue
-                            placeholder={t(
-                              "settings.appearance.selectThemePreset",
-                            )}
+                        <span
+                          className="flex w-full items-center justify-between rounded-md border border-border/60 p-1.5"
+                          style={{
+                            backgroundColor: theme.colors["--background"],
+                          }}
+                        >
+                          <span
+                            className="size-3 rounded-full"
+                            style={{
+                              backgroundColor: theme.colors["--primary"],
+                            }}
                           />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {THEMES.map((theme) => (
-                            <SelectItem key={theme.id} value={theme.id}>
-                              {theme.name}
-                            </SelectItem>
-                          ))}
-                          <SelectItem value="custom">
-                            {t("settings.appearance.yourOwn")}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="text-sm font-medium">
-                      {t("settings.appearance.customColors")}
-                    </div>
-                    <div className="grid grid-cols-[repeat(auto-fill,minmax(4rem,1fr))] gap-3">
-                      {THEME_VARIABLES.map(({ key, label }) => {
-                        const colorValue =
-                          customThemeState.colors[key] ?? "#000000";
-                        return (
-                          <div
-                            key={key}
-                            className="flex flex-col items-center gap-1"
-                          >
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <button
-                                  type="button"
-                                  aria-label={label}
-                                  className="size-8 cursor-pointer rounded-md border shadow-sm"
-                                  style={{ backgroundColor: colorValue }}
-                                />
-                              </PopoverTrigger>
-                              <PopoverContent
-                                className="w-[320px] p-3"
-                                sideOffset={6}
-                              >
-                                <ColorPicker
-                                  className="rounded-md border bg-background p-3 shadow-sm"
-                                  value={colorValue}
-                                  onColorChange={([r, g, b, a]) => {
-                                    const next = Color({ r, g, b }).alpha(a);
-                                    const nextStr = next.hexa();
-                                    const newColors = {
-                                      ...customThemeState.colors,
-                                      [key]: nextStr,
-                                    };
-
-                                    // Check if colors match any preset theme
-                                    const matchingTheme =
-                                      getThemeByColors(newColors);
-
-                                    setCustomThemeState({
-                                      selectedThemeId:
-                                        matchingTheme?.id ?? null,
-                                      colors: newColors,
-                                    });
-                                  }}
-                                >
-                                  <ColorPickerSelection className="h-36 rounded" />
-                                  <div className="mt-3 flex items-center gap-3">
-                                    <ColorPickerEyeDropper />
-                                    <div className="grid w-full gap-1">
-                                      <ColorPickerHue />
-                                      <ColorPickerAlpha />
-                                    </div>
-                                  </div>
-                                  <div className="mt-3 flex items-center gap-2">
-                                    <ColorPickerOutput />
-                                    <ColorPickerFormat />
-                                  </div>
-                                </ColorPicker>
-                              </PopoverContent>
-                            </Popover>
-                            <div className="text-center text-[10px] leading-tight text-muted-foreground">
-                              {label}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                          <span
+                            className="size-3 rounded-full"
+                            style={{
+                              backgroundColor: theme.colors["--accent"],
+                            }}
+                          />
+                          <span
+                            className="size-3 rounded-full"
+                            style={{ backgroundColor: theme.colors["--muted"] }}
+                          />
+                          <span
+                            className="size-3 rounded-full"
+                            style={{
+                              backgroundColor: theme.colors["--destructive"],
+                            }}
+                          />
+                        </span>
+                        <span className="w-full truncate text-xs font-medium">
+                          {theme.name}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Language Section */}
@@ -1539,201 +1430,6 @@ export function SettingsDialog({
                 </RippleButton>
               </div>
 
-              {/* DNS Blocklist Section */}
-              <div
-                data-settings-section="dns"
-                tabIndex={-1}
-                hidden={!sectionVisible("dns")}
-                className="scroll-mt-2 space-y-4 focus:outline-none"
-              >
-                <Label className="text-base font-medium">
-                  {t("dnsBlocklist.title")}
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  {t("dnsBlocklist.settingsDescription")}
-                </p>
-                <RippleButton
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => setDnsBlocklistDialogOpen(true)}
-                >
-                  {t("dnsBlocklist.manageLists")}
-                </RippleButton>
-              </div>
-
-              {/* Sync Encryption Section */}
-              <div
-                data-settings-section="encryption"
-                tabIndex={-1}
-                hidden={!sectionVisible("encryption")}
-                className="scroll-mt-2 space-y-4 focus:outline-none"
-              >
-                <Label className="text-base font-medium">
-                  {t("settings.encryption.title")}
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  {t("appFeedback.appliesImmediately")}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t("settings.encryption.description")}
-                </p>
-
-                {!canUseEncryption ? (
-                  <p className="text-sm text-muted-foreground">
-                    {t("settings.encryption.requiresProOrOwner")}
-                  </p>
-                ) : hasE2ePassword ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="default">
-                        {t("settings.encryption.passwordSet")}
-                      </Badge>
-                      <span className="text-sm text-muted-foreground">
-                        {t("settings.encryption.passwordSetDescription")}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={isRemovingE2e}
-                        onClick={() => {
-                          setVerifyE2ePassword("");
-                          setIsVerifyE2eOpen(true);
-                        }}
-                      >
-                        {t("settings.encryption.validatePassword")}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={isRemovingE2e}
-                        onClick={() => {
-                          setHasE2ePassword(false);
-                          setE2ePassword("");
-                          setE2ePasswordConfirm("");
-                          setE2eError("");
-                        }}
-                      >
-                        {t("settings.encryption.changePassword")}
-                      </Button>
-                      <LoadingButton
-                        variant="destructive"
-                        size="sm"
-                        isLoading={isRemovingE2e}
-                        onClick={async () => {
-                          setIsRemovingE2e(true);
-                          try {
-                            // Await the rollover so the user sees an error if
-                            // re-syncing fails. Previously the rollover was
-                            // fire-and-forget (`void invoke(...)`) which left
-                            // half-removed state on screen with no feedback.
-                            await invoke("delete_e2e_password");
-                            setHasE2ePassword(false);
-                            try {
-                              await invoke(
-                                "rollover_encryption_for_all_entities",
-                              );
-                            } catch (rolloverErr) {
-                              console.error(
-                                "Rollover after password removal failed:",
-                                rolloverErr,
-                              );
-                              showErrorToast(String(rolloverErr));
-                            }
-                            showSuccessToast(t("settings.encryption.removed"));
-                          } catch (error) {
-                            showErrorToast(String(error));
-                          } finally {
-                            setIsRemovingE2e(false);
-                          }
-                        }}
-                      >
-                        {t("settings.encryption.removePassword")}
-                      </LoadingButton>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <Input
-                      type="password"
-                      placeholder={t("settings.encryption.passwordPlaceholder")}
-                      value={e2ePassword}
-                      onChange={(e) => {
-                        setE2ePassword(e.target.value);
-                        setE2eError("");
-                      }}
-                    />
-                    <Input
-                      type="password"
-                      placeholder={t("settings.encryption.confirmPlaceholder")}
-                      value={e2ePasswordConfirm}
-                      onChange={(e) => {
-                        setE2ePasswordConfirm(e.target.value);
-                        setE2eError("");
-                      }}
-                    />
-                    {e2eError && (
-                      <p className="text-sm text-destructive-text">
-                        {e2eError}
-                      </p>
-                    )}
-                    <LoadingButton
-                      variant="default"
-                      size="sm"
-                      isLoading={isSavingE2e}
-                      onClick={async () => {
-                        if (e2ePassword.length < 8) {
-                          setE2eError(
-                            t("settings.encryption.passwordTooShort"),
-                          );
-                          return;
-                        }
-                        if (e2ePassword !== e2ePasswordConfirm) {
-                          setE2eError(
-                            t("settings.encryption.passwordMismatch"),
-                          );
-                          return;
-                        }
-                        setIsSavingE2e(true);
-                        try {
-                          await invoke("set_e2e_password", {
-                            password: e2ePassword,
-                          });
-                          setHasE2ePassword(true);
-                          setE2ePassword("");
-                          setE2ePasswordConfirm("");
-                          try {
-                            // Await rollover so any failure surfaces to the
-                            // user instead of being lost via fire-and-forget.
-                            // Without this, "change password" leaves entities
-                            // half-re-encrypted with no visible error.
-                            await invoke(
-                              "rollover_encryption_for_all_entities",
-                            );
-                          } catch (rolloverErr) {
-                            console.error(
-                              "Rollover after password set failed:",
-                              rolloverErr,
-                            );
-                            showErrorToast(String(rolloverErr));
-                          }
-                          showSuccessToast(
-                            t("settings.encryption.passwordSaved"),
-                          );
-                        } catch (error) {
-                          showErrorToast(String(error));
-                        } finally {
-                          setIsSavingE2e(false);
-                        }
-                      }}
-                    >
-                      {t("settings.encryption.setPassword")}
-                    </LoadingButton>
-                  </div>
-                )}
-              </div>
-
               {/* Data directory Section */}
               <div
                 data-settings-section="dataRoot"
@@ -1757,32 +1453,6 @@ export function SettingsDialog({
                 <Label className="text-base font-medium">
                   {t("settings.advanced.title")}
                 </Label>
-
-                {!isLinux && (
-                  <div className="flex items-start gap-x-3 rounded-lg border p-3">
-                    <Checkbox
-                      id="disable-auto-updates"
-                      checked={settings.disable_auto_updates ?? false}
-                      onCheckedChange={(checked) => {
-                        updateSetting(
-                          "disable_auto_updates",
-                          checked as boolean,
-                        );
-                      }}
-                    />
-                    <div className="space-y-1">
-                      <Label
-                        htmlFor="disable-auto-updates"
-                        className="text-sm font-medium"
-                      >
-                        {t("settings.disableAutoUpdates")}
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        {t("settings.disableAutoUpdatesDescription")}
-                      </p>
-                    </div>
-                  </div>
-                )}
 
                 <div className="flex items-start gap-x-3 rounded-lg border p-3">
                   <Checkbox
@@ -2122,108 +1792,6 @@ export function SettingsDialog({
               </LoadingButton>
             </DialogFooter>
           )}
-        </DialogContent>
-      </Dialog>
-      <DnsBlocklistDialog
-        isOpen={dnsBlocklistDialogOpen}
-        onClose={() => setDnsBlocklistDialogOpen(false)}
-      />
-      <Dialog
-        open={isVerifyE2eOpen}
-        onOpenChange={(open) => {
-          if (!isVerifyingE2e) {
-            setIsVerifyE2eOpen(open);
-            if (!open) setVerifyE2ePassword("");
-          }
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {t("settings.encryption.validateDialog.title")}
-            </DialogTitle>
-            <DialogDescription>
-              {t("settings.encryption.validateDialog.description")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              type="password"
-              placeholder={t("settings.encryption.passwordPlaceholder")}
-              value={verifyE2ePassword}
-              autoFocus
-              onChange={(e) => setVerifyE2ePassword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && verifyE2ePassword.length > 0) {
-                  e.preventDefault();
-                  void (async () => {
-                    setIsVerifyingE2e(true);
-                    try {
-                      const ok = await invoke<boolean>("verify_e2e_password", {
-                        password: verifyE2ePassword,
-                      });
-                      if (ok) {
-                        showSuccessToast(
-                          t("settings.encryption.validateDialog.matchToast"),
-                        );
-                        setIsVerifyE2eOpen(false);
-                        setVerifyE2ePassword("");
-                      } else {
-                        showErrorToast(
-                          t("settings.encryption.validateDialog.mismatchToast"),
-                        );
-                      }
-                    } catch (error) {
-                      showErrorToast(String(error));
-                    } finally {
-                      setIsVerifyingE2e(false);
-                    }
-                  })();
-                }
-              }}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              disabled={isVerifyingE2e}
-              onClick={() => {
-                setIsVerifyE2eOpen(false);
-                setVerifyE2ePassword("");
-              }}
-            >
-              {t("common.buttons.cancel")}
-            </Button>
-            <LoadingButton
-              isLoading={isVerifyingE2e}
-              disabled={verifyE2ePassword.length === 0}
-              onClick={async () => {
-                setIsVerifyingE2e(true);
-                try {
-                  const ok = await invoke<boolean>("verify_e2e_password", {
-                    password: verifyE2ePassword,
-                  });
-                  if (ok) {
-                    showSuccessToast(
-                      t("settings.encryption.validateDialog.matchToast"),
-                    );
-                    setIsVerifyE2eOpen(false);
-                    setVerifyE2ePassword("");
-                  } else {
-                    showErrorToast(
-                      t("settings.encryption.validateDialog.mismatchToast"),
-                    );
-                  }
-                } catch (error) {
-                  showErrorToast(String(error));
-                } finally {
-                  setIsVerifyingE2e(false);
-                }
-              }}
-            >
-              {t("settings.encryption.validateDialog.submit")}
-            </LoadingButton>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

@@ -291,6 +291,7 @@ pub async fn cloud_save_proxy(
   city: Option<String>,
   timezone: Option<String>,
   protocol_config: Option<String>,
+  company_id: Option<i64>,
 ) -> Result<i64, String> {
   let new_id = crate::bwbrowser_cloud::bwbrowser_sync_proxy(
     proxy_id,
@@ -304,6 +305,7 @@ pub async fn cloud_save_proxy(
     city,
     timezone,
     protocol_config,
+    company_id,
   )
   .await?;
 

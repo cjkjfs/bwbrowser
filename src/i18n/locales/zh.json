@@ -3642,7 +3642,21 @@
     "hardwareDisk": "硬盘",
     "hardwareAvailable": "可用 {{available}}",
     "hardwareGpu": "显卡",
-    "hardwareUnavailable": "暂无硬件信息，被控端升级到最新版本后自动上报。"
+    "hardwareUnavailable": "暂无硬件信息，被控端升级到最新版本后自动上报。",
+    "configChangedBadge": "配置变更",
+    "configDiffTitle": "机器配置变更对比",
+    "configDiffDesc": "「{{name}}」的硬件配置在 {{time}} 发生变化",
+    "configDiffPrevHeader": "变更前",
+    "configDiffCurrHeader": "当前",
+    "configDiffCpu": "CPU",
+    "configDiffMemory": "内存总量",
+    "configDiffDisk": "硬盘",
+    "configDiffGpu": "显卡",
+    "configDiffDiskNone": "（无）",
+    "configDiffSummaryChanged": "{{count}} 项静态配置发生变化（对比 CPU / 内存总量 / 硬盘容量 / 显卡，不含占用率等动态数值）",
+    "configDiffSummaryUnchanged": "静态配置无变化",
+    "configDiffAck": "知道了",
+    "configDiffAckSuccess": "已清除该机器的变更提示"
   },
   "fileTransfer": {
     "title": "文件传输",

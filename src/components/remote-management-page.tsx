@@ -6,6 +6,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  LuArrowRightLeft,
   LuEye,
   LuFolderOpen,
   LuGlobe,
@@ -25,6 +26,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { confirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -78,6 +86,12 @@ interface RemoteMachine {
   app_version: string;
   os_info: string;
   hardware: RemoteHardware | null;
+  /** 静态配置变更后的旧完整硬件快照（云端保留，查看对比后清除） */
+  hardware_prev: RemoteHardware | null;
+  /** 检测到配置变更的时间（未变更过为空） */
+  hardware_changed_at: string;
+  /** 与 hardware_prev 配套：true 时列表显示「配置变更」提示 */
+  config_changed: boolean;
   note: string;
   local_ips: string[];
   public_ip: string;
@@ -111,6 +125,9 @@ interface MachineRow {
   account: string;
   os: string;
   hardware: RemoteHardware | null;
+  hardwarePrev: RemoteHardware | null;
+  hardwareChangedAt: string;
+  configChanged: boolean;
   address: string;
   online: boolean;
   note: string;
@@ -215,9 +232,136 @@ function HardwareDetails({ hardware }: { hardware: RemoteHardware | null }) {
   );
 }
 
-const ALL_COMPANIES = "all";
+/** 静态配置对比的一行：label + 变更前值 + 当前值（changed 时高亮）。 */
+interface ConfigDiffLine {
+  label: string;
+  prev: string;
+  curr: string;
+  changed: boolean;
+}
 
-/** 操作列的三种连接方式，对应被控端 viewer 的 `?mode=`。 */
+type Translate = (key: string, opts?: Record<string, unknown>) => string;
+
+/** 生成新旧配置的静态项对比（CPU/内存总量/磁盘容量/GPU，不含占用率等动态值）。 */
+function buildConfigDiffLines(
+  prev: RemoteHardware | null,
+  curr: RemoteHardware | null,
+  t: Translate,
+): ConfigDiffLine[] {
+  const lines: ConfigDiffLine[] = [];
+
+  const cpuText = (hw: RemoteHardware | null) => {
+    const cpu = hw?.cpu;
+    if (!cpu) return "—";
+    const cores = cpu.physical_cores
+      ? `${cpu.physical_cores} / ${cpu.logical_cores}`
+      : String(cpu.logical_cores || "—");
+    return `${cpu.name || "—"}（${t("remoteManagement.hardwareCores", {
+      cores,
+    })}）`;
+  };
+  const cpuPrev = cpuText(prev);
+  const cpuCurr = cpuText(curr);
+  lines.push({
+    label: t("remoteManagement.configDiffCpu"),
+    prev: cpuPrev,
+    curr: cpuCurr,
+    changed: cpuPrev !== cpuCurr,
+  });
+
+  const memPrev = prev?.memory?.total_bytes ?? 0;
+  const memCurr = curr?.memory?.total_bytes ?? 0;
+  lines.push({
+    label: t("remoteManagement.configDiffMemory"),
+    prev: formatBytes(memPrev),
+    curr: formatBytes(memCurr),
+    changed: memPrev !== memCurr,
+  });
+
+  // 硬盘按挂载点合并（容量或挂载点集合变化都算变更）
+  const diskKeys = new Set<string>();
+  for (const d of prev?.disks ?? []) diskKeys.add(d.mount_point || d.name);
+  for (const d of curr?.disks ?? []) diskKeys.add(d.mount_point || d.name);
+  const diskNone = t("remoteManagement.configDiffDiskNone");
+  for (const key of [...diskKeys].sort()) {
+    const dPrev = (prev?.disks ?? []).find(
+      (d) => (d.mount_point || d.name) === key,
+    );
+    const dCurr = (curr?.disks ?? []).find(
+      (d) => (d.mount_point || d.name) === key,
+    );
+    const prevText = dPrev
+      ? `${key} · ${formatBytes(dPrev.total_bytes)}`
+      : `${key} · ${diskNone}`;
+    const currText = dCurr
+      ? `${key} · ${formatBytes(dCurr.total_bytes)}`
+      : `${key} · ${diskNone}`;
+    lines.push({
+      label: t("remoteManagement.configDiffDisk"),
+      prev: prevText,
+      curr: currText,
+      changed: prevText !== currText,
+    });
+  }
+
+  const gpuText = (hw: RemoteHardware | null) =>
+    (hw?.gpus ?? [])
+      .map((g) => g.name)
+      .filter(Boolean)
+      .sort()
+      .join("、") || "—";
+  const gpuPrev = gpuText(prev);
+  const gpuCurr = gpuText(curr);
+  lines.push({
+    label: t("remoteManagement.configDiffGpu"),
+    prev: gpuPrev,
+    curr: gpuCurr,
+    changed: gpuPrev !== gpuCurr,
+  });
+  return lines;
+}
+
+/** 「配置变更」对比弹窗内容：旧配置 → 新配置逐项对照，变化行高亮。 */
+function ConfigDiffDetails({ row }: { row: MachineRow }) {
+  const { t } = useTranslation();
+  const lines = buildConfigDiffLines(row.hardwarePrev, row.hardware, t);
+  const changedCount = lines.filter((l) => l.changed).length;
+  return (
+    <div className="text-sm">
+      <div className="mb-3 grid grid-cols-[90px_1fr_1fr] gap-2 text-xs font-medium text-muted-foreground">
+        <div />
+        <div>{t("remoteManagement.configDiffPrevHeader")}</div>
+        <div>{t("remoteManagement.configDiffCurrHeader")}</div>
+      </div>
+      <div className="space-y-2">
+        {lines.map((line, i) => (
+          <div
+            key={`${line.label}:${i}`}
+            className={cn(
+              "grid grid-cols-[90px_1fr_1fr] gap-2 rounded-md px-2 py-1.5 text-xs",
+              line.changed &&
+                "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+            )}
+          >
+            <div className="font-medium">{line.label}</div>
+            <div className="break-all">{line.prev}</div>
+            <div className="break-all">{line.curr}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 text-xs text-muted-foreground">
+        {changedCount > 0
+          ? t("remoteManagement.configDiffSummaryChanged", {
+              count: changedCount,
+            })
+          : t("remoteManagement.configDiffSummaryUnchanged")}
+      </div>
+    </div>
+  );
+}
+
+const ALL_COMPANIES =
+  "all"; /** 操作列的三种连接方式，对应被控端 viewer 的 `?mode=`。 */
 type RemoteMode = "full" | "view" | "files";
 
 const ACTIONS: {
@@ -285,6 +429,9 @@ export function RemoteManagementPage() {
   const [connectingKey, setConnectingKey] = useState<string | null>(null);
   /** 打开双栏文件传输页的目标；为 null 时显示机器列表 */
   const [fileTarget, setFileTarget] = useState<FileTransferTarget | null>(null);
+  /** 「配置变更」对比弹窗的目标行；为 null 时不显示 */
+  const [configDiffRow, setConfigDiffRow] = useState<MachineRow | null>(null);
+  const [clearingDiff, setClearingDiff] = useState(false);
   /** 视图模式：卡片 / 列表（记住上次选择） */
   const [viewMode, setViewMode] = useState<"card" | "list">(() =>
     localStorage.getItem("remote_mgmt_view_mode") === "list" ? "list" : "card",
@@ -339,6 +486,24 @@ export function RemoteManagementPage() {
     void loadMachines();
   }, [loadMachines]);
 
+  /** 查看对比后清除该机器的变更提示（云端 hardware_prev 置空，标记已读） */
+  const handleClearConfigChange = useCallback(async () => {
+    if (!configDiffRow) return;
+    setClearingDiff(true);
+    try {
+      await invoke("bwbrowser_remote_management_clear_config_change", {
+        clientId: configDiffRow.clientId,
+      });
+      toast.success(t("remoteManagement.configDiffAckSuccess"));
+      setConfigDiffRow(null);
+      void loadMachines();
+    } catch (e) {
+      toast.error(translateBackendError(t, e));
+    } finally {
+      setClearingDiff(false);
+    }
+  }, [configDiffRow, loadMachines, t]);
+
   // 连接：交给后端解析（后端先探被控端的局域网地址 /discover，
   // 可达即局域网直连，不可达才回退中继控制页）。
   // mode 决定 viewer 落到完全控制 / 仅查看 / 文件传输；viewer 在应用内窗口打开。
@@ -389,6 +554,9 @@ export function RemoteManagementPage() {
           : m.user_real_name || m.user_username || "",
       os: m.os_info || "",
       hardware: m.hardware,
+      hardwarePrev: m.hardware_prev,
+      hardwareChangedAt: m.hardware_changed_at || "",
+      configChanged: m.config_changed,
       address: m.local_ips.filter(Boolean)[0] || m.public_ip || "",
       online: m.status === "online",
       note: m.note,
@@ -582,6 +750,19 @@ export function RemoteManagementPage() {
 
                 {/* 信息区 */}
                 <div className="mt-2.5 space-y-1 text-xs text-muted-foreground">
+                  {row.configChanged && (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 cursor-pointer hover:bg-amber-500/25 dark:text-amber-400"
+                      onClick={() => setConfigDiffRow(row)}
+                    >
+                      <LuArrowRightLeft className="w-3 h-3 shrink-0" />
+                      {t("remoteManagement.configChangedBadge")}
+                      {row.hardwareChangedAt
+                        ? ` · ${row.hardwareChangedAt.slice(5, 16)}`
+                        : ""}
+                    </button>
+                  )}
                   {row.account && (
                     <button
                       type="button"
@@ -693,6 +874,16 @@ export function RemoteManagementPage() {
                           v{row.appVersion.replace(/^v/, "")}
                         </span>
                       )}
+                      {row.configChanged && (
+                        <button
+                          type="button"
+                          className="inline-flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-600 cursor-pointer hover:bg-amber-500/25 dark:text-amber-400"
+                          onClick={() => setConfigDiffRow(row)}
+                        >
+                          <LuArrowRightLeft className="w-3 h-3" />
+                          {t("remoteManagement.configChangedBadge")}
+                        </button>
+                      )}
                     </div>
                     {row.account && (
                       <button
@@ -784,6 +975,47 @@ export function RemoteManagementPage() {
           </Table>
         )}
       </div>
+
+      {/* 配置变更对比弹窗：旧配置 → 新配置逐项对照 */}
+      <Dialog
+        open={configDiffRow !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfigDiffRow(null);
+        }}
+      >
+        <DialogContent className="max-w-[640px]">
+          <DialogHeader>
+            <DialogTitle>{t("remoteManagement.configDiffTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("remoteManagement.configDiffDesc", {
+                name: configDiffRow?.hostname || "—",
+                time: configDiffRow?.hardwareChangedAt || "—",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          {configDiffRow && <ConfigDiffDetails row={configDiffRow} />}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={clearingDiff}
+              onClick={() => setConfigDiffRow(null)}
+            >
+              {t("common.buttons.close")}
+            </Button>
+            <Button
+              size="sm"
+              disabled={clearingDiff}
+              onClick={() => void handleClearConfigChange()}
+            >
+              {clearingDiff && (
+                <LuLoaderCircle className="w-3.5 h-3.5 mr-1 animate-spin" />
+              )}
+              {t("remoteManagement.configDiffAck")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -209,6 +209,10 @@ impl SessionCtx {
             self.monitor = m;
             // 分辨率随切屏变化，旧帧缓存长度不再匹配
             self.invalidate_frame();
+            // H264：两屏分辨率相同时编码器不会因尺寸重建，不强制 IDR 就会
+            // 继续输出参考旧屏内容的 P 帧，viewer 切屏后画面纹丝不动
+            // （要等 IntraFramePeriod 的下一个周期才有 IDR，最长约 8 秒）。
+            self.force_key = true;
           }
           match capture::display_info(m) {
             Some(d) => {

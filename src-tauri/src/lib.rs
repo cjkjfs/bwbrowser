@@ -147,6 +147,7 @@ mod macos_link_stub;
 mod mcp_integrations;
 mod mcp_remote;
 mod mcp_server;
+mod paypal_scrape;
 pub mod remote_agent;
 mod revenue_scrape;
 mod revenue_shield;
@@ -2242,6 +2243,12 @@ async fn bwbrowser_remote_management_delete(client_id: i64) -> Result<u64, Strin
   remote_agent::control::delete_machine(client_id).await
 }
 
+/// 清除「配置变更」提示（查看过新旧配置对比后标记已读）。
+#[tauri::command]
+async fn bwbrowser_remote_management_clear_config_change(client_id: i64) -> Result<(), String> {
+  remote_agent::control::clear_config_change(client_id).await
+}
+
 // --- Remote file transfer (control side) ------------------------------------
 
 /// 解析文件传输目标：云端机器由后端给出局域网/中继 + 连接密码。
@@ -4031,6 +4038,7 @@ pub fn run_with_builder(
       bwbrowser_remote_management_machines,
       bwbrowser_remote_management_target,
       bwbrowser_remote_management_delete,
+      bwbrowser_remote_management_clear_config_change,
       // Remote file transfer (control side)
       bwbrowser_remote_files_target,
       bwbrowser_remote_files_list,

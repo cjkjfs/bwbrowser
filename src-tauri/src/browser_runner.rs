@@ -2306,6 +2306,10 @@ pub async fn launch_browser_profile_impl(
       // 全静默，失败只记日志，绝不影响启动。
       let profile_id = profile.id.to_string();
       crate::revenue_scrape::spawn_revenue_task(profile_id);
+      // PayPal 余额自动抓取：platform=paypal 的账号启动后静默抓一次余额入库
+      // （服务端预检裁决平台/登录态/收益开关/节流，非 PayPal 账号预检直接 skip）。
+      let profile_id = profile.id.to_string();
+      crate::paypal_scrape::spawn_paypal_balance_task(profile_id);
     }
     Err(error) => emit_launch_stage(
       &profile,

@@ -3636,7 +3636,21 @@
     "hardwareDisk": "Storage",
     "hardwareAvailable": "{{available}} available",
     "hardwareGpu": "GPU",
-    "hardwareUnavailable": "No hardware data yet. The controlled end needs the latest version to report it."
+    "hardwareUnavailable": "No hardware data yet. The controlled end needs the latest version to report it.",
+    "configChangedBadge": "Config changed",
+    "configDiffTitle": "Machine config change",
+    "configDiffDesc": "Hardware config of \"{{name}}\" changed at {{time}}",
+    "configDiffPrevHeader": "Before",
+    "configDiffCurrHeader": "Current",
+    "configDiffCpu": "CPU",
+    "configDiffMemory": "Total memory",
+    "configDiffDisk": "Disk",
+    "configDiffGpu": "GPU",
+    "configDiffDiskNone": "(none)",
+    "configDiffSummaryChanged": "{{count}} static item(s) changed (CPU / total memory / disk capacity / GPU; dynamic values like usage are excluded)",
+    "configDiffSummaryUnchanged": "No static config change",
+    "configDiffAck": "Got it",
+    "configDiffAckSuccess": "Change notice cleared"
   },
   "fileTransfer": {
     "title": "File transfer",

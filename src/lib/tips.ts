@@ -24,7 +24,6 @@ export type TipAction =
   | { kind: "palette" };
 
 export type TipId =
-  | "dnsBlocklist"
   | "proxyCheck"
   | "groups"
   | "commandPalette"
@@ -60,7 +59,6 @@ export interface TipDefinition {
  * `body` and `action`. `src/lib/tips.test.mjs` checks that no tip is missing its text.
  */
 export const TIPS: readonly TipDefinition[] = [
-  { id: "dnsBlocklist", action: { kind: "settings", section: "dns" } },
   { id: "proxyCheck", action: { kind: "page", page: "proxies" } },
   { id: "groups", action: { kind: "page", page: "groups" } },
   { id: "commandPalette", action: { kind: "palette" } },

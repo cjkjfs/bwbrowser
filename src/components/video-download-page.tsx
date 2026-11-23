@@ -10,6 +10,7 @@ import {
   LuDownload,
   LuFileText,
   LuFolderOpen,
+  LuGlobe,
   LuKey,
   LuLink,
   LuLoader,
@@ -64,6 +65,7 @@ import {
   useVideoDownload,
 } from "@/hooks/use-video-download";
 import { dismissToast, showLaunchProgressToast } from "@/lib/toast-utils";
+import { cn } from "@/lib/utils";
 
 interface VideoDownloadPageProps {
   open: boolean;
@@ -829,6 +831,288 @@ export function VideoDownloadPage({
     }
   }, []);
 
+  // ===== 启动嗅探浏览器（2026-11-22） =====
+  // 从云端账号里找开启了「视频嗅探」的账号，弹选择器（可多选）批量启动；
+  // 启动命令复用 bwbrowser_launch_account（不带 override_url），进度事件
+  // account-launch-progress 原位显示；同一账号浏览器关闭事件清除已启动状态。
+  interface SnifferAccount {
+    id: number;
+    account_name: string;
+    platform?: string | null;
+    env_uuid?: string | null;
+    proxy_node?: string | null;
+    /** 选择器展示的账号详情 */
+    phone_id?: string | null;
+    bind_phone?: string | null;
+    owner_name?: string | null;
+    account_nickname?: string | null;
+    followers?: number | null;
+    cookie_updated_at?: string | null;
+  }
+  const [snifferPickerOpen, setSnifferPickerOpen] = useState(false);
+  const [snifferCandidates, setSnifferCandidates] = useState<SnifferAccount[]>(
+    [],
+  );
+  const [snifferChecked, setSnifferChecked] = useState<Set<number>>(new Set());
+  const [snifferLoadingList, setSnifferLoadingList] = useState(false);
+  const [snifferLaunching, setSnifferLaunching] = useState<Set<number>>(
+    new Set(),
+  );
+  const [snifferProgress, setSnifferProgress] = useState<
+    Record<number, { pct: number; label: string }>
+  >({});
+  // 选择器 3 秒倒计时自动启动：默认勾选=上次启动的账号（localStorage），
+  // 倒计时期间手动改勾选/取消/手动启动都会打断。
+  const [snifferCountdown, setSnifferCountdown] = useState<number | null>(null);
+
+  // 单个账号启动：进度事件 → snifferProgress；成功标记已启动
+  const launchSnifferAccount = useCallback(
+    async (account: SnifferAccount): Promise<boolean> => {
+      if (snifferLaunching.has(account.id)) return false;
+      setSnifferLaunching((prev) => new Set(prev).add(account.id));
+      setSnifferProgress((prev) => ({
+        ...prev,
+        [account.id]: { pct: 0, label: "正在启动..." },
+      }));
+      const unlisten = await listen<{
+        account_id: number;
+        pct: number;
+        label: string;
+      }>("account-launch-progress", (event) => {
+        if (event.payload.account_id !== account.id) return;
+        const pct = Math.min(100, Math.max(0, event.payload.pct));
+        setSnifferProgress((prev) => ({
+          ...prev,
+          [account.id]: { pct, label: event.payload.label || "正在启动..." },
+        }));
+      });
+      try {
+        const result = await invoke<string>("bwbrowser_launch_account", {
+          accountId: account.id,
+          accountName: account.account_name || String(account.id),
+          envUuid: account.env_uuid ?? null,
+          proxyNode: account.proxy_node ?? null,
+          platform: account.platform ?? null,
+        });
+        setSnifferProgress((prev) => ({
+          ...prev,
+          [account.id]: { pct: 100, label: "已启动" },
+        }));
+        if (result === "ALREADY_RUNNING") {
+          toast.info(
+            `账号「${account.account_name || account.id}」浏览器已在运行，无需重复启动`,
+          );
+        } else {
+          toast.success(`账号「${account.account_name || account.id}」已启动`);
+        }
+        return true;
+      } catch (e) {
+        const msg =
+          e instanceof Error
+            ? e.message
+            : typeof e === "string"
+              ? e
+              : "启动失败";
+        toast.error(
+          `启动「${account.account_name || account.id}」失败：${msg}`,
+        );
+        setSnifferProgress((prev) => {
+          const next = { ...prev };
+          delete next[account.id];
+          return next;
+        });
+        return false;
+      } finally {
+        unlisten();
+        setSnifferLaunching((prev) => {
+          const next = new Set(prev);
+          next.delete(account.id);
+          return next;
+        });
+      }
+    },
+    [snifferLaunching],
+  );
+
+  // 账号浏览器关闭 → 清除该账号的启动中/进度状态（允许再次启动）
+  useEffect(() => {
+    const unlisten = listen<{ account_id: number }>(
+      "account-browser-closed",
+      (event) => {
+        const id = event.payload.account_id;
+        setSnifferLaunching((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        setSnifferProgress((prev) => {
+          if (!(id in prev)) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      },
+    );
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // 按钮点击：拉嗅探名单 ∩ 归属人本人的云端账号，0 个提示、1 个直启、多个弹选择器
+  // 只看本人账号（ownerId=当前登录用户），看不到别人的。
+  // forcePicker（Shift+点击）= 跳过一切默认直启，强制弹出账号选择器。
+  const handleLaunchSnifferBrowser = useCallback(
+    async (forcePicker = false) => {
+      setSnifferLoadingList(true);
+      try {
+        const auth = await invoke<{ user?: { id?: string } } | null>(
+          "bwbrowser_get_user",
+        );
+        const meId = Number(auth?.user?.id ?? 0);
+        if (!meId) {
+          toast.error("未登录云端账号，无法确定账号归属");
+          return;
+        }
+        const [state, accounts] = await Promise.all([
+          invoke<{ accounts?: number[] }>("get_video_sniffer_state"),
+          (async () => {
+            // 翻页拉归属人本人的账号（ownerId=meId，服务端过滤）
+            const all: Array<SnifferAccount> = [];
+            for (let pg = 1; ; pg++) {
+              const result = await invoke<{
+                accounts: Array<SnifferAccount & { launch_allowed?: boolean }>;
+                total?: number;
+              }>("bwbrowser_list_accounts", {
+                page: pg,
+                pageSize: 200,
+                platform: null,
+                keyword: null,
+                ownerId: meId,
+                companyId: null,
+                sortBy: null,
+                sortOrder: null,
+              });
+              const rows = result.accounts ?? [];
+              all.push(...rows);
+              if (
+                rows.length < 200 ||
+                (result.total != null && all.length >= result.total)
+              ) {
+                break;
+              }
+            }
+            return all;
+          })(),
+        ]);
+        const enabled = Array.isArray(state.accounts) ? state.accounts : [];
+        const candidates = accounts.filter(
+          (a) =>
+            enabled.includes(a.id) &&
+            (a as { launch_allowed?: boolean }).launch_allowed !== false,
+        );
+        if (candidates.length === 0) {
+          toast.info(
+            "没有开启视频嗅探的账号——到「云端账号」页编辑你的账号，打开「视频嗅探」开关后重试",
+          );
+          return;
+        }
+        if (candidates.length === 1 && !forcePicker) {
+          await launchSnifferAccount(candidates[0]);
+          return;
+        }
+        setSnifferCandidates(candidates);
+        // 默认勾选 = 上次启动的账号（与本次候选取交集）。
+        // 只有 1 个待启动账号（候选唯一、或默认勾选仅剩 1 个）→ 直接拉起；
+        // 默认勾选 ≥2 → 弹窗 + 3 秒倒计时确认；Shift+点击强制走选择器。
+        const SNIFFER_DEFAULT_KEY = "video_download_sniffer_default";
+        let valid: number[] = [];
+        try {
+          const saved: number[] = JSON.parse(
+            localStorage.getItem(SNIFFER_DEFAULT_KEY) || "[]",
+          );
+          valid = Array.isArray(saved)
+            ? saved.filter((id) => candidates.some((a) => a.id === id))
+            : [];
+        } catch {
+          valid = [];
+        }
+        if (!forcePicker && valid.length === 1) {
+          const target = candidates.find((a) => a.id === valid[0]);
+          if (target) {
+            await launchSnifferAccount(target);
+            return;
+          }
+        }
+        setSnifferChecked(new Set(valid));
+        setSnifferCountdown(!forcePicker && valid.length > 1 ? 3 : null);
+        setSnifferPickerOpen(true);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        toast.error(`获取嗅探账号失败：${msg}`);
+      } finally {
+        setSnifferLoadingList(false);
+      }
+    },
+    [launchSnifferAccount],
+  );
+
+  // 选择器「启动」：顺序启动勾选账号（浏览器启动重，避免并发抢占资源）
+  const launchCheckedSnifferAccounts = useCallback(async () => {
+    const targets = snifferCandidates.filter((a) => snifferChecked.has(a.id));
+    if (targets.length === 0) return;
+    // 本次发起的勾选存为下次的默认
+    try {
+      localStorage.setItem(
+        "video_download_sniffer_default",
+        JSON.stringify(targets.map((t) => t.id)),
+      );
+    } catch {
+      // localStorage 不可用时忽略
+    }
+    setSnifferCountdown(null);
+    let ok = 0;
+    for (const t of targets) {
+      if (await launchSnifferAccount(t)) ok += 1;
+    }
+    if (targets.length > 1) {
+      if (ok === targets.length) {
+        toast.success(`已启动 ${ok} 个嗅探浏览器`);
+      } else {
+        toast.error(`启动完成：成功 ${ok}/${targets.length}，失败的见上方提示`);
+      }
+    }
+    setSnifferPickerOpen(false);
+  }, [snifferCandidates, snifferChecked, launchSnifferAccount]);
+
+  // 3 秒倒计时：到 0 自动启动默认勾选；弹窗关闭即停
+  useEffect(() => {
+    if (!snifferPickerOpen || snifferCountdown === null) return;
+    if (snifferCountdown <= 0) {
+      void launchCheckedSnifferAccounts();
+      return;
+    }
+    const timer = setTimeout(
+      () => setSnifferCountdown((c) => (c === null ? null : c - 1)),
+      1000,
+    );
+    return () => clearTimeout(timer);
+  }, [snifferPickerOpen, snifferCountdown, launchCheckedSnifferAccounts]);
+
+  // 选择器里的勾选切换：任何手动介入都打断本次自动启动
+  const toggleSnifferCheck = useCallback((id: number) => {
+    setSnifferCountdown(null);
+    setSnifferChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
   // 开始下载
   const handleStartDownload = useCallback(async () => {
     const urls = (urlInput.match(/https?:\/\/[^\s'"<>`\]]+/g) || [])
@@ -1038,6 +1322,24 @@ export function VideoDownloadPage({
                   <LuLink className="w-4 h-4 mr-1" />
                 )}
                 {profileLoading ? "展开中..." : "主页全部视频"}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={snifferLoadingList || snifferLaunching.size > 0}
+                title="启动开启了视频嗅探的云端账号浏览器；单一默认账号直接拉起，多个默认账号弹窗 3 秒倒计时确认。Shift+点击强制弹出账号选择器"
+                onClick={(e) => void handleLaunchSnifferBrowser(e.shiftKey)}
+              >
+                {snifferLoadingList || snifferLaunching.size > 0 ? (
+                  <LuLoader className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <LuGlobe className="w-4 h-4 mr-1" />
+                )}
+                {snifferLaunching.size > 0
+                  ? `启动中(${snifferLaunching.size})`
+                  : snifferLoadingList
+                    ? "查找账号..."
+                    : "启动嗅探浏览器"}
               </Button>
             </div>
           </div>
@@ -1697,29 +1999,140 @@ export function VideoDownloadPage({
     </Tabs>
   );
 
+  // 嗅探账号多选启动弹窗（嵌入式/弹窗两种挂载形态都要渲染）
+  const snifferPickerDialog = (
+    <Dialog open={snifferPickerOpen} onOpenChange={setSnifferPickerOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>选择要启动的嗅探账号</DialogTitle>
+        </DialogHeader>
+        <div className="max-h-72 space-y-1 overflow-y-auto">
+          {snifferCandidates.map((a) => {
+            const prog = snifferProgress[a.id];
+            const checked = snifferChecked.has(a.id);
+            const launching = snifferLaunching.has(a.id);
+            return (
+              <button
+                key={a.id}
+                type="button"
+                disabled={launching}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                  checked ? "border-primary/40 bg-primary/5" : "border-border",
+                  launching && "opacity-60",
+                )}
+                onClick={() => toggleSnifferCheck(a.id)}
+              >
+                <span
+                  className={cn(
+                    "grid size-4 shrink-0 place-items-center rounded border",
+                    checked
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-muted-foreground/40",
+                  )}
+                >
+                  {checked && <LuCheck className="size-3" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">
+                    {a.account_name || a.id}
+                    {a.account_nickname && a.account_nickname !== a.account_name
+                      ? `（${a.account_nickname}）`
+                      : ""}
+                  </span>
+                  {prog ? (
+                    <span className="block text-xs text-muted-foreground">
+                      {prog.label} {prog.pct}%
+                    </span>
+                  ) : (
+                    <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                      {a.platform && <span>{a.platform}</span>}
+                      {a.phone_id && <span>手机 {a.phone_id}</span>}
+                      {a.bind_phone && <span>绑定 {a.bind_phone}</span>}
+                      <span>
+                        {a.cookie_updated_at
+                          ? `Cookie ${a.cookie_updated_at.slice(0, 16).replace("T", " ")}`
+                          : "Cookie 未更新"}
+                      </span>
+                    </span>
+                  )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSnifferCountdown(null);
+              setSnifferChecked((prev) =>
+                prev.size === snifferCandidates.length
+                  ? new Set()
+                  : new Set(snifferCandidates.map((a) => a.id)),
+              );
+            }}
+          >
+            {snifferChecked.size === snifferCandidates.length
+              ? "全不选"
+              : "全选"}
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSnifferCountdown(null);
+                setSnifferPickerOpen(false);
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              disabled={snifferChecked.size === 0 || snifferLaunching.size > 0}
+              onClick={() => void launchCheckedSnifferAccounts()}
+            >
+              {snifferLaunching.size > 0
+                ? `启动中(${snifferLaunching.size})`
+                : snifferCountdown !== null && snifferCountdown > 0
+                  ? `启动(${snifferChecked.size}) · ${snifferCountdown}s`
+                  : `启动(${snifferChecked.size})`}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (embedded) {
     return (
       <div className="flex h-full min-h-0 w-full flex-col gap-0 overflow-hidden p-6">
         {content}
+        {snifferPickerDialog}
       </div>
     );
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className={`max-w-4xl flex flex-col ${subPage ? "!bg-transparent !border-none !shadow-none" : ""}`}
-      >
-        <DialogHeader className={subPage ? "hidden" : ""}>
-          <DialogTitle className="flex items-center gap-2">
-            <LuDownload className="w-5 h-5" />
-            视频下载
-          </DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          className={`max-w-4xl flex flex-col ${subPage ? "!bg-transparent !border-none !shadow-none" : ""}`}
+        >
+          <DialogHeader className={subPage ? "hidden" : ""}>
+            <DialogTitle className="flex items-center gap-2">
+              <LuDownload className="w-5 h-5" />
+              视频下载
+            </DialogTitle>
+          </DialogHeader>
 
-        {content}
-      </DialogContent>
-    </Dialog>
+          {content}
+        </DialogContent>
+      </Dialog>
+      {snifferPickerDialog}
+    </>
   );
 }
 

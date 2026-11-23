@@ -1616,6 +1616,7 @@ impl BwbrowserAuthManager {
     city: Option<&str>,
     timezone: Option<&str>,
     protocol_config: Option<&str>,
+    company_id: Option<i64>,
   ) -> Result<i64, String> {
     let (user, pass) = self
       .get_credentials()
@@ -1651,6 +1652,10 @@ impl BwbrowserAuthManager {
     }
     if let Some(pc) = protocol_config {
       form_data.push_str(&format!("&protocol_config={}", urlencode(pc)));
+    }
+    // 超管指定节点归属公司（服务端仅对 manager 放行）
+    if let Some(cid) = company_id {
+      form_data.push_str(&format!("&company_id={}", cid));
     }
 
     let resp = self
@@ -2327,6 +2332,13 @@ pub struct BwbrowserAccount {
   pub tags_list: Option<Vec<String>>,
   #[serde(default)]
   pub backup_email: Option<String>,
+  /// 账户余额（PayPal 等）：客户端自动抓取（paypal_scrape）或编辑账号手动维护，
+  /// 服务端 decimal(12,2) JSON 里为字符串（如 "1118.50"）
+  #[serde(default)]
+  pub balance: Option<String>,
+  /// 最近一次余额自动抓取时间（手动改过则可能早于手动修改时间）
+  #[serde(default)]
+  pub balance_scraped_at: Option<String>,
   /// YouTube Channel ID（UC 开头），编辑账号维护并随 update_account_info 写回云端
   #[serde(default)]
   pub channel_id: Option<String>,
@@ -3236,6 +3248,7 @@ async fn resolve_and_sync_proxy_geo(
           cp.city.as_deref(),
           Some(&geo_info.timezone),
           cp.protocol_config.as_deref(),
+          None,
         )
         .await
       {
@@ -3273,6 +3286,7 @@ async fn resolve_and_sync_proxy_geo(
           None,
           None,
           Some(&geo_info.timezone),
+          None,
           None,
         )
         .await
@@ -3327,6 +3341,7 @@ pub async fn bwbrowser_update_account_proxy(
   account_id: i64,
   account_name: String,
   proxy_node: String,
+  company_id: Option<i64>,
 ) -> Result<serde_json::Value, String> {
   log_bwbrowser(
     "update_account_proxy",
@@ -3342,7 +3357,7 @@ pub async fn bwbrowser_update_account_proxy(
   // Step 1: 更新云端账号代理
   log_bwbrowser("update_account_proxy", "Step 1: 更新云端账号代理...");
   BWBROWSER_AUTH
-    .update_account_proxy(account_id, &proxy_node)
+    .update_account_proxy(account_id, &proxy_node, company_id)
     .await?;
   log_bwbrowser("update_account_proxy", "  ✓ 云端代理更新成功");
 
@@ -3716,6 +3731,7 @@ impl BwbrowserAuthManager {
     &self,
     account_id: i64,
     proxy_node: &str,
+    company_id: Option<i64>,
   ) -> Result<(), String> {
     let (username, password) = self
       .get_credentials()
@@ -3724,8 +3740,8 @@ impl BwbrowserAuthManager {
     log_bwbrowser(
       "update_account_proxy",
       &format!(
-        "→ 设置账号代理: account_id={}, proxy={}",
-        account_id, proxy_node
+        "→ 设置账号代理: account_id={}, proxy={}, company_id={:?}",
+        account_id, proxy_node, company_id
       ),
     );
 
@@ -3745,13 +3761,17 @@ impl BwbrowserAuthManager {
         .await;
     }
 
-    let form_data = format!(
+    let mut form_data = format!(
       "action=update_proxy&username={}&password={}&account_id={}&proxy_node={}",
       urlencode(&username),
       urlencode(&password),
       account_id,
       urlencode(proxy_node)
     );
+    // 超管指定账号所在公司（服务端仅超管放行；不传则用登录账号自身公司）
+    if let Some(cid) = company_id {
+      form_data.push_str(&format!("&company_id={}", cid));
+    }
 
     let mut last_err: Option<String> = None;
     for url in SIMPRINT_ACCOUNTS_URLS {
@@ -4045,6 +4065,7 @@ pub async fn bwbrowser_sync_proxy(
   city: Option<String>,
   timezone: Option<String>,
   protocol_config: Option<String>,
+  company_id: Option<i64>,
 ) -> Result<i64, String> {
   BWBROWSER_AUTH
     .sync_cloud_proxy(
@@ -4059,6 +4080,7 @@ pub async fn bwbrowser_sync_proxy(
       city.as_deref(),
       timezone.as_deref(),
       protocol_config.as_deref(),
+      company_id,
     )
     .await
 }
@@ -4435,6 +4457,7 @@ pub async fn bwbrowser_push_local_proxy_to_cloud(local_proxy_id: String) -> Resu
       stored.geo_country.as_deref(),
       stored.geo_city.as_deref(),
       stored.geo_timezone.as_deref(),
+      None,
       None,
     )
     .await?;
@@ -4978,6 +5001,8 @@ pub async fn bwbrowser_update_account_info(
   gpu_acceleration: Option<bool>,
   // 主/子账号：Some(0) = 清除子账号关系；Some(n>0) = 挂到主账号 n 下；None = 不动（本次不修改）。仅管理员有权限，服务端校验。
   parent_id: Option<i64>,
+  // 账户余额（PayPal 等）：Some = 覆盖（数字串或空串清零）；None = 不动。服务端数值校验。
+  balance: Option<String>,
 ) -> Result<(), String> {
   let (username, password) = BWBROWSER_AUTH
     .get_credentials()
@@ -5037,6 +5062,9 @@ pub async fn bwbrowser_update_account_info(
   }
   if let Some(v) = parent_id {
     params.push(format!("parent_id={}", v));
+  }
+  if let Some(v) = balance {
+    params.push(format!("balance={}", urlencode(&v)));
   }
   if let Some(v) = gpu_acceleration {
     params.push(format!("gpu_acceleration={}", if v { 1 } else { 0 }));
@@ -5441,6 +5469,7 @@ pub async fn bwbrowser_push_local_account_cookie(
     account_id,
     &cookie_json,
     platform.as_deref().unwrap_or(""),
+    true,
     true,
   )
   .await?;
@@ -6061,6 +6090,7 @@ async fn process_proxy_node_legacy(
           None,
           None,
           None,
+          None,
         )
         .await;
     }
@@ -6171,6 +6201,7 @@ async fn process_proxy_node_legacy(
       port as i64,
       username.as_deref(),
       password.as_deref(),
+      None,
       None,
       None,
       None,
@@ -6564,6 +6595,7 @@ async fn sync_proxy_timezone_to_cloud(app_handle: &tauri::AppHandle, host: &str,
             cp.city.as_deref(),
             Some(timezone),
             cp.protocol_config.as_deref(),
+            None,
           )
           .await
         {
@@ -7388,7 +7420,9 @@ async fn watch_account_browser_close(
           }
           // 账号 Cookie 自动回传：浏览器退出时本地即最新登录态快照。
           // 与书签/密码同模式；sync_cookies_to_cloud 内部带可用性闸门
-          // （本地 usable 才传）与云端防覆盖保护（云端已登录且更好不覆盖），
+          // （本地 usable 才传）。page_verified=false：退出快照未经页面复核，
+          // 保留云端防覆盖保护（云端已登录且更好不覆盖，防把主动登出后的
+          // 失效会话冲掉云端完好登录态），
           // platform 传空串由云端响应自动纠正（未知平台用 JSON domains 兜底）。
           // 失败只记日志，不影响关闭事件通知。
           {
@@ -7402,7 +7436,9 @@ async fn watch_account_browser_close(
                   && cookie_json.trim() != "{}"
                   && cookie_json.trim() != "null" =>
               {
-                match sync_cookies_to_cloud(&app_handle, account_id, &cookie_json, "", true).await {
+                match sync_cookies_to_cloud(&app_handle, account_id, &cookie_json, "", true, false)
+                  .await
+                {
                   Ok((uploaded, local_total, cloud_total)) => {
                     if uploaded {
                       log_bwbrowser(
@@ -7624,6 +7660,35 @@ async fn launch_account_impl(
   // 0.5 代理一律以服务器刚拉到的值为准（每次启动重新生效）：
   //     本地 profile 里的 node: 旧值会被这里覆盖并回写，跨电脑改节点才能立即生效。
   emit_progress(8, "已获取账号信息");
+
+  // 0.6 防重复启动：该账号的本地 profile 浏览器已在运行时直接返回，
+  //     不再 spawn 第二个内核实例——重复 spawn 撞 user-data-dir 锁，
+  //     任务栏表现为新窗口一闪而过。所有启动入口（云端账号页/视频下载页/
+  //     爆文库绑定入口）统一由此兜底。
+  //     注意：list_profiles 的 Err 是 Box<dyn StdError>（非 Send），必须用
+  //     match 在 await 前终结，不能让 if-let 的临时值跨越 .await。
+  {
+    let pm = crate::profile::manager::ProfileManager::instance();
+    let lookup_name = account_profile_name(&server_account_name, account_id);
+    let existing = match pm.list_profiles() {
+      Ok(profiles) => profiles
+        .into_iter()
+        .find(|p| p.name.to_lowercase() == lookup_name.to_lowercase()),
+      Err(_) => None,
+    };
+    if let Some(profile) = existing {
+      if matches!(
+        pm.check_browser_status(app_handle.clone(), &profile).await,
+        Ok(true)
+      ) {
+        log_bwbrowser(
+          "launch_account",
+          &format!("  账号 {server_account_name} 浏览器已在运行，跳过重复启动"),
+        );
+        return Ok("ALREADY_RUNNING".to_string());
+      }
+    }
+  }
 
   // 1. 处理代理
   emit_progress(15, "正在配置代理...");
@@ -8859,6 +8924,7 @@ async fn launch_account_impl(
           None,
           None,
           send_id.clone(),
+          None,
           None,
           None,
           None,
@@ -10496,9 +10562,19 @@ async fn inject_cloud_cookies_after_launch(
     }
 
     // 已确认登录：回传云端并停止。能走到这里说明健康检查已判 Valid，
-    // 登录已被确认，不再依赖评分。
+    // 登录已被确认（CDP 页面复核），不再依赖评分；本地登录态即权威，
+    // 直接覆盖云端（page_verified=true 跳过云端分数比较）。
     log_bwbrowser("inject_cookies", "已确认登录，回传 Cookie 到云端");
-    match sync_cookies_to_cloud(app_handle, account_id, &cookie_json, &cloud_platform, true).await {
+    match sync_cookies_to_cloud(
+      app_handle,
+      account_id,
+      &cookie_json,
+      &cloud_platform,
+      true,
+      true,
+    )
+    .await
+    {
       Ok((uploaded, local_total, cloud_total)) => {
         if uploaded {
           log_bwbrowser("inject_cookies", "✓ Cookie 已回传云端");
@@ -10556,12 +10632,16 @@ async fn wait_for_process_exit(pid: u32) {
 /// `health_confirmed`：调用方已通过健康检查（HTTP 探测）确认登录时为 true，
 /// 此时跳过评分闸门 —— 健康检查验证的是真实会话，比评分（只看 cookie 存在性，
 /// 且部分平台登录名单缺失会误判未登录）更准。
+/// `page_verified`：本次会话是刚经过页面级（CDP DOM）复核确认登录的「新鲜确认」，
+/// 此时本地登录态即权威，直接覆盖云端（不再做云端分数比较）；
+/// 退出自动回传等「未经页面复核的快照回传」传 false，仍受云端防覆盖保护。
 async fn sync_cookies_to_cloud(
   _app_handle: &tauri::AppHandle,
   account_id: i64,
   cookie_json: &str,
   platform: &str,
   health_confirmed: bool,
+  page_verified: bool,
 ) -> Result<(bool, i32, Option<i32>), String> {
   if cookie_json.trim().is_empty() || cookie_json == "[]" {
     log_bwbrowser("cookie_sync", "  无本地 Cookie 数据，跳过上传");
@@ -10682,17 +10762,22 @@ async fn sync_cookies_to_cloud(
   }
 
   // 闸2：云端已有「确定登录」且评分更高的会话时不覆盖，防止关闭回传把
-  // 云端完好的登录态冲掉（本地 usable 但不确定登录的平台尤其依赖此保护）。
-  if let Some(cs) = &cloud_score {
-    if cs.definite_logged_in && cs.total > local_score.total {
-      log_bwbrowser(
-        "cookie_sync",
-        &format!(
-          "  云端已有更优的已登录会话（云端 {} > 本地 {}），跳过覆盖",
-          cs.total, local_score.total,
-        ),
-      );
-      return Ok((false, local_score.total, Some(cs.total)));
+  // 云端完好的登录态冲掉。
+  // 2026-11-23：仅对「未经页面复核的快照回传」（退出自动回传等）生效——
+  // 注入场景本地刚通过 CDP 页面复核确认登录（page_verified=true），本地登录态
+  // 是刚验证过的新鲜事实，优先级高于云端静态评分，直接覆盖（用户确认的行为）。
+  if !page_verified {
+    if let Some(cs) = &cloud_score {
+      if cs.definite_logged_in && cs.total > local_score.total {
+        log_bwbrowser(
+          "cookie_sync",
+          &format!(
+            "  云端已有更优的已登录会话（云端 {} > 本地 {}），跳过覆盖",
+            cs.total, local_score.total,
+          ),
+        );
+        return Ok((false, local_score.total, Some(cs.total)));
+      }
     }
   }
 

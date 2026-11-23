@@ -792,14 +792,14 @@ fn revenue_url(cid: &str) -> String {
 }
 
 /// AX 节点名。
-fn node_name(n: &Value) -> String {
+pub(crate) fn node_name(n: &Value) -> String {
   n.get("name")
     .and_then(|nm| nm.get("value").and_then(Value::as_str).map(str::to_string))
     .unwrap_or_default()
 }
 
 /// AX 节点角色。
-fn node_role(n: &Value) -> String {
+pub(crate) fn node_role(n: &Value) -> String {
   n.get("role")
     .and_then(|r| r.get("value").and_then(Value::as_str).map(str::to_string))
     .unwrap_or_default()
@@ -925,7 +925,7 @@ fn truncate(s: &str, n: usize) -> String {
 
 /// 发一条带指定 command id 的消息并等待匹配响应（session 为 None 时走 browser
 /// 级命令，Some 时走 flat session 的 target 级命令）。
-async fn round_trip(
+pub(crate) async fn round_trip(
   ws: &mut tokio_tungstenite::WebSocketStream<
     tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
   >,
@@ -961,7 +961,7 @@ async fn round_trip(
 }
 
 /// 发一条消息（flat 时带 sessionId）。
-async fn send_frame(
+pub(crate) async fn send_frame(
   ws: &mut tokio_tungstenite::WebSocketStream<
     tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
   >,

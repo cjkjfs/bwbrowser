@@ -1,27 +1,17 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useReducedMotion } from "motion/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LuArrowLeft, LuExternalLink, LuSearch } from "react-icons/lu";
 import { BwbrowserSnack } from "@/components/bwbrowser-snack";
-import { ProfileIsolationDemo } from "@/components/profile-isolation-demo";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FadingScrollArea } from "@/components/ui/fading-scroll-area";
-import { Input } from "@/components/ui/input";
-import { StepTransition } from "@/components/ui/step-transition";
-import licenses from "@/generated/licenses.json";
-import xraySource from "@/generated/xray-source.json";
 import { launchBwbrowserClone } from "@/lib/bwbrowser-physics";
-import { CLOUD_ROOT } from "@/lib/cloud-config";
 import { Logo } from "./icons/logo";
 import { RippleButton } from "./ui/ripple";
 
@@ -37,8 +27,6 @@ interface SystemInfo {
   portable: boolean;
 }
 
-type AboutView = "about" | "licenses" | "isolation";
-
 // Flywheel: each click adds spin; past this speed the bwbrowser escapes the
 // dialog and bounces around the window (shared physics with the rail egg).
 const SPIN_PER_CLICK = 540; // deg/s
@@ -51,8 +39,6 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [logoFlown, setLogoFlown] = useState(false);
   const [snackOpen, setSnackOpen] = useState(false);
-  const [view, setView] = useState<AboutView>("about");
-  const [licenseQuery, setLicenseQuery] = useState("");
 
   const logoRef = useRef<HTMLButtonElement>(null);
   const rotationRef = useRef(0);
@@ -60,8 +46,6 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
   const rafRef = useRef(0);
   const lastTimeRef = useRef(0);
   const cancelLaunchRef = useRef<(() => void) | null>(null);
-  const restoreLicensesButtonFocusRef = useRef(false);
-  const restoreExampleButtonFocusRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -142,45 +126,8 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
   const handleClose = useCallback(() => {
     resetLogo();
     setSnackOpen(false);
-    setView("about");
-    setLicenseQuery("");
-    restoreLicensesButtonFocusRef.current = false;
-    restoreExampleButtonFocusRef.current = false;
     onClose();
   }, [onClose, resetLogo]);
-
-  const handleLicensesButtonRef = useCallback(
-    (node: HTMLButtonElement | null) => {
-      if (node && restoreLicensesButtonFocusRef.current) {
-        restoreLicensesButtonFocusRef.current = false;
-        node.focus();
-      }
-    },
-    [],
-  );
-
-  const handleOpenLicenses = useCallback(() => {
-    resetLogo();
-    setLicenseQuery("");
-    setView("licenses");
-  }, [resetLogo]);
-
-  const handleBackToAbout = useCallback(() => {
-    restoreLicensesButtonFocusRef.current = view === "licenses";
-    restoreExampleButtonFocusRef.current = view === "isolation";
-    setLicenseQuery("");
-    setView("about");
-  }, [view]);
-
-  const filteredLicenses = useMemo(() => {
-    const query = licenseQuery.trim().toLocaleLowerCase();
-    if (!query) return licenses;
-    return licenses.filter(
-      ({ name, license }) =>
-        name.toLocaleLowerCase().includes(query) ||
-        license.toLocaleLowerCase().includes(query),
-    );
-  }, [licenseQuery]);
 
   useEffect(() => {
     return () => {
@@ -196,245 +143,76 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
         if (!open) handleClose();
       }}
     >
-      <DialogContent
-        className={
-          view === "isolation"
-            ? "flex max-h-[calc(100dvh-3rem)] max-w-2xl flex-col overflow-y-auto"
-            : view === "licenses"
-              ? "flex h-[min(80dvh,40rem)] max-w-lg flex-col overflow-hidden"
-              : "max-w-sm"
-        }
-      >
-        <StepTransition
-          transitionKey={view}
-          direction={view === "about" ? -1 : 1}
-          className={
-            view === "licenses"
-              ? "flex min-h-0 flex-1 flex-col gap-4"
-              : "grid gap-4"
-          }
-        >
-          {view === "about" ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>{t("about.title")}</DialogTitle>
-              </DialogHeader>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{t("about.title")}</DialogTitle>
+        </DialogHeader>
 
-              <div className="flex flex-col items-center gap-3 py-4">
-                {snackOpen ? (
-                  <BwbrowserSnack />
-                ) : (
-                  <button
-                    ref={logoRef}
-                    type="button"
-                    data-slot="about-logo"
-                    aria-label={t("header.bwbrowserLogo")}
-                    onClick={(event) => {
-                      if (event.shiftKey) {
-                        resetLogo();
-                        setSnackOpen(true);
-                      } else {
-                        handleLogoClick();
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      if (
-                        event.shiftKey &&
-                        (event.key === "Enter" || event.key === " ")
-                      ) {
-                        event.preventDefault();
-                        resetLogo();
-                        setSnackOpen(true);
-                      }
-                    }}
-                    className="grid size-16 cursor-pointer place-items-center rounded-full bg-transparent text-foreground select-none will-change-transform"
-                    style={logoFlown ? { visibility: "hidden" } : undefined}
-                  >
-                    <Logo className="size-14" />
-                  </button>
-                )}
-
-                <div className="text-center">
-                  <p className="text-lg font-semibold">BW Browser</p>
-                  {systemInfo && (
-                    <>
-                      <p className="text-sm text-muted-foreground">
-                        {t("about.version", {
-                          version: systemInfo.app_version,
-                        })}
-                        {systemInfo.portable && (
-                          <span className="ml-1.5 rounded border border-border bg-muted px-1 py-px text-[10px] align-middle">
-                            {t("about.portableBadge")}
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {systemInfo.os} {systemInfo.arch}
-                      </p>
-                    </>
-                  )}
-                </div>
-
-                <p className="text-center text-xs text-muted-foreground">
-                  {t("about.licenseNotice")}
-                </p>
-
-                <div className="flex flex-wrap justify-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void openUrl(CLOUD_ROOT)}
-                  >
-                    {t("about.website")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      void openUrl("https://github.com/cjkjfs/bwbrowser")
-                    }
-                  >
-                    {t("about.github")}
-                  </Button>
-                  <Button
-                    ref={handleLicensesButtonRef}
-                    variant="outline"
-                    size="sm"
-                    onClick={handleOpenLicenses}
-                  >
-                    {t("about.licenses")}
-                  </Button>
-                </div>
-                <Button
-                  data-slot="isolation-demo-replay"
-                  ref={(node) => {
-                    if (node && restoreExampleButtonFocusRef.current) {
-                      restoreExampleButtonFocusRef.current = false;
-                      node.focus();
-                    }
-                  }}
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    resetLogo();
-                    setView("isolation");
-                  }}
-                >
-                  {t("isolationDemo.replay")}
-                </Button>
-              </div>
-
-              <div className="flex justify-end">
-                <RippleButton variant="outline" onClick={handleClose}>
-                  {t("common.buttons.close")}
-                </RippleButton>
-              </div>
-            </>
-          ) : view === "isolation" ? (
-            <>
-              <DialogHeader className="flex-row items-center gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="-ml-2 size-8"
-                  aria-label={t("common.buttons.back")}
-                  onClick={handleBackToAbout}
-                  autoFocus
-                >
-                  <LuArrowLeft aria-hidden="true" />
-                </Button>
-                <DialogTitle>{t("isolationDemo.replay")}</DialogTitle>
-              </DialogHeader>
-              <ProfileIsolationDemo />
-            </>
+        <div className="flex flex-col items-center gap-3 py-4">
+          {snackOpen ? (
+            <BwbrowserSnack />
           ) : (
-            <>
-              <DialogHeader className="flex-row items-center gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="-ml-2 size-8"
-                  aria-label={t("common.buttons.back")}
-                  onClick={handleBackToAbout}
-                >
-                  <LuArrowLeft aria-hidden="true" />
-                </Button>
-                <DialogTitle>{t("about.licenses")}</DialogTitle>
-              </DialogHeader>
-
-              <div className="relative shrink-0">
-                <LuSearch
-                  aria-hidden="true"
-                  className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                />
-                <Input
-                  autoFocus
-                  type="search"
-                  value={licenseQuery}
-                  onChange={(event) => {
-                    setLicenseQuery(event.target.value);
-                  }}
-                  aria-label={t("about.searchLicenses")}
-                  placeholder={t("about.searchLicenses")}
-                  className="pl-9"
-                />
-              </div>
-
-              <FadingScrollArea
-                role="region"
-                tabIndex={0}
-                aria-label={t("about.licenses")}
-                className="-mx-2 min-h-0 flex-1 rounded-md px-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              >
-                {filteredLicenses.length > 0 ? (
-                  <ul>
-                    {filteredLicenses.map(({ name, license }) => (
-                      <li
-                        key={`${name}-${license}`}
-                        className="grid grid-cols-[minmax(0,1fr)_minmax(7rem,45%)] items-baseline gap-3 border-b border-border/60 py-2.5 last:border-b-0"
-                      >
-                        {name === "Xray-core" ? (
-                          <button
-                            type="button"
-                            onClick={() => void openUrl(xraySource.sourceUrl)}
-                            aria-label={t("about.openSource", { name })}
-                            title={t("about.openSource", { name })}
-                            className="flex min-w-0 items-center gap-1.5 rounded-sm text-left text-sm font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 active:scale-[0.98] motion-reduce:transform-none"
-                          >
-                            <span className="truncate">{name}</span>
-                            <LuExternalLink
-                              aria-hidden="true"
-                              className="size-3.5 shrink-0 text-muted-foreground"
-                            />
-                          </button>
-                        ) : (
-                          <span
-                            className="truncate text-sm font-medium text-foreground"
-                            title={name}
-                          >
-                            {name}
-                          </span>
-                        )}
-                        <code className="break-words text-right text-xs text-muted-foreground">
-                          {license}
-                        </code>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p
-                    role="status"
-                    className="py-12 text-center text-sm text-muted-foreground"
-                  >
-                    {t("about.noMatchingLicenses")}
-                  </p>
-                )}
-              </FadingScrollArea>
-            </>
+            <button
+              ref={logoRef}
+              type="button"
+              data-slot="about-logo"
+              aria-label={t("header.bwbrowserLogo")}
+              onClick={(event) => {
+                if (event.shiftKey) {
+                  resetLogo();
+                  setSnackOpen(true);
+                } else {
+                  handleLogoClick();
+                }
+              }}
+              onKeyDown={(event) => {
+                if (
+                  event.shiftKey &&
+                  (event.key === "Enter" || event.key === " ")
+                ) {
+                  event.preventDefault();
+                  resetLogo();
+                  setSnackOpen(true);
+                }
+              }}
+              className="grid size-16 cursor-pointer place-items-center rounded-full bg-transparent text-foreground select-none will-change-transform"
+              style={logoFlown ? { visibility: "hidden" } : undefined}
+            >
+              <Logo className="size-14" />
+            </button>
           )}
-        </StepTransition>
+
+          <div className="text-center">
+            <p className="text-lg font-semibold">BW Browser</p>
+            {systemInfo && (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  {t("about.version", {
+                    version: systemInfo.app_version,
+                  })}
+                  {systemInfo.portable && (
+                    <span className="ml-1.5 rounded border border-border bg-muted px-1 py-px text-[10px] align-middle">
+                      {t("about.portableBadge")}
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {systemInfo.os} {systemInfo.arch}
+                </p>
+              </>
+            )}
+          </div>
+
+          <p className="text-center text-xs text-muted-foreground">
+            {t("about.licenseNotice")}
+          </p>
+        </div>
+
+        <div className="flex justify-end">
+          <RippleButton variant="outline" onClick={handleClose}>
+            {t("common.buttons.close")}
+          </RippleButton>
+        </div>
       </DialogContent>
     </Dialog>
   );

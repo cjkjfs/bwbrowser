@@ -5,7 +5,6 @@ import type { TipId } from "@/lib/tips";
 import {
   ApiScene,
   ConsistencyScene,
-  DnsScene,
   ExtensionsScene,
   GroupsScene,
   ImportScene,
@@ -29,8 +28,6 @@ import {
 /** The drawing for one tip. Every tip id has one; the switch is exhaustive. */
 export function TipScene({ id }: { id: TipId }) {
   switch (id) {
-    case "dnsBlocklist":
-      return <DnsScene />;
     case "proxyCheck":
       return <ProxyRouteScene />;
     case "groups":

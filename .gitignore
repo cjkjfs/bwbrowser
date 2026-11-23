@@ -17,6 +17,7 @@
 
 # next.js
 /.next/
+/.next-dev/
 /out/
 /dist/
 # 构建缓存备份：Tailwind v4 自动扫描未忽略的文件，.bak 里的二进制缓存

@@ -323,14 +323,22 @@ function proxyNodeStringFromSettings(ps: {
 }
 
 // 账号表 proxy_node 有新旧两种格式（type:host:port[:user:pass] 与旧 host:port），
-// 统一提取 host:port 作为匹配 key；vless/trojan/ss 按 URI 全串匹配
+// 统一提取匹配 key。凭据参与匹配：同 ip:port 但用户名/密码不同的节点是不同节点，
+// 「谁在用」等按 key 归组时不能把它们混在一起；无凭据时归一为 host:port，
+// 兼容旧格式（host:port）与新格式无凭据（type:host:port）互相匹配。
+// vless/trojan/ss 按 URI 全串匹配
 function proxyNodeKey(pn: string): string {
   const s = (pn || "").trim();
   if (!s) return "";
   if (/^(vless|trojan|ss):\/\//i.test(s)) return s;
   const parts = s.split(":");
   const hostIdx = ["http", "socks5"].includes(parts[0].toLowerCase()) ? 1 : 0;
-  return `${parts[hostIdx] ?? ""}:${parts[hostIdx + 1] ?? ""}`;
+  const host = parts[hostIdx] ?? "";
+  const port = parts[hostIdx + 1] ?? "";
+  const user = parts[hostIdx + 2] ?? "";
+  const pass = parts[hostIdx + 3] ?? "";
+  if (user && pass) return `${host}:${port}:${user}:${pass}`;
+  return `${host}:${port}`;
 }
 
 // 账号列表「节点IP」列的展示串：VLESS/Trojan 显示 类型:host:port，HTTP/SOCKS5 显示 host:port
@@ -994,6 +1002,10 @@ export function BwbrowserCloudAccountsDialog({
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [copiedPasswordId, setCopiedPasswordId] = useState<number | null>(null);
   const [proxyDialogOpen, setProxyDialogOpen] = useState(false);
+  // 超管专用：代理弹窗浏览节点用的公司 ID（null=我的公司），默认跟随账号页公司切换
+  const [proxyNodeCompanyId, setProxyNodeCompanyId] = useState<number | null>(
+    null,
+  );
   const [proxyDialogLoading, setProxyDialogLoading] = useState(false);
   // 代理弹窗的目标账号：单个（行内「设置代理」）或多选（批量操作栏）
   const [proxyDialogTargets, setProxyDialogTargets] = useState<
@@ -1104,6 +1116,8 @@ export function BwbrowserCloudAccountsDialog({
     bind_phone: "",
     safe_link: "",
     backup_email: "",
+    // 账户余额（PayPal）：自动抓取入库，也可在此手动覆盖；空串 = 清零
+    balance: "",
     channel_id: "",
     owner_id: 0 as number,
     gpu_acceleration: false,
@@ -1653,6 +1667,10 @@ export function BwbrowserCloudAccountsDialog({
         pure_username: account.pure_username ?? "",
         device_id: account.device_id ?? account.phone_id ?? "",
         bind_phone: account.bind_phone ?? "",
+        balance:
+          account.balance !== undefined && account.balance !== null
+            ? String(account.balance)
+            : "",
         safe_link: account.safe_link ?? "",
         backup_email: account.backup_email ?? "",
         channel_id:
@@ -1725,6 +1743,10 @@ export function BwbrowserCloudAccountsDialog({
           bind_phone: detail.bind_phone ?? prev.bind_phone,
           safe_link: detail.safe_link ?? prev.safe_link,
           backup_email: detail.backup_email ?? prev.backup_email,
+          balance:
+            detail.balance !== undefined && detail.balance !== null
+              ? String(detail.balance)
+              : prev.balance,
           channel_id:
             (detail as BwbrowserAccount & { channel_id?: string }).channel_id ??
             prev.channel_id,
@@ -1972,6 +1994,8 @@ export function BwbrowserCloudAccountsDialog({
       setSrcIpRulesOpen(false);
       // 先打开弹窗，再直接拉云端代理列表，避免弹窗被远程请求卡住
       setProxyDialogOpen(true);
+      // 弹窗内节点浏览的公司初始跟随账号页当前公司（超管可在弹窗内再切换）
+      setProxyNodeCompanyId(selectedCompanyId);
       setProxyDialogLoading(true);
       try {
         // 直接拉云端代理列表（数据以云端为准，不读本地缓存、不同步到本地）
@@ -2063,35 +2087,63 @@ export function BwbrowserCloudAccountsDialog({
     [selectedCompanyId],
   );
 
-  // 刷新云端代理列表（不重新打开弹窗）
-  const refreshCloudProxyList = useCallback(async () => {
-    setProxyDialogLoading(true);
-    try {
-      const cloud = await invoke<CloudProxyItem[]>("bwbrowser_list_proxies", {
-        companyId: selectedCompanyId ? selectedCompanyId : null,
-      });
-      const proxies = (cloud ?? []).map((item) => ({
-        id: item.id,
-        name: item.name,
-        proxy_settings: {
-          proxy_type: item.proxy_type,
-          host: item.host,
-          port: item.port,
-          username: item.username ?? undefined,
-          password: item.password ?? undefined,
-          vless_uri: item.vless_uri ?? undefined,
-        },
-        is_cloud_managed: item.is_cloud_managed,
-        country: item.country ?? undefined,
-        city: item.city ?? undefined,
-      }));
-      setCloudProxyOptions(proxies);
-    } catch (e) {
-      console.warn("刷新云端代理列表失败:", e);
-    } finally {
-      setProxyDialogLoading(false);
-    }
-  }, [selectedCompanyId]);
+  // 刷新云端代理列表（不重新打开弹窗）；companyIdOverride 供弹窗内切换节点公司时传新值
+  const refreshCloudProxyList = useCallback(
+    async (companyIdOverride?: number | null) => {
+      const cid =
+        companyIdOverride !== undefined
+          ? companyIdOverride
+          : proxyNodeCompanyId;
+      setProxyDialogLoading(true);
+      try {
+        const cloud = await invoke<CloudProxyItem[]>("bwbrowser_list_proxies", {
+          companyId: cid ? cid : null,
+        });
+        const proxies = (cloud ?? []).map((item) => ({
+          id: item.id,
+          name: item.name,
+          proxy_settings: {
+            proxy_type: item.proxy_type,
+            host: item.host,
+            port: item.port,
+            username: item.username ?? undefined,
+            password: item.password ?? undefined,
+            vless_uri: item.vless_uri ?? undefined,
+          },
+          is_cloud_managed: item.is_cloud_managed,
+          country: item.country ?? undefined,
+          city: item.city ?? undefined,
+        }));
+        setCloudProxyOptions(proxies);
+        // 同步刷新「谁在用」统计（跟随节点公司，失败不影响列表）
+        try {
+          const usage = await invoke<CloudProxyUsageItem[]>(
+            "bwbrowser_list_proxy_usage",
+            { companyId: cid ? cid : null },
+          );
+          const map = new Map<string, CloudProxyUsageItem[]>();
+          for (const u of usage ?? []) {
+            const key = proxyNodeKey(u.proxy_node);
+            if (!key) continue;
+            const list = map.get(key);
+            if (list) {
+              list.push(u);
+            } else {
+              map.set(key, [u]);
+            }
+          }
+          setProxyUsage(map);
+        } catch (e) {
+          console.warn("刷新节点使用统计失败:", e);
+        }
+      } catch (e) {
+        console.warn("刷新云端代理列表失败:", e);
+      } finally {
+        setProxyDialogLoading(false);
+      }
+    },
+    [proxyNodeCompanyId],
+  );
 
   // 测试单个代理健康状态
   const testSingleProxy = useCallback(async (proxy: StoredProxy) => {
@@ -2224,12 +2276,13 @@ export function BwbrowserCloudAccountsDialog({
         protocolConfig: isUriType
           ? (payload.proxySettings.vless_uri ?? null)
           : null,
+        companyId: proxyNodeCompanyId ?? null,
       });
       showSuccessToast("代理创建成功");
       // 创建成功后立即刷新列表
       await refreshCloudProxyList();
     },
-    [refreshCloudProxyList],
+    [refreshCloudProxyList, proxyNodeCompanyId],
   );
 
   // 批量导入节点：逐行解析并调用同一个 bwbrowser_sync_proxy 后端通道
@@ -2266,6 +2319,7 @@ export function BwbrowserCloudAccountsDialog({
           city: null,
           timezone: null,
           protocolConfig: isUriType ? (parsed.vless_uri ?? null) : null,
+          companyId: proxyNodeCompanyId ?? null,
         });
         created++;
       } catch (e) {
@@ -2283,7 +2337,7 @@ export function BwbrowserCloudAccountsDialog({
       });
       if (created > 0) setBatchProxyDialogOpen(false);
     }
-  }, [batchProxyText, refreshCloudProxyList]);
+  }, [batchProxyText, refreshCloudProxyList, proxyNodeCompanyId]);
 
   // 保存账号代理
   const handleSaveAccountProxy = useCallback(async () => {
@@ -2308,6 +2362,8 @@ export function BwbrowserCloudAccountsDialog({
               accountId: target.id,
               accountName: target.account_name,
               proxyNode,
+              // 账号所在公司（超管跨公司时服务端按此公司落库）
+              companyId: selectedCompanyId ?? null,
             })) as BwbrowserUpdateProxyResult | null;
             ok += 1;
             if (result?.geo_pending) {
@@ -2411,7 +2467,13 @@ export function BwbrowserCloudAccountsDialog({
     }
 
     await applyProxyNode(proxyNode);
-  }, [proxyDialogTargets, selectedProxyId, cloudProxyOptions, refresh]);
+  }, [
+    proxyDialogTargets,
+    selectedProxyId,
+    cloudProxyOptions,
+    selectedCompanyId,
+    refresh,
+  ]);
 
   // 编辑云端节点：修改后把绑定旧节点的账号自动切换到新节点
   const [editCloudProxy, setEditCloudProxy] = useState<StoredProxy | null>(
@@ -2499,6 +2561,7 @@ export function BwbrowserCloudAccountsDialog({
                 accountId: t.id,
                 accountName: t.account_name,
                 proxyNode: newNode,
+                companyId: selectedCompanyId ?? null,
               });
               switched += 1;
             } catch {
@@ -2546,6 +2609,7 @@ export function BwbrowserCloudAccountsDialog({
               accountId: target.id,
               accountName: target.account_name,
               proxyNode: "",
+              companyId: selectedCompanyId ?? null,
             });
             ok += 1;
           } catch (e) {
@@ -2576,7 +2640,7 @@ export function BwbrowserCloudAccountsDialog({
         setIsSavingProxy(false);
       }
     },
-    [refresh],
+    [refresh, selectedCompanyId],
   );
 
   // 批量设置归属人：逐个账号调 update_account_info（只传 owner_id）
@@ -4965,7 +5029,7 @@ export function BwbrowserCloudAccountsDialog({
             value={String(pageSize)}
             onValueChange={(v) => setPageSize(Number(v))}
           >
-            <SelectTrigger className="h-7 w-[86px] text-xs">
+            <SelectTrigger className="h-7 w-fit whitespace-nowrap text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -5388,6 +5452,35 @@ export function BwbrowserCloudAccountsDialog({
 
         {/* 搜索栏 */}
         <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">
+          {/* 超管：切换节点浏览公司（可跨公司给账号选节点） */}
+          {isSuperAdmin && companies.length > 0 && (
+            <Select
+              value={
+                proxyNodeCompanyId !== null ? String(proxyNodeCompanyId) : "my"
+              }
+              onValueChange={(val) => {
+                const cid = val === "my" ? null : Number(val);
+                setProxyNodeCompanyId(cid);
+                // 切换公司后原选中节点不适用，回直连并重置搜索/翻页
+                setSelectedProxyId("__direct__");
+                setProxySearchQuery("");
+                setProxyPage(0);
+                void refreshCloudProxyList(cid);
+              }}
+            >
+              <SelectTrigger className="h-8 w-auto min-w-[110px] max-w-[220px] shrink-0 text-xs">
+                <SelectValue placeholder="节点公司" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="my">我的公司</SelectItem>
+                {companies.map((company) => (
+                  <SelectItem key={company.id} value={String(company.id)}>
+                    {company.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <div className="relative flex-1">
             <LuSearch className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -5584,9 +5677,18 @@ export function BwbrowserCloudAccountsDialog({
                       <td className="px-2 py-2">
                         {(() => {
                           const t = proxy.proxy_settings.proxy_type || "http";
+                          // 匹配 key 与 proxyUsage Map 同口径（proxyNodeKey）：
+                          // 有凭据时带上用户名/密码，避免同 ip:port 不同凭据的节点互串
                           const key = /^(vless|trojan|ss)$/i.test(t)
                             ? proxy.proxy_settings.vless_uri || ""
-                            : `${proxy.proxy_settings.host}:${proxy.proxy_settings.port}`;
+                            : (() => {
+                                const ps = proxy.proxy_settings;
+                                const cred =
+                                  ps.username && ps.password
+                                    ? `:${ps.username}:${ps.password}`
+                                    : "";
+                                return `${ps.host}:${ps.port}${cred}`;
+                              })();
                           const usageList = key
                             ? proxyUsage.get(key)
                             : undefined;
@@ -6729,6 +6831,32 @@ export function BwbrowserCloudAccountsDialog({
                     </div>
                   </div>
                 )}
+                {editPerms.canEditAll && editForm.platform === "paypal" && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <div className="text-xs font-medium">
+                        余额（US$，PayPal 自动抓取）
+                      </div>
+                      <Input
+                        inputMode="decimal"
+                        value={editForm.balance}
+                        onChange={(e) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            balance: e.target.value,
+                          }))
+                        }
+                        placeholder="如 1118.50（留空则不修改余额）"
+                      />
+                      <div className="text-[10px] text-muted-foreground">
+                        {editDetail?.balance_scraped_at
+                          ? `最近自动抓取：${editDetail.balance_scraped_at}`
+                          : "启动该账号浏览器后自动抓取（受收益抓取开关控制）"}
+                      </div>
+                    </div>
+                    <div />
+                  </div>
+                )}
                 {editDetail && (
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
@@ -7011,6 +7139,13 @@ export function BwbrowserCloudAccountsDialog({
                     }),
                     // 硬件加速：始终发送（0/1 明确覆盖，编辑账号维护）
                     gpuAcceleration: editForm.gpu_acceleration,
+                    // 余额：仅 PayPal 平台且输入框有值时发送（数字直接覆盖）；
+                    // 空串不发（=null 不动），防止详情加载失败时误清已有余额
+                    balance:
+                      editForm.platform === "paypal" &&
+                      editForm.balance.trim() !== ""
+                        ? editForm.balance.trim()
+                        : null,
                   });
                   // 视频嗅探开关（本地 + 公司 KV 跨机同步）；失败只提示，不回滚主保存
                   try {
