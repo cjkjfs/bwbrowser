@@ -52,6 +52,9 @@ pub const AI_AGENT_CRON_API_URL: &str =
 pub const PLATFORM_CONFIG_API_URL: &str =
   concat!("https://", cloud_host!(), "/tk/api_get_platform_config.php");
 
+/// 短信验证码 API（按手机号取最新短信验证码，自动填表 phone/sms 步骤用）
+pub const SMS_CODE_API_URL: &str = concat!("https://", cloud_host!(), "/tk/api_phone_sms.php");
+
 /// Wayfern Token 接口
 pub const WAYFERN_TOKEN_API_URL: &str =
   concat!("https://", cloud_host!(), "/tk/api_auth_wayfern_start.php");

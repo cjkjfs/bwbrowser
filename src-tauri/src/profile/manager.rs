@@ -2371,6 +2371,7 @@ pub fn update_profile_login_credentials(
         email,
         password,
         totp_secret: None,
+        phone: None,
       }),
     )
     .map_err(crate::profile_importer::error_to_code_string)?;

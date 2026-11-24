@@ -32,6 +32,10 @@ pub struct LoginCredentials {
   /// 登录自动填表在 2FA 步骤用它在每次窗口刷新后输入最新验证码
   #[serde(default)]
   pub totp_secret: Option<String>,
+  /// 手机号登录（逗哥配音等平台）：自动填表 phone 步骤填入；
+  /// 短信验证码不落盘——watcher 每轮从服务端 api_phone_sms.php 实时拉取
+  #[serde(default)]
+  pub phone: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

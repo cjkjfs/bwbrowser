@@ -2,7 +2,6 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrent } from "@tauri-apps/plugin-deep-link";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useReducedMotion } from "motion/react";
@@ -677,39 +676,20 @@ export default function Home() {
     localStorage.setItem("baowenku_tab_active", active ? "1" : "0");
   }, []);
 
-  // ===== 爆文库内嵌页弹窗桥（2026-11-22） =====
+  // ===== 爆文库内嵌页弹窗桥（2026-11-22，2026-11-24 整体改造） =====
   // 爆文库 iframe 里的 window.open / target=_blank 请求会被 Tauri webview
-  // 吞掉（无新窗口处理函数），页面端已改为 postMessage 桥；这里接收后用
-  // 应用内子窗口打开视频链接。同一 URL 重复点击聚焦已开窗口；创建失败
-  // 回退系统浏览器（openUrl），保证功能不丢。
+  // 吞掉（无新窗口处理函数），页面端改为 postMessage 桥；这里接收后用
+  // 外部浏览器打开，浏览器 exe 与用户数据目录由云端 users.php 权限组配置
+  // 下发（get_permissions 同步，空=客户端默认探测 Chrome→Edge / 浏览器默认
+  // profile）。localStorage 键 bw_ext_browser_exe / bw_ext_browser_dir 可
+  // 本机覆盖；Rust 侧 spawn 失败回退系统默认浏览器 openUrl。
   const openBaowenkuLinkWindow = useCallback(async (rawUrl: string) => {
     const url = rawUrl.trim();
     if (!/^https?:\/\//i.test(url)) return;
-    // djb2 稳定 hash：同 URL 复用同一窗口（重复点击 = 聚焦，不重复开）
-    let hash = 5381;
-    for (let i = 0; i < url.length; i++) {
-      hash = (((hash << 5) + hash + url.charCodeAt(i)) >>> 0) % 4294967296;
-    }
-    const label = `video-${hash.toString(36)}`;
+    const exe = localStorage.getItem("bw_ext_browser_exe") || null;
+    const dir = localStorage.getItem("bw_ext_browser_dir") || null;
     try {
-      const existing = await WebviewWindow.getByLabel(label);
-      if (existing) {
-        await existing.setFocus();
-        return;
-      }
-      const win = new WebviewWindow(label, {
-        url,
-        title: "视频预览",
-        width: 1100,
-        height: 760,
-        minWidth: 480,
-        minHeight: 360,
-        center: true,
-        resizable: true,
-      });
-      win.once("tauri://error", () => {
-        void openUrl(url);
-      });
+      await invoke("open_external_link", { url, exe, dir });
     } catch {
       void openUrl(url);
     }

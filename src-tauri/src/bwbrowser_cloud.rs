@@ -18,7 +18,7 @@ use tauri::{Emitter, Runtime};
 use crate::cloud_auth::{CloudAuthState, CloudUser, Entitlements};
 use crate::cloud_domain::{
   BWBROWSER_API_URL, BWBROWSER_USERS_API_URL, LOGIN_URL, PLATFORM_CONFIG_API_URL,
-  SIMPRINT_ACCOUNTS_URL, WAYFERN_TOKEN_API_URL,
+  SIMPRINT_ACCOUNTS_URL, SMS_CODE_API_URL, WAYFERN_TOKEN_API_URL,
 };
 use crate::settings_manager::SettingsManager;
 
@@ -620,6 +620,24 @@ static LOCAL_DEBUG_LOG: std::sync::atomic::AtomicBool = std::sync::atomic::Atomi
 
 pub fn set_local_debug_log_enabled(enabled: bool) {
   LOCAL_DEBUG_LOG.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// 云端「外部链接浏览器」配置（get_permissions 时刷新）：(exe, user_data_dir)
+/// 爆文库外链 open_external_link 用；两者为空 = 默认探测 / 浏览器默认 profile。
+static EXT_BROWSER_CFG: std::sync::Mutex<(String, String)> =
+  std::sync::Mutex::new((String::new(), String::new()));
+
+pub fn set_ext_browser_cfg(exe: &str, dir: &str) {
+  if let Ok(mut g) = EXT_BROWSER_CFG.lock() {
+    *g = (exe.trim().to_string(), dir.trim().to_string());
+  }
+}
+
+pub fn get_ext_browser_cfg() -> (String, String) {
+  EXT_BROWSER_CFG
+    .lock()
+    .map(|g| g.clone())
+    .unwrap_or_default()
 }
 
 /// 打印 Bwbrowser API 日志
@@ -5733,6 +5751,13 @@ pub struct BwbrowserPermissions {
   /// 云端「同步调试日志」开关：客户端据此决定是否写本地日志文件
   #[serde(default)]
   pub debug_log_enabled: bool,
+  /// 云端「外部链接浏览器」exe 路径（users 表 ext_browser_exe，权限组套用时写入；
+  /// 空 = 客户端默认探测 Chrome → Edge）
+  #[serde(default)]
+  pub ext_browser_exe: String,
+  /// 云端「外部链接用户数据目录」（--user-data-dir；空 = 用浏览器默认 profile）
+  #[serde(default)]
+  pub ext_browser_dir: String,
   pub module_permissions: Option<serde_json::Value>,
 }
 
@@ -5807,6 +5832,8 @@ impl BwbrowserAuthManager {
 
     // 云端「同步调试日志」开关 → 客户端本地日志文件写入
     set_local_debug_log_enabled(perms.debug_log_enabled);
+    // 云端「外部链接浏览器」配置 → open_external_link 使用
+    set_ext_browser_cfg(&perms.ext_browser_exe, &perms.ext_browser_dir);
 
     Ok(perms)
   }
@@ -8206,11 +8233,32 @@ async fn launch_account_impl(
           let looks_base32 = link.len() >= 16 && link.chars().all(|c| c.is_ascii_alphanumeric());
           looks_base32.then(|| link.to_uppercase())
         });
-        detail
+        // 手机号登录平台（逗哥配音等）账号通常没有密码：旧条件
+        // 「账号+密码都非空才同步」会把 bind_phone 一起挡掉。
+        // 放宽为「账号+密码齐全 或 bind_phone 非空」即同步；
+        // 缺的部分留空，对应填表步骤按 no-value 跳过
+        let login_account = detail
           .login_account
-          .filter(|s| !s.trim().is_empty())
-          .zip(detail.login_password.filter(|s| !s.trim().is_empty()))
-          .map(|(email, password)| (email, password, totp_secret))
+          .map(|s| s.trim().to_string())
+          .filter(|s| !s.is_empty());
+        let login_password = detail
+          .login_password
+          .map(|s| s.trim().to_string())
+          .filter(|s| !s.is_empty());
+        let bind_phone = detail
+          .bind_phone
+          .map(|s| s.trim().to_string())
+          .filter(|s| !s.is_empty());
+        if (login_account.is_some() && login_password.is_some()) || bind_phone.is_some() {
+          Some((
+            login_account.unwrap_or_default(),
+            login_password.unwrap_or_default(),
+            totp_secret,
+            bind_phone,
+          ))
+        } else {
+          None
+        }
       }
       Err(e) => {
         log_bwbrowser_error(
@@ -8220,22 +8268,38 @@ async fn launch_account_impl(
         None
       }
     };
-    if let Some((login_email, login_pwd, totp_secret)) = server_credentials {
+    if let Some((login_email, login_pwd, totp_secret, bind_phone)) = server_credentials {
       log_bwbrowser(
         "launch_account",
         &format!(
-          "  同步云端登录凭据 → profile（{}）",
-          mask_email(&login_email)
+          "  同步云端登录凭据 → profile（账号={}，手机号={}）",
+          if login_email.is_empty() {
+            "无".to_string()
+          } else {
+            mask_email(&login_email)
+          },
+          if bind_phone.is_some() {
+            "已设置"
+          } else {
+            "无"
+          },
         ),
       );
+      // 手机号登录平台（逗哥配音等）：账号没有密码——只有 bind_phone 时
+      // 不覆盖 profile 已手动填的 email/password/totp，只补 phone
+      let mut new_creds = profile.login_credentials.clone().unwrap_or_default();
+      if !login_email.is_empty() && !login_pwd.is_empty() {
+        new_creds.email = login_email.clone();
+        new_creds.password = login_pwd.clone();
+        new_creds.totp_secret = totp_secret.clone();
+        new_creds.phone = bind_phone.clone();
+      } else {
+        new_creds.phone = bind_phone.clone();
+      }
       match pm.update_profile_login_credentials(
         &app_handle,
         &profile.id.to_string(),
-        Some(crate::profile::types::LoginCredentials {
-          email: login_email.clone(),
-          password: login_pwd.clone(),
-          totp_secret: totp_secret.clone(),
-        }),
+        Some(new_creds.clone()),
       ) {
         Ok(updated) => {
           profile.login_credentials = updated.login_credentials.clone();
@@ -8243,13 +8307,7 @@ async fn launch_account_impl(
         Err(e) => {
           log_bwbrowser_error("launch_account", &format!("  同步登录凭据失败: {}", e));
           // 即便落盘失败，也写入内存，确保本次启动仍能自动填充。
-          if profile.login_credentials.is_none() {
-            profile.login_credentials = Some(crate::profile::types::LoginCredentials {
-              email: login_email.clone(),
-              password: login_pwd.clone(),
-              totp_secret: totp_secret.clone(),
-            });
-          }
+          profile.login_credentials = Some(new_creds);
         }
       }
     } else {
@@ -9240,10 +9298,25 @@ pub async fn bwbrowser_platform_names() -> Result<std::collections::HashMap<Stri
 
 /// 自动填表的一个字段步骤：role 决定填什么值（email / password），selectors 是按序
 /// 尝试的候选 DOM 选择器（命中第一个即填写）。
+///
+/// `split`: 分体式验证码框（如 PayPal 的 6 格 OTP，每格一个数字）。配置为
+/// `{"selector": "...", "length": 6}` 时，把整串验证码按格拆开逐格输入——
+/// 每格用同一 selector 配 :nth-match/[[data-idx]] 类定位（selectors 里放
+/// 逐格选择器，第 N 个元素填第 N 位）。split 有值时 selectors 语义变为
+/// 「逐格定位」，普通整框填法不执行。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AutofillStep {
   pub role: String,
   pub selectors: Vec<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub split: Option<AutofillSplit>,
+}
+
+/// 分体式输入框的拆分参数：selector 定位每格（querySelectorAll 顺序），
+/// length 为格数（也是验证码位数）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AutofillSplit {
+  pub length: usize,
 }
 
 /// 自动填表的一条命中规则。同一规则内 host 与 path 是 AND，不同规则之间是 OR，
@@ -9265,56 +9338,6 @@ pub struct AutofillPlan {
   pub steps: Vec<AutofillStep>,
   #[serde(default)]
   pub submit: bool,
-}
-
-/// 内置兜底方案，与旧的硬编码 Google/YouTube 自动填表行为一致。服务端没有 autofill
-/// 字段或拉取失败时仍能工作，覆盖 Google / YouTube 登录页。
-fn builtin_autofill_plan() -> AutofillPlan {
-  AutofillPlan {
-    matching: vec![
-      AutofillMatchRule {
-        hosts: vec!["accounts.google.com".into(), "accounts.youtube.com".into()],
-        host_suffixes: Vec::new(),
-        paths: Vec::new(),
-      },
-      AutofillMatchRule {
-        hosts: Vec::new(),
-        host_suffixes: vec![".youtube.com".into()],
-        paths: vec!["/signin".into()],
-      },
-    ],
-    steps: vec![
-      AutofillStep {
-        role: "email".into(),
-        selectors: vec![
-          "input[type=\"email\"]:not([type=\"hidden\"])".into(),
-          "input[name=\"identifier\"]:not([type=\"hidden\"])".into(),
-          "input[jsname=\"KKx9x\"]:not([type=\"hidden\"])".into(),
-          "input[jsname=\"YPqjbf\"]:not([type=\"hidden\"])".into(),
-          "#identifierId".into(),
-        ],
-      },
-      AutofillStep {
-        role: "password".into(),
-        selectors: vec![
-          "input[name=\"Passwd\"]".into(),
-          "input[type=\"password\"]:not([name=\"ca\"])".into(),
-        ],
-      },
-      // 2FA（TOTP）步骤：profile 凭据带 totp_secret 时自动输入当前验证码，
-      // 验证码窗口刷新后自动重输；无密钥时此步跳过
-      AutofillStep {
-        role: "2fa".into(),
-        selectors: vec![
-          "#totpPin".into(),
-          "input[name=\"totpPin\"]".into(),
-          "input[id=\"totpPin\"]".into(),
-          "input[type=\"tel\"][autocomplete=\"one-time-code\"]".into(),
-        ],
-      },
-    ],
-    submit: false,
-  }
 }
 
 /// 平台完整配置（`data.platforms`）的进程级缓存，带 TTL。自动填表每 1.5s 轮询一次，
@@ -9379,6 +9402,8 @@ pub fn platform_domains_from_config(platform: &str) -> Vec<String> {
 }
 
 /// 拉取完整的 `data.platforms`（TTL 内走缓存，失败时回退到过期缓存以兜底）。
+/// 每次真实拉取（成功/失败各一条）打一条日志：服务端改了选择器却没生效时，
+/// 先看这条确认客户端到底拉到了什么。
 async fn fetch_platforms_doc() -> Option<serde_json::Value> {
   let cached = platform_config_cache().lock().ok().and_then(|g| g.clone());
   if let Some((at, doc)) = cached.clone().as_ref() {
@@ -9386,12 +9411,33 @@ async fn fetch_platforms_doc() -> Option<serde_json::Value> {
       return Some(doc.clone());
     }
   }
-  let resp = BWBROWSER_AUTH
+  let fallback_note = if cached.is_some() {
+    "使用旧缓存兜底"
+  } else {
+    "无缓存可用，本轮无服务端方案"
+  };
+  let resp = match BWBROWSER_AUTH
     .client
     .get(PLATFORM_CONFIG_API_URL)
     .send()
     .await
-    .ok()?;
+  {
+    Ok(resp) => resp,
+    Err(e) => {
+      log_bwbrowser_error(
+        "platform_config",
+        &format!("拉取失败: {e}（{fallback_note}）"),
+      );
+      return cached.map(|(_, doc)| doc);
+    }
+  };
+  if !resp.status().is_success() {
+    log_bwbrowser_error(
+      "platform_config",
+      &format!("HTTP {}: 拉取失败（{fallback_note}）", resp.status()),
+    );
+    return cached.map(|(_, doc)| doc);
+  }
   let body = match resp.text().await {
     Ok(b) => b,
     Err(e) => {
@@ -9399,16 +9445,54 @@ async fn fetch_platforms_doc() -> Option<serde_json::Value> {
       return cached.map(|(_, doc)| doc);
     }
   };
-  let result: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::json!({}));
+  let result: serde_json::Value = match serde_json::from_str(&body) {
+    Ok(v) => v,
+    Err(e) => {
+      log_bwbrowser_error(
+        "platform_config",
+        &format!("响应不是有效 JSON: {e}，body={}", trunc(&body, 200)),
+      );
+      return cached.map(|(_, doc)| doc);
+    }
+  };
   let platforms = result
     .get("data")
     .and_then(|d| d.get("platforms"))
     .or_else(|| result.get("platforms"))
     .cloned()
     .unwrap_or_default();
+  if platforms.is_null() {
+    log_bwbrowser_error(
+      "platform_config",
+      &format!("响应缺少 platforms 字段（{fallback_note}）"),
+    );
+    return cached.map(|(_, doc)| doc);
+  }
+  let total = platforms
+    .as_array()
+    .map(|a| a.len())
+    .or_else(|| platforms.as_object().map(|m| m.len()))
+    .unwrap_or(0);
+  let with_autofill = match &platforms {
+    serde_json::Value::Array(a) => a
+      .iter()
+      .filter(|i| parse_autofill(i.get("autofill").unwrap_or(i)).is_some())
+      .count(),
+    serde_json::Value::Object(m) => m
+      .values()
+      .filter(|i| parse_autofill(i.get("autofill").unwrap_or(i)).is_some())
+      .count(),
+    _ => 0,
+  };
   if let Ok(mut guard) = platform_config_cache().lock() {
     *guard = Some((std::time::Instant::now(), platforms.clone()));
   }
+  log_bwbrowser(
+    "platform_config",
+    &format!(
+      "配置已刷新: {total} 个平台条目，其中 autofill 方案 {with_autofill} 个（5 分钟后下次刷新）"
+    ),
+  );
   Some(platforms)
 }
 
@@ -9442,6 +9526,13 @@ pub fn parse_autofill(v: &serde_json::Value) -> Option<AutofillPlan> {
       if selectors.is_empty() {
         continue;
       }
+      // 分体式验证码框（PayPal 6 格 OTP 等）：{"length": 6}，格数即位数
+      let split = step.get("split").and_then(|s| {
+        s.get("length")
+          .and_then(serde_json::Value::as_u64)
+          .filter(|&n| n > 0)
+          .map(|n| AutofillSplit { length: n as usize })
+      });
       steps.push(AutofillStep {
         role: step
           .get("role")
@@ -9449,6 +9540,7 @@ pub fn parse_autofill(v: &serde_json::Value) -> Option<AutofillPlan> {
           .unwrap_or("email")
           .to_string(),
         selectors,
+        split,
       });
     }
   }
@@ -9465,26 +9557,72 @@ pub fn parse_autofill(v: &serde_json::Value) -> Option<AutofillPlan> {
   })
 }
 
-/// 返回服务端配置的全部自动填表方案，末尾始终追加内置兜底，保证未配置时仍覆盖
-/// Google / YouTube。
+/// 按手机号拉取最新短信验证码（逗哥配音等「手机号+短信验证码」登录用）。
+///
+/// 服务端 `tk/api_phone_sms.php` 从短信转发日志（sms_data/{company_id}/）
+/// 解析出验证码，鉴权与 bwbrowser_accounts.php 同款（40 位 token 快速通道）。
+/// 自动填表 watcher 每轮轮询调一次：短信到了 code 非空 → 填进验证码框；
+/// 未到 → 空，1.5 秒后下一轮再拉，天然支持「点发送后等短信」。
+/// 短时间拉不到不报错——没收到短信是正常态，只有 HTTP/解析异常记日志。
+pub async fn fetch_sms_code(phone: &str) -> Option<String> {
+  let (username, token) = BWBROWSER_AUTH.get_credentials()?;
+  let form = format!(
+    "action=latest&username={}&password={}&phone={}",
+    urlencode(&username),
+    urlencode(&token),
+    urlencode(phone)
+  );
+  let resp = BWBROWSER_AUTH
+    .client
+    .post(SMS_CODE_API_URL)
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .body(form)
+    .timeout(std::time::Duration::from_secs(5))
+    .send()
+    .await
+    .ok()?;
+  if !resp.status().is_success() {
+    return None;
+  }
+  let body = resp.text().await.ok()?;
+  let v: serde_json::Value = serde_json::from_str(&body).ok()?;
+  if v.get("success").and_then(serde_json::Value::as_bool) != Some(true) {
+    return None;
+  }
+  v.get("code")
+    .and_then(serde_json::Value::as_str)
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+    .map(str::to_string)
+}
+
+/// 返回服务端配置的全部自动填表方案。**只认服务端**（2026-11-24 用户拍板：
+/// 取消内置本地兜底，方案变更一律改服务器 platform_config.json，5 分钟下发）。
+/// 服务端某平台没配 autofill 或拉取失败时，该平台就没有自动填表——
+/// 宁缺毋滥，避免「服务端方案缺 2FA 步、内置方案补位」这类职责打架。
 pub async fn autofill_plans() -> Vec<AutofillPlan> {
   let mut plans = Vec::new();
   if let Some(doc) = fetch_platforms_doc().await {
+    // 服务端把 autofill 嵌在平台条目下（entry.autofill.matching/steps），
+    // 解析时必须取子对象；unwrap_or(item) 兼容历史上把 matching/steps
+    // 直接写在条目顶层的写法。2026-11-24 之前一直传的是整个条目，
+    // parse_autofill 永远 None → 服务端方案从未生效，全靠内置兜底。
+    let parse_item =
+      |item: &serde_json::Value| parse_autofill(item.get("autofill").unwrap_or(item));
     if let Some(arr) = doc.as_array() {
       for item in arr {
-        if let Some(plan) = parse_autofill(item) {
+        if let Some(plan) = parse_item(item) {
           plans.push(plan);
         }
       }
     } else if let Some(map) = doc.as_object() {
       for item in map.values() {
-        if let Some(plan) = parse_autofill(item) {
+        if let Some(plan) = parse_item(item) {
           plans.push(plan);
         }
       }
     }
   }
-  plans.push(builtin_autofill_plan());
   plans
 }
 
@@ -11665,6 +11803,50 @@ pub async fn bwbrowser_apply_permission_profile(
     .apply_permission_profile(user_id, profile_id, company_id)
     .await?;
   Ok(())
+}
+
+/// 在外部浏览器里打开链接。语义（2026-11-24 用户实测修正）：
+/// 未配置 exe（入参和云端 ext_browser_exe 都为空）→ 返回 Err，前端回退
+/// openUrl 系统默认浏览器（与无参数方案行为完全一致，默认浏览器无论是
+/// 什么都不出错——不做 Chrome→Edge 探测，探测在无系统 Chrome 的机器上
+/// 会错误落到 Edge）。配置了 exe → 直接启动该浏览器；dir 配置了才带
+/// --user-data-dir（独立 profile）。同一目录下浏览器已开窗口时，URL
+/// 自动汇聚为新标签页。spawn 失败返回 Err，前端同样回退 openUrl。
+#[tauri::command]
+pub async fn open_external_link(
+  url: String,
+  exe: Option<String>,
+  dir: Option<String>,
+) -> Result<(), String> {
+  if !url.starts_with("http://") && !url.starts_with("https://") {
+    return Err(format!("open_external_link: 非 http(s) 链接: {url}"));
+  }
+  let (cloud_exe, cloud_dir) = get_ext_browser_cfg();
+  let arg_exe = exe.as_deref().map(str::trim).filter(|s| !s.is_empty());
+  let arg_dir = dir.as_deref().map(str::trim).filter(|s| !s.is_empty());
+  let browser: String = match arg_exe {
+    Some(p) => p.to_string(),
+    None if !cloud_exe.is_empty() => cloud_exe.clone(),
+    None => {
+      // 未配置浏览器 exe：走系统默认浏览器（前端 openUrl），不做探测
+      return Err("open_external_link: 未配置浏览器，使用系统默认浏览器".into());
+    }
+  };
+  let dir_eff = arg_dir
+    .map(|s| s.to_string())
+    .unwrap_or_else(|| cloud_dir.clone());
+  let mut cmd = std::process::Command::new(&browser);
+  if !dir_eff.is_empty() {
+    cmd
+      .arg(format!("--user-data-dir={dir_eff}"))
+      .arg("--no-first-run")
+      .arg("--no-default-browser-check");
+  }
+  cmd.arg(&url);
+  cmd
+    .spawn()
+    .map(|_| ())
+    .map_err(|e| format!("open_external_link: 启动外部浏览器失败 ({browser}): {e}"))
 }
 
 #[cfg(test)]

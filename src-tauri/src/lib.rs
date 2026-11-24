@@ -4096,6 +4096,7 @@ pub fn run_with_builder(
       is_profile_locked,
       // Bwbrowser cloud commands
       bwbrowser_cloud::bwbrowser_login,
+      bwbrowser_cloud::open_external_link,
       bwbrowser_cloud::bwbrowser_get_user,
       bwbrowser_cloud::bwbrowser_logout,
       bwbrowser_cloud::bwbrowser_refresh_profile,
