@@ -62,6 +62,7 @@ mod auto_updater;
 mod automation_rate_limiter;
 mod bookmark_merge;
 mod browser;
+mod browser_data_import;
 mod browser_runner;
 mod browser_version_manager;
 mod cdp_target;
@@ -4149,6 +4150,8 @@ pub fn run_with_builder(
       bwbrowser_cloud::bwbrowser_create_account,
       bwbrowser_cloud::bwbrowser_get_account_cookies,
       bwbrowser_cloud::bwbrowser_push_local_account_cookie,
+      browser_data_import::bwbrowser_detect_import_dirs,
+      browser_data_import::bwbrowser_import_local_browser_data,
       bwbrowser_cloud::bwbrowser_delete_cloud_cookies,
       bwbrowser_cloud::bwbrowser_delete_local_cookies,
       bwbrowser_cloud::bwbrowser_get_permissions,

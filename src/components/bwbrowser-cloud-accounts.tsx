@@ -10,6 +10,7 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FiCheck, FiX } from "react-icons/fi";
@@ -1145,6 +1146,112 @@ export function BwbrowserCloudAccountsDialog({
     [],
   );
   const [editExtsLoading, setEditExtsLoading] = useState(false);
+  // ===== 编辑账号：一键导入本机浏览器数据（书签/密码，添加式合并不覆盖） =====
+  type ImportDirCandidate = {
+    label: string;
+    path: string;
+    has_default: boolean;
+    has_data: boolean;
+  };
+  const [editImportDirs, setEditImportDirs] = useState<ImportDirCandidate[]>(
+    [],
+  );
+  const [editImportDirSel, setEditImportDirSel] = useState("");
+  const [editImportCustom, setEditImportCustom] = useState(false);
+  const [editImportBookmarks, setEditImportBookmarks] = useState(true);
+  const [editImportPasswords, setEditImportPasswords] = useState(true);
+  const [editImporting, setEditImporting] = useState(false);
+  const [editImportMsg, setEditImportMsg] = useState("");
+  // 探测本机常见浏览器默认数据目录（打开编辑弹窗时触发）
+  const loadImportDirs = useCallback(async () => {
+    try {
+      const dirs = await invoke<ImportDirCandidate[]>(
+        "bwbrowser_detect_import_dirs",
+      );
+      const list = dirs ?? [];
+      setEditImportDirs(list);
+      setEditImportDirSel((prev) => {
+        if (prev) return prev;
+        return list.find((d) => d.has_data)?.path ?? "";
+      });
+    } catch {
+      setEditImportDirs([]);
+    }
+  }, []);
+  // 手动选择数据来源目录（User Data 或 Default 层均可，Rust 侧自动归一化）
+  const handlePickImportDir = useCallback(async () => {
+    try {
+      const picked = await open({
+        directory: true,
+        multiple: false,
+        title: "选择浏览器数据目录（通常是 User Data，选到 Default 也可以）",
+      });
+      if (typeof picked === "string" && picked) {
+        setEditImportDirSel(picked);
+        setEditImportCustom(true);
+      }
+    } catch {
+      // 用户取消，忽略
+    }
+  }, []);
+  // 执行导入（添加式：书签按 URL 去重、密码按 网址+账号 去重，均不覆盖现有数据）
+  const handleImportLocalData = useCallback(async () => {
+    if (!editAccount) return;
+    if (!editImportBookmarks && !editImportPasswords) {
+      setEditImportMsg("❌ 请至少勾选「书签」或「密码」");
+      return;
+    }
+    if (!editImportDirSel) {
+      setEditImportMsg("❌ 请先选择数据来源目录");
+      return;
+    }
+    setEditImporting(true);
+    setEditImportMsg("");
+    try {
+      const r = await invoke<{
+        bookmarks?: {
+          found: boolean;
+          added: number;
+          skipped: number;
+          source?: string;
+          source_urls?: number;
+        };
+        passwords?: { found: boolean; imported: number; skipped: number };
+      }>("bwbrowser_import_local_browser_data", {
+        accountId: editAccount.id,
+        accountName: editAccount.account_name ?? "",
+        sourceDir: editImportDirSel,
+        importBookmarks: editImportBookmarks,
+        importPasswords: editImportPasswords,
+      });
+      const parts: string[] = [];
+      if (r.bookmarks) {
+        parts.push(
+          r.bookmarks.found
+            ? `书签：新增 ${r.bookmarks.added} 条（重复跳过 ${r.bookmarks.skipped} 条${
+                r.bookmarks.source
+                  ? `；源 ${r.bookmarks.source} 共 ${r.bookmarks.source_urls ?? 0} 条`
+                  : ""
+              }）`
+            : "书签：来源目录未找到书签数据（Bookmarks / AccountBookmarks）",
+        );
+      }
+      if (r.passwords) {
+        parts.push(
+          r.passwords.found
+            ? `密码：导入 ${r.passwords.imported} 条（已存在跳过 ${r.passwords.skipped} 条）`
+            : "密码：来源目录未找到 Login Data 数据",
+        );
+      }
+      setEditImportMsg(`✅ ${parts.join("；")}`);
+    } catch (e) {
+      setEditImportMsg(
+        `❌ 导入失败: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    } finally {
+      setEditImporting(false);
+    }
+  }, [editAccount, editImportBookmarks, editImportPasswords, editImportDirSel]);
   // 拉扩展库 + 绑定关系，算出该账号当前生效的扩展勾选态。
   const loadEditAccountExts = useCallback(
     async (accountId: number, ownerId: number) => {
@@ -1647,6 +1754,10 @@ export function BwbrowserCloudAccountsDialog({
       setEditDetail(null);
       setEditLoading(true);
       setEditDialogOpen(true);
+      // 重置导入状态并探测本机浏览器默认数据目录
+      setEditImportMsg("");
+      setEditImportCustom(false);
+      void loadImportDirs();
       setShowEditPassword(false);
       setEditForm({
         account_name: account.account_name ?? "",
@@ -1811,7 +1922,13 @@ export function BwbrowserCloudAccountsDialog({
         setEditLoading(false);
       }
     },
-    [isManager, isSuperAdmin, canViewPassword, loadEditAccountExts],
+    [
+      isManager,
+      isSuperAdmin,
+      canViewPassword,
+      loadEditAccountExts,
+      loadImportDirs,
+    ],
   );
 
   // 拉取子账号候选分页（服务端过滤：未挂主账号 OR 已挂到该主账号，排除主账号自身）
@@ -6525,61 +6642,40 @@ export function BwbrowserCloudAccountsDialog({
                       </TooltipContent>
                     </Tooltip>
                   </button>
+                  {/* 用户数据（密码管理工具 + 书签同步合并总开关，两者一并切换） */}
                   <button
                     type="button"
                     className="flex items-center gap-2"
-                    onClick={() =>
+                    onClick={() => {
+                      const next = !(
+                        editForm.password_manager || editForm.bookmark_sync
+                      );
                       setEditForm((p) => ({
                         ...p,
-                        password_manager: !p.password_manager,
-                      }))
-                    }
+                        password_manager: next,
+                        bookmark_sync: next,
+                      }));
+                    }}
                   >
                     <Checkbox
-                      checked={editForm.password_manager}
+                      checked={
+                        editForm.password_manager || editForm.bookmark_sync
+                      }
                       onCheckedChange={(v) =>
                         setEditForm((p) => ({
                           ...p,
                           password_manager: v === true,
-                        }))
-                      }
-                    />
-                    <span className="text-xs">密码管理工具</span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        开启后启用该账号浏览器的保存密码与自动登录，并把输入的账号密码同步到云端（跨设备）
-                      </TooltipContent>
-                    </Tooltip>
-                  </button>
-                  <button
-                    type="button"
-                    className="flex items-center gap-2"
-                    onClick={() =>
-                      setEditForm((p) => ({
-                        ...p,
-                        bookmark_sync: !p.bookmark_sync,
-                      }))
-                    }
-                  >
-                    <Checkbox
-                      checked={editForm.bookmark_sync}
-                      onCheckedChange={(v) =>
-                        setEditForm((p) => ({
-                          ...p,
                           bookmark_sync: v === true,
                         }))
                       }
                     />
-                    <span className="text-xs">书签同步</span>
+                    <span className="text-xs">用户数据</span>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
                       </TooltipTrigger>
                       <TooltipContent>
-                        开启后关闭书签上传服务器，启动时从服务器同步到本地（保存在云端书签）
+                        开启后启用该账号浏览器的保存密码与自动登录（密码同步云端跨设备），并从云端同步书签；开启后可在下方一键导入本机浏览器的书签与密码
                       </TooltipContent>
                     </Tooltip>
                   </button>
@@ -6664,6 +6760,151 @@ export function BwbrowserCloudAccountsDialog({
                     </div>
                   )}
                 </div>
+                {/* 📥 一键导入本机浏览器数据（开启「用户数据」后才可见） */}
+                {(editForm.password_manager || editForm.bookmark_sync) && (
+                  <div className="space-y-2 rounded-md border border-dashed p-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium">
+                        📥 导入本机浏览器数据
+                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          把本机 Chrome / Edge
+                          等浏览器的书签与密码一键导入该账号（添加式：只新增，不覆盖不删除现有数据）
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <div className="text-[11px] text-amber-600 dark:text-amber-400">
+                      ⚠️ 导入前请先关闭该账号的浏览器窗口
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                      <button
+                        type="button"
+                        className="flex items-center gap-2"
+                        onClick={() => setEditImportBookmarks((p) => !p)}
+                      >
+                        <Checkbox
+                          checked={editImportBookmarks}
+                          onCheckedChange={(v) =>
+                            setEditImportBookmarks(v === true)
+                          }
+                        />
+                        <span className="text-xs">书签</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex items-center gap-2"
+                        onClick={() => setEditImportPasswords((p) => !p)}
+                      >
+                        <Checkbox
+                          checked={editImportPasswords}
+                          onCheckedChange={(v) =>
+                            setEditImportPasswords(v === true)
+                          }
+                        />
+                        <span className="text-xs">密码</span>
+                      </button>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[11px] text-muted-foreground">
+                        数据来源目录（自动检测常用浏览器，也可手动选择）
+                      </div>
+                      {editImportDirs.some((d) => d.has_data) && (
+                        <div className="space-y-1">
+                          {editImportDirs
+                            .filter((d) => d.has_data)
+                            .map((d) => {
+                              const selected =
+                                editImportDirSel === d.path &&
+                                !editImportCustom;
+                              return (
+                                <button
+                                  key={d.path}
+                                  type="button"
+                                  className={cn(
+                                    "flex w-full items-center gap-2 rounded border px-2 py-1 text-left text-xs transition-colors",
+                                    selected
+                                      ? "border-primary bg-primary/5"
+                                      : "border-border hover:bg-muted/50",
+                                  )}
+                                  onClick={() => {
+                                    setEditImportDirSel(d.path);
+                                    setEditImportCustom(false);
+                                  }}
+                                >
+                                  <span className="shrink-0 font-medium">
+                                    {d.label}
+                                  </span>
+                                  <span className="truncate text-muted-foreground">
+                                    {d.path}
+                                  </span>
+                                  {selected && (
+                                    <LuCheck className="ml-auto h-3.5 w-3.5 shrink-0 text-primary" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                        </div>
+                      )}
+                      {editImportCustom && editImportDirSel && (
+                        <div className="flex items-center gap-1.5 rounded border border-primary bg-primary/5 px-2 py-1 text-xs">
+                          <span className="shrink-0 font-medium">手动选择</span>
+                          <span className="truncate text-muted-foreground">
+                            {editImportDirSel}
+                          </span>
+                          <button
+                            type="button"
+                            className="ml-auto shrink-0 text-[11px] text-muted-foreground hover:text-foreground"
+                            onClick={() => {
+                              setEditImportCustom(false);
+                              setEditImportDirSel(
+                                editImportDirs.find((d) => d.has_data)?.path ??
+                                  "",
+                              );
+                            }}
+                          >
+                            清除
+                          </button>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 pt-0.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void handlePickImportDir()}
+                        >
+                          手动选择目录
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={
+                            editImporting ||
+                            (!editImportBookmarks && !editImportPasswords) ||
+                            !editImportDirSel
+                          }
+                          onClick={() => void handleImportLocalData()}
+                        >
+                          {editImporting ? "导入中…" : "开始导入"}
+                        </Button>
+                      </div>
+                      {editImportMsg && (
+                        <div
+                          className={cn(
+                            "text-[11px] break-all",
+                            editImportMsg.startsWith("❌")
+                              ? "text-red-500"
+                              : "text-emerald-600 dark:text-emerald-400",
+                          )}
+                        >
+                          {editImportMsg}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <div className="text-xs font-medium">平台</div>
