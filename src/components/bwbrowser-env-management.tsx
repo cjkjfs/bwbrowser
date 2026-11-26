@@ -2147,17 +2147,14 @@ export function BwbrowserEnvManagementDialog({
           </span>
           <Select
             value={
-              selectedCompanyId !== null ? String(selectedCompanyId) : "my"
+              selectedCompanyId !== null ? String(selectedCompanyId) : undefined
             }
-            onValueChange={(val) =>
-              setSelectedCompanyId(val === "my" ? null : Number(val))
-            }
+            onValueChange={(val) => setSelectedCompanyId(Number(val))}
           >
             <SelectTrigger className="h-7 w-auto min-w-[140px] max-w-[260px] text-xs">
               <SelectValue placeholder="选择公司" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="my">我的公司</SelectItem>
               {companies.map((company) => (
                 <SelectItem key={company.id} value={String(company.id)}>
                   {company.name}

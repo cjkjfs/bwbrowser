@@ -2472,6 +2472,10 @@
     "license": "MPL-2.0"
   },
   {
+    "name": "opus1",
+    "license": "BSD-3-Clause"
+  },
+  {
     "name": "ordered-float",
     "license": "MIT"
   },

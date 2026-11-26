@@ -8,11 +8,12 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
 use tokio_tungstenite::tungstenite::Message;
 
+use super::audio_codec as codec;
 use super::capture;
 use super::encode;
 use super::files;
 use super::input;
-use super::protocol::{frame_header, frame_header_h264, ClientCommand};
+use super::protocol::{frame_header, frame_header_audio, frame_header_h264, ClientCommand};
 use super::vps;
 use super::{hostname, os_name, AgentStatus, RemoteAgentConfig};
 use crate::cloud_domain::RELAY_URL;
@@ -79,6 +80,9 @@ struct SessionCtx {
   force_key: bool,
   /// 累计成功发送的帧数（排障：区分「没进推流」还是「推了但 viewer 渲染不出」）
   frames_sent: u64,
+  /// 声音传输开关（viewer set_audio 下发）。开启时 audio 为 Some，
+  /// 采集线程持续产出 Opus 包，select 分支取走发送。
+  audio: Option<super::audio::AudioCapture>,
 }
 
 impl SessionCtx {
@@ -100,6 +104,28 @@ impl SessionCtx {
       h264_ok: true,
       force_key: true,
       frames_sent: 0,
+      audio: None,
+    }
+  }
+
+  /// 声音传输开关。开启：启动 WASAPI loopback 采集线程（设备异常只记日志，
+  /// audio 保持 None，不影响画面推流）；关闭：drop 采集会话，线程随之退出。
+  fn set_audio(&mut self, enabled: bool) {
+    if enabled {
+      if self.audio.is_some() {
+        return;
+      }
+      match super::audio::AudioCapture::start() {
+        Ok(cap) => {
+          crate::remote_agent::log_remote_file("声音传输开启（WASAPI loopback + Opus 32k）");
+          self.audio = Some(cap);
+        }
+        Err(e) => {
+          crate::remote_agent::log_remote_file(&format!("声音传输启动失败: {e}"));
+        }
+      }
+    } else if self.audio.take().is_some() {
+      crate::remote_agent::log_remote_file("声音传输关闭");
     }
   }
 
@@ -193,8 +219,6 @@ impl SessionCtx {
         self.control_mode = mode.clone();
         replies.push(json!({"type": "mode_changed", "mode": mode}).to_string());
       }
-      // 多显示器选择：切到目标屏并让鼠标/键盘坐标对准它（Windows 端
-      // 只有整块虚拟屏幕一块，永远停在 0）
       ClientCommand::SetMonitor { monitor } => {
         if !self.authed {
           replies.push(json!({"type": "error", "message": "Auth required"}).to_string());
@@ -231,6 +255,23 @@ impl SessionCtx {
               replies.push(json!({"type": "monitor_changed", "monitor": m}).to_string());
             }
           }
+        }
+      }
+      // 声音传输开关：需要鉴权（防未授权连接偷听被控端声音）
+      ClientCommand::SetAudio { enabled } => {
+        if !self.authed {
+          replies.push(json!({"type": "error", "message": "Auth required"}).to_string());
+        } else {
+          self.set_audio(*enabled);
+          replies.push(
+            json!({
+              "type": "audio_state",
+              "enabled": enabled,
+              // 被控端采集可能启动失败（无输出设备/非 Windows），如实回给 viewer
+              "active": self.audio.is_some()
+            })
+            .to_string(),
+          );
         }
       }
       ClientCommand::MouseMoveRelative { dx, dy } => {
@@ -402,6 +443,38 @@ fn capture_jpeg_blocking(
   })
 }
 
+/// 音频包推送：取走采集线程所有已就绪的 Opus 包，逐个按 AUDI 帧头打包发送。
+/// 返回 false 表示发送失败（viewer 已不可达），调用方应停音频/断连处理。
+async fn push_audio<S, M>(sink: &mut S, ctx: &mut SessionCtx) -> bool
+where
+  S: futures_util::Sink<M> + Unpin,
+  M: From<Vec<u8>>,
+{
+  loop {
+    let pkt = {
+      let cap = match ctx.audio.as_mut() {
+        Some(c) => c,
+        None => return true,
+      };
+      match cap.try_recv() {
+        Some(p) => p,
+        None => return true,
+      }
+    };
+    let mut payload = Vec::with_capacity(frame_header_audio(0, 0, 0).len() + pkt.data.len());
+    payload.extend_from_slice(&frame_header_audio(
+      codec::HEADER_SAMPLE_RATE,
+      codec::HEADER_CHANNELS,
+      pkt.data.len() as u32,
+    ));
+    payload.extend_from_slice(&pkt.data);
+    if sink.send(payload.into()).await.is_err() {
+      ctx.set_audio(false);
+      return false;
+    }
+  }
+}
+
 /// 通用帧推送：截屏 → 静止检测 → 降采样 → JPEG → >III 头 + 二进制。
 /// 返回是否真的发送了帧（静止画面返回 false，调用方不更新 fps 节流窗口）。
 async fn push_frame<S, M>(sink: &mut S, ctx: &mut SessionCtx) -> Result<bool, String>
@@ -529,7 +602,7 @@ where
 
 /// ==================== relay 主循环（重试直到 stop） ====================
 pub async fn run_agent_loop(
-  cfg: RemoteAgentConfig,
+  mut cfg: RemoteAgentConfig,
   creds: (String, String),
   stop: Arc<AtomicBool>,
   status: Arc<Mutex<AgentStatus>>,
@@ -537,9 +610,11 @@ pub async fn run_agent_loop(
   // 后台心跳：保持云端在线状态，直到 stop（server.py heartbeat 线程等价物）
   // 失败此前被完全吞掉：心跳一断，云端列表就把这台机器标成离线，
   // 而本地毫无痕迹。只在状态翻转时记一行，避免每 30 秒刷屏。
+  // uuid 从 status 里取：身份冲突换发新 uuid 后，心跳跟着新身份走，
+  // 旧条目不再续心跳，云端列表会在超时后把它标离线，避免「幽灵双份」。
   let hb = {
     let stop = stop.clone();
-    let uuid = cfg.uuid.clone();
+    let status = status.clone();
     tokio::spawn(async move {
       let mut healthy = true;
       let mut system = sysinfo::System::new_all();
@@ -548,6 +623,10 @@ pub async fn run_agent_loop(
         tokio::time::sleep(Duration::from_secs(30)).await;
         if stop.load(Ordering::SeqCst) {
           break;
+        }
+        let uuid = status.lock().map(|s| s.uuid.clone()).unwrap_or_default();
+        if uuid.is_empty() {
+          continue;
         }
         let hardware = crate::remote_agent::hardware::snapshot_with_system(&mut system);
         let hardware = serde_json::to_string(&hardware).unwrap_or_else(|_| "{}".to_string());
@@ -577,33 +656,74 @@ pub async fn run_agent_loop(
   };
 
   let mut permission_denied = false;
+  // 身份冲突（4003 duplicate）处理：第一次被拒 → 30 秒后原身份重试（可能是
+  // 旧连接半开、last_seen 还没过期，等它过期即可正常接管）；连续第二次被拒
+  // → 确认真双活（同一身份两个实例都在跑被控端），换发新 uuid 独立注册，
+  // 云端列表显示两份，各自可被观看 —— 不再互相踢，也不拒绝任何一份。
+  let mut dup_strikes = 0u32;
+  let mut backoff_secs: u64;
   while !stop.load(Ordering::SeqCst) && !permission_denied {
-    let outcome = agent_cycle(&cfg, &creds, &stop, &status).await;
-    if let Err(e) = outcome {
-      set_status(&status, |s| {
-        s.last_error = Some(e.clone());
-        s.vps_registered = false;
-        s.relay_connected = false;
-      });
-      // 云端权限被撤：不要再重试刷服务端，直接整体停止，
-      // 由权限守护任务在权限恢复时重新拉起
-      if crate::remote_agent::error_code(&e).as_deref() == Some("NO_REMOTE_PERMISSION") {
-        crate::remote_agent::log_remote(&format!(
-          "用户 {} 远程桌面被拒绝（users.php 权限组未开通），被控端下线",
-          crate::remote_agent::current_user()
-        ));
-        permission_denied = true;
-        continue;
+    let outcome = agent_cycle(&mut cfg, &creds, &stop, &status).await;
+    match outcome {
+      Err(e) => {
+        set_status(&status, |s| {
+          s.last_error = Some(e.clone());
+          s.vps_registered = false;
+          s.relay_connected = false;
+        });
+        // 云端权限被撤：不要再重试刷服务端，直接整体停止，
+        // 由权限守护任务在权限恢复时重新拉起
+        if crate::remote_agent::error_code(&e).as_deref() == Some("NO_REMOTE_PERMISSION") {
+          crate::remote_agent::log_remote(&format!(
+            "用户 {} 远程桌面被拒绝（users.php 权限组未开通），被控端下线",
+            crate::remote_agent::current_user()
+          ));
+          permission_denied = true;
+          continue;
+        }
+        // 服务端 4003 = 同一 uuid 的另一个连接仍活着（双活冲突）
+        let duplicate = e.contains("code=4003") || e.contains("duplicate_connection");
+        if duplicate {
+          dup_strikes += 1;
+          if dup_strikes >= 2 {
+            let old = cfg.uuid.clone();
+            cfg.uuid = uuid::Uuid::new_v4().to_string();
+            let _ = crate::remote_agent::save_config(&cfg);
+            set_status(&status, |s| s.uuid = cfg.uuid.clone());
+            crate::remote_agent::log_remote(&format!(
+              "用户 {} 身份冲突（同一被控端 ID 已有实例在线），已换发新 ID（{}… → {}…）独立注册",
+              creds.0,
+              &old[..8.min(old.len())],
+              &cfg.uuid[..8]
+            ));
+            dup_strikes = 0;
+            backoff_secs = 5;
+          } else {
+            backoff_secs = 30;
+            crate::remote_agent::log_remote(&format!(
+              "用户 {} relay 拒绝连接（同一 ID 已有实例在线，{} 秒后原身份重试）",
+              creds.0, backoff_secs
+            ));
+          }
+        } else {
+          dup_strikes = 0;
+          backoff_secs = 10;
+          // 其余失败（服务端关闭连接、保活超时、网络中断）此前完全静默，
+          // 掉线无从排查；记一条带原因的日志，和上面的重连配对即可还原时间线。
+          crate::remote_agent::log_remote(&format!(
+            "用户 {} relay 断开（{}），10 秒后重连",
+            creds.0,
+            describe(&e)
+          ));
+        }
       }
-      // 其余失败（服务端关闭连接、保活超时、网络中断）此前完全静默，
-      // 掉线无从排查；记一条带原因的日志，和上面的重连配对即可还原时间线。
-      crate::remote_agent::log_remote(&format!(
-        "用户 {} relay 断开（{}），10 秒后重连",
-        creds.0,
-        describe(&e)
-      ));
+      Ok(()) => {
+        dup_strikes = 0;
+        backoff_secs = 10;
+      }
     }
-    for _ in 0..5 {
+    let waited = std::time::Instant::now() + Duration::from_secs(backoff_secs);
+    while std::time::Instant::now() < waited {
       if stop.load(Ordering::SeqCst) {
         break;
       }
@@ -617,7 +737,7 @@ pub async fn run_agent_loop(
 }
 
 async fn agent_cycle(
-  cfg: &RemoteAgentConfig,
+  cfg: &mut RemoteAgentConfig,
   creds: &(String, String),
   stop: &Arc<AtomicBool>,
   status: &Arc<Mutex<AgentStatus>>,
@@ -671,6 +791,8 @@ async fn agent_cycle(
   let (mut writer, mut reader) = ws.split();
   let mut ctx = SessionCtx::new(cfg);
   let mut ticker = tokio::time::interval(Duration::from_millis(1000 / 30));
+  // 音频包发送节奏：20ms 一帧，与 Opus 帧大小匹配；channel 满丢包可接受
+  let mut audio_tick = tokio::time::interval(Duration::from_millis(20));
   // viewer 断开后本端不发任何数据，nginx/中间设备会因空闲超时断开，
   // 且断连信号经常丢失（TCP 半开），reader 永远等不到报错，形成"在线但连不上"的僵尸连接。
   // 定期发心跳保活，超过 40 秒收不到任何回应即判定连接已死并重连。
@@ -738,6 +860,8 @@ async fn agent_cycle(
                 // viewer 断开后停止推流，避免继续 30FPS 截屏+编码空烧 CPU；
                 // 下一个 viewer 接入时会重新发送 StartStream 恢复推流
                 ctx.streaming = false;
+                // 声音传输同样停止：采集线程随 set_audio(false) 退出
+                ctx.set_audio(false);
                 set_status(status, |s| s.viewers = s.viewers.saturating_sub(1));
                 let n = status.lock().unwrap().viewers;
                 crate::remote_agent::log_remote(&format!(
@@ -750,11 +874,20 @@ async fn agent_cycle(
           Some(Ok(Message::Binary(_))) => {}
           Some(Ok(Message::Pong(_))) => {}
           Some(Ok(Message::Close(frame))) => {
-            // 服务端主动关闭（空闲回收、重启、踢下线）：此前落进下面的通配分支被静默忽略，
-            // 要等下一次 reader 轮询才发现，这里直接判定为断线并交给外层重连。
+            // 服务端主动关闭（空闲回收、重启、踢下线、双活拒绝 4003）：此前落进下面的
+            // 通配分支被静默忽略，要等下一次 reader 轮询才发现，这里直接判定为断线
+            // 并交给外层重连。code 写进错误串供外层区分处理（4003=身份冲突→换新身份）。
+            // 无 close frame 时用 RFC6455 的 1005（No Status Received）占位。
+            let (code, reason) = frame
+              .as_ref()
+              .map(|f| (f.code, f.reason.to_string()))
+              .unwrap_or((
+                tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Iana(1005),
+                String::new(),
+              ));
             return Err(structured(
               "REMOTE_DESKTOP_UNREACHABLE",
-              format!("relay 服务端关闭连接: {frame:?}"),
+              format!("relay 服务端关闭连接: code={code} reason={reason}"),
             ));
           }
           Some(Ok(_)) => {}
@@ -791,6 +924,15 @@ async fn agent_cycle(
             set_status(status, |s| s.last_error = Some(e));
             tokio::time::sleep(Duration::from_millis(500)).await;
           }
+        }
+      }
+      _ = audio_tick.tick() => {
+        if ctx.audio.is_some() && !push_audio(&mut writer, &mut ctx).await {
+          // 音频发送失败 = viewer 已不可达：整条连接判定为死，交给外层重连
+          return Err(structured(
+            "REMOTE_DESKTOP_UNREACHABLE",
+            "音频帧发送失败，连接已断开",
+          ));
         }
       }
       _ = keepalive.tick() => {
@@ -936,6 +1078,8 @@ async fn local_session(
 
   let mut ctx = SessionCtx::new(&cfg);
   let mut ticker = tokio::time::interval(Duration::from_millis(1000 / 30));
+  // 音频包发送节奏：与 relay 路径一致（20ms 一帧）
+  let mut audio_tick = tokio::time::interval(Duration::from_millis(20));
   let mut download_rx: Option<tokio::sync::mpsc::Receiver<String>> = None;
   crate::remote_agent::log_remote_file("local_session: 新连接建立");
   set_status(&status, |s| s.viewers = s.viewers.saturating_add(1));
@@ -1020,6 +1164,12 @@ async fn local_session(
             crate::remote_agent::log_remote(&format!("viewer 截屏失败: {}", e));
             tokio::time::sleep(Duration::from_millis(500)).await;
           }
+        }
+      }
+      _ = audio_tick.tick() => {
+        if ctx.audio.is_some() && !push_audio(&mut ws, &mut ctx).await {
+          // 连接已不可用：结束会话（ctx drop 停采集线程）
+          break;
         }
       }
     }

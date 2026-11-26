@@ -19,6 +19,9 @@ mod input;
 mod protocol;
 mod relay;
 mod vps;
+// 声音传输：audio=采集层（WASAPI loopback），audio_codec=Opus 编码封装
+mod audio;
+mod audio_codec;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

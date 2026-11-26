@@ -17,7 +17,6 @@ import {
   LuPuzzle,
   LuSparkles,
   LuUser,
-  LuUsers,
   LuVideo,
 } from "react-icons/lu";
 import { confirmDialog } from "@/components/ui/confirm-dialog";
@@ -115,7 +114,6 @@ const TOP_ITEMS: RailItem[] = [
   { page: "profiles", Icon: LuUser, labelKey: "rail.profiles" },
   { page: "proxies", Icon: FiWifi, labelKey: "rail.network" },
   { page: "cloudAccounts", Icon: LuGlobe, labelKey: "rail.cloudAccounts" },
-  { page: "userManagement", Icon: LuUsers, labelKey: "rail.userManagement" },
   {
     page: "remoteManagement",
     Icon: LuMonitorSmartphone,
@@ -224,7 +222,6 @@ export function RailNav({
   const { t } = useTranslation();
   const { user } = useBwbrowserAuth();
   const {
-    canManageUsers,
     canDownloadVideos,
     canAiRewrite,
     canManageRemote,
@@ -285,7 +282,6 @@ export function RailNav({
 
   const visibleTopItems = TOP_ITEMS.filter((item) => {
     if (ADMIN_ONLY_PAGES.includes(item.page) && !isAdmin) return false;
-    if (item.page === "userManagement" && !canManageUsers) return false;
     if (item.page === "remoteManagement" && !canManageRemote) return false;
     if (item.page === "videoDownload" && !canDownloadVideos) return false;
     if (item.page === "aiRewrite" && !canAiRewrite) return false;

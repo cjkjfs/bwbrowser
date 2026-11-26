@@ -89,6 +89,8 @@ export function useVideoDownload() {
   const [settings, setSettings] = useState<DownloadSettings>(defaultSettings);
   const [toolStatus, setToolStatus] = useState<ToolStatus | null>(null);
   const [lastCookieTime, setLastCookieTime] = useState<number>(0);
+  // 每日 yt-dlp 升级检测：上次检测时间戳（秒），0 = 尚未检测
+  const [lastUpdateCheck, setLastUpdateCheck] = useState<number>(0);
   const [proxyList, setProxyList] = useState<ProxyItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingTools, setIsCheckingTools] = useState(false);
@@ -159,6 +161,18 @@ export function useVideoDownload() {
       setLastCookieTime(result);
     } catch (e) {
       console.error("[video_download] 获取 cookie 时间失败:", e);
+    }
+  }, []);
+
+  // 加载上次每日 yt-dlp 升级检测时间（更新按钮旁展示）
+  const loadLastUpdateCheck = useCallback(async () => {
+    try {
+      const result = await invoke<number>(
+        "video_download_get_last_update_check",
+      );
+      setLastUpdateCheck(result);
+    } catch (e) {
+      console.error("[video_download] 获取升级检测时间失败:", e);
     }
   }, []);
 
@@ -697,6 +711,7 @@ export function useVideoDownload() {
     settings,
     toolStatus,
     lastCookieTime,
+    lastUpdateCheck,
     proxyList,
     isLoading,
     isCheckingTools,
@@ -725,6 +740,7 @@ export function useVideoDownload() {
     pasteAndDownload,
     refreshCookie,
     loadLastCookieTime,
+    loadLastUpdateCheck,
     loadProxies,
     openDir,
     openFile,

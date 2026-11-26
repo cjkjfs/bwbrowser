@@ -7371,9 +7371,10 @@ async fn watch_account_browser_close(
         if running {
           seen_running = true;
         } else if seen_running {
-          // 账号「书签同步」开启：浏览器已退出，把本地改过的书签上行到云端。
-          // 下行（启动前）已在同一次启动前执行过，关闭时本地即最新，故上行为主。
-          // 失败只记日志，不影响关闭事件通知。
+          // 账号「书签同步」开启：浏览器已退出。2026-11-26 改造：
+          // 三路增量合并（base=启动下行记录的云端快照）——本地改动永远保留，
+          // 只应用云端相对基准的增删改，然后把合并结果上行。绝不整文件覆盖。
+          // 云端骤减异常（旧客户端空壳覆盖）时忽略云端删除、以本地为准恢复云端。
           if crate::account_flags::account_flag_enabled(
             crate::account_flags::AccountFlagKey::BookmarkSync,
             account_id,
@@ -7382,18 +7383,103 @@ async fn watch_account_browser_close(
           {
             match BwbrowserAuthManager::read_local_bookmarks(&profile.id.to_string()) {
               Ok(Some(local)) if !local.trim().is_empty() => {
-                match BWBROWSER_AUTH.update_bwbrowser_bookmarks(&local).await {
-                  Ok(()) => log_bwbrowser(
-                    "bookmark_sync",
-                    &format!(
-                      "账号 {account_name} 浏览器退出：书签已上行云端（{} 字节）",
-                      local.len()
-                    ),
-                  ),
-                  Err(e) => log_bwbrowser(
-                    "bookmark_sync",
-                    &format!("账号 {account_name} 书签上行失败（忽略）: {e}"),
-                  ),
+                let base = BwbrowserAuthManager::read_base_bookmarks(&profile.id.to_string())
+                  .ok()
+                  .flatten();
+                match BWBROWSER_AUTH.get_bwbrowser_bookmarks(account_id).await {
+                  Ok(Some((cloud, true))) if !cloud.trim().is_empty() => {
+                    let merged = crate::bookmark_merge::merge(base.as_deref(), &local, &cloud);
+                    if merged.used_fallback {
+                      log_bwbrowser(
+                        "bookmark_sync",
+                        &format!(
+                          "账号 {account_name} 书签合并解析失败，保守跳过上行（避免覆盖云端）"
+                        ),
+                      );
+                    } else if crate::bookmark_merge::canon_eq(&merged.json, &cloud) {
+                      let _ = BwbrowserAuthManager::write_base_bookmarks(
+                        &profile.id.to_string(),
+                        &merged.json,
+                      );
+                      log_bwbrowser(
+                        "bookmark_sync",
+                        &format!("账号 {account_name} 浏览器退出：书签与云端一致，跳过上行"),
+                      );
+                    } else {
+                      match BWBROWSER_AUTH
+                        .update_bwbrowser_bookmarks(account_id, &merged.json, true)
+                        .await
+                      {
+                        Ok(()) => {
+                          let _ = BwbrowserAuthManager::write_base_bookmarks(
+                            &profile.id.to_string(),
+                            &merged.json,
+                          );
+                          log_bwbrowser(
+                            "bookmark_sync",
+                            &format!(
+                              "账号 {account_name} 浏览器退出：书签增量上行完成（云端+{} -{} ~{}，{} 字节）",
+                              merged.cloud_added,
+                              merged.cloud_deleted,
+                              merged.cloud_updated,
+                              merged.json.len()
+                            ),
+                          );
+                        }
+                        Err(e) => log_bwbrowser(
+                          "bookmark_sync",
+                          &format!("账号 {account_name} 书签上行失败（忽略）: {e}"),
+                        ),
+                      }
+                    }
+                  }
+                  Ok(_) => {
+                    // 云端无账号槽位内容（空/回落旧槽）：直接以本地建立槽位。
+                    // 合并基线就是本地，避免用户级旧槽内容串进本账号。
+                    match BWBROWSER_AUTH
+                      .update_bwbrowser_bookmarks(account_id, &local, true)
+                      .await
+                    {
+                      Ok(()) => {
+                        let _ = BwbrowserAuthManager::write_base_bookmarks(
+                          &profile.id.to_string(),
+                          &local,
+                        );
+                        log_bwbrowser(
+                          "bookmark_sync",
+                          &format!(
+                            "账号 {account_name} 浏览器退出：云端槽位为空，已建立书签（{} 字节）",
+                            local.len()
+                          ),
+                        );
+                      }
+                      Err(e) => log_bwbrowser(
+                        "bookmark_sync",
+                        &format!("账号 {account_name} 书签上行失败（忽略）: {e}"),
+                      ),
+                    }
+                  }
+                  Err(e) => {
+                    // 拉不到云端无法三路合并：原样上行本地但不开骤减豁免，服务端骤减保护兜底
+                    match BWBROWSER_AUTH
+                      .update_bwbrowser_bookmarks(account_id, &local, false)
+                      .await
+                    {
+                      Ok(()) => log_bwbrowser(
+                        "bookmark_sync",
+                        &format!(
+                          "账号 {account_name} 浏览器退出：云端不可达，按本地原样上行（{} 字节）",
+                          local.len()
+                        ),
+                      ),
+                      Err(e2) => log_bwbrowser(
+                        "bookmark_sync",
+                        &format!(
+                          "账号 {account_name} 书签上行失败（忽略）: {e2}（云端拉取失败: {e}）"
+                        ),
+                      ),
+                    }
+                  }
                 }
               }
               Ok(_) => log_bwbrowser(
@@ -8486,26 +8572,102 @@ async fn launch_account_impl(
           );
         }
       }
-      // 2. 书签同步：开启则启动前从云端拉取覆盖本地（下行；仅当云端确有书签时覆盖）
+      // 2. 书签同步（2026-11-26 改造：按账号分槽 + 三路增量合并，绝不整体覆盖）：
+      //    本地无书签 → 整体采用云端；本地有书签 → 只把「云端相对基准的增删改」合并进来。
+      //    基准快照记本次云端内容，供浏览器关闭上行时做三路差分。
+      //    云端回落到用户级旧槽（storage=legacy）时不做合并，避免不同账号串号。
       let bm_sync_on = account_flag_enabled(AccountFlagKey::BookmarkSync, account_id).await;
       if bm_sync_on {
-        match BWBROWSER_AUTH.get_bwbrowser_bookmarks().await {
-          Ok(Some(remote_bookmarks)) if !remote_bookmarks.trim().is_empty() => {
-            match BwbrowserAuthManager::write_local_bookmarks(
-              &profile.id.to_string(),
-              &remote_bookmarks,
-            ) {
-              Ok(()) => log_bwbrowser(
-                "launch_account",
-                &format!(
-                  "  书签同步开启：已从云端下行 {} 字节书签",
-                  remote_bookmarks.len()
-                ),
-              ),
-              Err(e) => log_bwbrowser(
-                "launch_account",
-                &format!("  书签下行写盘失败（忽略）: {e}"),
-              ),
+        match BWBROWSER_AUTH.get_bwbrowser_bookmarks(account_id).await {
+          Ok(Some((cloud, from_account))) if !cloud.trim().is_empty() => {
+            let local = BwbrowserAuthManager::read_local_bookmarks(&profile.id.to_string())
+              .ok()
+              .flatten()
+              .filter(|s| !s.trim().is_empty());
+            match local {
+              None => {
+                match BwbrowserAuthManager::write_local_bookmarks(&profile.id.to_string(), &cloud) {
+                  Ok(()) => log_bwbrowser(
+                    "launch_account",
+                    &format!("  书签下行：本地无书签，采用云端 {} 字节", cloud.len()),
+                  ),
+                  Err(e) => log_bwbrowser(
+                    "launch_account",
+                    &format!("  书签下行写盘失败（忽略）: {e}"),
+                  ),
+                }
+                let _ = BwbrowserAuthManager::write_base_bookmarks(&profile.id.to_string(), &cloud);
+              }
+              Some(local) if !from_account => {
+                // 账号槽位未建立（回落用户级旧槽）：本地为准，不合并；
+                // 关闭上行时会把本地内容写入账号槽位，此后走正常增量同步。
+                log_bwbrowser(
+                  "launch_account",
+                  "  书签下行：账号槽位未建立（云端为用户级旧槽），本地为准不合并",
+                );
+                let _ = BwbrowserAuthManager::write_base_bookmarks(&profile.id.to_string(), &local);
+              }
+              Some(local) => {
+                let base = BwbrowserAuthManager::read_base_bookmarks(&profile.id.to_string())
+                  .ok()
+                  .flatten();
+                let merged = crate::bookmark_merge::merge(
+                  base.as_deref().or(Some(local.as_str())),
+                  &local,
+                  &cloud,
+                );
+                if merged.used_fallback {
+                  log_bwbrowser(
+                    "launch_account",
+                    "  书签合并解析失败，保持本地不动（不覆盖）",
+                  );
+                } else {
+                  if !crate::bookmark_merge::canon_eq(&merged.json, &local) {
+                    match BwbrowserAuthManager::write_local_bookmarks(
+                      &profile.id.to_string(),
+                      &merged.json,
+                    ) {
+                      Ok(()) => log_bwbrowser(
+                        "launch_account",
+                        &format!(
+                          "  书签下行合并完成：云端+{} -{} ~{}（{} → {} 字节）",
+                          merged.cloud_added,
+                          merged.cloud_deleted,
+                          merged.cloud_updated,
+                          local.len(),
+                          merged.json.len()
+                        ),
+                      ),
+                      Err(e) => log_bwbrowser(
+                        "launch_account",
+                        &format!("  书签下行写盘失败（忽略）: {e}"),
+                      ),
+                    }
+                  } else {
+                    log_bwbrowser(
+                      "launch_account",
+                      "  书签下行：本地已与合并结果一致，无需写盘",
+                    );
+                  }
+                  if merged.cloud_shrink_anomaly {
+                    log_bwbrowser(
+                      "launch_account",
+                      "  ⚠️ 云端书签相对基准骤减（疑似被旧客户端空壳覆盖），已忽略云端删除，本地为准",
+                    );
+                  }
+                  // 基准：正常=本次云端内容；云端骤减异常=合并结果（含本地完整书签），
+                  // 这样关闭上行时差分出的「云端删除」不会被异常空壳误导。
+                  let base_to_store = if merged.cloud_shrink_anomaly {
+                    merged.json.as_str()
+                  } else {
+                    cloud.as_str()
+                  };
+                  let _ = BwbrowserAuthManager::write_base_bookmarks(
+                    &profile.id.to_string(),
+                    base_to_store,
+                  );
+                }
+              }
             }
           }
           Ok(_) => log_bwbrowser("launch_account", "  书签同步开启：云端暂无书签，跳过下行"),
@@ -11219,24 +11381,44 @@ impl BwbrowserAuthManager {
     Ok(())
   }
 
-  /// 获取当前用户的爆文库浏览器书签
-  pub async fn get_bwbrowser_bookmarks(&self) -> Result<Option<String>, String> {
-    let body = self.call_users_api("get_bwbrowser_bookmarks", &[]).await?;
+  /// 获取书签（2026-11-26 起按账号分槽）。
+  /// 返回 (内容, 是否来自账号槽位)；false = 服务端回落到用户级旧槽（迁移期），
+  /// 调用方不得把旧槽内容合并进本地/据其做差分，避免不同账号串号。
+  pub async fn get_bwbrowser_bookmarks(
+    &self,
+    account_id: i64,
+  ) -> Result<Option<(String, bool)>, String> {
+    let body = self
+      .call_users_api(
+        "get_bwbrowser_bookmarks",
+        &[("account_id", &account_id.to_string())],
+      )
+      .await?;
     let result: serde_json::Value = parse_body("get_bwbrowser_bookmarks", &body)?;
+    let from_account = result["storage"].as_str() == Some("account");
     let bookmarks = result["bookmarks"].as_str().map(|s| s.to_string());
-    Ok(bookmarks)
+    Ok(bookmarks.map(|b| (b, from_account)))
   }
 
-  /// 更新当前用户的爆文库浏览器书签
-  pub async fn update_bwbrowser_bookmarks(&self, bookmarks: &str) -> Result<(), String> {
+  /// 更新书签（2026-11-26 起按账号分槽）。
+  /// confirm_shrink=true 表示客户端已做增量合并、允许合法骤减（有意删除）；
+  /// 服务端骤减保护（旧值>20KB 且新值<5KB）未豁免时会拒绝写入。
+  pub async fn update_bwbrowser_bookmarks(
+    &self,
+    account_id: i64,
+    bookmarks: &str,
+    confirm_shrink: bool,
+  ) -> Result<(), String> {
     let (username, password) = self
       .get_credentials()
       .ok_or_else(|| "未登录，请先登录云端账号".to_string())?;
 
     let form_data = format!(
-      "action=update_bwbrowser_bookmarks&username={}&password={}&bookmarks={}",
+      "action=update_bwbrowser_bookmarks&username={}&password={}&account_id={}&confirm_shrink={}&bookmarks={}",
       urlencode(&username),
       urlencode(&password),
+      account_id,
+      if confirm_shrink { 1 } else { 0 },
       urlencode(bookmarks),
     );
 
@@ -11378,6 +11560,47 @@ impl BwbrowserAuthManager {
       "bookmarks",
       &format!("已写入 Bookmarks 文件: {} 字节", bookmarks.len()),
     );
+    Ok(())
+  }
+
+  /// 读取书签三路合并的基准快照（上次同步完成时双方共同状态）
+  pub fn read_base_bookmarks(profile_id: &str) -> Result<Option<String>, String> {
+    let pm = crate::profile::manager::ProfileManager::instance();
+    let profiles_dir = pm.get_profiles_dir();
+    let profile_uuid = uuid::Uuid::parse_str(profile_id).map_err(|e| e.to_string())?;
+    let path = profiles_dir
+      .join(profile_uuid.to_string())
+      .join("profile")
+      .join("Default")
+      .join("Bookmarks.bwb_base");
+    if !path.exists() {
+      return Ok(None);
+    }
+    let content = std::fs::read_to_string(&path).map_err(|e| {
+      log_bwbrowser_error("bookmarks", &format!("读取书签基准失败: {}", e));
+      format!("读取书签基准失败: {}", e)
+    })?;
+    if content.is_empty() {
+      Ok(None)
+    } else {
+      Ok(Some(content))
+    }
+  }
+
+  /// 写入书签三路合并的基准快照
+  pub fn write_base_bookmarks(profile_id: &str, content: &str) -> Result<(), String> {
+    let pm = crate::profile::manager::ProfileManager::instance();
+    let profiles_dir = pm.get_profiles_dir();
+    let profile_uuid = uuid::Uuid::parse_str(profile_id).map_err(|e| e.to_string())?;
+    let path = profiles_dir
+      .join(profile_uuid.to_string())
+      .join("profile")
+      .join("Default")
+      .join("Bookmarks.bwb_base");
+    std::fs::write(&path, content).map_err(|e| {
+      log_bwbrowser_error("bookmarks", &format!("写入书签基准失败: {}", e));
+      format!("写入书签基准失败: {}", e)
+    })?;
     Ok(())
   }
 
@@ -11645,15 +11868,20 @@ pub async fn bwbrowser_update_bwbrowser_cookies(cookies: String) -> Result<(), S
 }
 
 #[tauri::command]
-pub async fn bwbrowser_get_bwbrowser_bookmarks() -> Result<Option<String>, String> {
-  let bookmarks = BWBROWSER_AUTH.get_bwbrowser_bookmarks().await?;
+pub async fn bwbrowser_get_bwbrowser_bookmarks(
+  account_id: i64,
+) -> Result<Option<(String, bool)>, String> {
+  let bookmarks = BWBROWSER_AUTH.get_bwbrowser_bookmarks(account_id).await?;
   Ok(bookmarks)
 }
 
 #[tauri::command]
-pub async fn bwbrowser_update_bwbrowser_bookmarks(bookmarks: String) -> Result<(), String> {
+pub async fn bwbrowser_update_bwbrowser_bookmarks(
+  account_id: i64,
+  bookmarks: String,
+) -> Result<(), String> {
   BWBROWSER_AUTH
-    .update_bwbrowser_bookmarks(&bookmarks)
+    .update_bwbrowser_bookmarks(account_id, &bookmarks, true)
     .await?;
   Ok(())
 }

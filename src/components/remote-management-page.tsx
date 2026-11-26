@@ -422,7 +422,8 @@ export function RemoteManagementPage() {
   const { isLoggedIn } = useBwbrowserAuth();
   const { isSuperAdmin } = useBwbrowserPermissions();
   const { companies, selectedCompanyId, setSelectedCompanyId } =
-    useBwbrowserCompany(isSuperAdmin, isLoggedIn);
+    // 本页 null=「全部公司」语义，关闭「自动选中第一家公司」填充
+    useBwbrowserCompany(isSuperAdmin, isLoggedIn, true, false);
 
   const [machines, setMachines] = useState<RemoteMachine[]>([]);
   const [isLoading, setIsLoading] = useState(false);

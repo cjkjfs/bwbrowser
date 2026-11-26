@@ -231,6 +231,7 @@ function doConnect(pwdOverride) {
   ws.onclose = () => {
     // 连接断了画面不再更新：收尾录制，把已录到的部分落盘，别让用户白录
     if (isRecording()) stopRecording();
+    teardownAudio();
     if (connected) {
       showDesktop(false);
       showLogin(true);
@@ -268,6 +269,8 @@ function handleTextMessage(msg) {
       showDesktop(true);
       applyViewMode();
       startHeartbeat();
+      // 声音开关记忆为开时，鉴权通过立刻向被控端申请开声音
+      sendAudioPref();
       // 文件传输模式只看文件，不推流远程桌面
       if (!autoFiles) startStreaming();
       break;
@@ -287,6 +290,21 @@ function handleTextMessage(msg) {
     case "error":
       console.error("服务器错误:", msg.message);
       break;
+    case "audio_state":
+      // 被控端回执：enabled=申请值，active=采集是否真的跑起来了
+      // （无输出设备 / 非 Windows 会被控端起不来，如实提示）
+      if (msg.enabled && !msg.active) {
+        console.warn("被控端声音采集未能启动（无输出设备或不支持）");
+        if (btnAudioEl) btnAudioEl.classList.remove("active");
+      } else if (msg.active) {
+        audioActive = true;
+        if (btnAudioEl) btnAudioEl.classList.add("active");
+      } else {
+        audioActive = false;
+        teardownAudioGraph();
+        if (btnAudioEl) btnAudioEl.classList.remove("active");
+      }
+      break;
   }
 }
 
@@ -297,6 +315,15 @@ function handleBinaryFrame(buffer) {
   const w = dv.getUint32(0);
   const h = dv.getUint32(4);
   const len = dv.getUint32(8);
+  // 20 字节头带 "AUDI" tag：远程声音（Opus 负载）。先于 H264 判断（头更长）
+  if (buffer.byteLength >= 20 && dv.getUint32(12) === 0x41554449) {
+    handleAudioFrame(
+      dv.getUint32(0),
+      dv.getUint32(4),
+      buffer.slice(20, 20 + len),
+    );
+    return;
+  }
   // 16 字节头带 "H264" tag：WebCodecs 硬解；否则按旧 JPEG 处理
   if (buffer.byteLength >= 16 && dv.getUint32(12) === 0x48323634) {
     handleH264Frame(w, h, buffer.slice(16, 16 + len));
@@ -862,11 +889,32 @@ function showDesktop(show) {
     initInputPanel();
     initTrackpad();
     initFilePanel();
+    initRecordingUnloadGuard();
+    initAudioButton();
     window._inputInit = true;
     setTimeout(() => {
       resetView();
     }, 100);
   }
+}
+
+// 录制中刷新/关闭页面会直接丢掉已录内容（文件缺尾），给用户一次挽留机会
+function initRecordingUnloadGuard() {
+  if (window._recUnloadGuard) return;
+  window._recUnloadGuard = true;
+  window.addEventListener("beforeunload", (e) => {
+    if (isRecording()) {
+      e.preventDefault();
+      e.returnValue = "";
+      return "";
+    }
+  });
+}
+
+// 声音开关按钮绑定 + 初始状态（开关值持久化，被控端采集只在连接后申请）
+function initAudioButton() {
+  btnAudioEl = document.getElementById("btnAudio");
+  if (btnAudioEl) updateAudioButton();
 }
 function showError(msg) {
   const el = document.getElementById("errorMsg");
@@ -1143,6 +1191,209 @@ function toggleModifier(key) {
   }
 }
 
+// ==================== 声音传输 ====================
+// 被控端 WASAPI loopback 采集系统混音 → Opus(48k mono 32kbps) → AUDI 帧下发。
+// viewer 用 WebCodecs AudioDecoder 解码 → AudioBufferSourceNode 排播；
+// 排播同时进 MediaStreamAudioDestinationNode，录制时把它的音轨加进
+// MediaRecorder 的流（mp4/webm 均带音轨），实现「录屏带声音」。
+// 开关默认关：只有用户点工具栏「声音」才开始采集（被控端零开销）。
+const AUDIO_STORAGE_KEY = "bwbrowser.viewer.audio";
+// 目标播放延迟：网络抖动缓冲。太小易断流，太大声画不同步感明显
+const AUDIO_TARGET_DELAY = 0.08;
+// 每个音频包 20ms（被控端 Opus 帧大小），时间戳按此推进
+const AUDIO_FRAME_US = 20000;
+
+let audioWanted = localStorage.getItem(AUDIO_STORAGE_KEY) === "1";
+let audioActive = false; // 被控端采集已确认开启
+let audioDecoder = null;
+let audioSampleRate = 0;
+let audioChannels = 0;
+let audioCtx = null;
+let audioGain = null; // 播放 + 录制共用总线
+let audioDest = null; // MediaStreamAudioDestinationNode（录制混音源）
+let audioNextTime = 0;
+let audioTimestamp = 0;
+let audioFailNoted = false;
+let btnAudioEl = null;
+
+function sendAudioPref() {
+  if (connected) sendMsg({ type: "set_audio", enabled: audioWanted });
+}
+
+function toggleAudio() {
+  audioWanted = !audioWanted;
+  localStorage.setItem(AUDIO_STORAGE_KEY, audioWanted ? "1" : "0");
+  if (audioWanted) {
+    // AudioContext 必须在用户手势里创建/恢复，点击按钮即手势
+    ensureAudioGraph();
+    sendAudioPref();
+  } else {
+    sendAudioPref();
+    // 立即静音：等被控端 audio_state 回执再彻底拆
+    teardownAudioGraph();
+  }
+  updateAudioButton();
+}
+
+function updateAudioButton() {
+  if (!btnAudioEl) return;
+  btnAudioEl.classList.toggle("active", audioWanted && audioActive);
+}
+
+// WebCodecs AudioDecoder：opus 每包都是独立帧，type 恒 "key"
+function ensureAudioDecoder(sampleRate, channels) {
+  if (typeof AudioDecoder === "undefined") {
+    if (!audioFailNoted) {
+      audioFailNoted = true;
+      console.warn("浏览器不支持 WebCodecs AudioDecoder，声音传输不可用");
+    }
+    return null;
+  }
+  if (
+    audioDecoder &&
+    audioSampleRate === sampleRate &&
+    audioChannels === channels
+  ) {
+    return audioDecoder;
+  }
+  if (audioDecoder) {
+    try {
+      audioDecoder.close();
+    } catch (_) {}
+    audioDecoder = null;
+  }
+  const dec = new AudioDecoder({
+    output: onAudioDecoded,
+    error: (e) => {
+      console.error("AudioDecoder error:", e);
+      try {
+        audioDecoder && audioDecoder.close();
+      } catch (_) {}
+      audioDecoder = null;
+    },
+  });
+  try {
+    // opus 无需 description：解码器按 sampleRate/channels 合成 OpusHead
+    dec.configure({ codec: "opus", sampleRate, numberOfChannels: channels });
+  } catch (e) {
+    if (!audioFailNoted) {
+      audioFailNoted = true;
+      console.warn("Opus 解码器配置失败，声音传输不可用:", e);
+    }
+    try {
+      dec.close();
+    } catch (_) {}
+    return null;
+  }
+  audioDecoder = dec;
+  audioSampleRate = sampleRate;
+  audioChannels = channels;
+  return dec;
+}
+
+// 播放图：decoder 输出 → AudioBuffer 排播 → gain → (扬声器 + 录制混音)
+function ensureAudioGraph() {
+  if (audioCtx) {
+    if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+    return;
+  }
+  try {
+    audioCtx = new AudioContext({ sampleRate: 48000 });
+  } catch (e) {
+    audioCtx = new AudioContext(); // 固定采样率不支持时退默认（重采样自动做）
+  }
+  audioGain = audioCtx.createGain();
+  audioDest = audioCtx.createMediaStreamDestination();
+  audioGain.connect(audioCtx.destination);
+  audioGain.connect(audioDest);
+  // 自动播放策略：非手势创建的 AudioContext 停在 suspended，等任意点击恢复。
+  // （开关记忆为开、重连后自动申请声音的场景没有手势）
+  const resumeOnGesture = () => {
+    if (audioCtx && audioCtx.state === "suspended") {
+      audioCtx.resume().catch(() => {});
+    }
+    if (audioCtx && audioCtx.state === "running") {
+      document.removeEventListener("click", resumeOnGesture);
+    }
+  };
+  document.addEventListener("click", resumeOnGesture);
+}
+
+function teardownAudioGraph() {
+  if (audioCtx) {
+    try {
+      audioCtx.close();
+    } catch (_) {}
+    audioCtx = null;
+  }
+  audioGain = null;
+  audioDest = null;
+  audioNextTime = 0;
+}
+
+function teardownAudio() {
+  audioActive = false;
+  if (audioDecoder) {
+    try {
+      audioDecoder.close();
+    } catch (_) {}
+    audioDecoder = null;
+  }
+  audioTimestamp = 0;
+  teardownAudioGraph();
+  updateAudioButton();
+}
+
+function onAudioDecoded(ad) {
+  if (!audioCtx || !audioGain) {
+    ad.close();
+    return;
+  }
+  const frames = ad.numberOfFrames;
+  const buf = audioCtx.createBuffer(ad.numberOfChannels, frames, ad.sampleRate);
+  const plane = new Float32Array(frames);
+  for (let ch = 0; ch < ad.numberOfChannels; ch++) {
+    ad.copyTo(plane, { planeIndex: ch });
+    buf.copyToChannel(plane, ch);
+  }
+  ad.close();
+  // 排播时钟：落后于当前时间（欠缓冲）就追到 now+目标延迟；否则顺次衔接
+  const now = audioCtx.currentTime;
+  if (audioNextTime < now + 0.01) audioNextTime = now + AUDIO_TARGET_DELAY;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(audioGain);
+  try {
+    src.start(Math.max(audioNextTime, now + 0.005));
+  } catch (_) {
+    return;
+  }
+  audioNextTime += frames / ad.sampleRate;
+}
+
+function handleAudioFrame(sampleRate, channels, payload) {
+  if (!audioWanted) return; // 开关没开却被发来（不应发生），丢弃
+  const dec = ensureAudioDecoder(sampleRate, channels);
+  if (!dec) return;
+  ensureAudioGraph();
+  try {
+    dec.decode(
+      new EncodedAudioChunk({
+        type: "key",
+        timestamp: audioTimestamp,
+        data: payload,
+      }),
+    );
+    audioTimestamp += AUDIO_FRAME_US;
+  } catch (e) {
+    console.warn("音频解码失败，重建解码器:", e);
+    try {
+      audioDecoder && audioDecoder.close();
+    } catch (_) {}
+    audioDecoder = null;
+  }
+}
+
 // ==================== 录屏 ====================
 // 录的是 viewer 画布上的远程画面：MediaRecorder 直接对 canvas.captureStream()
 // 编码，不依赖被控端，也不需要额外解码库。保存位置按可用能力逐级降级：
@@ -1166,17 +1417,41 @@ let recStartAt = 0;
 let recTimer = null;
 let recBytes = 0;
 let recSizeWarned = false;
+let recPumpTimer = null;
+let recFileBaseDir = null;
 
 // 只能缓存在内存时，长录制会吃光内存；到上限就自动收尾
 const REC_MAX_BYTES = 1536 * 1024 * 1024;
 
-function pickRecordingMime() {
+function pickRecordingMime(withAudio) {
   if (typeof MediaRecorder === "undefined") return "";
+  // 顺序很关键（2026-11-24 实测）：
+  // 1) Wayfern 151 内核 vp9-in-mp4 的帧时间戳会被拉长 5~7 倍（时长虚高、
+  //    回放奇慢），必须显式指定 avc1 让内核用 H264 编码；
+  // 2) 泛型 "video/mp4" Chromium 会自动挑编码（Edge 挑了 vp9），内核挑
+  //    vp9 就踩上面的坑，所以泛型 mp4 只能排在显式 avc1 之后；
+  // 3) 该内核 isTypeSupported 对 webm 全返回 false，webm 候选仅服务普通
+  //    浏览器直开的 viewer（局域网访问场景），正常浏览器 webm 时间戳没问题。
+  // 带声音录制（withAudio）：opus 音轨的 mime 排在最前；全不被支持时
+  // 自然落到纯视频 mime（调用方据此不混音轨，录制降级为无声）。
+  const audioFirst = withAudio
+    ? [
+        "video/mp4;codecs=avc1.640029,opus",
+        "video/mp4;codecs=avc1.42E01E,opus",
+        "video/mp4;codecs=avc1,opus",
+        "video/webm;codecs=vp9,opus",
+        "video/webm;codecs=vp8,opus",
+      ]
+    : [];
   const candidates = [
+    ...audioFirst,
+    "video/mp4;codecs=avc1.640029",
+    "video/mp4;codecs=avc1.42E01E",
+    "video/mp4;codecs=avc1",
+    "video/mp4",
     "video/webm;codecs=vp9",
     "video/webm;codecs=vp8",
     "video/webm",
-    "video/mp4",
   ];
   for (const m of candidates) {
     if (MediaRecorder.isTypeSupported(m)) return m;
@@ -1211,12 +1486,70 @@ function tauriInvoke() {
 }
 
 // 选保存位置。返回 null 表示用户取消；其余返回 { kind, ... }：
-//   tauri   -> { path }      边录边写入该文件
+//   tauri   -> { path, baseDir }  边录边写入该文件（baseDir=7 即 $DOWNLOAD，
+//                                   由 Rust 端把相对路径解析到下载目录）
 //   fsapi   -> { writable }  边录边写入浏览器文件句柄
 //   download -> {}           无可用落盘方式，录制结束后下载
+// 2026-11-25 改为自动保存优先：直接写 下载/录屏/主机名-时间.ext（fs 静态
+// scope 已授权 $DOWNLOAD），不再每次弹另存为；对话框只作为自动路径失败时
+// 的手动兜底。baseDir 7 = BaseDirectory::Download（repr u16）。
+const REC_BASE_DOWNLOAD = 7;
+const REC_SAVE_SUBDIR = "录屏";
+
+// 尝试确保自动保存目录存在且可写。成功返回 true，失败返回 null（走手动兜底）。
+// 注意两种 IPC 模式：mkdir 是普通参数命令，用 JSON 模式（payload=对象，
+// Rust 端按 args 反序列化）；write_file 用 Request 从 headers 读 path/options，
+// payload 必须是 TypedArray（raw body 模式）。
+async function ensureAutoSaveDir() {
+  const inv = tauriInvoke();
+  if (!inv) return null;
+  try {
+    await inv("plugin:fs|mkdir", {
+      path: REC_SAVE_SUBDIR,
+      options: { recursive: true, baseDir: REC_BASE_DOWNLOAD },
+    });
+  } catch (e) {
+    console.warn("创建录屏目录失败，改用手动保存", e);
+    return null;
+  }
+  // 空文件探写验证 scope 真的放行（mkdir 失败被吞时这里能兜住）
+  try {
+    await inv("plugin:fs|write_file", new Uint8Array(0), {
+      headers: {
+        path: encodeURIComponent(REC_SAVE_SUBDIR + "/.recwrite"),
+        options: JSON.stringify({
+          append: false,
+          create: true,
+          baseDir: REC_BASE_DOWNLOAD,
+        }),
+      },
+    });
+  } catch (e) {
+    console.warn("录屏目录不可写，改用手动保存", e);
+    return null;
+  }
+  // 删掉探写用的空文件
+  try {
+    await inv("plugin:fs|remove", {
+      path: REC_SAVE_SUBDIR + "/.recwrite",
+      options: { baseDir: REC_BASE_DOWNLOAD },
+    });
+  } catch (_) {}
+  return true;
+}
+
 async function pickRecordingTarget(name, ext) {
   const inv = tauriInvoke();
   if (inv) {
+    // 1) 自动保存：下载/录屏/主机名-时间.ext
+    if (await ensureAutoSaveDir()) {
+      return {
+        kind: "tauri",
+        path: REC_SAVE_SUBDIR + "/" + name,
+        baseDir: REC_BASE_DOWNLOAD,
+      };
+    }
+    // 2) 自动路径不可用，退回手动另存为
     try {
       const path = await inv("plugin:dialog|save", {
         options: {
@@ -1230,7 +1563,7 @@ async function pickRecordingTarget(name, ext) {
         },
       });
       if (!path) return null;
-      return { kind: "tauri", path };
+      return { kind: "tauri", path, baseDir: null };
     } catch (e) {
       console.warn("原生另存为对话框不可用，改用浏览器保存", e);
     }
@@ -1254,16 +1587,21 @@ async function pickRecordingTarget(name, ext) {
   return { kind: "download" };
 }
 
-// 把一帧分块写进原生对话框选定的文件。首块截断覆盖，之后追加；
-// 路径由 dialog 插件登记进 fs scope，所以这里能直接写。
-async function writeRecordingChunk(path, blob, append) {
+// 把一帧分块写进文件。首块截断覆盖，之后追加；手动另存为的路径是绝对路径
+// （baseDir=null），自动保存的路径相对下载目录（baseDir=7）。路径与 baseDir
+// 都在 fs 静态 scope 放行范围内，或者由 dialog 插件登记进 fs scope。
+async function writeRecordingChunk(path, blob, append, baseDir) {
   const inv = tauriInvoke();
   if (!inv) throw new Error("Tauri IPC unavailable");
   const buf = new Uint8Array(await blob.arrayBuffer());
+  // WriteFileOptions 是 serde(flatten) 结构：baseDir 是顶层字段
+  const options = baseDir
+    ? { append: !!append, create: true, baseDir }
+    : { append: !!append, create: true };
   await inv("plugin:fs|write_file", buf, {
     headers: {
       path: encodeURIComponent(path),
-      options: JSON.stringify({ append: !!append, create: true }),
+      options: JSON.stringify(options),
     },
   });
 }
@@ -1271,15 +1609,29 @@ async function writeRecordingChunk(path, blob, append) {
 // 分块落盘一律串到同一条队列上：写是异步的，并发调用会互相覆盖。写失败的判定
 // 也放在队列里按序执行，这样一旦某块写失败，之后的分块就连续缓存在内存里，
 // 录制结束后再整段补写到文件末尾，顺序不会乱。
+let recFallbackNotified = false;
+
 function enqueueRecordingChunk(chunk) {
   recWriteQueue = recWriteQueue.then(async () => {
     if (recFilePath && recFileOk) {
       try {
-        await writeRecordingChunk(recFilePath, chunk, recWroteAny);
+        await writeRecordingChunk(
+          recFilePath,
+          chunk,
+          recWroteAny,
+          recFileBaseDir,
+        );
         recWroteAny = true;
         return;
       } catch (err) {
         recFileOk = false;
+        if (!recFallbackNotified) {
+          recFallbackNotified = true;
+          alert(
+            "录屏写入文件失败（可能磁盘已满），之后的内容暂存在内存中，" +
+              "停止录制后会自动补写到原文件末尾或改为下载。为避免丢失请尽快停止录制。",
+          );
+        }
         console.warn("录屏写入文件失败，改为内存缓存", err);
       }
     }
@@ -1289,6 +1641,13 @@ function enqueueRecordingChunk(chunk) {
         return;
       } catch (err) {
         recWritable = null;
+        if (!recFallbackNotified) {
+          recFallbackNotified = true;
+          alert(
+            "录屏写入文件失败（可能磁盘已满），之后的内容暂存在内存中，" +
+              "停止录制后会自动下载。为避免丢失请尽快停止录制。",
+          );
+        }
         console.warn("录屏写入文件失败，改为内存缓存", err);
       }
     }
@@ -1318,13 +1677,25 @@ async function startRecording() {
     alert("尚未连接远程桌面，无法开始录制");
     return;
   }
-  const mime = pickRecordingMime();
+
+  // 声音混录：被控端声音开着且有活动音轨时，选带 opus 的 mime；选不出
+  // 就降级纯视频录制（现场播放不受影响，只是文件没有音轨）
+  let audioTrack = null;
+  if (audioActive && audioDest) {
+    const t = audioDest.stream.getAudioTracks()[0];
+    if (t && t.readyState === "live") audioTrack = t;
+  }
+  const mime = pickRecordingMime(!!audioTrack);
   if (!mime) {
     alert("当前浏览器不支持录屏");
     return;
   }
   const ext = mime.indexOf("mp4") >= 0 ? "mp4" : "webm";
   recFileName = recordingFileName(ext);
+
+  const mimeHasAudio =
+    mime.indexOf("opus") >= 0 || mime.indexOf(";codecs=") < 0;
+  if (audioTrack && !mimeHasAudio) audioTrack = null;
 
   // 先选保存位置，选定后才开始录制
   recStarting = true;
@@ -1347,6 +1718,7 @@ async function startRecording() {
   recWroteAny = false;
   recWritable = target.kind === "fsapi" ? target.writable : null;
   recFilePath = target.kind === "tauri" ? target.path : "";
+  recFileBaseDir = target.kind === "tauri" ? target.baseDir || null : null;
   recFileOk = target.kind === "tauri";
 
   let stream;
@@ -1355,6 +1727,14 @@ async function startRecording() {
   } catch (e) {
     alert("无法捕获远程画面：" + (e && e.message ? e.message : e));
     return;
+  }
+  // 混入远程声音音轨（mime 已确认支持音频编码时）
+  if (audioTrack) {
+    try {
+      stream.addTrack(audioTrack);
+    } catch (e) {
+      console.warn("音轨混入失败，本次录制无声:", e);
+    }
   }
 
   try {
@@ -1379,6 +1759,19 @@ async function startRecording() {
   };
 
   mediaRecorder.start(1000);
+  // viewer 画布只在收到远程帧时才被绘制（handleBinaryFrame/renderVideoFrame），
+  // 远程画面静止时 captureStream 几乎不出帧（实测可低到 0.6fps），回放会一帧
+  // 卡好几秒。录制期间以 30fps 强制出帧：优先 requestFrame，没有就自绘一遍
+  // 画布（把 canvas 画到自身同样会触发捕获），保证时间戳均匀、时长正确。
+  const capTrack = stream.getVideoTracks()[0];
+  recPumpTimer = setInterval(() => {
+    if (!isRecording()) return;
+    try {
+      if (capTrack && typeof capTrack.requestFrame === "function")
+        capTrack.requestFrame();
+      else ctx.drawImage(canvas, 0, 0);
+    } catch (_) {}
+  }, 33);
   recStartAt = Date.now();
   setRecordingUI(true);
   recTimer = setInterval(updateRecordingBadge, 1000);
@@ -1390,6 +1783,10 @@ function stopRecording() {
 }
 
 async function finishRecording() {
+  if (recPumpTimer) {
+    clearInterval(recPumpTimer);
+    recPumpTimer = null;
+  }
   if (recTimer) {
     clearInterval(recTimer);
     recTimer = null;
@@ -1403,8 +1800,10 @@ async function finishRecording() {
 
   const path = recFilePath;
   const writable = recWritable;
+  const fileBaseDir = recFileBaseDir;
   recFilePath = "";
   recWritable = null;
+  recFileBaseDir = null;
   recFileOk = false;
 
   // 队列内部已吞掉各自的写失败，这里不会被 reject
@@ -1415,7 +1814,12 @@ async function finishRecording() {
     const tail = recChunks;
     recChunks = [];
     try {
-      await writeRecordingChunk(path, new Blob(tail, { type: recMime }), true);
+      await writeRecordingChunk(
+        path,
+        new Blob(tail, { type: recMime }),
+        true,
+        fileBaseDir,
+      );
     } catch (e) {
       recChunks = tail;
       console.warn("补写录屏尾部失败，改为下载保存", e);
@@ -1460,14 +1864,13 @@ function updateRecordingBadge() {
   const mm = String(Math.floor(total / 60)).padStart(2, "0");
   const ss = String(total % 60).padStart(2, "0");
   const toDownload = !recFileOk && !recWritable;
+  const dest = recFileOk
+    ? "（自动保存到下载目录的录屏文件夹）"
+    : toDownload
+      ? "（完成后下载）"
+      : "";
   badge.textContent =
-    "● 录制中 " +
-    mm +
-    ":" +
-    ss +
-    " · " +
-    formatSize(recBytes) +
-    (toDownload ? "（完成后下载）" : "");
+    "● 录制中 " + mm + ":" + ss + " · " + formatSize(recBytes) + dest;
 }
 
 // ==================== 文件管理 ====================

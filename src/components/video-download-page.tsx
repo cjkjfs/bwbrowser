@@ -166,6 +166,8 @@ export function VideoDownloadPage({
     openFile,
     proxyList,
     loadProxies,
+    lastUpdateCheck,
+    loadLastUpdateCheck,
   } = useVideoDownload();
 
   const [urlInput, setUrlInput] = useState("");
@@ -427,7 +429,7 @@ export function VideoDownloadPage({
     };
   }, []);
 
-  // 监听工具更新状态
+  // 监听工具更新状态（含每日自动 yt-dlp 升级检测的进度/结果）
   useEffect(() => {
     const unlisten = listen<{ status: string; message: string }>(
       "video-download:tool-update-status",
@@ -437,13 +439,15 @@ export function VideoDownloadPage({
           setUpdatingTool(false);
           toast.success(event.payload.message);
           setTimeout(() => setUpdateStatus(null), 3000);
+          // 自动检测/手动更新完成后刷新「上次检测时间」
+          loadLastUpdateCheck();
         }
       },
     );
     return () => {
       unlisten.then((f) => f());
     };
-  }, []);
+  }, [loadLastUpdateCheck]);
 
   // 更新下载工具：yt-dlp 和 ffmpeg 并行更新，各自独立 toast 提示框显示进度
   const handleUpdateTool = useCallback(async () => {
@@ -508,7 +512,9 @@ export function VideoDownloadPage({
       setUpdateStatus(null);
     }
     setUpdatingTool(false);
-  }, [updatingTool, downloadYtDlp, downloadFfmpeg]);
+    // 手动更新完成后同步「上次检测时间」（后端在下载成功时落盘）
+    loadLastUpdateCheck();
+  }, [updatingTool, downloadYtDlp, downloadFfmpeg, loadLastUpdateCheck]);
 
   // 自动下载工具的公共函数（支持并发下载多个工具以节省时间）
   const autoDownloadTools = useCallback(
@@ -674,6 +680,9 @@ export function VideoDownloadPage({
     }
     if (toolCheckedRef.current) return;
 
+    // 打开页面时加载「上次升级检测时间」（更新按钮旁展示）
+    loadLastUpdateCheck();
+
     let cancelled = false;
 
     (async () => {
@@ -762,6 +771,7 @@ export function VideoDownloadPage({
     autoDownloadTools,
     startPending,
     tasks,
+    loadLastUpdateCheck,
   ]);
 
   // 统计
@@ -1409,7 +1419,11 @@ export function VideoDownloadPage({
               size="sm"
               onClick={handleUpdateTool}
               disabled={updatingTool}
-              title="更新 yt-dlp"
+              title={
+                lastUpdateCheck > 0
+                  ? `上次升级检测: ${formatUpdateCheckTime(lastUpdateCheck)}（每天首次下载自动检测）`
+                  : "更新 yt-dlp（每天首次下载时自动检测升级）"
+              }
             >
               {updatingTool ? (
                 <LuLoader className="w-4 h-4 mr-1 animate-spin" />
@@ -1417,6 +1431,11 @@ export function VideoDownloadPage({
                 <LuRefreshCw className="w-4 h-4 mr-1" />
               )}
               {updatingTool ? "更新中" : "更新工具"}
+              {!updatingTool && (
+                <span className="ml-1 text-[10px] text-muted-foreground">
+                  {formatUpdateCheckTime(lastUpdateCheck)}
+                </span>
+              )}
             </Button>
             <Button variant="ghost" size="sm" onClick={loadTasks}>
               <LuRefreshCw className="w-4 h-4 mr-1" />
@@ -2153,6 +2172,21 @@ function formatCookieTime(timestamp: number): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+// 每日 yt-dlp 升级检测时间的展示格式：当天只显示 HH:MM，跨天显示 MM-DD HH:MM
+function formatUpdateCheckTime(timestamp: number): string {
+  if (!timestamp) return "尚未检测";
+  const date = new Date(timestamp * 1000);
+  const now = new Date();
+  const hm = date.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  if (date.toDateString() === now.toDateString()) return hm;
+  return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")} ${hm}`;
 }
 
 /**

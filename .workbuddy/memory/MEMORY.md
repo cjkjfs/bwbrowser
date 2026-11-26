@@ -91,3 +91,10 @@
 ---
 ## 爆文库入口绑定机制（2026-11-20，客户端待重编译）
 - 左上角「爆文库」按钮=启动归属人绑定的账号：tiktok_accounts.vps_bind（每 owner_id 唯一，set_vps_bind 服务端互斥）；get_vps_bind 按 owner_id+company 查。bwbrowser_open_vps_login=查绑定→launch_account_impl(override_url=yacm auto_login URL)，旧 VPS登录 profile 流程已删除。编辑账号弹窗即时保存开关。服务端 bwbrowser_accounts.php（备份 .bak_20261120_vpsbind）。
+
+---
+## 书签同步架构重做（2026-11-26，客户端待重编译）
+
+- **根因**：书签云端槽按登录用户存（users.bwbrowser_bookmarks 单列），所有账号共用一格；不同账号/不同登录人互相覆盖。11-25 superadmin 空壳槽(1432B)下行冲掉 sqyacm 本地 119971B 完整书签。
+- **新架构**：云端新表 `bwbrowser_bookmarks`(UNIQUE user_id+account_id) 按账号分槽（同密码同步）；客户端 `bookmark_merge.rs` 按 GUID 三路合并（base 快照=profile Default/Bookmarks.bwb_base），本地改动永远保留，只应用云端相对基准的增删改；云端骤减腰斩→忽略云端删除本地为准。服务端骤减保护：旧>20KB 新<5KB 无 confirm_shrink=1 → 拒。
+- 服务端已上线 users.php（备份 .bak_20261126_bmmerge），旧客户端不带 account_id 仍走用户级旧槽（兼容）。过渡期：重编译前别用 superadmin 登录启动开书签同步的账号。

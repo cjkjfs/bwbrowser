@@ -60,6 +60,7 @@ mod app_auto_updater;
 pub mod app_dirs;
 mod auto_updater;
 mod automation_rate_limiter;
+mod bookmark_merge;
 mod browser;
 mod browser_runner;
 mod browser_version_manager;
@@ -4191,6 +4192,7 @@ pub fn run_with_builder(
       video_downloader::video_download_download_ffmpeg,
       video_downloader::video_download_is_downloading_tools,
       video_downloader::video_download_get_last_cookie_time,
+      video_downloader::video_download_get_last_update_check,
       video_downloader::video_download_refresh_cookie,
       video_downloader::video_download_open_dir,
       video_downloader::video_download_open_file,

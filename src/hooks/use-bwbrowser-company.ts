@@ -32,6 +32,10 @@ export function useBwbrowserCompany(
   // 权限解析完成前不判超管：挂载瞬间 isSuperAdmin 还是 false，提前清空会把
   // 超管恢复的公司选择连同 localStorage 一起删掉，导致刷新后过滤状态丢失
   permissionsReady = true,
+  // 公司列表加载后 null 是否自动落到第一家公司。「我的公司」选项移除后，
+  // 云端账号/环境/代理/用户管理页 null=旧「我的公司」语义，需自动填充；
+  // remote-management 页 null=「全部公司」语义，必须保持 null
+  autoPickFirstCompany = true,
 ): UseBwbrowserCompanyReturn {
   const [companies, setCompanies] = useState<BwbrowserCompany[]>([]);
   const [selectedCompanyId, setSelectedCompanyIdState] = useState<
@@ -59,6 +63,24 @@ export function useBwbrowserCompany(
       );
       if (result.success && result.companies) {
         setCompanies(result.companies);
+        // 「我的公司」选项已移除：超管未选公司(null=旧「我的公司」语义)时自动
+        // 落到公司列表第一家（服务端按 id ASC 返回，第一家=超管自己的公司），
+        // 数据语义与原「我的公司」完全一致，仅 UI 上不再出现冗余选项。
+        // autoPickFirstCompany=false 的页面（remote 全部公司语义）保持 null
+        if (autoPickFirstCompany) {
+          setSelectedCompanyIdState((cur) => {
+            if (
+              cur === null &&
+              result.companies &&
+              result.companies.length > 0
+            ) {
+              const first = result.companies[0].id;
+              localStorage.setItem(STORAGE_KEY, String(first));
+              return first;
+            }
+            return cur;
+          });
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -66,7 +88,7 @@ export function useBwbrowserCompany(
     } finally {
       setIsLoading(false);
     }
-  }, [isLoggedIn, isSuperAdmin]);
+  }, [isLoggedIn, isSuperAdmin, autoPickFirstCompany]);
 
   const setSelectedCompanyId = useCallback((id: number | null) => {
     setSelectedCompanyIdState(id);

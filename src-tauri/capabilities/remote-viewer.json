@@ -1,11 +1,20 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "remote-viewer",
-  "description": "Grants the in-app remote viewer windows (the controlled machine's page, served over http) the native save dialog and file writes it needs to record the remote screen.",
+  "description": "Grants the in-app remote viewer windows (the controlled machine's page, served over http) the file writes it needs to record the remote screen. Auto-save goes to Downloads/录屏 via the static fs scope; the native save dialog stays available as manual fallback.",
   "windows": ["remote-*"],
   "webviews": ["remote-*"],
   "remote": {
     "urls": ["http://*:*", "https://*:*"]
   },
-  "permissions": ["dialog:allow-save", "fs:allow-write-file"]
+  "permissions": [
+    "dialog:allow-save",
+    "fs:allow-write-file",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    {
+      "identifier": "fs:scope",
+      "allow": ["$DOWNLOAD/**"]
+    }
+  ]
 }

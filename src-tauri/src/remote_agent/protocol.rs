@@ -31,6 +31,11 @@ pub enum ClientCommand {
   SetMonitor {
     monitor: i32,
   },
+  /// 声音传输开关（viewer 端「声音」按钮下发）。开启后被控端启动 WASAPI
+  /// loopback 采集 + Opus 编码，以 AUDI 二进制帧发送；关闭即停止采集。
+  SetAudio {
+    enabled: bool,
+  },
   MouseMoveRelative {
     dx: i32,
     dy: i32,
@@ -104,6 +109,20 @@ pub fn frame_header(w: u32, h: u32, len: u32) -> [u8; 12] {
 /// H264 帧魔数（紧跟在 12 字节头后）：viewer 以此区分 JPEG（无 tag）与 H264
 pub const H264_TAG: u32 = 0x4832_3634; // "H264"
 
+/// 音频帧 20 字节头：>III 头 + "AUDI" tag + 4 字节预留。
+/// w = 采样率(48000)、h = 声道数(1)、len = Opus 包长；预留字段当前恒 0。
+pub const AUDIO_TAG: u32 = 0x4155_4449; // "AUDI"
+
+pub fn frame_header_audio(sample_rate: u32, channels: u16, len: u32) -> [u8; 20] {
+  let mut b = [0u8; 20];
+  b[0..4].copy_from_slice(&sample_rate.to_be_bytes());
+  b[4..8].copy_from_slice(&(channels as u32).to_be_bytes());
+  b[8..12].copy_from_slice(&len.to_be_bytes());
+  b[12..16].copy_from_slice(&AUDIO_TAG.to_be_bytes());
+  // b[16..20] 恒 0（预留）
+  b
+}
+
 /// H264 帧 16 字节头：>III 头 + "H264" tag。JPEG 帧维持 12 字节头不变。
 pub fn frame_header_h264(w: u32, h: u32, len: u32) -> [u8; 16] {
   let mut b = [0u8; 16];
@@ -131,6 +150,7 @@ mod tests {
       r#"{"type":"set_scale","scale":1.0}"#,
       r#"{"type":"set_mode","mode":"full"}"#,
       r#"{"type":"set_monitor","monitor":1}"#,
+      r#"{"type":"set_audio","enabled":true}"#,
       r#"{"type":"mouse_move","x":1,"y":2}"#,
       r#"{"type":"mouse_move_relative","dx":1,"dy":2}"#,
       r#"{"type":"mouse_down","button":"left"}"#,

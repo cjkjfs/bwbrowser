@@ -1050,7 +1050,96 @@ impl VideoDownloader {
   }
 
   /// 检查并启动下一个等待中的任务
+  /// 每日 yt-dlp 升级检测：在真正启动下载任务（try_start_next）时触发。
+  /// 触发条件 = 今天还没检测过（本地日期去重）。此刻 exe 尚未被下载进程
+  /// 占用，Windows 上才能成功替换二进制。检测失败只记日志，不阻塞本次下载。
+  async fn daily_update_check_if_needed<R: Runtime>(&self, app: &tauri::AppHandle<R>) {
+    let today = local_today();
+
+    // 快速路径：今天已检测过（无锁读，几乎零开销）
+    if let Some((day, _)) = read_update_check() {
+      if day == today {
+        return;
+      }
+    }
+
+    let _guard = DAILY_UPDATE_LOCK.lock().await;
+    // 双检：等锁期间可能已被其它启动路径检测完
+    if let Some((day, _)) = read_update_check() {
+      if day == today {
+        return;
+      }
+    }
+
+    // yt-dlp 未安装：首次安装走 download_yt_dlp 流程，这里跳过并记当天
+    let yt_dlp_path = tools_dir().join(yt_dlp_filename());
+    if !yt_dlp_path.exists() {
+      log::info!("[video_download] 每日检测: yt-dlp 未安装，跳过");
+      write_update_check(&today, now_secs());
+      return;
+    }
+
+    log::info!("[video_download] 每日检测: 今天首次启动下载，自动检测 yt-dlp 更新");
+    let _ = app.emit(
+      "video-download:tool-update-status",
+      serde_json::json!({ "status": "updating", "message": "每日自动检测 yt-dlp 更新..." }),
+    );
+
+    // 先落盘记录，即使本次失败今天也不再重复检测
+    write_update_check(&today, now_secs());
+
+    let mut tcmd = tokio::process::Command::new(&yt_dlp_path);
+    tcmd
+      .arg("-U")
+      .stdout(std::process::Stdio::piped())
+      .stderr(std::process::Stdio::piped());
+    #[cfg(target_os = "windows")]
+    {
+      tcmd.creation_flags(0x08000000);
+    }
+
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(120), tcmd.output()).await;
+    let message = match outcome {
+      Ok(Ok(result)) => {
+        let stdout = String::from_utf8_lossy(&result.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&result.stderr).to_string();
+        let combined = format!("{}\n{}", stdout, stderr);
+        if combined.contains("Updated yt-dlp") || combined.contains("Updated to version") {
+          log::info!("[video_download] 每日检测: yt-dlp 已自动更新");
+          "每日自动检测：yt-dlp 已自动更新到最新版".to_string()
+        } else if combined.contains("is up to date") || combined.contains("Already up to date") {
+          log::info!("[video_download] 每日检测: yt-dlp 已是最新版本");
+          "每日自动检测：yt-dlp 已是最新版本".to_string()
+        } else {
+          // exe 被占用或网络异常等：只记日志不打扰
+          log::warn!(
+            "[video_download] 每日检测: yt-dlp -U 未成功: {}",
+            combined.trim()
+          );
+          "每日自动检测：yt-dlp 检测未完成（详见日志）".to_string()
+        }
+      }
+      Ok(Err(e)) => {
+        log::warn!("[video_download] 每日检测: yt-dlp -U 执行失败: {}", e);
+        "每日自动检测：yt-dlp 检测未完成（详见日志）".to_string()
+      }
+      Err(_) => {
+        log::warn!("[video_download] 每日检测: yt-dlp -U 超时（120s）");
+        "每日自动检测：yt-dlp 检测超时".to_string()
+      }
+    };
+
+    let _ = app.emit(
+      "video-download:tool-update-status",
+      serde_json::json!({ "status": "done", "message": message }),
+    );
+  }
+
   pub async fn try_start_next<R: Runtime>(&self, app: &tauri::AppHandle<R>) {
+    // 每天第一次真正启动下载时，自动检测 yt-dlp 升级（内部自带当日去重，
+    // 已检测过时几乎零开销直接返回）
+    self.daily_update_check_if_needed(app).await;
+
     let (yt_dlp, settings, task_id, task_url) = {
       let mut inner = self.inner.lock().await;
 
@@ -5475,7 +5564,12 @@ pub async fn video_download_check_tools() -> Result<ToolStatus, String> {
 pub async fn video_download_download_yt_dlp<R: Runtime>(
   app: tauri::AppHandle<R>,
 ) -> Result<(), String> {
-  download_yt_dlp(app).await
+  let res = download_yt_dlp(app).await;
+  if res.is_ok() {
+    // 手动下载/更新 yt-dlp 成功同样视为一次升级检测（更新按钮旁时间刷新）
+    write_update_check(&local_today(), now_secs());
+  }
+  res
 }
 
 /// 更新或下载 yt-dlp：先尝试 yt-dlp -U 自更新，失败则从 GitHub 下载
@@ -5616,6 +5710,45 @@ pub async fn video_download_download_ffmpeg<R: Runtime>(
 #[tauri::command]
 pub async fn video_download_is_downloading_tools() -> Result<bool, String> {
   Ok(get_downloader().is_downloading_tools().await)
+}
+
+// ========== 每日 yt-dlp 升级检测 ==========
+
+/// 每日检测结果持久化文件（video-tools/last_update_check.json），
+/// 前端「更新工具」按钮旁显示检测时间。
+fn update_check_file() -> PathBuf {
+  tools_dir().join("last_update_check.json")
+}
+
+/// 读取上次每日检测记录 (本地日期 "YYYY-MM-DD", 时间戳秒)
+fn read_update_check() -> Option<(String, i64)> {
+  let text = std::fs::read_to_string(update_check_file()).ok()?;
+  let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+  let day = v.get("day")?.as_str()?.to_string();
+  let ts = v.get("ts")?.as_i64()?;
+  Some((day, ts))
+}
+
+fn write_update_check(day: &str, ts: i64) {
+  let json = serde_json::json!({ "day": day, "ts": ts });
+  let _ = std::fs::write(update_check_file(), json.to_string());
+}
+
+fn local_today() -> String {
+  chrono::Local::now().format("%Y-%m-%d").to_string()
+}
+
+/// 并发保护：同一天多个下载请求并发进来只跑一次检测
+static DAILY_UPDATE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// 上次每日检测时间戳（文件不存在或损坏 → 0）
+pub fn get_last_update_check_ts() -> i64 {
+  read_update_check().map(|(_, ts)| ts).unwrap_or(0)
+}
+
+#[tauri::command]
+pub async fn video_download_get_last_update_check() -> Result<i64, String> {
+  Ok(get_last_update_check_ts())
 }
 
 #[tauri::command]

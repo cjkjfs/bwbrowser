@@ -4536,17 +4536,14 @@ export function BwbrowserCloudAccountsDialog({
           </span>
           <Select
             value={
-              selectedCompanyId !== null ? String(selectedCompanyId) : "my"
+              selectedCompanyId !== null ? String(selectedCompanyId) : undefined
             }
-            onValueChange={(val) =>
-              setSelectedCompanyId(val === "my" ? null : Number(val))
-            }
+            onValueChange={(val) => setSelectedCompanyId(Number(val))}
           >
             <SelectTrigger className="h-7 w-auto min-w-[140px] max-w-[260px] text-xs">
               <SelectValue placeholder="选择公司" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="my">我的公司</SelectItem>
               {companies.map((company) => (
                 <SelectItem key={company.id} value={String(company.id)}>
                   {company.name}
@@ -5456,10 +5453,12 @@ export function BwbrowserCloudAccountsDialog({
           {isSuperAdmin && companies.length > 0 && (
             <Select
               value={
-                proxyNodeCompanyId !== null ? String(proxyNodeCompanyId) : "my"
+                proxyNodeCompanyId !== null
+                  ? String(proxyNodeCompanyId)
+                  : undefined
               }
               onValueChange={(val) => {
-                const cid = val === "my" ? null : Number(val);
+                const cid = Number(val);
                 setProxyNodeCompanyId(cid);
                 // 切换公司后原选中节点不适用，回直连并重置搜索/翻页
                 setSelectedProxyId("__direct__");
@@ -5472,7 +5471,6 @@ export function BwbrowserCloudAccountsDialog({
                 <SelectValue placeholder="节点公司" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="my">我的公司</SelectItem>
                 {companies.map((company) => (
                   <SelectItem key={company.id} value={String(company.id)}>
                     {company.name}
