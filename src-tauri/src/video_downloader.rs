@@ -1394,30 +1394,61 @@ impl VideoDownloader {
                 writeln!(f, "[共享池] {line}")
               });
           };
-          pool_log(&format!("向服务器领取公司共享 Cookie（platform={platform}）..."));
-          match crate::shared_cookie::lease_shared_cookie(platform).await {
-            Ok(crate::shared_cookie::LeaseOutcome::Lease(lease)) => {
-              // 把共享 Cookie 写进该平台的缓存文件，重跑一次完整下载
-              //（会自动带上这份 cookie 文件：platform_check 只认平台域，
-              // 共享 cookie 本来就是该平台域白名单滤出来的，必然命中）
-              let cookie_path = tools_dir().join(format!("cookies_{platform_owned}.txt"));
-              let write_ok = std::fs::write(&cookie_path, &lease.cookie).is_ok();
+          // 轮询领取：领一份 → 试 → 失败上报（服务端给坏份计数/禁用并轮换发放）
+          // → 继续领下一份，直到成功 / 池空 / 重复领到已试过的份（=池内可用份
+          // 全试完）/ 非 Cookie 类错误。上限 5 份防异常死循环。
+          let mut tried_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
+          loop {
+            if tried_ids.len() >= 5 {
               pool_log(&format!(
-                "领取成功: id={} 来源账号={} 池内{}份 Cookie{}行 → 写入 {} {}",
-                lease.cookie_id,
-                lease.source_account_name,
-                lease.pool_size,
-                lease.cookie.lines().filter(|l| !l.trim_start().starts_with('#')).count(),
-                cookie_path.display(),
-                if write_ok { "✓" } else { "✗ 失败" }
+                "已尝试 {} 份共享 Cookie 均失败，停止轮询",
+                tried_ids.len()
               ));
-              if write_ok {
+              break;
+            }
+            pool_log(&format!(
+              "向服务器领取公司共享 Cookie（第 {} 份，platform={platform}）...",
+              tried_ids.len() + 1
+            ));
+            match crate::shared_cookie::lease_shared_cookie(platform).await {
+              Ok(crate::shared_cookie::LeaseOutcome::Lease(lease)) => {
+                if !tried_ids.insert(lease.cookie_id) {
+                  pool_log(&format!(
+                    "重复领到已试过的份（id={}）：池内可用份已全部试完，停止轮询",
+                    lease.cookie_id
+                  ));
+                  break;
+                }
+                // 把共享 Cookie 写进该平台的缓存文件，重跑一次完整下载
+                //（会自动带上这份 cookie 文件：platform_check 只认平台域，
+                // 共享 cookie 本来就是该平台域白名单滤出来的，必然命中）
+                let cookie_path = tools_dir().join(format!("cookies_{platform_owned}.txt"));
+                let write_ok = std::fs::write(&cookie_path, &lease.cookie).is_ok();
+                pool_log(&format!(
+                  "领取成功: id={} 来源账号={} 池内{}份 Cookie{}行 → 写入 {} {}",
+                  lease.cookie_id,
+                  lease.source_account_name,
+                  lease.pool_size,
+                  lease
+                    .cookie
+                    .lines()
+                    .filter(|l| !l.trim_start().starts_with('#'))
+                    .count(),
+                  cookie_path.display(),
+                  if write_ok { "✓" } else { "✗ 失败" }
+                ));
+                if !write_ok {
+                  log::warn!("[video_download] 共享 Cookie 写文件失败，跳过共享池降级");
+                  pool_log("Cookie 文件写入失败，停止轮询");
+                  break;
+                }
                 self_arc
                   .set_task_cookie_source(
                     &task_id_clone,
                     format!(
-                      "公司共享 Cookie（来自 {}，池内 {} 份）",
-                      lease.source_account_name, lease.pool_size
+                      "公司共享 Cookie（来自 {}，第 {} 份）",
+                      lease.source_account_name,
+                      tried_ids.len()
                     ),
                   )
                   .await;
@@ -1444,14 +1475,12 @@ impl VideoDownloader {
                 .await;
                 match retry_result {
                   Ok(()) => {
-                    let report = crate::shared_cookie::report_shared_cookie_result(
-                      lease.cookie_id,
-                      true,
-                      "",
-                    )
-                    .await;
+                    let report =
+                      crate::shared_cookie::report_shared_cookie_result(lease.cookie_id, true, "")
+                        .await;
                     pool_log(&format!("共享 Cookie 下载成功 → {report}"));
                     last_error = None;
+                    break;
                   }
                   Err(retry_err) => {
                     let report = crate::shared_cookie::report_shared_cookie_result(
@@ -1461,30 +1490,50 @@ impl VideoDownloader {
                     )
                     .await;
                     pool_log(&format!(
-                      "共享 Cookie 重试仍失败（{retry_err}）→ {report}"
+                      "第 {} 份共享 Cookie 下载失败 → {report}",
+                      tried_ids.len()
                     ));
-                    last_error = Some(format!(
-                      "{retry_err}（已尝试公司共享 Cookie 仍失败；共享 Cookie 池可能整体失效，请联系管理员重新提取）"
-                    ));
+                    let retry_is_cookie = is_cookie_error(&retry_err);
+                    last_error = Some(retry_err);
+                    if !retry_is_cookie {
+                      // 网络/磁盘/参数类错误换一份 Cookie 也不会更好，直接停
+                      pool_log("错误非 Cookie/登录态类，换其他份也不会更好，停止轮询");
+                      break;
+                    }
+                    // Cookie 类错误：服务端已给坏份累计计数（连续 2 次自动禁用）
+                    // 并打强制回传标记，继续领取下一份
+                    continue;
                   }
                 }
-              } else {
-                log::warn!("[video_download] 共享 Cookie 写文件失败，跳过共享池降级");
-                pool_log("Cookie 文件写入失败，跳过共享池降级");
+              }
+              Ok(crate::shared_cookie::LeaseOutcome::Empty(server_msg)) => {
+                if tried_ids.is_empty() {
+                  // 池子空：维持原错误，但追加明确指引
+                  pool_log(&format!("池子空，没有可用份（服务器回复: {server_msg}）"));
+                  if let Some(e) = &mut last_error {
+                    e.push_str("；本公司共享 Cookie 池也没有可用的份——请在账号列表打开对应账号的「共享Cookie」开关（登记后浏览器退出会自动回传快照入池）");
+                  }
+                } else {
+                  pool_log(&format!(
+                    "池内其余份暂不可用（服务器回复: {server_msg}），停止轮询"
+                  ));
+                }
+                break;
+              }
+              Err(e) => {
+                log::warn!("[video_download] 领取共享 Cookie 失败（{e}），忽略降级");
+                pool_log(&format!("领取请求失败，放弃降级: {e}"));
+                break;
               }
             }
-            Ok(crate::shared_cookie::LeaseOutcome::Empty(server_msg)) => {
-              // 池子空：维持原错误，但追加明确指引
-              pool_log(&format!(
-                "池子空，没有可用份（服务器回复: {server_msg}）"
-              ));
-              if let Some(e) = &mut last_error {
-                e.push_str("；本公司共享 Cookie 池也没有可用的份——请在「编辑账号 → 提取Cookie到服务器」从已登录的本人账号提取上传，或让公司其他成员上传");
-              }
-            }
-            Err(e) => {
-              log::warn!("[video_download] 领取共享 Cookie 失败（{e}），忽略降级");
-              pool_log(&format!("领取请求失败，放弃降级: {e}"));
+          }
+          // 轮询后仍在错误状态 → 汇总轮询结果进最终文案
+          if !tried_ids.is_empty() {
+            if let Some(e) = &mut last_error {
+              *e = format!(
+                "{e}（已轮询 {} 份共享 Cookie 均失败，池内 Cookie 可能整体失效；来源账号打开浏览器退出后会自动回传新快照修复）",
+                tried_ids.len()
+              );
             }
           }
         }
@@ -2107,8 +2156,7 @@ async fn run_single_download_inner<R: Runtime>(
         "douyin"
       } else if url.to_lowercase().contains("tiktok.com") {
         "tiktok"
-      } else if url.to_lowercase().contains("bilibili.com")
-        || url.to_lowercase().contains("b23.tv")
+      } else if url.to_lowercase().contains("bilibili.com") || url.to_lowercase().contains("b23.tv")
       {
         "bilibili"
       } else {
@@ -2126,7 +2174,11 @@ async fn run_single_download_inner<R: Runtime>(
           .open(&log_path)
           .and_then(|mut f| {
             use std::io::Write;
-            writeln!(f, "[Cookie来源] 公司共享 Cookie（跳过本机提取链，直接用 {}）", cookie_file.display())
+            writeln!(
+              f,
+              "[Cookie来源] 公司共享 Cookie（跳过本机提取链，直接用 {}）",
+              cookie_file.display()
+            )
           });
         args.push("--cookies".to_string());
         args.push(cookie_file.to_string_lossy().to_string());
@@ -2147,142 +2199,142 @@ async fn run_single_download_inner<R: Runtime>(
     } else {
       dl.set_task_status_text(task_id, "正在提取浏览器 Cookie...".to_string())
         .await;
-    let _ = app.emit(
-      "video-download:status",
-      &serde_json::json!({
-        "taskId": task_id,
-        "statusText": "正在提取浏览器 Cookie...",
-        "status": "downloading"
-      }),
-    );
-    match export_vps_cookies_to_file(force_refresh_cookie, dl, app, Some(url), Some(&log_path))
-      .await
-    {
-      Ok(outcome) => {
-        cookie_provider = outcome.provider;
-        let cookie_file = outcome.path;
-        // 检查 cookie 文件是否包含对应平台的 cookie
-        let cookie_content = std::fs::read_to_string(&cookie_file).unwrap_or_default();
-        let lower_url = url.to_lowercase();
-        let needs_douyin = is_douyin_url(&lower_url);
-        let needs_tiktok = lower_url.contains("tiktok.com");
-        let needs_bilibili = lower_url.contains("bilibili.com") || lower_url.contains("b23.tv");
-        let needs_youtube = lower_url.contains("youtube.com") || lower_url.contains("youtu.be");
+      let _ = app.emit(
+        "video-download:status",
+        &serde_json::json!({
+          "taskId": task_id,
+          "statusText": "正在提取浏览器 Cookie...",
+          "status": "downloading"
+        }),
+      );
+      match export_vps_cookies_to_file(force_refresh_cookie, dl, app, Some(url), Some(&log_path))
+        .await
+      {
+        Ok(outcome) => {
+          cookie_provider = outcome.provider;
+          let cookie_file = outcome.path;
+          // 检查 cookie 文件是否包含对应平台的 cookie
+          let cookie_content = std::fs::read_to_string(&cookie_file).unwrap_or_default();
+          let lower_url = url.to_lowercase();
+          let needs_douyin = is_douyin_url(&lower_url);
+          let needs_tiktok = lower_url.contains("tiktok.com");
+          let needs_bilibili = lower_url.contains("bilibili.com") || lower_url.contains("b23.tv");
+          let needs_youtube = lower_url.contains("youtube.com") || lower_url.contains("youtu.be");
 
-        let has_platform_cookie = (needs_douyin
-          && cookie_content.to_lowercase().contains("douyin.com"))
-          || (needs_tiktok && cookie_content.to_lowercase().contains("tiktok.com"))
-          || (needs_bilibili && cookie_content.to_lowercase().contains("bilibili.com"))
-          || (needs_youtube
-            && (cookie_content.to_lowercase().contains("youtube.com")
-              || cookie_content.to_lowercase().contains("google.com")))
-          || (!needs_douyin && !needs_tiktok && !needs_bilibili && !needs_youtube);
+          let has_platform_cookie = (needs_douyin
+            && cookie_content.to_lowercase().contains("douyin.com"))
+            || (needs_tiktok && cookie_content.to_lowercase().contains("tiktok.com"))
+            || (needs_bilibili && cookie_content.to_lowercase().contains("bilibili.com"))
+            || (needs_youtube
+              && (cookie_content.to_lowercase().contains("youtube.com")
+                || cookie_content.to_lowercase().contains("google.com")))
+            || (!needs_douyin && !needs_tiktok && !needs_bilibili && !needs_youtube);
 
-        // YouTube 登录态检查：只有 VISITOR_INFO1_LIVE/PREF 这类游客 cookie
-        // 而没有 SID/__Secure-1PSID/SAPISID 登录会话时（Cookie 源账号只是
-        // 匿名浏览过 YouTube，从未登录），YouTube 会对可疑 IP 触发
-        // "Sign in to confirm you're not a bot" —— 提前把根因告诉用户
-        let has_youtube_login = {
-          let lower_cookie = cookie_content.to_lowercase();
-          lower_cookie.contains("psid") || lower_cookie.contains("sapisid")
-        };
-
-        if has_platform_cookie {
-          log::info!(
-            "[video_download] 使用浏览器 cookie: {}",
-            cookie_file.display()
-          );
-          args.push("--cookies".to_string());
-          args.push(cookie_file.to_string_lossy().to_string());
-          // 来源描述挂到任务上：下载列表/任务详情可见「Cookie 来自哪个账号/窗口」
-          let cookie_source_text = if needs_youtube && !has_youtube_login {
-            format!(
-              "Cookie 来自 {}（未登录 YouTube，仅游客 Cookie）",
-              outcome.source_desc
-            )
-          } else {
-            format!("Cookie 来自 {}", outcome.source_desc)
+          // YouTube 登录态检查：只有 VISITOR_INFO1_LIVE/PREF 这类游客 cookie
+          // 而没有 SID/__Secure-1PSID/SAPISID 登录会话时（Cookie 源账号只是
+          // 匿名浏览过 YouTube，从未登录），YouTube 会对可疑 IP 触发
+          // "Sign in to confirm you're not a bot" —— 提前把根因告诉用户
+          let has_youtube_login = {
+            let lower_cookie = cookie_content.to_lowercase();
+            lower_cookie.contains("psid") || lower_cookie.contains("sapisid")
           };
-          dl.set_task_cookie_source(task_id, cookie_source_text.clone())
-            .await;
-          let cookie_status_text = if needs_youtube && !has_youtube_login {
-            // 游客 cookie 仍传给 yt-dlp（聊胜于无），但明确提示可能被风控
-            log::warn!(
+
+          if has_platform_cookie {
+            log::info!(
+              "[video_download] 使用浏览器 cookie: {}",
+              cookie_file.display()
+            );
+            args.push("--cookies".to_string());
+            args.push(cookie_file.to_string_lossy().to_string());
+            // 来源描述挂到任务上：下载列表/任务详情可见「Cookie 来自哪个账号/窗口」
+            let cookie_source_text = if needs_youtube && !has_youtube_login {
+              format!(
+                "Cookie 来自 {}（未登录 YouTube，仅游客 Cookie）",
+                outcome.source_desc
+              )
+            } else {
+              format!("Cookie 来自 {}", outcome.source_desc)
+            };
+            dl.set_task_cookie_source(task_id, cookie_source_text.clone())
+              .await;
+            let cookie_status_text = if needs_youtube && !has_youtube_login {
+              // 游客 cookie 仍传给 yt-dlp（聊胜于无），但明确提示可能被风控
+              log::warn!(
               "[video_download] Cookie 文件有 youtube.com 域但无登录会话（SID/PSID/SAPISID 缺失），Cookie 源账号未登录 YouTube"
             );
-            "Cookie 源账号未登录 YouTube（仅游客 Cookie），易触发人机验证，建议改用已登录 YouTube 的账号...".to_string()
+              "Cookie 源账号未登录 YouTube（仅游客 Cookie），易触发人机验证，建议改用已登录 YouTube 的账号...".to_string()
+            } else {
+              "Cookie 提取完成，正在启动下载...".to_string()
+            };
+            dl.set_task_status_text(task_id, cookie_status_text.clone())
+              .await;
+            let _ = app.emit(
+              "video-download:status",
+              &serde_json::json!({
+                "taskId": task_id,
+                "statusText": cookie_status_text,
+                "status": "downloading",
+                "cookieSource": cookie_source_text
+              }),
+            );
           } else {
-            "Cookie 提取完成，正在启动下载...".to_string()
-          };
-          dl.set_task_status_text(task_id, cookie_status_text.clone())
-            .await;
-          let _ = app.emit(
-            "video-download:status",
-            &serde_json::json!({
-              "taskId": task_id,
-              "statusText": cookie_status_text,
-              "status": "downloading",
-              "cookieSource": cookie_source_text
-            }),
-          );
-        } else {
-          log::info!(
+            log::info!(
             "[video_download] Cookie 文件无对应平台 cookie，跳过 --cookies，让 yt-dlp 自行获取访客 cookie"
           );
-          let no_platform_text =
-            format!("Cookie 来自 {}（无平台 Cookie，访客）", outcome.source_desc);
-          dl.set_task_cookie_source(task_id, no_platform_text.clone())
-            .await;
-          dl.set_task_status_text(task_id, "无平台 Cookie，yt-dlp 自动获取...".to_string())
-            .await;
-          let _ = app.emit(
-            "video-download:status",
-            &serde_json::json!({
-              "taskId": task_id,
-              "statusText": "无平台 Cookie，yt-dlp 自动获取...",
-              "status": "downloading",
-              "cookieSource": no_platform_text
-            }),
-          );
+            let no_platform_text =
+              format!("Cookie 来自 {}（无平台 Cookie，访客）", outcome.source_desc);
+            dl.set_task_cookie_source(task_id, no_platform_text.clone())
+              .await;
+            dl.set_task_status_text(task_id, "无平台 Cookie，yt-dlp 自动获取...".to_string())
+              .await;
+            let _ = app.emit(
+              "video-download:status",
+              &serde_json::json!({
+                "taskId": task_id,
+                "statusText": "无平台 Cookie，yt-dlp 自动获取...",
+                "status": "downloading",
+                "cookieSource": no_platform_text
+              }),
+            );
+          }
         }
-      }
-      Err(e) => {
-        // 可识别标记：个人 Cookie 来源为空/全部非本人名下 → 绝不裸跑 yt-dlp
-        //（无 Cookie 必然 bot 报错，6 次重试纯属浪费），把标记错误**原样**
-        // 传回上层重试循环，由它剥掉标记后立即走公司共享池降级。
-        // 注意：不能塞进 cookie_error——那只会拼进最终失败文案，marker 就不在开头了。
-        if e.starts_with(crate::shared_cookie::SHARED_POOL_FALLBACK_MARKER) {
-          let bare = e.trim_start_matches(crate::shared_cookie::SHARED_POOL_FALLBACK_MARKER);
-          let _ = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .and_then(|mut f| {
-              use std::io::Write;
-              writeln!(
+        Err(e) => {
+          // 可识别标记：个人 Cookie 来源为空/全部非本人名下 → 绝不裸跑 yt-dlp
+          //（无 Cookie 必然 bot 报错，6 次重试纯属浪费），把标记错误**原样**
+          // 传回上层重试循环，由它剥掉标记后立即走公司共享池降级。
+          // 注意：不能塞进 cookie_error——那只会拼进最终失败文案，marker 就不在开头了。
+          if e.starts_with(crate::shared_cookie::SHARED_POOL_FALLBACK_MARKER) {
+            let bare = e.trim_start_matches(crate::shared_cookie::SHARED_POOL_FALLBACK_MARKER);
+            let _ = std::fs::OpenOptions::new()
+              .create(true)
+              .append(true)
+              .open(&log_path)
+              .and_then(|mut f| {
+                use std::io::Write;
+                writeln!(
                 f,
                 "[Cookie来源] 个人来源不可用（{bare}），跳过裸跑 yt-dlp，直接走公司共享 Cookie 池"
               )
-            });
-          return Err(e);
+              });
+            return Err(e);
+          }
+          log::warn!("[video_download] Cookie 导出失败: {}", e);
+          cookie_error = Some(e);
+          dl.set_task_cookie_source(task_id, "Cookie 提取失败".to_string())
+            .await;
+          dl.set_task_status_text(task_id, "Cookie 提取失败，继续下载...".to_string())
+            .await;
+          let _ = app.emit(
+            "video-download:status",
+            &serde_json::json!({
+              "taskId": task_id,
+              "statusText": "Cookie 提取失败，继续下载...",
+              "status": "downloading",
+              "cookieSource": "Cookie 提取失败"
+            }),
+          );
         }
-        log::warn!("[video_download] Cookie 导出失败: {}", e);
-        cookie_error = Some(e);
-        dl.set_task_cookie_source(task_id, "Cookie 提取失败".to_string())
-          .await;
-        dl.set_task_status_text(task_id, "Cookie 提取失败，继续下载...".to_string())
-          .await;
-        let _ = app.emit(
-          "video-download:status",
-          &serde_json::json!({
-            "taskId": task_id,
-            "statusText": "Cookie 提取失败，继续下载...",
-            "status": "downloading",
-            "cookieSource": "Cookie 提取失败"
-          }),
-        );
       }
-    }
     } // else（use_existing_cookie_file）结束
   }
 
@@ -4171,8 +4223,7 @@ async fn export_vps_cookies_to_file<R: Runtime>(
   // **归属人二次防线（2026-11-27，所有角色一刀切）**：download_candidate_accounts
   // 已过滤，这里再验一次——清单时序差/云端 KV 异常时，绝不使用归属人不合规
   // 的账号 Cookie（用户红线：不属于自己的账号坚决不可用，不分角色）。
-  let mut candidate_accounts =
-    crate::cookie_source_accounts::download_candidate_accounts().await;
+  let mut candidate_accounts = crate::cookie_source_accounts::download_candidate_accounts().await;
   let raw_candidates_empty: bool = candidate_accounts.is_empty();
   if let Some(uid) = crate::bwbrowser_cloud::BWBROWSER_AUTH.get_user_id() {
     let before = candidate_accounts.len();
@@ -4188,7 +4239,9 @@ async fn export_vps_cookies_to_file<R: Runtime>(
       if mine {
         checked.push(*aid);
       } else {
-        log_task(&format!("⛔ 账号 {aid} 非本人名下账号，跳过（Cookie 来源只能用归属人=自己的账号）"));
+        log_task(&format!(
+          "⛔ 账号 {aid} 非本人名下账号，跳过（Cookie 来源只能用归属人=自己的账号）"
+        ));
       }
     }
     if checked.len() != before {
