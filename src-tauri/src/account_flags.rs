@@ -12,13 +12,16 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// 每个开关的 KV key。密码管理工具 / 书签同步 各一份独立清单。
+/// 每个开关的 KV key。密码管理工具 / 书签同步 / 共享Cookie 各一份独立清单。
 #[derive(Debug, Clone, Copy)]
 pub enum AccountFlagKey {
   /// 密码管理工具：启用 Chromium 原生保存密码 + 自动登录，并同步密码到云端
   PasswordManager,
   /// 书签同步：关闭浏览器把书签上传服务器，启动时从服务器下载到本地
   BookmarkSync,
+  /// 共享Cookie：把该账号登记进公司共享池（下载降级时别人可借用其云端快照
+  /// 的登录态；快照由浏览器退出自动回传持续保鲜，无需人工上传）
+  SharedCookie,
 }
 
 impl AccountFlagKey {
@@ -26,6 +29,7 @@ impl AccountFlagKey {
     match self {
       AccountFlagKey::PasswordManager => "password_manager_accounts",
       AccountFlagKey::BookmarkSync => "bookmark_sync_accounts",
+      AccountFlagKey::SharedCookie => "shared_cookie_accounts",
     }
   }
 
@@ -33,6 +37,7 @@ impl AccountFlagKey {
     match self {
       AccountFlagKey::PasswordManager => "password_manager",
       AccountFlagKey::BookmarkSync => "bookmark_sync",
+      AccountFlagKey::SharedCookie => "shared_cookie",
     }
   }
 
@@ -40,6 +45,7 @@ impl AccountFlagKey {
     match self {
       AccountFlagKey::PasswordManager => "密码管理工具",
       AccountFlagKey::BookmarkSync => "书签同步",
+      AccountFlagKey::SharedCookie => "共享Cookie",
     }
   }
 }
@@ -175,6 +181,23 @@ pub async fn set_account_bookmark_sync(account_id: i64, enabled: bool) -> Result
 pub async fn get_bookmark_sync_accounts() -> Vec<i64> {
   pull_remote(AccountFlagKey::BookmarkSync).await;
   load(AccountFlagKey::BookmarkSync).enabled
+}
+
+// ===== 共享Cookie =====
+
+/// 账号「共享Cookie」开关：开启=登记进公司共享池（服务端校验快照含目标平台域），
+/// 关闭=从池里移除。开启后浏览器退出自动回传的快照就是别人借用的内容，
+/// 无需任何人工上传。
+#[tauri::command]
+pub async fn set_account_shared_cookie(account_id: i64, enabled: bool) -> Result<(), String> {
+  set_flag(AccountFlagKey::SharedCookie, account_id, enabled).await
+}
+
+/// 当前开启共享Cookie的账号 id 列表。
+#[tauri::command]
+pub async fn get_shared_cookie_accounts() -> Vec<i64> {
+  pull_remote(AccountFlagKey::SharedCookie).await;
+  load(AccountFlagKey::SharedCookie).enabled
 }
 
 async fn set_flag(key: AccountFlagKey, account_id: i64, enabled: bool) -> Result<(), String> {

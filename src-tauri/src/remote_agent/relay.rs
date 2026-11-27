@@ -13,6 +13,7 @@ use super::capture;
 use super::encode;
 use super::files;
 use super::input;
+use super::processes;
 use super::protocol::{frame_header, frame_header_audio, frame_header_h264, ClientCommand};
 use super::vps;
 use super::{hostname, os_name, AgentStatus, RemoteAgentConfig};
@@ -393,6 +394,18 @@ impl SessionCtx {
           replies.push(files::remove(path));
         }
       }
+      // 远程任务管理器：进程列表 + 结束进程
+      ClientCommand::TaskList => {
+        if self.authed {
+          crate::remote_agent::log_remote_file("远程任务管理器：查看进程列表");
+          replies.push(processes::task_list());
+        }
+      }
+      ClientCommand::TaskKill { pid } => {
+        if self.authed {
+          replies.push(processes::task_kill(*pid));
+        }
+      }
     }
     replies
   }
@@ -612,11 +625,18 @@ pub async fn run_agent_loop(
   // 而本地毫无痕迹。只在状态翻转时记一行，避免每 30 秒刷屏。
   // uuid 从 status 里取：身份冲突换发新 uuid 后，心跳跟着新身份走，
   // 旧条目不再续心跳，云端列表会在超时后把它标离线，避免「幽灵双份」。
+  //
+  // ⚠️ 心跳必须跟随 relay WS 的真实在线状态（relay_connected）：
+  // WS 断开重连/连不上期间如果照发 HTTP 心跳，云端列表会一直显示「在线」，
+  // 但 viewer 连 relay 实际收到 Target offline —— 即「显示在线却连不上」。
+  // 规则：WS 在线 → 正常心跳；WS 不在线且此前在线过 → 立即 unregister（云端
+  // 置 offline，秒级生效，不等 60 秒 sweep）并停发心跳，恢复后自动续上。
   let hb = {
     let stop = stop.clone();
     let status = status.clone();
     tokio::spawn(async move {
       let mut healthy = true;
+      let mut ever_online = false;
       let mut system = sysinfo::System::new_all();
       system.refresh_all();
       while !stop.load(Ordering::SeqCst) {
@@ -624,14 +644,37 @@ pub async fn run_agent_loop(
         if stop.load(Ordering::SeqCst) {
           break;
         }
-        let uuid = status.lock().map(|s| s.uuid.clone()).unwrap_or_default();
+        let (uuid, relay_up) = status
+          .lock()
+          .map(|s| (s.uuid.clone(), s.relay_connected))
+          .unwrap_or_default();
         if uuid.is_empty() {
+          continue;
+        }
+        if !relay_up {
+          // WS 不在线：若此前上报过在线，立即让云端下线（unregister=置 offline）
+          if ever_online {
+            ever_online = false;
+            if let Err(e) = vps::unregister(&uuid).await {
+              crate::remote_agent::log_remote(&format!(
+                "用户 {} 云端下线通知失败（等待 60s sweep 兜底）: {}",
+                crate::remote_agent::current_user(),
+                describe(&e)
+              ));
+            } else {
+              crate::remote_agent::log_remote(&format!(
+                "用户 {} relay 已断开，云端设备标记下线",
+                crate::remote_agent::current_user()
+              ));
+            }
+          }
           continue;
         }
         let hardware = crate::remote_agent::hardware::snapshot_with_system(&mut system);
         let hardware = serde_json::to_string(&hardware).unwrap_or_else(|_| "{}".to_string());
         match vps::heartbeat(&uuid, &hardware).await {
           Ok(()) => {
+            ever_online = true;
             if !healthy {
               crate::remote_agent::log_remote(&format!(
                 "用户 {} VPS 心跳恢复",
@@ -652,15 +695,27 @@ pub async fn run_agent_loop(
           }
         }
       }
+      // stop 置位（用户关闭被控端/退出应用）：退出前最后通知一次云端下线，
+      // 否则条目要等 60 秒 sweep 才变灰，期间显示「在线」但已无法连接。
+      if ever_online {
+        let uuid = status.lock().map(|s| s.uuid.clone()).unwrap_or_default();
+        if !uuid.is_empty() {
+          let _ = vps::unregister(&uuid).await;
+        }
+      }
     })
   };
 
   let mut permission_denied = false;
-  // 身份冲突（4003 duplicate）处理：第一次被拒 → 30 秒后原身份重试（可能是
-  // 旧连接半开、last_seen 还没过期，等它过期即可正常接管）；连续第二次被拒
-  // → 确认真双活（同一身份两个实例都在跑被控端），换发新 uuid 独立注册，
-  // 云端列表显示两份，各自可被观看 —— 不再互相踢，也不拒绝任何一份。
-  let mut dup_strikes = 0u32;
+  // 身份策略（2026-11-26 定稿）：同机一个 ID、换机增加不顶替。
+  // - uuid 是每台机器固定生成的（存本地配置），跨机天然不同 ID，各自独立
+  //   注册互不影响（换机增加）。
+  // - 同机双开/重连：relay 服务端同 uuid 新连接一律踢旧放新（code=4002
+  //   "Replaced"）。被顶实例识别 4002 后「让位」：不再立即重连（避免互踢
+  //   风暴），转入 120 秒长退避试探；HTTP 心跳继续发，云端条目保持 online，
+  //   viewer 由接管实例的 WS 服务 —— 对外仍是一台机器。接管实例退出后，
+  //   让位实例下次试探自动接管回来自愈。
+  // - 不再换发新 uuid（旧逻辑会造成同机云端显示两份 + 幽灵旧条目）。
   let mut backoff_secs: u64;
   while !stop.load(Ordering::SeqCst) && !permission_denied {
     let outcome = agent_cycle(&mut cfg, &creds, &stop, &status).await;
@@ -681,32 +736,17 @@ pub async fn run_agent_loop(
           permission_denied = true;
           continue;
         }
-        // 服务端 4003 = 同一 uuid 的另一个连接仍活着（双活冲突）
-        let duplicate = e.contains("code=4003") || e.contains("duplicate_connection");
-        if duplicate {
-          dup_strikes += 1;
-          if dup_strikes >= 2 {
-            let old = cfg.uuid.clone();
-            cfg.uuid = uuid::Uuid::new_v4().to_string();
-            let _ = crate::remote_agent::save_config(&cfg);
-            set_status(&status, |s| s.uuid = cfg.uuid.clone());
-            crate::remote_agent::log_remote(&format!(
-              "用户 {} 身份冲突（同一被控端 ID 已有实例在线），已换发新 ID（{}… → {}…）独立注册",
-              creds.0,
-              &old[..8.min(old.len())],
-              &cfg.uuid[..8]
-            ));
-            dup_strikes = 0;
-            backoff_secs = 5;
-          } else {
-            backoff_secs = 30;
-            crate::remote_agent::log_remote(&format!(
-              "用户 {} relay 拒绝连接（同一 ID 已有实例在线，{} 秒后原身份重试）",
-              creds.0, backoff_secs
-            ));
-          }
+        // 服务端 4002 = 本实例被同机另一实例顶替（同 uuid 踢旧放新）
+        if e.contains("code=4002") || e.contains("Replaced by new connection") {
+          // 让位：心跳照发维持云端条目 online（viewer 由接管实例服务），
+          // 120 秒后试探重连，接管实例退出则自动接管回来。
+          set_status(&status, |s| s.relay_connected = true);
+          crate::remote_agent::log_remote(&format!(
+            "用户 {} 本机另一实例已接管远程被控端，本实例让位（120 秒后试探，接管实例退出则自动接管）",
+            crate::remote_agent::current_user()
+          ));
+          backoff_secs = 120;
         } else {
-          dup_strikes = 0;
           backoff_secs = 10;
           // 其余失败（服务端关闭连接、保活超时、网络中断）此前完全静默，
           // 掉线无从排查；记一条带原因的日志，和上面的重连配对即可还原时间线。
@@ -718,7 +758,6 @@ pub async fn run_agent_loop(
         }
       }
       Ok(()) => {
-        dup_strikes = 0;
         backoff_secs = 10;
       }
     }

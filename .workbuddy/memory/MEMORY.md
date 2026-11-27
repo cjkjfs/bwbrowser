@@ -98,3 +98,13 @@
 - **根因**：书签云端槽按登录用户存（users.bwbrowser_bookmarks 单列），所有账号共用一格；不同账号/不同登录人互相覆盖。11-25 superadmin 空壳槽(1432B)下行冲掉 sqyacm 本地 119971B 完整书签。
 - **新架构**：云端新表 `bwbrowser_bookmarks`(UNIQUE user_id+account_id) 按账号分槽（同密码同步）；客户端 `bookmark_merge.rs` 按 GUID 三路合并（base 快照=profile Default/Bookmarks.bwb_base），本地改动永远保留，只应用云端相对基准的增删改；云端骤减腰斩→忽略云端删除本地为准。服务端骤减保护：旧>20KB 新<5KB 无 confirm_shrink=1 → 拒。
 - 服务端已上线 users.php（备份 .bak_20261126_bmmerge），旧客户端不带 account_id 仍走用户级旧槽（兼容）。过渡期：重编译前别用 superadmin 登录启动开书签同步的账号。
+
+---
+## 共享 Cookie 池 + 登录公告（2026-11-27，服务端全部署，客户端待重编译）
+
+- **共享 Cookie 池**（bwbrowser_sync.php 5 个 action：upload/get/report/list/delete；表 browser_shared_cookies 按公司+平台分池）：爆文库视频下载本机 Cookie 全败且是 cookie 类错误时，自动领本公司该平台池里一份 Cookie 重跑（run_single_download_inner use_existing_cookie_file=true）；成功报 ok 清零计数，失败累计连续 2 次自动禁用；**报 ok=1 会把 disabled 复活回池（自愈闭环）**。上传入口=客户端编辑账号弹窗「提取Cookie到服务器」。
+- **api_stats.php「🍪 共享Cookie」tab**（超管）：列表/禁用/启用/删除。凭据走 POST scookie_api=creds 签发超管 bwbrowser_auth_tokens token，前端直调 bwbrowser_sync.php。
+- **登录公告**：users 表 login_prompt_enabled/text + 权限组 UI 早已有，只补 me 接口返回（md5 作 version，客户端内容变了才弹）；客户端 login-prompt-dialog.tsx 挂 page.tsx 登录落点。
+- **客户端落盘待重编译**：shared_cookie.rs（lib.rs 已注册）+ video_downloader.rs 降级链 + 前端弹窗；tsc 全绿。
+- **nginx 4xx 坑（再踩）**：PHP 发 404/400/401/403/500 状态码会被 nginx 替换成 HTML，客户端 JSON 解析必挂——新增接口一律 HTTP 200 + success=false 表达业务态。
+- 备份：bwbrowser_sync.php.bak_20261127_{sharedcookie2,revive,scookie2}、api_stats.php.bak_20261127_scookie；本地稿 D:\bian\vps\_work_cookie\。

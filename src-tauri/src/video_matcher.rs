@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_EXTRACTOR: &str = "dinov2_vits14";
 
 /// 模型下载 CDN 基地址（VPS）
-const MODEL_CDN_BASE: &str = "https://www.yacm.xin/dl/models";
+const MODEL_CDN_BASE: &str = "https://www.baowenku.com/dl/models";
 
 /// 可选模型注册表：id -> (onnx 文件名, 下载地址, 特征维度, 显示名, 体积MB, 输入尺寸)
 /// 与 CutMatch MODEL_INFO 对齐（12 个模型全量支持）

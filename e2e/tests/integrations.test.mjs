@@ -896,7 +896,7 @@ test("the remote-control bridge refuses a signed-out desktop and stays off", asy
     // before it spawns the reconnect loop. `connected` is not a substitute:
     // it only goes true once the socket authenticates, which a signed-out
     // desktop never manages, so it reads false whether or not the bridge was
-    // started and is dialling yacm.xin in the background.
+    // started and is dialling baowenku.com in the background.
     const afterRefusedStart = await app.invoke("get_mcp_remote_status");
     assert.equal(
       afterRefusedStart.enabled,

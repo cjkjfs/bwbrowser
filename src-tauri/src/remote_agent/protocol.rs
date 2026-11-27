@@ -95,6 +95,11 @@ pub enum ClientCommand {
   FileDelete {
     path: String,
   },
+  // 远程任务管理器（2026-11-26）：进程列表 + 结束进程
+  TaskList,
+  TaskKill {
+    pid: u32,
+  },
 }
 
 /// 大端 >III 帧头（宽、高、JPEG 长度），与 server.py `struct.pack(">III", ...)` 一致
@@ -170,6 +175,8 @@ mod tests {
       r#"{"type":"file_mkdir","path":"/tmp","name":"a"}"#,
       r#"{"type":"file_rename","path":"/tmp/a","new_name":"b"}"#,
       r#"{"type":"file_delete","path":"/tmp/a"}"#,
+      r#"{"type":"task_list"}"#,
+      r#"{"type":"task_kill","pid":123}"#,
     ];
     for s in samples {
       assert!(

@@ -3,7 +3,7 @@
 //! Bwbrowser Cloud Authentication
 //! 对接 bwbrowser_sync.php 的账号密码登录系统
 //!
-//! API 文档见：https://yacm.xin/tk/bwbrowser_sync.php
+//! API 文档见：https://baowenku.com/tk/bwbrowser_sync.php
 //! 认证方式：username + password (POST action=login)
 
 use chrono::Utc;
@@ -1202,7 +1202,7 @@ pub async fn bwbrowser_set_vps_bind(
 
 /// 打开爆文库（左上角按钮）：启动当前用户绑定的账号（完整账号启动链路：
 /// 环境设置 + 用户数据 + 云端启动上报 + 关闭监视 + cookie 回传），浏览器内
-/// 打开 yacm.xin 自动登录页。未绑定时报错（按钮本身也不会显示）。
+/// 打开 baowenku.com 自动登录页。未绑定时报错（按钮本身也不会显示）。
 ///
 /// 旧版逻辑（VPS登录专用 profile、指纹处理、书签/cookie 独立同步等）已整体移除。
 /// 2026-11-21：本接口保持原样不动；内嵌网页版走新命令 bwbrowser_get_baowenku_url。
@@ -1217,7 +1217,7 @@ pub async fn bwbrowser_open_vps_login(
     "未绑定爆文库账号：请先在云端账号管理的编辑账号中开启「绑定爆文库」".to_string()
   })?;
 
-  // 2. 构造 yacm.xin 自动登录 URL（与旧爆文库入口同一鉴权方式）
+  // 2. 构造 baowenku.com 自动登录 URL（与旧爆文库入口同一鉴权方式）
   let (username, password) = BWBROWSER_AUTH
     .get_credentials()
     .ok_or_else(|| "未登录云端账号".to_string())?;
@@ -1279,7 +1279,7 @@ pub async fn bwbrowser_open_vps_login(
 
 /// 获取爆文库自动登录 URL（供前端在右侧面板以 iframe 内嵌，不启动任何东西）。
 /// 门禁与鉴权 URL 构造和 bwbrowser_open_vps_login 完全一致：必须已绑定爆文库
-/// 账号；URL 用客户端登录凭据走 yacm.xin 自动登录（服务端 PHP 会话）。
+/// 账号；URL 用客户端登录凭据走 baowenku.com 自动登录（服务端 PHP 会话）。
 #[tauri::command]
 pub async fn bwbrowser_get_baowenku_url(redirect: Option<String>) -> Result<String, String> {
   // 门禁：必须绑定爆文库账号
@@ -7223,7 +7223,7 @@ pub async fn bwbrowser_launch_account(
   env_uuid: Option<String>,
   proxy_node: Option<String>,
   platform: Option<String>,
-  // 爆文库入口专用（2026-11-20）：前端普通启动不传 → None；绑定账号启动传 yacm.xin auto_login URL
+  // 爆文库入口专用（2026-11-20）：前端普通启动不传 → None；绑定账号启动传 baowenku.com auto_login URL
   override_url: Option<String>,
 ) -> Result<String, String> {
   // 启动成功与否都在 log_launch_to_server 上报（成功在 launch_account_impl 尾部上报，
@@ -7538,7 +7538,31 @@ async fn watch_account_browser_close(
           // 失效会话冲掉云端完好登录态），
           // platform 传空串由云端响应自动纠正（未知平台用 JSON domains 兜底）。
           // 失败只记日志，不影响关闭事件通知。
+          //
+          // 2026-11-27 强制回传闭环：共享 Cookie 下载失败时服务端给来源账号
+          // 打 force_cookie_sync 标记。这里退出时先查询（pick=1 消费标记）：
+          // 有标记 = 云端快照已被确认坏了 → 本次回传 page_verified=true
+          // 跳过防覆盖闸门**强制覆盖**，坏 Cookie 自愈，零人工。
           {
+            // 先**只读**标记（pick=false 不消费）：只有真的强制覆盖成功才消费，
+            // 否则本地为空/未达可用标准时标记就白丢了，自愈闭环断链。
+            let mut force_sync = false;
+            match crate::shared_cookie::get_force_sync_flag(account_id, false).await {
+              Ok(true) => {
+                force_sync = true;
+                log_bwbrowser(
+                  "cookie_sync",
+                  &format!(
+                    "账号 {account_name} 浏览器退出：检测到强制回传标记（共享Cookie下载失败过），本次将强制覆盖云端快照"
+                  ),
+                );
+              }
+              Ok(false) => {}
+              Err(e) => log_bwbrowser(
+                "cookie_sync",
+                &format!("账号 {account_name} 查询强制回传标记失败（忽略，按普通回传走）: {e}"),
+              ),
+            }
             match crate::cookie_manager::CookieManager::export_cookies(
               &profile.id.to_string(),
               "json",
@@ -7549,15 +7573,29 @@ async fn watch_account_browser_close(
                   && cookie_json.trim() != "{}"
                   && cookie_json.trim() != "null" =>
               {
-                match sync_cookies_to_cloud(&app_handle, account_id, &cookie_json, "", true, false)
+                match sync_cookies_to_cloud(&app_handle, account_id, &cookie_json, "", true, force_sync)
                   .await
                 {
                   Ok((uploaded, local_total, cloud_total)) => {
                     if uploaded {
+                      if force_sync {
+                        // 强制覆盖已成功 → 现在才消费标记
+                        match crate::shared_cookie::get_force_sync_flag(account_id, true).await {
+                          Ok(_) => log_bwbrowser(
+                            "cookie_sync",
+                            &format!("账号 {account_name} 强制回传完成，标记已消费（云端快照已修复）"),
+                          ),
+                          Err(e) => log_bwbrowser(
+                            "cookie_sync",
+                            &format!("账号 {account_name} 消费强制标记失败（无害，下次关闭会再覆盖一次）: {e}"),
+                          ),
+                        }
+                      }
                       log_bwbrowser(
                         "cookie_sync",
                         &format!(
-                          "账号 {account_name} 浏览器退出：Cookie 已回传云端（本地 {} 分，云端 {}）",
+                          "账号 {account_name} 浏览器退出：Cookie 已回传云端{}（本地 {} 分，云端 {}）",
+                          if force_sync { "【强制覆盖】" } else { "" },
                           local_total,
                           cloud_total
                             .map(|s| s.to_string())
@@ -7565,25 +7603,54 @@ async fn watch_account_browser_close(
                         ),
                       );
                     } else {
+                      if force_sync {
+                        // 本地未达可用标准：不覆盖、**保留标记**，下次关闭继续尝试
+                        log_bwbrowser(
+                          "cookie_sync",
+                          &format!(
+                            "账号 {account_name} 浏览器退出：本地未达可用标准（本地 {} 分），未覆盖云端；强制标记保留，下次关闭浏览器将继续尝试",
+                            local_total
+                          ),
+                        );
+                      } else {
+                        log_bwbrowser(
+                          "cookie_sync",
+                          &format!(
+                            "账号 {account_name} 浏览器退出：Cookie 未达回传标准，跳过（本地 {} 分）",
+                            local_total,
+                          ),
+                        );
+                      }
+                    }
+                  }
+                  Err(e) => {
+                    if force_sync {
                       log_bwbrowser(
                         "cookie_sync",
-                        &format!(
-                          "账号 {account_name} 浏览器退出：Cookie 未达回传标准，跳过（本地 {} 分）",
-                          local_total,
-                        ),
+                        &format!("账号 {account_name} 强制回传上行失败（{e}），标记保留，下次关闭浏览器继续尝试"),
+                      );
+                    } else {
+                      log_bwbrowser(
+                        "cookie_sync",
+                        &format!("账号 {account_name} Cookie 上行失败（忽略）: {e}"),
                       );
                     }
                   }
-                  Err(e) => log_bwbrowser(
-                    "cookie_sync",
-                    &format!("账号 {account_name} Cookie 上行失败（忽略）: {e}"),
-                  ),
                 }
               }
-              Ok(_) => log_bwbrowser(
-                "cookie_sync",
-                &format!("账号 {account_name} 浏览器退出：本地无 Cookie，跳过回传"),
-              ),
+              Ok(_) => {
+                if force_sync {
+                  log_bwbrowser(
+                    "cookie_sync",
+                    &format!("账号 {account_name} 浏览器退出：本地无 Cookie，未覆盖云端；强制标记保留，下次关闭浏览器将继续尝试"),
+                  );
+                } else {
+                  log_bwbrowser(
+                    "cookie_sync",
+                    &format!("账号 {account_name} 浏览器退出：本地无 Cookie，跳过回传"),
+                  );
+                }
+              }
               Err(e) => log_bwbrowser(
                 "cookie_sync",
                 &format!("账号 {account_name} 读取本地 Cookie 失败（忽略）: {e}"),
@@ -7681,7 +7748,7 @@ async fn launch_account_impl(
   env_uuid: Option<String>,
   proxy_node: Option<String>,
   platform: Option<String>,
-  // 爆文库入口（2026-11-20）：绑定账号启动时直接指定启动页（yacm.xin auto_login），
+  // 爆文库入口（2026-11-20）：绑定账号启动时直接指定启动页（baowenku.com auto_login），
   // 覆盖平台网址/账号自选网址逻辑；普通账号启动传 None。
   override_url: Option<String>,
 ) -> Result<String, String> {
@@ -8308,7 +8375,7 @@ async fn launch_account_impl(
     let server_credentials = match BWBROWSER_AUTH.get_account_detail(account_id).await {
       Ok(detail) => {
         // 2FA 密钥：账号 safe_link 两种格式——
-        //   URL 形如 https://yacm.xin/tk/2fa.php?secret=BASE32（取 secret 参数）
+        //   URL 形如 https://baowenku.com/tk/2fa.php?secret=BASE32（取 secret 参数）
         //   裸 base32 密钥串（如 rvisaqk4...，直接使用）
         let totp_secret = detail.safe_link.as_deref().and_then(|link| {
           let link = link.trim();
@@ -8471,7 +8538,7 @@ async fn launch_account_impl(
                                           //    提前获取平台 URL，作为启动 URL 直接传入（比 CDP 导航更可靠）
                                           // 启动网址：账号配置（编辑账号维护，tiktok_accounts.start_urls）优先；
                                           // 未配置 = 旧行为（平台网址作启动页 + 环境全部 start_urls 开标签）。
-                                          // 爆文库入口（2026-11-20）：override_url 存在时直接作启动页（yacm.xin auto_login），
+                                          // 爆文库入口（2026-11-20）：override_url 存在时直接作启动页（baowenku.com auto_login），
                                           // 不再叠加平台网址/账号自选网址——左上角「爆文库」按钮只进爆文库。
   let (include_platform, selected_urls, account_start_configured) = if override_url.is_some() {
     (false, Vec::new(), true)
@@ -11215,6 +11282,14 @@ pub struct CurrentManagementUser {
   pub is_super_admin: Option<bool>,
   #[serde(default)]
   pub permissions: Option<std::collections::BTreeMap<String, bool>>,
+  /// 登录公告（2026-11-27）：权限组「登录提示」开关+文字。enabled=1 且 text 非空才弹。
+  #[serde(default)]
+  pub login_prompt_enabled: bool,
+  #[serde(default)]
+  pub login_prompt_text: String,
+  /// 内容 md5，客户端「内容变了才弹」的版本依据
+  #[serde(default)]
+  pub login_prompt_version: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -11294,6 +11369,9 @@ impl BwbrowserAuthManager {
         role_label: String::new(),
         is_super_admin: None,
         permissions: None,
+        login_prompt_enabled: false,
+        login_prompt_text: String::new(),
+        login_prompt_version: String::new(),
       });
     };
     let mut result: CurrentManagementUser =

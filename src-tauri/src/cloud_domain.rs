@@ -9,27 +9,27 @@
 /// 云端主域名（唯一需要修改的地方）
 macro_rules! cloud_host {
   () => {
-    "yacm.xin"
+    "baowenku.com"
   };
 }
 
-/// 裸域，例如 `yacm.xin`
+/// 裸域，例如 `baowenku.com`
 ///
 /// 生产 URL 均由 `cloud_host!()` 直接展开（见下方各常量），此处单独定义仅供
 /// 文档与测试断言使用，因此允许 dead_code 以避免误报。
 #[allow(dead_code)]
 pub const CLOUD_DOMAIN: &str = cloud_host!();
 
-/// 站点根（HTTPS），例如 `https://yacm.xin`
+/// 站点根（HTTPS），例如 `https://baowenku.com`
 pub const CLOUD_ROOT: &str = concat!("https://", cloud_host!());
 
-/// 后端 REST API + 远程 MCP，与站点同域，例如 `https://yacm.xin`
+/// 后端 REST API + 远程 MCP，与站点同域，例如 `https://baowenku.com`
 pub const CLOUD_API_URL: &str = CLOUD_ROOT;
 
-/// 云端同步服务，与站点同域，例如 `https://yacm.xin`
+/// 云端同步服务，与站点同域，例如 `https://baowenku.com`
 pub const CLOUD_SYNC_URL: &str = CLOUD_ROOT;
 
-/// 远程桌面中继 WebSocket，例如 `wss://yacm.xin/relay`
+/// 远程桌面中继 WebSocket，例如 `wss://baowenku.com/relay`
 pub const RELAY_URL: &str = concat!("wss://", cloud_host!(), "/relay");
 
 /// 远程管理 / VPS 登录接口（remote_api.php）

@@ -33,6 +33,11 @@ import { GroupManagementDialog } from "@/components/group-management-dialog";
 import HomeHeader from "@/components/home-header";
 import { ImportProfileDialog } from "@/components/import-profile-dialog";
 import { IntegrationsDialog } from "@/components/integrations-dialog";
+import {
+  LoginPromptDialog,
+  markLoginPromptRead,
+  shouldShowLoginPrompt,
+} from "@/components/login-prompt-dialog";
 import { ONBOARDING_TOUR } from "@/components/onboarding-provider";
 import { PermissionDialog } from "@/components/permission-dialog";
 import {
@@ -708,9 +713,10 @@ export default function Home() {
         ) {
           return;
         }
-        // 仅接受 yacm.xin 系来源的消息
+        // 仅接受 baowenku.com 系来源的消息
         const hostname = new URL(event.origin).hostname;
-        if (hostname !== "yacm.xin" && !hostname.endsWith(".yacm.xin")) return;
+        if (hostname !== "baowenku.com" && !hostname.endsWith(".baowenku.com"))
+          return;
         void openBaowenkuLinkWindow(data.url);
       } catch {
         // 忽略畸形消息
@@ -738,9 +744,10 @@ export default function Home() {
         if (data?.source !== "baowenku-page" || data.type !== "login-state") {
           return;
         }
-        // 仅接受 yacm.xin 系来源的消息
+        // 仅接受 baowenku.com 系来源的消息
         const hostname = new URL(event.origin).hostname;
-        if (hostname !== "yacm.xin" && !hostname.endsWith(".yacm.xin")) return;
+        if (hostname !== "baowenku.com" && !hostname.endsWith(".baowenku.com"))
+          return;
         if (data.logged_in === true) {
           baowenkuReloginCountRef.current = 0;
           baowenkuGiveUpToastRef.current = false;
@@ -853,6 +860,10 @@ export default function Home() {
   // 登录后默认落点：云端账号 → 视频下载 → 音频处理 → 视频工具 → AI洗稿 →
   // 账号中心 → 系统设置，权限读取失败时安全落到系统设置。
   const landingAppliedRef = useRef(false);
+  // 登录公告弹窗（权限组「登录提示」驱动，内容变了才弹）
+  const [loginPromptOpen, setLoginPromptOpen] = useState(false);
+  const [loginPromptText, setLoginPromptText] = useState("");
+  const [loginPromptVersion, setLoginPromptVersion] = useState("");
   const applyLanding = useCallback(async () => {
     if (landingAppliedRef.current) return;
     landingAppliedRef.current = true;
@@ -861,9 +872,25 @@ export default function Home() {
         success: boolean;
         is_super_admin?: boolean;
         permissions?: Record<string, boolean>;
+        login_prompt_enabled?: boolean;
+        login_prompt_text?: string;
+        login_prompt_version?: string;
       }>("bwbrowser_get_current_management_user");
       const permissions = user.permissions ?? {};
       const isSuperAdmin = user.is_super_admin ?? false;
+      // 登录公告：权限组「登录提示」开着且内容变了才弹（每次会话最多一次）
+      if (
+        shouldShowLoginPrompt(
+          user.login_prompt_enabled ?? false,
+          user.login_prompt_text ?? "",
+          user.login_prompt_version ?? "",
+        )
+      ) {
+        setLoginPromptText(user.login_prompt_text ?? "");
+        setLoginPromptVersion(user.login_prompt_version ?? "");
+        setLoginPromptOpen(true);
+        markLoginPromptRead(user.login_prompt_version ?? "");
+      }
       // 登录后默认落点：云端账号 → 视频下载 → 音频处理 → 视频工具 → AI洗稿 →
       // 账号中心 → 系统设置，哪个权限开就停哪里，全没开则系统设置兜底。
       const candidates: AppPage[] = [
@@ -3042,6 +3069,14 @@ export default function Home() {
               onClose={() => {
                 setAboutDialogOpen(false);
               }}
+            />
+
+            {/* 登录公告弹窗：权限组「登录提示」驱动 */}
+            <LoginPromptDialog
+              open={loginPromptOpen}
+              text={loginPromptText}
+              version={loginPromptVersion}
+              onClose={() => setLoginPromptOpen(false)}
             />
 
             <Dialog

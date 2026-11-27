@@ -92,7 +92,7 @@ pub struct BrowserRelease {
   pub date: String,
 }
 
-/// Wayfern version info from https://yacm.xin/tk/download/kernel/wayfern.json
+/// Wayfern version info from https://baowenku.com/tk/download/kernel/wayfern.json
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WayfernVersionInfo {
   pub version: String,
@@ -252,7 +252,7 @@ impl ApiClient {
     Ok(())
   }
 
-  /// Fetch Wayfern version info from https://yacm.xin/tk/download/kernel/wayfern.json
+  /// Fetch Wayfern version info from https://baowenku.com/tk/download/kernel/wayfern.json
   pub async fn fetch_wayfern_version_with_caching(
     &self,
     no_caching: bool,

@@ -1130,6 +1130,8 @@ export function BwbrowserCloudAccountsDialog({
     password_manager: false,
     // 书签同步（云端清单为准，默认关闭）：关闭书签上传服务器，启动时从服务器同步到本地
     bookmark_sync: false,
+    // 共享Cookie（云端清单为准，默认关闭）：登记进公司共享池，快照由退出自动回传保鲜
+    shared_cookie: false,
   });
   // ===== 编辑账号：浏览器扩展勾选（账号维度绑定，保存时按账号对齐） =====
   // checked = 该账号生效（账号限定绑定 或 归属人全局分配）；
@@ -1162,6 +1164,10 @@ export function BwbrowserCloudAccountsDialog({
   const [editImportPasswords, setEditImportPasswords] = useState(true);
   const [editImporting, setEditImporting] = useState(false);
   const [editImportMsg, setEditImportMsg] = useState("");
+  // 「📥 导入本机浏览器数据」折叠开关（默认收起，点标题展开）
+  const [editImportFolded, setEditImportFolded] = useState(true);
+  // 「👑 母账号」信息折叠开关（默认收起；子账号才显示此块，点标题展开）
+  const [editParentFolded, setEditParentFolded] = useState(true);
   // 探测本机常见浏览器默认数据目录（打开编辑弹窗时触发）
   const loadImportDirs = useCallback(async () => {
     try {
@@ -1354,6 +1360,7 @@ export function BwbrowserCloudAccountsDialog({
     useState<BwbrowserAccount | null>(null);
   const [cookieViewLoading, setCookieViewLoading] = useState(false);
   const [cookieViewData, setCookieViewData] = useState<any>(null);
+  // 共享 Cookie 登记走「共享Cookie」开关（保存时随主保存提交），不再有独立上传按钮
 
   // 2FA / 短信验证码状态
   const [twoFACodes, setTwoFACodes] = useState<
@@ -1793,6 +1800,7 @@ export function BwbrowserCloudAccountsDialog({
         cookie_source: false,
         password_manager: false,
         bookmark_sync: false,
+        shared_cookie: false,
       });
       setEditStartUrls(parseAccountStartUrls(account.start_urls));
       setEditStartUrlInput("");
@@ -1907,6 +1915,16 @@ export function BwbrowserCloudAccountsDialog({
           setEditForm((prev) => ({
             ...prev,
             bookmark_sync: Array.isArray(bm) && bm.includes(account.id),
+          }));
+        } catch {
+          // 读取失败按默认（关闭）处理
+        }
+        // 共享Cookie（公司 KV 云端清单）
+        try {
+          const sc = await invoke<number[]>("get_shared_cookie_accounts");
+          setEditForm((prev) => ({
+            ...prev,
+            shared_cookie: Array.isArray(sc) && sc.includes(account.id),
           }));
         } catch {
           // 读取失败按默认（关闭）处理
@@ -6352,97 +6370,209 @@ export function BwbrowserCloudAccountsDialog({
                     </div>
                   </div>
                 </div>
-                {/* 母账号（只读）：子账号显示其所属的全部母账号完整信息，可一键定位 */}
-                {(editAccount?.parent_accounts?.length
-                  ? editAccount.parent_accounts
-                  : editAccount?.parent_names
-                    ? [{ account_name: editAccount.parent_names }]
-                    : []
-                ).map((p, pi) => (
-                  <div
-                    key={pi}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5 dark:border-amber-500/20 dark:bg-amber-500/10"
-                  >
-                    <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">
-                      👑 母账号
-                      {editAccount?.parent_accounts &&
-                      editAccount.parent_accounts.length > 1
-                        ? ` ${pi + 1}`
-                        : ""}
-                    </span>
-                    <span
-                      className="text-xs font-medium text-amber-700 dark:text-amber-400"
-                      title={p.account_name}
+                {/* 子母账号（只读，默认折叠）：母=本账号挂在谁名下（琥珀），子=挂在谁名下的是本账号（蓝）。
+                    关系是网状的——A 是 B 的母、B 也是 C 的母、C 甚至可以是 A 的母，两边各自展示完整链条 */}
+                {(editAccount?.parent_accounts?.length ||
+                  editAccount?.parent_names ||
+                  (childAccountsByParent.get(editAccount?.id ?? -1)?.length ??
+                    0) > 0) && (
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 text-left"
+                      onClick={() => setEditParentFolded((p) => !p)}
                     >
-                      {p.account_name || "-"}
-                      {p.id ? (
-                        <span className="ml-1 text-[10px] text-muted-foreground">
-                          #{p.id}
-                        </span>
-                      ) : null}
-                    </span>
-                    {p.device_id ? (
-                      <span className="text-xs text-muted-foreground">
-                        📱{" "}
-                        <button
-                          type="button"
-                          className="font-mono hover:text-foreground"
-                          title="点击复制手机编号"
-                          onClick={() =>
-                            void navigator.clipboard?.writeText(
-                              p.device_id || "",
-                            )
-                          }
-                        >
-                          {p.device_id}
-                        </button>
+                      <LuChevronDown
+                        className={cn(
+                          "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                          editParentFolded && "-rotate-90",
+                        )}
+                      />
+                      <span className="text-xs font-medium">
+                        🧬 子母账号
+                        {(editAccount?.parent_accounts?.length ?? 0) > 0 &&
+                        (childAccountsByParent.get(editAccount?.id ?? -1)
+                          ?.length ?? 0) > 0
+                          ? `（母 ${editAccount?.parent_accounts?.length ?? 0} · 子 ${childAccountsByParent.get(editAccount?.id ?? -1)?.length ?? 0}）`
+                          : (editAccount?.parent_accounts?.length ?? 0) > 0
+                            ? `（母 ${editAccount?.parent_accounts?.length ?? 0}）`
+                            : `（子 ${childAccountsByParent.get(editAccount?.id ?? -1)?.length ?? 0}）`}
                       </span>
-                    ) : null}
-                    {p.login_account ? (
-                      <span className="text-xs text-muted-foreground">
-                        登录:{" "}
-                        <button
-                          type="button"
-                          className="font-mono hover:text-foreground"
-                          title="点击复制登录账号"
-                          onClick={() =>
-                            void navigator.clipboard?.writeText(
-                              p.login_account || "",
-                            )
-                          }
-                        >
-                          {p.login_account}
-                        </button>
-                      </span>
-                    ) : null}
-                    {p.owner_name ? (
-                      <span className="text-xs text-muted-foreground">
-                        归属: {p.owner_name}
-                      </span>
-                    ) : null}
-                    {p.account_name ? (
-                      <button
-                        type="button"
-                        className="ml-auto rounded px-1.5 py-0.5 text-[10px] text-primary transition-colors hover:bg-primary/10"
-                        title={`快速定位母账号：${p.account_name}${p.id ? ` (#${p.id})` : ""}——滚动到该行并高亮`}
-                        onClick={() => {
-                          // 快速定位到母账号行：不在当前列表时先按名搜出家族（服务端家族搜索
-                          // 会把母账号一起返回），列表数据刷新后自动滚动+高亮
-                          setEditDialogOpen(false);
-                          if (
-                            p.id != null &&
-                            !accounts.some((x) => x.id === p.id)
-                          ) {
-                            setKeyword(p.account_name || "");
-                          }
-                          setLocateTargetId(p.id ?? null);
-                        }}
-                      >
-                        🔍 定位
-                      </button>
-                    ) : null}
+                    </button>
+                    {!editParentFolded && (
+                      <>
+                        {/* 👑 母账号：本账号挂在谁名下 */}
+                        {(editAccount?.parent_accounts?.length
+                          ? editAccount.parent_accounts
+                          : editAccount?.parent_names
+                            ? [{ account_name: editAccount.parent_names }]
+                            : []
+                        ).map((p, pi) => (
+                          <div
+                            key={`p${pi}`}
+                            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5 dark:border-amber-500/20 dark:bg-amber-500/10"
+                          >
+                            <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                              👑 母账号
+                              {editAccount?.parent_accounts &&
+                              editAccount.parent_accounts.length > 1
+                                ? ` ${pi + 1}`
+                                : ""}
+                            </span>
+                            <span
+                              className="text-xs font-medium text-amber-700 dark:text-amber-400"
+                              title={p.account_name}
+                            >
+                              {p.account_name || "-"}
+                              {p.id ? (
+                                <span className="ml-1 text-[10px] text-muted-foreground">
+                                  #{p.id}
+                                </span>
+                              ) : null}
+                            </span>
+                            {p.device_id ? (
+                              <span className="text-xs text-muted-foreground">
+                                📱{" "}
+                                <button
+                                  type="button"
+                                  className="font-mono hover:text-foreground"
+                                  title="点击复制手机编号"
+                                  onClick={() =>
+                                    void navigator.clipboard?.writeText(
+                                      p.device_id || "",
+                                    )
+                                  }
+                                >
+                                  {p.device_id}
+                                </button>
+                              </span>
+                            ) : null}
+                            {p.login_account ? (
+                              <span className="text-xs text-muted-foreground">
+                                登录:{" "}
+                                <button
+                                  type="button"
+                                  className="font-mono hover:text-foreground"
+                                  title="点击复制登录账号"
+                                  onClick={() =>
+                                    void navigator.clipboard?.writeText(
+                                      p.login_account || "",
+                                    )
+                                  }
+                                >
+                                  {p.login_account}
+                                </button>
+                              </span>
+                            ) : null}
+                            {p.owner_name ? (
+                              <span className="text-xs text-muted-foreground">
+                                归属: {p.owner_name}
+                              </span>
+                            ) : null}
+                            {p.account_name ? (
+                              <button
+                                type="button"
+                                className="ml-auto rounded px-1.5 py-0.5 text-[10px] text-primary transition-colors hover:bg-primary/10"
+                                title={`快速定位母账号：${p.account_name}${p.id ? ` (#${p.id})` : ""}——滚动到该行并高亮`}
+                                onClick={() => {
+                                  // 快速定位到母账号行：不在当前列表时先按名搜出家族（服务端家族搜索
+                                  // 会把母账号一起返回），列表数据刷新后自动滚动+高亮
+                                  setEditDialogOpen(false);
+                                  if (
+                                    p.id != null &&
+                                    !accounts.some((x) => x.id === p.id)
+                                  ) {
+                                    setKeyword(p.account_name || "");
+                                  }
+                                  setLocateTargetId(p.id ?? null);
+                                }}
+                              >
+                                🔍 定位
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
+                        {/* 🧩 子账号：挂在本账号名下的账号（蓝色系区分方向） */}
+                        {(
+                          childAccountsByParent.get(editAccount?.id ?? -1) ?? []
+                        ).map((c) => (
+                          <div
+                            key={`c${c.id}`}
+                            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-blue-200 bg-blue-50 px-2.5 py-1.5 dark:border-blue-500/20 dark:bg-blue-500/10"
+                          >
+                            <span className="text-xs font-semibold text-blue-700 dark:text-blue-400">
+                              🧩 子账号
+                            </span>
+                            <span
+                              className="text-xs font-medium text-blue-700 dark:text-blue-400"
+                              title={c.account_name}
+                            >
+                              {c.account_name || "-"}
+                              {c.id ? (
+                                <span className="ml-1 text-[10px] text-muted-foreground">
+                                  #{c.id}
+                                </span>
+                              ) : null}
+                            </span>
+                            {c.device_id ? (
+                              <span className="text-xs text-muted-foreground">
+                                📱{" "}
+                                <button
+                                  type="button"
+                                  className="font-mono hover:text-foreground"
+                                  title="点击复制手机编号"
+                                  onClick={() =>
+                                    void navigator.clipboard?.writeText(
+                                      c.device_id || "",
+                                    )
+                                  }
+                                >
+                                  {c.device_id}
+                                </button>
+                              </span>
+                            ) : null}
+                            {c.login_account ? (
+                              <span className="text-xs text-muted-foreground">
+                                登录:{" "}
+                                <button
+                                  type="button"
+                                  className="font-mono hover:text-foreground"
+                                  title="点击复制登录账号"
+                                  onClick={() =>
+                                    void navigator.clipboard?.writeText(
+                                      c.login_account || "",
+                                    )
+                                  }
+                                >
+                                  {c.login_account}
+                                </button>
+                              </span>
+                            ) : null}
+                            {c.owner_name ? (
+                              <span className="text-xs text-muted-foreground">
+                                归属: {c.owner_name}
+                              </span>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="ml-auto rounded px-1.5 py-0.5 text-[10px] text-primary transition-colors hover:bg-primary/10"
+                              title={`快速定位子账号：${c.account_name}${c.id ? ` (#${c.id})` : ""}——滚动到该行并高亮`}
+                              onClick={() => {
+                                setEditDialogOpen(false);
+                                if (!accounts.some((x) => x.id === c.id)) {
+                                  setKeyword(c.account_name || "");
+                                }
+                                setLocateTargetId(c.id);
+                              }}
+                            >
+                              🔍 定位
+                            </button>
+                          </div>
+                        ))}
+                      </>
+                    )}
                   </div>
-                ))}
+                )}
                 <div className="space-y-2">
                   <div className="text-xs font-medium">启动网址</div>
                   <button
@@ -6611,37 +6741,75 @@ export function BwbrowserCloudAccountsDialog({
                       </TooltipContent>
                     </Tooltip>
                   </button>
-                  <button
-                    type="button"
-                    className="flex items-center gap-2"
-                    onClick={() =>
-                      setEditForm((p) => ({
-                        ...p,
-                        cookie_source: !p.cookie_source,
-                      }))
-                    }
-                  >
-                    <Checkbox
-                      checked={editForm.cookie_source}
-                      onCheckedChange={(v) =>
+                  {/* Cookie 来源 + 提取Cookie到服务器（同一格：开关在左，提取在其右侧） */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="flex items-center gap-2"
+                      onClick={() =>
                         setEditForm((p) => ({
                           ...p,
-                          cookie_source: v === true,
+                          cookie_source: !p.cookie_source,
                         }))
                       }
-                    />
-                    <span className="text-xs">Cookie 来源</span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        作为视频下载的 Cookie
-                        来源账号。可开启多个，按开启先后作为优先级，前面取不到
-                        Cookie 自动回退到下一个。默认关闭，云端保存、即时生效
-                      </TooltipContent>
-                    </Tooltip>
-                  </button>
+                    >
+                      <Checkbox
+                        checked={editForm.cookie_source}
+                        onCheckedChange={(v) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            cookie_source: v === true,
+                          }))
+                        }
+                      />
+                      <span className="text-xs">Cookie 来源</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          作为视频下载的 Cookie
+                          来源账号。可开启多个，按开启先后作为优先级，前面取不到
+                          Cookie 自动回退到下一个。默认关闭，云端保存、即时生效
+                        </TooltipContent>
+                      </Tooltip>
+                    </button>
+                    <span className="h-3 w-3 shrink-0 bg-border" />
+                    {/* 共享Cookie（登记式：开关=进公司共享池，快照由退出自动回传保鲜） */}
+                    <button
+                      type="button"
+                      className="flex items-center gap-2"
+                      onClick={() =>
+                        setEditForm((p) => ({
+                          ...p,
+                          shared_cookie: !p.shared_cookie,
+                        }))
+                      }
+                    >
+                      <Checkbox
+                        checked={editForm.shared_cookie}
+                        onCheckedChange={(v) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            shared_cookie: v === true,
+                          }))
+                        }
+                      />
+                      <span className="text-xs">共享Cookie</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          开启后该账号登记进公司共享池（按公司×平台隔离）：
+                          其他成员视频下载没有可用 Cookie
+                          时自动借用该账号的云端登录态（走该账号的代理节点）。
+                          Cookie 由浏览器退出自动回传持续保鲜，无需手动上传；
+                          被借用失败时会标记该账号，下次打开浏览器自动强制回传修复。
+                        </TooltipContent>
+                      </Tooltip>
+                    </button>
+                  </div>
                   {/* 用户数据（密码管理工具 + 书签同步合并总开关，两者一并切换） */}
                   <button
                     type="button"
@@ -6760,149 +6928,169 @@ export function BwbrowserCloudAccountsDialog({
                     </div>
                   )}
                 </div>
-                {/* 📥 一键导入本机浏览器数据（开启「用户数据」后才可见） */}
+                {/* 📥 一键导入本机浏览器数据（开启「用户数据」后才可见；默认折叠，点标题展开） */}
                 {(editForm.password_manager || editForm.bookmark_sync) && (
                   <div className="space-y-2 rounded-md border border-dashed p-2.5">
-                    <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-1.5 text-left"
+                      onClick={() => setEditImportFolded((p) => !p)}
+                    >
+                      <LuChevronDown
+                        className={cn(
+                          "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                          editImportFolded && "-rotate-90",
+                        )}
+                      />
                       <span className="text-xs font-medium">
                         📥 导入本机浏览器数据
                       </span>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <LuInfo className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          <LuInfo
+                            className="h-3 w-3 shrink-0 text-muted-foreground"
+                            onClick={(e) => e.stopPropagation()}
+                          />
                         </TooltipTrigger>
                         <TooltipContent>
                           把本机 Chrome / Edge
                           等浏览器的书签与密码一键导入该账号（添加式：只新增，不覆盖不删除现有数据）
                         </TooltipContent>
                       </Tooltip>
-                    </div>
-                    <div className="text-[11px] text-amber-600 dark:text-amber-400">
-                      ⚠️ 导入前请先关闭该账号的浏览器窗口
-                    </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                      <button
-                        type="button"
-                        className="flex items-center gap-2"
-                        onClick={() => setEditImportBookmarks((p) => !p)}
-                      >
-                        <Checkbox
-                          checked={editImportBookmarks}
-                          onCheckedChange={(v) =>
-                            setEditImportBookmarks(v === true)
-                          }
-                        />
-                        <span className="text-xs">书签</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex items-center gap-2"
-                        onClick={() => setEditImportPasswords((p) => !p)}
-                      >
-                        <Checkbox
-                          checked={editImportPasswords}
-                          onCheckedChange={(v) =>
-                            setEditImportPasswords(v === true)
-                          }
-                        />
-                        <span className="text-xs">密码</span>
-                      </button>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-muted-foreground">
-                        数据来源目录（自动检测常用浏览器，也可手动选择）
-                      </div>
-                      {editImportDirs.some((d) => d.has_data) && (
-                        <div className="space-y-1">
-                          {editImportDirs
-                            .filter((d) => d.has_data)
-                            .map((d) => {
-                              const selected =
-                                editImportDirSel === d.path &&
-                                !editImportCustom;
-                              return (
-                                <button
-                                  key={d.path}
-                                  type="button"
-                                  className={cn(
-                                    "flex w-full items-center gap-2 rounded border px-2 py-1 text-left text-xs transition-colors",
-                                    selected
-                                      ? "border-primary bg-primary/5"
-                                      : "border-border hover:bg-muted/50",
-                                  )}
-                                  onClick={() => {
-                                    setEditImportDirSel(d.path);
-                                    setEditImportCustom(false);
-                                  }}
-                                >
-                                  <span className="shrink-0 font-medium">
-                                    {d.label}
-                                  </span>
-                                  <span className="truncate text-muted-foreground">
-                                    {d.path}
-                                  </span>
-                                  {selected && (
-                                    <LuCheck className="ml-auto h-3.5 w-3.5 shrink-0 text-primary" />
-                                  )}
-                                </button>
-                              );
-                            })}
+                    </button>
+                    {!editImportFolded && (
+                      <>
+                        <div className="text-[11px] text-amber-600 dark:text-amber-400">
+                          ⚠️ 导入前请先关闭该账号的浏览器窗口
                         </div>
-                      )}
-                      {editImportCustom && editImportDirSel && (
-                        <div className="flex items-center gap-1.5 rounded border border-primary bg-primary/5 px-2 py-1 text-xs">
-                          <span className="shrink-0 font-medium">手动选择</span>
-                          <span className="truncate text-muted-foreground">
-                            {editImportDirSel}
-                          </span>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
                           <button
                             type="button"
-                            className="ml-auto shrink-0 text-[11px] text-muted-foreground hover:text-foreground"
-                            onClick={() => {
-                              setEditImportCustom(false);
-                              setEditImportDirSel(
-                                editImportDirs.find((d) => d.has_data)?.path ??
-                                  "",
-                              );
-                            }}
+                            className="flex items-center gap-2"
+                            onClick={() => setEditImportBookmarks((p) => !p)}
                           >
-                            清除
+                            <Checkbox
+                              checked={editImportBookmarks}
+                              onCheckedChange={(v) =>
+                                setEditImportBookmarks(v === true)
+                              }
+                            />
+                            <span className="text-xs">书签</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="flex items-center gap-2"
+                            onClick={() => setEditImportPasswords((p) => !p)}
+                          >
+                            <Checkbox
+                              checked={editImportPasswords}
+                              onCheckedChange={(v) =>
+                                setEditImportPasswords(v === true)
+                              }
+                            />
+                            <span className="text-xs">密码</span>
                           </button>
                         </div>
-                      )}
-                      <div className="flex items-center gap-2 pt-0.5">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void handlePickImportDir()}
-                        >
-                          手动选择目录
-                        </Button>
-                        <Button
-                          size="sm"
-                          disabled={
-                            editImporting ||
-                            (!editImportBookmarks && !editImportPasswords) ||
-                            !editImportDirSel
-                          }
-                          onClick={() => void handleImportLocalData()}
-                        >
-                          {editImporting ? "导入中…" : "开始导入"}
-                        </Button>
-                      </div>
-                      {editImportMsg && (
-                        <div
-                          className={cn(
-                            "text-[11px] break-all",
-                            editImportMsg.startsWith("❌")
-                              ? "text-red-500"
-                              : "text-emerald-600 dark:text-emerald-400",
+                        <div className="space-y-1">
+                          <div className="text-[11px] text-muted-foreground">
+                            数据来源目录（自动检测常用浏览器，也可手动选择）
+                          </div>
+                          {editImportDirs.some((d) => d.has_data) && (
+                            <div className="space-y-1">
+                              {editImportDirs
+                                .filter((d) => d.has_data)
+                                .map((d) => {
+                                  const selected =
+                                    editImportDirSel === d.path &&
+                                    !editImportCustom;
+                                  return (
+                                    <button
+                                      key={d.path}
+                                      type="button"
+                                      className={cn(
+                                        "flex w-full items-center gap-2 rounded border px-2 py-1 text-left text-xs transition-colors",
+                                        selected
+                                          ? "border-primary bg-primary/5"
+                                          : "border-border hover:bg-muted/50",
+                                      )}
+                                      onClick={() => {
+                                        setEditImportDirSel(d.path);
+                                        setEditImportCustom(false);
+                                      }}
+                                    >
+                                      <span className="shrink-0 font-medium">
+                                        {d.label}
+                                      </span>
+                                      <span className="truncate text-muted-foreground">
+                                        {d.path}
+                                      </span>
+                                      {selected && (
+                                        <LuCheck className="ml-auto h-3.5 w-3.5 shrink-0 text-primary" />
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                            </div>
                           )}
-                        >
-                          {editImportMsg}
+                          {editImportCustom && editImportDirSel && (
+                            <div className="flex items-center gap-1.5 rounded border border-primary bg-primary/5 px-2 py-1 text-xs">
+                              <span className="shrink-0 font-medium">
+                                手动选择
+                              </span>
+                              <span className="truncate text-muted-foreground">
+                                {editImportDirSel}
+                              </span>
+                              <button
+                                type="button"
+                                className="ml-auto shrink-0 text-[11px] text-muted-foreground hover:text-foreground"
+                                onClick={() => {
+                                  setEditImportCustom(false);
+                                  setEditImportDirSel(
+                                    editImportDirs.find((d) => d.has_data)
+                                      ?.path ?? "",
+                                  );
+                                }}
+                              >
+                                清除
+                              </button>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 pt-0.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void handlePickImportDir()}
+                            >
+                              手动选择目录
+                            </Button>
+                            <Button
+                              size="sm"
+                              disabled={
+                                editImporting ||
+                                (!editImportBookmarks &&
+                                  !editImportPasswords) ||
+                                !editImportDirSel
+                              }
+                              onClick={() => void handleImportLocalData()}
+                            >
+                              {editImporting ? "导入中…" : "开始导入"}
+                            </Button>
+                          </div>
+                          {editImportMsg && (
+                            <div
+                              className={cn(
+                                "text-[11px] break-all",
+                                editImportMsg.startsWith("❌")
+                                  ? "text-red-500"
+                                  : "text-emerald-600 dark:text-emerald-400",
+                              )}
+                            >
+                              {editImportMsg}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
+                      </>
+                    )}
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3">
@@ -7449,6 +7637,50 @@ export function BwbrowserCloudAccountsDialog({
                     showErrorToast(
                       `书签同步开关保存失败: ${e instanceof Error ? e.message : String(e)}`,
                     );
+                  }
+                  // 共享Cookie 开关：KV 清单 + 服务端池登记/移除（需平台支持）
+                  {
+                    const scPlatform =
+                      (editForm.platform || "").toLowerCase() || "";
+                    const scSupported = [
+                      "youtube",
+                      "bilibili",
+                      "douyin",
+                      "tiktok",
+                    ];
+                    if (scSupported.includes(scPlatform)) {
+                      try {
+                        await invoke("set_account_shared_cookie", {
+                          accountId: editAccount.id,
+                          enabled: editForm.shared_cookie,
+                        });
+                      } catch (e) {
+                        showErrorToast(
+                          `共享Cookie开关保存失败: ${e instanceof Error ? e.message : String(e)}`,
+                        );
+                      }
+                      try {
+                        const msg = await invoke<string>(
+                          "shared_cookie_register",
+                          {
+                            accountId: editAccount.id,
+                            platform: scPlatform,
+                            share: editForm.shared_cookie,
+                          },
+                        );
+                        if (editForm.shared_cookie) {
+                          showSuccessToast(msg || "已登记共享");
+                        }
+                      } catch (e) {
+                        showErrorToast(
+                          `共享Cookie登记失败: ${e instanceof Error ? e.message : String(e)}`,
+                        );
+                      }
+                    } else if (editForm.shared_cookie) {
+                      showErrorToast(
+                        `该账号平台是 ${scPlatform || "未知"}，共享 Cookie 暂只支持 ${scSupported.join(" / ")}`,
+                      );
+                    }
                   }
                   showSuccessToast("保存成功");
                   setEditDialogOpen(false);

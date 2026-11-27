@@ -153,6 +153,7 @@ mod paypal_scrape;
 pub mod remote_agent;
 mod revenue_scrape;
 mod revenue_shield;
+mod shared_cookie;
 mod tag_manager;
 mod team_lock;
 mod ui_prefs;
@@ -4211,6 +4212,11 @@ pub fn run_with_builder(
       video_sniffer_settings::set_account_video_sniffer,
       cookie_source_accounts::get_cookie_source_accounts,
       cookie_source_accounts::set_account_cookie_source,
+      shared_cookie::shared_cookie_upload_from_account,
+      shared_cookie::shared_cookie_register,
+      shared_cookie::shared_cookie_get_force_sync_flag,
+      account_flags::get_shared_cookie_accounts,
+      account_flags::set_account_shared_cookie,
       account_flags::get_password_manager_accounts,
       account_flags::set_account_password_manager,
       account_flags::get_bookmark_sync_accounts,

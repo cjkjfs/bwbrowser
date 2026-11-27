@@ -1,7 +1,7 @@
 //! 远程桌面被控端（Rust 原生实现，替代 Python server.py）
 //!
 //! 协议与 `remote/remote-tool/server.py` v3 + `remote/php/relay_server.py` 兼容：
-//! - relay 模式：wss://yacm.xin/relay?role=client&uuid=..&hostname=..，等 viewer 连接
+//! - relay 模式：wss://baowenku.com/relay?role=client&uuid=..&hostname=..，等 viewer 连接
 //! - 指令为 JSON 文本（auth/start_stream/mouse_*/key_*/..），视频帧为 >III 头 + JPEG 二进制
 //! - VPS 注册：client_login/register/heartbeat/unregister（remote_api.php）
 //!
@@ -16,6 +16,7 @@ pub mod file_transfer;
 mod files;
 mod hardware;
 mod input;
+mod processes;
 mod protocol;
 mod relay;
 mod vps;
@@ -205,6 +206,31 @@ pub async fn start_agent(quality: Option<u8>, fps: Option<u8>) -> Result<AgentSt
   let creds = BWBROWSER_AUTH
     .get_credentials()
     .ok_or_else(|| serde_json::json!({"code": "CLOUD_NOT_SIGNED_IN"}).to_string())?;
+
+  // ⚠️ 跨进程互斥（禁止双开，2026-11-26）：tauri single-instance 在权限差异/
+  // 多会话等场景下可能拦不住双开，这里用 Global named mutex 兜底——同机永远
+  // 只允许一个实例跑被控端，云端不会再出现同机双条目。句柄不显式释放：
+  // 内核对象随进程退出回收，锁持有期即被控端运行期。
+  #[cfg(windows)]
+  {
+    use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
+    use windows::Win32::System::Threading::CreateMutexW;
+    use windows::core::HSTRING;
+    let _mutex = unsafe {
+      CreateMutexW(None, false, &HSTRING::from("Global\\BwBrowserRemoteAgent"))
+    }
+    .map_err(|e| format!("创建被控端跨进程互斥锁失败: {e}"))?;
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+      log_remote("检测到本机已有实例在运行远程被控端，本实例不启动（禁止双开）");
+      return Err(
+        serde_json::json!({
+          "code": "REMOTE_AGENT_ALREADY_RUNNING",
+          "message": "本机已有实例在运行远程被控端，禁止双开"
+        })
+        .to_string(),
+      );
+    }
+  }
 
   let mut cfg = load_or_create_config()?;
   if let Some(q) = quality {

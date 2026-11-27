@@ -305,7 +305,7 @@ impl BrowserVersionManager {
 
     match browser {
       "wayfern" => {
-        // Wayfern downloads from https://yacm.xin/download/
+        // Wayfern downloads from https://baowenku.com/download/
         // File naming: wayfern-{chromium_version}-{platform}-{arch}.{ext}
         // Platform/arch format: linux-x64, macos-arm64, etc.
         let platform_key = format!("{os}-{arch}");
@@ -477,7 +477,7 @@ mod tests {
       assert!(wayfern_info.is_archive);
     }
 
-    assert!(wayfern_info.url.contains("yacm.xin/download"));
+    assert!(wayfern_info.url.contains("baowenku.com/download"));
 
     let unsupported_result = service.get_download_info("testbrowser", "1.0.0");
     assert!(unsupported_result.is_err());

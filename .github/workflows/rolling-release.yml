@@ -544,7 +544,7 @@ jobs:
                   { name: "Commit", value: ("[" + $commit_short + "](" + $commit_url + ")"), inline: true },
                   { name: "Download", value: ("[Nightly Release](" + $url + ")"), inline: true }
                 ],
-                footer: { text: "yacm.xin" }
+                footer: { text: "baowenku.com" }
               }]
             }')
 

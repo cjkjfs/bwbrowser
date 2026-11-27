@@ -1299,7 +1299,7 @@ mod tests {
     // In the query string it would reach every proxy log between here and the
     // origin, and this credential grants full control of a live browser.
     let request = relay_request(
-      "wss://yacm.xin/api/remote-sessions/cdp?session_id=s1",
+      "wss://baowenku.com/api/remote-sessions/cdp?session_id=s1",
       "secret-token",
     )
     .expect("a wss endpoint must build a request");
@@ -1350,7 +1350,7 @@ mod tests {
   #[test]
   fn a_target_describes_itself_without_leaking_the_credential() {
     let remote = CdpTarget::Remote {
-      ws_url: "wss://yacm.xin/api/remote-sessions/cdp?session_id=s1".to_string(),
+      ws_url: "wss://baowenku.com/api/remote-sessions/cdp?session_id=s1".to_string(),
       bearer: "secret-token".to_string(),
       session_id: "s1".to_string(),
     };

@@ -122,7 +122,7 @@ async function cloneAppBundle(source, destination) {
 }
 
 /** Where the app itself resolves the current Wayfern build (api_client.rs). */
-const WAYFERN_RELEASE_URL = "https://yacm.xin/wayfern.json";
+const WAYFERN_RELEASE_URL = "https://baowenku.com/wayfern.json";
 
 /**
  * The newest published Wayfern version, read from the same manifest the app

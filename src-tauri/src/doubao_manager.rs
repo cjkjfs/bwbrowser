@@ -1151,8 +1151,8 @@ mod tests {
   #[test]
   fn test_materials_cloud_endpoint_is_the_sibling_file() {
     assert_eq!(
-      materials_cloud_endpoint("https://www.yacm.xin/tk/simprint_accounts.php"),
-      Some("https://www.yacm.xin/tk/simprint_materials.php".to_string())
+      materials_cloud_endpoint("https://www.baowenku.com/tk/simprint_accounts.php"),
+      Some("https://www.baowenku.com/tk/simprint_materials.php".to_string())
     );
     assert_eq!(
       materials_cloud_endpoint("http://127.0.0.1:8080"),

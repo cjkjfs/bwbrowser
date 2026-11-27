@@ -60,9 +60,46 @@ fn persist(settings: &CookieSourceSettings) -> Result<(), String> {
 /// 供下载链路使用：返回应当依次尝试的账号 id（优先级降序，先开优先）。
 /// 调用前会先 pull 一次云端，保证各机器看到的是最新清单。
 /// 自动过滤历史遗留的 VPS 标记 0（该兜底链路已移除，云端旧数据可能还残留）。
+/// **归属人硬过滤（2026-11-27，所有角色一刀切）**：只允许用「归属人 = 当前
+/// 登录用户」的账号作 Cookie 来源——别人的账号 Cookie 坚决不可用，不分
+/// 经理/超管（用户明确红线）。云端清单里历史遗留的越权勾选在这里直接拦掉。
 pub async fn download_candidate_accounts() -> Vec<i64> {
   pull_remote().await;
-  load().accounts.into_iter().filter(|id| *id > 0).collect()
+  let ids: Vec<i64> = load().accounts.into_iter().filter(|id| *id > 0).collect();
+
+  // 归属人过滤：所有角色统一执行（owner_id 必须等于当前登录用户）
+  let Some(uid) = crate::bwbrowser_cloud::BWBROWSER_AUTH.get_user_id() else {
+    // 未登录：一个都不能用（下载链路本来也会因无凭证失败）
+    return Vec::new();
+  };
+  let before = ids.len();
+  let mut allowed = Vec::with_capacity(before);
+  for id in ids {
+    let is_mine = crate::bwbrowser_cloud::BWBROWSER_AUTH
+      .get_account_detail(id)
+      .await
+      .map(|d| d.owner_id == Some(uid))
+      .unwrap_or(false);
+    if is_mine {
+      allowed.push(id);
+    } else {
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "cookie_source",
+        &format!("权限拦截：账号 {id} 归属人≠当前用户（uid={uid}），已从 Cookie 来源候选中剔除"),
+      );
+    }
+  }
+  if allowed.len() != before {
+    crate::bwbrowser_cloud::log_bwbrowser(
+      "cookie_source",
+      &format!(
+        "归属过滤：{} 个候选 → {} 个（仅保留归属人=自己的账号，不分角色）",
+        before,
+        allowed.len()
+      ),
+    );
+  }
+  allowed
 }
 
 /// 云端清单快照（先 pull 再返回本地镜像的账号列表）。
@@ -141,8 +178,28 @@ async fn update_remote(edit: impl FnOnce(&mut CookieSourceSettings) -> bool) -> 
 
 /// 编辑账号里「作为下载 Cookie 来源」开关。
 /// 开启：若不在清单则追加到末尾（保持优先顺序）；关闭：从清单移除。
+/// **勾选校验（2026-11-27，所有角色一刀切）**：只允许勾选归属人=自己的账号，
+/// 别人的账号当场拒绝（硬红线：不属于自己的账号 Cookie 坚决不可用，不分角色）。
 #[tauri::command]
 pub async fn set_account_cookie_source(account_id: i64, enabled: bool) -> Result<(), String> {
+  // 开启时校验归属（关闭不用校验——移除自己的勾选永远允许）
+  if enabled {
+    let uid = crate::bwbrowser_cloud::BWBROWSER_AUTH
+      .get_user_id()
+      .ok_or_else(|| "未登录，无法确认身份".to_string())?;
+    let owner_ok = crate::bwbrowser_cloud::BWBROWSER_AUTH
+      .get_account_detail(account_id)
+      .await
+      .map(|d| d.owner_id == Some(uid))
+      .unwrap_or(false);
+    if !owner_ok {
+      crate::bwbrowser_cloud::log_bwbrowser(
+        "cookie_source",
+        &format!("权限拦截：用户 uid={uid} 试图勾选账号 {account_id} 作为 Cookie 来源（归属人≠本人），已拒绝"),
+      );
+      return Err("该账号不属于你，不能作为下载 Cookie 来源（只能勾选归属人=自己的账号）".to_string());
+    }
+  }
   update_remote(|s| {
     if enabled {
       if s.accounts.contains(&account_id) {
